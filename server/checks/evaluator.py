@@ -1327,6 +1327,28 @@ def _absent_hit(pattern: str, text: str) -> re.Match[str] | None:
     return None
 
 
+# a check that says the terminal shows no errors at all ("No compile errors in the terminal", "No terminal errors")
+_NO_ERRORS_LABEL = re.compile(r"\bno\b[^.;]{0,30}\berrors?\b|\berror-?free\b|\bwithout\s+(?:any\s+)?errors?\b", re.I)
+# a running dev server's own error rows (it keeps running, so the command never "fails"): Vite's "[vite] Internal
+# server error" / "Pre-transform error" / "[plugin:vite:react-babel]", webpack's "ERROR in", esbuild's "✘ [ERROR]"
+_DEV_SERVER_ERROR = re.compile(r"\[vite\]\s+Internal server error|\bPre-transform error\b|\[plugin:vite:[\w-]+\]"
+                               r"|^\s*ERROR in\b|\bModule build failed\b|✘\s*\[ERROR\]", re.I | re.M)
+# ...and its rows that say the next save built cleanly
+_DEV_SERVER_OK = re.compile(r"\bhmr update\b|\bpage reload\b|\bcompiled successfully\b|\bhot updated\b", re.I)
+
+
+def _dev_server_error(b: blocks.Block) -> str | None:
+    """The newest dev-server error row in a block's output that no later clean rebuild (Vite's ``hmr update``) cured,
+    else None."""
+    bad = None
+    for row in b.output:
+        if _DEV_SERVER_ERROR.search(row):
+            bad = row
+        elif bad is not None and _DEV_SERVER_OK.search(row):
+            bad = None
+    return bad
+
+
 def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str) -> CheckResult | None:
     """A screen check on a terminal's history (or a command-line app's ``Command:`` rows), read per command
     (server.checks.blocks). None when the text has no command rows, or the pattern only matches across commands:
@@ -1348,10 +1370,12 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
         hit = None
         for i, b in enumerate(bl):
             m = _absent_hit(pattern, b.text)
+            if not m and _NO_ERRORS_LABEL.search(str(check.get("label") or "")) and (row := _dev_server_error(b)):
+                return _result(check, "fail", f"still showing {row.strip()[:80]!r}{where}")
             if not m:
                 continue
             if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
-                              or blocks.cured(bl, i)):
+                              or blocks.cured(bl, i) or blocks.retried(bl, i)):
                 continue
             hit = hit or m
         if hit:
@@ -1366,6 +1390,8 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
         hits = [i for i, b in enumerate(bl) if b.command and _quoted_hit(pattern, b.command)]
     if not hits:  # the result printed its other way (a rebasing git pull: no "Fast-forward", no diffstat)
         hits = [i for i, b in enumerate(bl) if blocks.same_outcome(lambda x: bool(search_wrapped(pattern, x)), b)]
+    if not hits:  # cargo had nothing to compile: the build of the current sources is already there
+        hits = [i for i, b in enumerate(bl) if _fresh_build(pattern, ctx, b)]
     if not hits:
         return None
     why, live, refused = "", False, False
@@ -1398,6 +1424,42 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     if live and ctx.running:  # the newest run is still live (a dev server, a long build): it may print it yet
         return _result(check, "pending", f"not printed by the newest run{where} yet: still running")
     return _result(check, "fail", why)
+
+
+_CARGO_FINISHED = re.compile(r"^\s*Finished\b.*\btarget\(s\)", re.M)
+_CARGO_COMPILING = re.compile(r"^\s*Compiling\s", re.M)
+_CARGO_RUNNING = re.compile(r"^\s*Running\s+`target[/\\](?:debug|release)[/\\]([\w-]+)")
+_TOML_KEY = re.compile(r'^\s*(name|version)\s*=\s*"([^"]+)"', re.M)
+
+
+def _fresh_build(pattern: str, ctx: RunContext, b: blocks.Block) -> bool:
+    """A ``cargo run`` / ``cargo build`` with nothing to compile (``Finished ...`` with no ``Compiling`` row: the build
+    already holds the current sources) for a check that looks for cargo's ``Compiling <package> v<version>`` row: the
+    row it would print, from the lesson's Cargo.toml, is tested instead."""
+    if not b.command or b.failure() is not None or not any(
+            blocks.program_and_sub(s)[0] == "cargo" and blocks.program_and_sub(s)[1] in ("run", "build", "b", "r")
+            for s in blocks.segments(b.command)):
+        return False
+    out = "\n".join(b.output)
+    if not _CARGO_FINISHED.search(out) or _CARGO_COMPILING.search(out) or not os.path.isabs(str(ctx.workdir or "")):
+        return False
+    ran = next((m.group(1) for r in b.output if (m := _CARGO_RUNNING.match(r))), None)
+    root = os.path.abspath(ctx.workdir)
+    for here, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("target", "node_modules")]
+        if here.count(os.sep) - root.count(os.sep) >= 3:
+            dirs[:] = []
+        if "Cargo.toml" not in files:
+            continue
+        try:
+            with open(os.path.join(here, "Cargo.toml"), encoding="utf-8", errors="replace") as fh:
+                keys = dict(_TOML_KEY.findall(fh.read(16384)))
+        except OSError:
+            continue
+        if "name" in keys and (ran is None or ran == keys["name"]) and search_wrapped(
+                pattern, f"   Compiling {keys['name']} v{keys.get('version', '0.1.0')} ({here})"):
+            return True
+    return False
 
 
 _QUOTED = re.compile(r"\"([^\"\n]+)\"|'([^'\n]+)'")
@@ -2347,6 +2409,37 @@ def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
     return f"VS Code shows {n} error{'s' if n != 1 else ''} in the code (⊗ {n}): fix it, then compile again"
 
 
+# a scaffolder's answered prompt (create-vite, create-next-app, npm init ...): "✔ Select a framework: › Vanilla"
+_PROMPT_ANSWER = re.compile(r"^\s*[✔✓√?]\s*(?P<q>[^:›»?]{3,60}?)\s*[:?]?\s*(?:›|»|…)\s*(?P<a>\S.*?)\s*$")
+_CHOOSES = re.compile(r"\b(?:choos\w*|chose|select\w*|pick\w*|answer\w*)\b", re.I)
+_YES_NO = re.compile(r"^(?:y(?:es)?|no?|true|false|ok)$", re.I)
+
+
+def scaffold_choices(step: dict, ctx: RunContext | None) -> str | None:
+    """A step that says which options to choose in a scaffolder ("run npm create vite@latest choosing my-react-app,
+    React, and JavaScript"), whose terminal shows a prompt answered with none of the step's words ("✔ Select a
+    framework: › Vanilla"): the project is another template. Why, else None. Name prompts and yes / no answers are
+    the learner's own; only the newest answer to each question counts."""
+    if ctx is None or ctx.screen is None:
+        return None
+    words = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    if not _CHOOSES.search(words):
+        return None
+    answers: dict[str, str] = {}
+    for app in _TERMINAL_APPS + ("Code",):
+        for row in screen_lines(ctx.screen, app) or []:
+            if (m := _PROMPT_ANSWER.match(row)) and not re.search(r"\bname\b", m.group("q"), re.I):
+                answers[m.group("q").strip().lower()] = m.group("a")
+    for q, a in answers.items():
+        toks = [t for t in re.findall(r"[A-Za-z][\w+#.-]*", a) if len(t) >= 2]
+        if not toks or _YES_NO.match(a.strip()):
+            continue
+        if not any(re.search(rf"(?<![\w-]){re.escape(t)}(?![\w-])", words, re.I) for t in toks):
+            return f"the terminal shows “{q}: {a}”, which is not what the step chooses: scaffold it again and pick the " \
+                   f"step's option"
+    return None
+
+
 _RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
 
 
@@ -2530,6 +2623,10 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # the terminal looks clean (cleared, or only the run after the compile is on screen), but VS Code counts errors
         checks = [*checks, {"checkId": f"{step.get('id', '')}-problems", "label": "No problems in the code",
                             "status": "fail", "detail": problems}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (other := scaffold_choices(step, ctx)):
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-choices", "label": "Made with the step's choices",
+                            "status": "fail", "detail": other}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (order := run_all_out_of_order(step, ctx)) is not None:
         checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",

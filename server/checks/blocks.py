@@ -529,11 +529,70 @@ def runs(segment: str, target: str) -> bool:
         return _same_js_run(js, tjs)
     p, s = program_and_sub(segment)
     tp, ts = program_and_sub(target)
+    if p == "gh" and tp == "git" and ts in gh_git_steps(segment):
+        return True
     if not p or p != tp:
         return False
     if not ts:
         return True
-    return bool(s) and (s.startswith(ts) or ts.startswith(s) or (s, ts) in _SAME)
+    if not (bool(s) and (s.startswith(ts) or ts.startswith(s) or (s, ts) in _SAME)):
+        return False
+    return not _other_ref(segment, target)
+
+
+def gh_git_steps(segment: str) -> set[str]:
+    """The git subcommands a GitHub CLI command runs for the learner: ``gh repo create x --source=. --remote=origin
+    --push`` adds the remote and pushes (``remote``, ``push``); ``gh repo clone`` clones."""
+    ws = _command_words(segment)
+    if len(ws) < 3 or _program(ws[0]) != "gh" or ws[1] != "repo":
+        return set()
+    if ws[2] == "clone":
+        return {"clone"}
+    if ws[2] != "create":
+        return set()
+    flags = {w.split("=", 1)[0] for w in ws[3:] if w.startswith("-")}
+    out = set()
+    if flags & {"--source", "-s", "--remote", "-r"}:
+        out.add("remote")
+    if "--push" in flags:
+        out.add("push")
+    return out
+
+
+# git commands whose first argument says which way the work goes: ``git merge main`` on the branch is the other way
+# round from ``git merge add-waffles`` on main
+_REF_DIRECTED = frozenset({"merge", "rebase", "cherry-pick", "revert"})
+
+
+def _ref_arg(segment: str) -> str | None:
+    ws = _command_words(segment)
+    if len(ws) < 3 or _program(ws[0]) != "git" or ws[1] not in _REF_DIRECTED:
+        return None
+    return next((w for w in ws[2:] if not w.startswith("-")), None)
+
+
+def _other_ref(segment: str, target: str) -> bool:
+    """Does ``segment`` name another branch / commit than the step's ``target`` for a git command whose argument sets
+    its direction (merge, rebase)? A remote's copy of the branch (``origin/add-waffles``) is the same one; a target
+    with a placeholder (``<branch>``) takes any."""
+    a, t = _ref_arg(segment), _ref_arg(target)
+    if not a or not t or re.search(r"[<>{}\[\]]|\.\.\.", t):
+        return False
+    a, t = a.lower(), t.lower()
+    return a != t and not a.endswith("/" + t) and not t.endswith("/" + a)
+
+
+def retried(blocks: list[Block], i: int) -> bool:
+    """Block ``i`` is a git command that failed, and a later run of the same git subcommand succeeded (``git commit
+    -m x pancakes.md`` -> ``error: pathspec``, then ``git add`` and ``git commit -m x``): the learner got past it."""
+    b = blocks[i]
+    if not b.command or b.failure() is None:
+        return False
+    mine = {program_and_sub(s) for s in segments(b.command)}
+    mine = {m for m in mine if m[0] == "git" and m[1]}
+    return bool(mine) and any(
+        n.command and n.failure() is None and mine & {program_and_sub(s) for s in segments(n.command)}
+        for n in blocks[i + 1:])
 
 
 # command-line programs a lesson's Terminal target names (a target is also what to point at in the output: "epoch 3900")
@@ -581,11 +640,22 @@ _SAME_OUTCOME = ((("Fast-forward", " 1 file changed, 1 insertion(+)"), {("git", 
                   re.compile(r"^\s*Successfully rebased and updated refs/heads/|^\s*Merge made by the\b")),)
 
 
+_HEAD_PUSH = re.compile(r"(\s)HEAD\s*->\s*([\w./-]+)")
+_TRACKS = re.compile(r"\bbranch '([\w./-]+)' set up to track\b")
+
+
 def same_outcome(matches, b: "Block") -> bool:
     """Does block ``b`` print, in another form, what a check (``matches``: does the check's pattern find a text?) looks
     for in a command's usual output: a rebasing ``git pull`` for "Fast-forward"?"""
     if not b.command or b.failure() is not None:
         return False
+    if any(program_and_sub(s) == ("git", "push") or "push" in gh_git_steps(s) for s in segments(b.command)):
+        # a push of the checked-out branch prints "HEAD -> main" (gh pushes HEAD); git's next row says HEAD was main
+        tracked = {m.group(1) for r in b.output if (m := _TRACKS.search(r))}
+        text = _HEAD_PUSH.sub(lambda m: f"{m.group(1)}{m.group(2)} -> {m.group(2)}" if m.group(2) in tracked
+                              else m.group(0), b.text)
+        if text != b.text and matches(text):
+            return True
     for samples, cmds, alt in _SAME_OUTCOME:
         if any(program_and_sub(s) in cmds for s in segments(b.command)) and any(matches(x) for x in samples) \
                 and any(alt.search(r) for r in b.output):
