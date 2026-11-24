@@ -2258,11 +2258,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         ok = False
         progressive = {"loaded": False}
+        live = {"on": True}  # this build is still the session's: off once _build has ended (done, failed, cancelled)
         updates = asyncio.Lock()  # E2's quick-start timer and the build call on_update from different tasks
 
         async def on_update(g: dict, complete: bool) -> None:
+            if not live["on"]:  # a late update of an ended / replaced build (End, a new learn) never loads
+                log.info("a lesson update from a build that has ended: ignored")
+                return
             async with updates:  # one at a time, in order: the real lesson must never overtake the placeholder
-                await on_update_locked(g, complete)
+                if live["on"]:
+                    await on_update_locked(g, complete)
 
         async def on_update_locked(g: dict, complete: bool) -> None:
             """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
@@ -2280,12 +2285,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     await asyncio.to_thread(wsmod.set_aside_previous, folder, first)
                 if folder:
                     first.setdefault("lesson", {})["workdir"] = folder
+                if not live["on"]:  # the build ended while the folder was being prepared
+                    return
                 self.build_progress = None
                 await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
                                                     "progress": 1.0})
                 rec.mark("hold")
                 await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
-                await self.load_graph(first)
+                if live["on"]:
+                    await self.load_graph(first)
                 return
             if is_provisional(self.graph) and not is_provisional(g):
                 await self._replace_provisional(g, complete)  # E2 quick start: the real lesson replaces s1
@@ -2353,6 +2361,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
             raise
         finally:
+            live["on"] = False
             done.set()
             if not tick.done():
                 tick.cancel()
