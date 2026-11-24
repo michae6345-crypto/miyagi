@@ -13,6 +13,20 @@ import { ROW_HEIGHT, useLocal } from './local'
  * name the section, so a section's own header keeps only its right-hand actions. */
 export const InlineSettings = createContext(false)
 
+/** True inside the v4 Settings page (features/shell, Nov 24): groups lose their card and become a section head with a
+ * hairline under it, and rows lose their icon tile and side padding (Adrian's ui-next settings mock). The pill-born
+ * sheet keeps the cards. Every group drawn through Group / Row (ptt, buddy, reminders too) follows it. */
+export const Flat = createContext(false)
+
+/** A v4 section head: 15 px, a hairline under it. */
+export function SectionHead({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <h3 className="m-0 font-semibold" style={{ fontSize: 15, color: color.text, paddingBottom: 10, marginTop: 34, boxShadow: `inset 0 -1px 0 ${fill.hairline}` }}>
+      {children}
+    </h3>
+  )
+}
+
 export function PageHeader({ title, caption, right, lead }: { title: string; caption?: ReactNode; right?: ReactNode; lead?: ReactNode }): ReactNode {
   const inline = useContext(InlineSettings)
   if (inline) return right ? <header className="flex items-center justify-end gap-[12px]">{right}</header> : null
@@ -37,6 +51,23 @@ export function PageHeader({ title, caption, right, lead }: { title: string; cap
 /** A rounded block of rows; a hairline between rows, indented past the icon tile when the rows have one. */
 export function Group({ label, children, inset = 16, title, caption }: { label: string; children: ReactNode; inset?: number; title?: string; caption?: string }): ReactNode {
   const rows = (Array.isArray(children) ? children : [children]).flat().filter(Boolean)
+  const flat = useContext(Flat)
+  if (flat)
+    return (
+      <section aria-label={label} data-flat-group>
+        <SectionHead>{title ?? label}</SectionHead>
+        {caption && (
+          <p className="m-0 pt-[8px]" style={{ fontSize: type2.sm, color: color.label }}>
+            {caption}
+          </p>
+        )}
+        {rows.map((r, i) => (
+          <div key={i} style={{ boxShadow: `inset 0 -1px 0 ${fill.hairline}` }}>
+            {r}
+          </div>
+        ))}
+      </section>
+    )
   return (
     <section aria-label={label} style={{ borderRadius: radius2.card, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}` }}>
       {title && (
@@ -78,6 +109,17 @@ export function Row({
 }): ReactNode {
   // Density (Settings > Appearance): compact rows are shorter and tighter, in every section and in the Settings page.
   const compact = useLocal((s) => s.density) === 'compact'
+  const flat = useContext(Flat)
+  if (flat)
+    return (
+      <div className="flex items-center gap-[24px]" style={{ minHeight: minH ?? (compact ? 48 : 58), padding: compact ? '6px 0' : '9px 0' }}>
+        <div className="flex min-w-0 flex-1 flex-col gap-[1px]">
+          <span style={{ fontSize: type2.md, fontWeight: 500, color: color.text }}>{label}</span>
+          {caption && <span style={{ fontSize: type2.sm, color: color.label, fontFamily: mono ? 'var(--font-mono)' : undefined, maxWidth: 330 }}>{caption}</span>}
+        </div>
+        {right}
+      </div>
+    )
   return (
     <div className="flex items-center gap-[16px]" style={{ minHeight: minH ?? ROW_HEIGHT[compact ? 'compact' : 'comfortable'], padding: tight ? '0 8px 0 16px' : '0 16px' }}>
       {I && (

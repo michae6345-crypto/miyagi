@@ -50,7 +50,7 @@ const cap = (s: string): string => s[0].toUpperCase() + s.slice(1)
 const opts = (list: readonly string[]): Opt[] => list.map((v) => ({ value: v, label: cap(v) }))
 
 const APPEARANCES: Opt[] = [
-  { value: 'system', label: 'Match system' },
+  { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' }
 ]
@@ -332,7 +332,7 @@ function exportProgress(): string {
 
 // ---- controls --------------------------------------------------------------------------------------------------------
 
-function Select({ label, options, value, onChange }: { label: string; options: readonly Opt[]; value: string; onChange: (v: string) => void }): ReactNode {
+export function Select({ label, options, value, onChange }: { label: string; options: readonly Opt[]; value: string; onChange: (v: string) => void }): ReactNode {
   return (
     <span className="relative inline-flex shrink-0 items-center">
       <select
@@ -471,6 +471,13 @@ export function PanelRows({ panel }: { panel: PanelId }): ReactNode {
       )}
     </>
   )
+}
+
+/** One setting's row by id (the v4 Settings page composes its groups from these), with the page's own words if given. */
+export function SettingRowById({ id, label, caption }: { id: string; label?: string; caption?: string }): ReactNode {
+  const s = SETTINGS.find((x) => x.id === id)
+  if (!s) return null
+  return <SettingRow s={{ ...s, label: label ?? s.label, caption: caption ?? s.caption }} />
 }
 
 export function SettingRow({ s, withPanel }: { s: Setting; withPanel?: ReactNode }): ReactNode {

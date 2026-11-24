@@ -22,7 +22,8 @@ import { General } from './sections/General'
 import { Permissions } from './sections/Permissions'
 import { Privacy } from './sections/Privacy'
 import { Shortcuts } from './sections/Shortcuts'
-import { InlineSettings, Note } from './ui'
+import { Flat, InlineSettings, Note } from './ui'
+import { Apps4, Data4, General4 } from './v4/Panels'
 
 type Flow = ReturnType<typeof useKeyFlow>
 
@@ -46,8 +47,57 @@ function Header({ panel }: { panel: PanelId }): ReactNode {
   )
 }
 
+/** The v4 page's header (Adrian's ui-next mock): a 32 px title and, where the panel has one, a lede. */
+function BigHeader({ panel }: { panel: PanelId }): ReactNode {
+  const p = panelOf(panel)
+  const lede = panel === 'apps' || panel === 'data' ? p.caption : undefined
+  return (
+    <header className="flex flex-col">
+      <h1 className="m-0" style={{ fontSize: 32, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
+        {p.label}
+      </h1>
+      {lede && (
+        <p className="m-0" style={{ fontSize: 14.5, marginTop: 6, color: color.label }}>
+          {lede}
+        </p>
+      )}
+    </header>
+  )
+}
+
+/** The v4 page: General takes Appearance, Lessons takes Editor, Your data takes Storage; the rest keep their panel in one 684 px column. */
+function BigBody({ panel, flow, live }: { panel: PanelId; flow: Flow; live: boolean }): ReactNode {
+  switch (panel) {
+    case 'general':
+    case 'appearance':
+      return <General4 />
+    case 'apps':
+      return <Apps4 live={live} />
+    case 'data':
+    case 'storage':
+      return <Data4 live={live} />
+    case 'lessons':
+      return (
+        <div className="flex flex-col" style={{ maxWidth: 684 }}>
+          <PanelRows panel="lessons" />
+          <PanelRows panel="editor" />
+        </div>
+      )
+    default:
+      return (
+        <div className="flex flex-col" style={{ maxWidth: 684 }}>
+          <Body panel={panel} flow={flow} live={live} />
+        </div>
+      )
+  }
+}
+
 function Body({ panel, flow, live }: { panel: PanelId; flow: Flow; live: boolean }): ReactNode {
   switch (panel) {
+    case 'apps':
+      return <Apps4 live={live} />
+    case 'data':
+      return <Data4 live={live} />
     case 'general':
       return <General live={live} />
     case 'permissions':
@@ -107,24 +157,31 @@ function useFlash(): void {
   }, [flash, reduce])
 }
 
-export function Content({ panel, onPick, flow, live }: { panel: PanelId; onPick: (p: PanelId) => void; flow: Flow; live: boolean }): ReactNode {
+export function Content({ panel, onPick, flow, live, big }: { panel: PanelId; onPick: (p: PanelId) => void; flow: Flow; live: boolean; big?: boolean }): ReactNode {
   const query = useNav((s) => s.query)
   useFlash()
   const searching = query.trim().length > 0
   return (
     <InlineSettings.Provider value>
-      <MotionScope>
-        <AnimatePresence mode="wait" initial={false}>
-          {searching ? (
-            <SearchResults key="search" query={query} onPick={onPick} />
-          ) : (
-            <motion.div key={panel} data-settings-panel={panel} className="flex flex-col gap-[24px]" {...riseIn}>
-              <Header panel={panel} />
-              <Body panel={panel} flow={flow} live={live} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </MotionScope>
+      <Flat.Provider value={!!big}>
+        <MotionScope>
+          <AnimatePresence mode="wait" initial={false}>
+            {searching ? (
+              <SearchResults key="search" query={query} onPick={onPick} />
+            ) : big ? (
+              <motion.div key={panel} data-settings-panel={panel} className="flex flex-col" {...riseIn}>
+                <BigHeader panel={panel} />
+                <BigBody panel={panel} flow={flow} live={live} />
+              </motion.div>
+            ) : (
+              <motion.div key={panel} data-settings-panel={panel} className="flex flex-col gap-[24px]" {...riseIn}>
+                <Header panel={panel} />
+                <Body panel={panel} flow={flow} live={live} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </MotionScope>
+      </Flat.Provider>
     </InlineSettings.Provider>
   )
 }
