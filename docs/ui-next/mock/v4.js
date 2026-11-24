@@ -310,12 +310,141 @@ function plansFull(o = {}) {
     <div style="height:60px"></div></div>${o.after || ''}</div>`);
 }
 
+// ---------- the pages behind the main ones, at the wider width ----------
+const twoUp = (a, b) => `<div class="sgrid up2"><div>${a}</div><div>${b}</div></div>`;
+const checkRows = list => list.map(c => `<div class="rrow"><span class="ring"></span><span class="l" style="font-weight:450;color:var(--text)">${c}</span></div>`).join('');
+const okTag = t => `<span class="tag ok">${ic('check').replace('class="ic "', 'class="ic" style="width:12px;height:12px;stroke-width:2.4"')}${t}</span>`;
+const planRow = id => { const q = PL(id); return `<div class="rrow"><span class="l">${q.title}</span><span class="r">${q.lessons.length} lessons · about ${hrs(q.minutes)}</span>${chevRow}</div>`; };
+
+// a preset plan
+function planFull() {
+  const p = PL('intro-blender'), lab = id => (p.skills.find(s => s.id === id) || {}).label;
+  const rows = p.lessons.map((l, i) => `<tr><td class="n">${i + 1}</td><td class="nw"><b class="t">${l.title}</b></td><td class="pw">${l.passes}</td><td>${l.grows.map(g => `<span class="tag">${lab(g)}</span>`).join(' ')}</td><td class="r mu">${l.steps}</td><td class="r mu nw">${l.minutes} min</td></tr>`).join('');
+  const vids = p.playlists.map(pl => `<div class="rrow">${ic('yt')}<span class="l">${pl.title}</span><span class="r">${pl.channel} · ${pl.videoCount} videos</span>${chevRow}</div>`).join('');
+  return shell3('library', ['Library', 'Browse plans', p.title], `<div class="tbtn">${ic('share')}Share</div>`, `<div class="scroll"><div class="col w2">
+    <div class="split"><div class="a"><h1>${p.title}</h1><div class="lede">${p.line}</div>
+      <dl class="props"><dt>${ic('tool')}Works in</dt><dd>Blender 4.2 or newer ${okTag('Connected')}</dd>
+        <dt>${ic('list')}Length</dt><dd>${p.lessons.length} lessons · about ${hrs(p.minutes)}</dd>
+        <dt>${ic('flag')}Ends with</dt><dd>${p.project.title}</dd>
+        <dt>${ic('eye')}Checked by</dt><dd>Reading your scene through the miyagi add-on</dd>
+        <dt style="align-self:start">${ic('skills')}Grows</dt><dd><div class="tags" style="padding:6px 0">${p.skills.map(s => `<span class="tag">${s.label}</span>`).join('')}</div></dd></dl></div>
+      <div class="b" style="width:316px">${th('mug')}<button class="btn primary lg" style="width:100%;margin-top:12px">${ic('play')}Start plan ${kbd('↩')}</button></div></div>
+    ${quietLink(sec(`Lessons<span class="cnt">${p.lessons.length}</span>`, `about ${hrs(p.minutes)}`))}
+    <table class="tbl sm lsn"><tr><th></th><th>Lesson</th><th>Passes when</th><th style="width:150px">Grows</th><th class="r">Steps</th><th class="r">Time</th></tr>${rows}</table>
+    ${twoUp(`${shd('The project')}<div class="pj"><b>${p.project.title}</b><p>${p.project.brief}</p></div>${checkRows(p.project.checks)}<div class="note">On your own, about 45 minutes. miyagi checks these three things.</div>`,
+      `${shd('Rather follow a video')}${vids}${shd('After this plan')}${planRow('blender-materials')}${planRow('blender-animation')}`)}
+    <div style="height:60px"></div></div></div>`, { plans: [MYPLANS[0]], recent: [['c', 'Code your first neural network'], ['c', 'Clean a CSV with pandas'], ['d', 'numpy arrays from scratch']] });
+}
+
+// a playlist as a plan
+function courseFull() {
+  const V = [['Vectors, the 5 minute version', 'Vectors', '6:12', 'd', 'plot', 4, 'Nov 18'], ['The dot product', 'Dot product', '9:40', 'd', 'code', 5, 'Nov 21'], ['numpy indexing', 'Indexing', '11:05', 'd', 'nb', 4, 'Wednesday'],
+    ['Broadcasting', 'Broadcasting', '14:20', 'n', 'code', 4, 'Today'], ['Matrices as layers', 'Matrices', '12:48', '', 'nb', 5, ''], ['Build one neuron', 'Single neuron', '16:02', '', 'net', 6, ''],
+    ['Stack neurons into layers', 'Layers', '18:30', '', 'net', 6, ''], ['Gradient descent from scratch', 'Gradient descent', '22:15', '', 'plot', 7, '']];
+  const step = 104, x0 = 44; let strip = '';
+  V.forEach((v, i) => {
+    const x = x0 + i * step, n = { s: v[3] === 'd' ? 'm' : v[3] === 'n' ? 'p' : 'k', f: [2, 4] };
+    if (i) strip += edge(`M${x - step} 40H${x}`, v[3] === 'd' ? 'done' : v[3] === 'n' ? 'open' : 'locked');
+    V[i].svg = mark(n, x, 40, 13) + `<text x="${x}" y="76" text-anchor="middle" class="sub" ${v[3] === 'n' ? 'style="fill:var(--ink);font-weight:600"' : ''}>${v[1]}</text>`;
+  });
+  strip += edge(`M${x0 + 7 * step} 40H850`, 'locked') + V.map(v => v.svg).join('');
+  const rows = V.map((v, i) => `<tr class="${v[3] === 'n' ? 'cur' : v[3] ? '' : 'dim'}"><td class="n">${i + 1}</td><td><div class="vt">${th(v[4])}<b>${v[0]}</b></div></td>
+    <td><span class="tag">${v[1]}</span></td><td class="r mu">${v[5]}</td><td class="r mu">${v[2]}</td>
+    <td style="padding-left:28px">${v[3] === 'd' ? `<span style="display:inline-flex;gap:7px;align-items:center">${gk}Done</span>` : v[3] === 'n' ? '<span class="tag ink">Next</span> <span style="color:var(--muted);font-size:13px;margin-left:4px">step 3 of 4</span>' : ''}</td><td class="r mu nw">${v[6]}</td></tr>`).join('');
+  return shell3('library', ['Library', 'Neural networks from scratch'], `<div class="tbtn">${ic('share')}Share</div>`, `<div class="scroll"><div class="col w2">
+    <div class="titlerow"><h1>Neural networks from scratch</h1><div class="sp"></div><button class="btn primary">${ic('play')}Continue video 4 ${kbd('↩')}</button></div>
+    <div class="lede">Eight videos, each one a lesson. 3 done. About 2 hours left, around Dec 4 at your pace.</div>
+    <div style="position:relative;height:92px;margin-top:26px"><svg viewBox="0 0 1040 92" style="position:absolute;inset:0;width:1040px;height:92px;overflow:visible">${strip}</svg>
+      <div class="hero" style="left:850px;top:6px;width:190px;height:68px;padding:10px 14px;border-radius:12px;box-shadow:var(--e2)"><div class="eye">Project</div><div style="font-size:13.5px;font-weight:620;color:var(--ink);line-height:1.25;margin-top:2px">Fit sin(x) with a network</div></div></div>
+    ${quietLink(sec(`Videos<span class="cnt">${V.length}</span>`, '1 h 51 min'))}
+    <table class="tbl"><tr><th></th><th>Video</th><th style="width:170px">Grows</th><th class="r" style="width:60px">Steps</th><th class="r" style="width:70px">Length</th><th style="width:200px;padding-left:28px">Status</th><th class="r" style="width:100px">Opened</th></tr>${rows}</table>
+    ${twoUp(`${shd('The project')}<div class="pj"><b>Fit sin(x) with a network</b><p>Build a two-layer network on your own and train it on 200 points of sin(x). Plot the fit over the points.</p></div>${checkRows(['The loss ends below 0.01', 'The plot shows the fit over the points', 'The training loop is your own code'])}<div class="note">Opens after video 8. About 45 minutes.</div>`,
+      `${shd('Source')}<div class="rrow">${ic('yt')}<span class="l">YouTube playlist</span><span class="r">8 videos · 1 h 51 min</span></div><div class="rrow">${ic('clock')}<span class="l">Added</span><span class="r">Nov 16</span></div><div class="rrow">${ic('flag')}<span class="l">Ends with a project</span>${tog(true)}</div>${shd('After this plan')}${planRow('pytorch')}${planRow('scikit-learn')}`)}
+    <div style="height:60px"></div></div></div>`, { plan: 0 });
+}
+
+// a lesson
+function lessonWide(o) {
+  const steps = o.steps.map(([t, pass, s, when]) => `<tr class="${s === 'c' ? 'cur' : ''}"><td class="nw"><div class="vt">${s === 'd' ? gk : `<span class="ring${s === 'c' ? ' cur' : ''}"></span>`}<b style="${s === 'c' ? '' : s ? 'font-weight:500' : 'font-weight:450;color:var(--muted)'}">${t}</b></div></td><td class="mu">${pass}</td><td class="r mu nw">${when || ''}</td></tr>`).join('');
+  return shell3('library', o.crumbs, '', `<div class="scroll"><div class="col w2">
+    <div class="split"><div class="a"><h1>${o.title}</h1><div class="lede">${o.line}</div><dl class="props">${o.props}</dl></div>
+      <div class="b" style="width:316px">${o.cover}<button class="btn primary lg" style="width:100%;margin-top:12px">${ic('play')}${o.cta} ${kbd('↩')}</button></div></div>
+    ${sec(`Steps<span class="cnt">${o.steps.length}</span>`)}
+    <table class="tbl sm"><tr><th style="width:320px">Step</th><th>Passes when</th><th class="r" style="width:160px">You</th></tr>${steps}</table>
+    ${twoUp(`${shd(o.readsTitle)}${o.reads.map(([a, b]) => frow(a, b, '')).join('')}`,
+      `${shd('Grows')}${o.grows.map(([t, d, n]) => `<div class="rrow"><span class="l">${t}</span><div class="bar"><i style="width:${d / n * 100}%"></i></div><span class="r" style="width:74px;text-align:right">${d} of ${n} steps</span></div>`).join('')}${shd(o.nextTitle)}${o.next.map(([t, m]) => `<div class="rrow"><span class="l">${t}</span><span class="r">${m}</span>${chevRow}</div>`).join('')}`)}
+    <div style="height:60px"></div></div></div>`, o.shell);
+}
+const lessonFull = () => lessonWide({
+  crumbs: ['Library', 'Code your first neural network'], title: 'Code your first neural network', line: 'Train a small network to read handwritten digits, one step at a time.',
+  props: `<dt>${ic('tool')}Works in</dt><dd>Jupyter ${okTag('Connected')}</dd><dt>${ic('list')}Length</dt><dd>7 steps · about 30 min</dd>
+    <dt>${ic('skills')}Grows</dt><dd><div class="tags"><span class="tag">Single neuron</span><span class="tag">Layers</span></div></dd>
+    <dt>${ic('yt')}From</dt><dd>YouTube · 24:10</dd><dt>${ic('eye')}Checked by</dt><dd>Reading each cell and what it printed</dd>`,
+  cover: th('net', { dur: '24:10', pg: 50 }), cta: 'Continue step 4',
+  steps: [['Load the digits', 'X has 1,797 rows and 64 columns', 'd', 'Today, 3:41 PM'], ['Split train and test', 'The test set holds 20 percent of the rows', 'd', 'Today, 3:48 PM'], ['Build the model', 'The model has an input, one hidden layer and an output', 'd', 'Today, 3:57 PM'],
+    ['Train it', 'The loss falls for five epochs in a row', 'c', 'You are here'], ['Check the accuracy', 'Test accuracy is above 0.9', ''], ['Plot the loss', 'A line plot shows the loss for each epoch', ''], ['Save the model', 'The model file is saved next to the notebook', '']],
+  readsTitle: 'What miyagi reads in Jupyter', reads: [['Each cell and what it printed', 'As text, through the notebook.'], ['The video', 'It pauses at each step until yours passes.'], ['Your screen', 'Only to point at a button.']],
+  grows: [['Single neuron', 2, 4], ['Layers', 0, 3]], nextTitle: 'Up next', next: [['Plot your data with matplotlib', 'Jupyter · 15 min'], ['Matrices as layers', 'Jupyter · 25 min'], ['Summarize sales with pandas', 'Jupyter · 20 min']],
+  shell: { lesson: 0 } });
+const lessonBlenderFull = () => { const p = PL('intro-blender'); return lessonWide({
+  crumbs: ['Library', 'Intro to Blender', 'Subdivision and smooth shading'], title: 'Subdivision and smooth shading', line: 'Make the mug smooth with a modifier, without adding a single vertex by hand.',
+  props: `<dt>${ic('tool')}Works in</dt><dd>Blender ${okTag('Connected')}</dd><dt>${ic('list')}Length</dt><dd>5 steps · about 15 min</dd>
+    <dt>${ic('skills')}Grows</dt><dd><div class="tags"><span class="tag">Modifiers</span></div></dd>
+    <dt>${ic('eye')}Checked by</dt><dd>Reading your scene. No screenshots.</dd><dt>${ic('lib')}Plan</dt><dd>Intro to Blender · lesson 7 of 10</dd>`,
+  cover: th('mug', { pg: 40 }), cta: 'Continue step 3',
+  steps: [['Open your mug', 'mug.blend is open', 'd', 'Today, 2:10 PM'], ['Add a Subdivision Surface modifier', 'The mug has a Subdivision modifier', 'd', 'Today, 2:14 PM'], ['Set the viewport level to 2', 'Levels Viewport is 2', 'c', 'You are here'], ['Shade smooth', 'Smooth shading is on', ''], ['Save the file', 'The file is saved', '']],
+  readsTitle: 'What miyagi reads in Blender', reads: [['Objects and their modifiers, materials and sizes', 'Through the add-on.'], ['Your screen', 'Only to point at a button.']],
+  grows: [['Modifiers', 2, 5]], nextTitle: 'Next in this plan', next: p.lessons.slice(7, 10).map(l => [l.title, `${l.minutes} min`]),
+  shell: { plan: 1 } }); };
+
+// ---------- setup, wider: the step on the left, what it leads to on the right ----------
+function flowWide(n, left, right) {
+  const st = ['Sign in', 'Permissions', 'First lesson'];
+  return `<div class="flow"><div class="lights"><i></i><i></i><i></i></div><div class="wide"><div>${left}</div><div class="rail2">${right}</div></div>
+    <div class="steps">${st.map((t, i) => `<b class="${i === n ? 'on' : i < n ? 'done' : ''}">${i < n ? gk : ''}${t}</b>`).join('<i></i>')}</div></div>`;
+}
+const twoLine = (t, d, lead = '') => `<div class="rrow tall">${lead}<div class="l2"><b>${t}</b><span>${d}</span></div></div>`;
+const numLine = (n, t, d) => twoLine(t, d, `<span class="num">${n}</span>`);
+function onboard1Wide() {
+  const tools = new Set(CAT.map(p => p.tool.label)).size, app = (t, d) => `<div class="rrow"><span class="l">${t}</span><span class="r">${d}</span></div>`;
+  return flowWide(0, `<img src="${asset('tree-small')}" style="width:56px;height:56px"><h1 style="margin-top:18px">learn by doing.</h1><p>Setup takes about five minutes and ends inside your first lesson.</p>
+    <button class="btn primary lg" style="margin-top:28px;width:280px">Continue with Google</button>
+    <div style="font-size:12.5px;color:var(--faint);margin-top:14px">By continuing you agree to the terms and privacy policy.</div>`,
+    `${sec('Setup')}${numLine(1, 'Sign in', 'Keeps your lessons and skills.')}${numLine(2, 'Permissions', 'Screen Recording to check a step. Accessibility to point.')}${numLine(3, 'First lesson', 'Pick one and start.')}
+    ${sec('Works in', `${tools} apps`)}${app('VS Code', 'Reads your files and the terminal')}${app('Jupyter', 'Reads each cell')}${app('Blender', 'Reads your scene')}${app('FreeCAD', 'Reads your model')}
+    ${sec('To learn', 'Browse')}${app('Plans', `${CAT.length}, each ending in a project`)}${app('Lessons', `${CAT.reduce((s, p) => s + p.lessons.length, 0)}`)}${app('Any YouTube video', 'Paste a link')}`);
+}
+function onboard2Wide() {
+  return flowWide(1, `<h1>Let miyagi see your work</h1><p>It looks only while a lesson is running.</p>
+    <div class="group" style="margin-top:26px">
+      <div class="srow" style="min-height:60px"><div><div class="l">Screen Recording</div><div class="d">To check each step you do.</div></div><span class="sp"></span><span class="v" style="color:var(--green-text)">${gk}Granted</span></div>
+      <div class="srow" style="min-height:60px"><div><div class="l">Accessibility</div><div class="d">To point at the right button.</div></div><span class="sp"></span><button class="btn primary">Open System Settings</button></div></div>
+    <div style="font-size:12.5px;color:var(--faint);margin-top:14px">The check turns green here as soon as you switch it on.</div>`,
+    `${sec('To turn on Accessibility')}${numLine(1, 'Open System Settings', 'The button on the left takes you there.')}${numLine(2, 'Privacy &amp; Security, then Accessibility', 'miyagi is in the list.')}${numLine(3, 'Switch miyagi on', 'Come back here. Nothing to restart.')}
+    ${sec('What miyagi sees')}${twoLine('Only the lesson window', 'And only while a lesson is running.')}${twoLine('Screenshots', 'Used to check a step, then deleted.')}${twoLine('Your code and files', 'Stay on this Mac.')}`);
+}
+function onboard3Wide() {
+  const ids = ['intro-python', 'intro-sheets', 'plotting'], p = PL(ids[0]), l = p.lessons[0], sk = p.skills.find(s => s.id === l.grows[0]);
+  const c = (id, on) => { const [k, t, , m] = firstLesson(id); return `<div class="lc" style="padding:8px;border-radius:14px;${on ? 'box-shadow:0 0 0 2px var(--ink)' : ''}">${th(k)}<b>${t}</b><span>${m.split(' · ')[0]} · ${m.split(' · ')[2]}</span></div>`; };
+  const row = (t, r) => `<div class="rrow"><span class="l">${t}</span><span class="r">${r}</span></div>`;
+  return flowWide(2, `<h1>Pick your first lesson</h1><p>Each one is ten to fifteen minutes.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:22px -8px 0">${ids.map((id, i) => c(id, i === 0)).join('')}</div>
+    ${sec('Or start a plan', `All ${CAT.length}`)}${['intro-python', 'intro-blender', 'intro-cad'].map(id => { const q = PL(id); return row(q.title, `${q.lessons.length} lessons · about ${hrs(q.minutes)}`); }).join('')}
+    <div style="font-size:12.5px;color:var(--faint);margin-top:14px">Or paste a YouTube link.</div>`,
+    `${sec(l.title)}<div class="rrow"><span class="l">Works in</span><span class="r" style="display:inline-flex;align-items:center;gap:7px;color:var(--green-text)">${gk}${p.tool.label} found</span></div>
+    ${row('Length', `${l.steps} steps · ${l.minutes} min`)}${row('Grows', sk ? sk.label : '')}${row('Plan', `${p.title} · lesson 1 of ${p.lessons.length}`)}
+    ${twoLine('Passes when', l.passes)}
+    <button class="btn primary lg" style="margin-top:22px;width:100%">Start lesson ${kbd('↩')}</button>
+    <div style="font-size:12.5px;color:var(--faint);margin-top:12px">It opens ${p.tool.label} and shows the first step.</div>`);
+}
+
 // ---------- make the fuller pages the live ones ----------
 // The playlist and goal dialogs call plansPage() for the page behind them, so point that at the wide catalog too.
 const plansPageV3 = plansPage;
 plansPage = o => plansFull(o);
 const LIVE = { home: homeFull, progress: progressFull, library: libraryFull, settings: settingsFull, 'settings-apps': settingsAppsFull, 'settings-data': settingsDataFull, plans: plansFull,
-  'home-empty': homeFirst, 'library-empty': libraryFirst, 'progress-empty': progressFirst };
+  'home-empty': homeFirst, 'library-empty': libraryFirst, 'progress-empty': progressFirst,
+  plan: planFull, course: courseFull, lesson: lessonFull, 'lesson-blender': lessonBlenderFull, 'onboard-1': onboard1Wide, 'onboard-2': onboard2Wide, 'onboard-3': onboard3Wide };
 for (const k in LIVE) { SCREENS[k + '-v3'] = SCREENS[k]; SCREENS[k] = LIVE[k]; }
 SCREENS['plans-v3'] = () => plansPageV3();
 // the names used while these were drafts still work
