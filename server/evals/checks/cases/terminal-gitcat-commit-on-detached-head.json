@@ -1,0 +1,70 @@
+{
+ "id": "terminal-gitcat-commit-on-detached-head",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Git plan, 'See what changed with log and diff' (passes: git log shows three commits and git status reports a clean working tree). To look at the old recipe the learner ran `git checkout 1a2b3c4`, which left them on a detached HEAD, and committed there: '[detached HEAD 7e8f9a0] Double the sugar'. main still has two commits, the new one belongs to no branch (lost on the next switch), git log shows two commits and git status says 'HEAD detached from 1a2b3c4' above 'nothing to commit, working tree clean'.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Commit the second change",
+  "instructions": "Change the sugar in pancakes.md to 2 tbsp and commit it with git commit -am \"Double the sugar\". git log --oneline should now list three commits, and git status a clean tree.",
+  "run_command": "git commit -am \"Double the sugar\"",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git commit -am \"Double the sugar\"",
+    "caption": "Commit the change"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "Second change committed",
+    "app": "Terminal",
+    "pattern": "\\]\\s+Double\\s+the\\s+sugar"
+   },
+   {
+    "id": "s5c2",
+    "type": "screen_contains",
+    "label": "Working tree clean",
+    "app": "Terminal",
+    "pattern": "nothing\\s+to\\s+commit,?\\s+working\\s+tree\\s+clean"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   },
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 egg\n- 1 cup milk\n- 2 tbsp sugar\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git log --oneline",
+    "5e6f7a8 (HEAD -> main) Add a pinch of salt",
+    "1a2b3c4 Add pancakes",
+    "tripi@mac cookbook % git checkout 1a2b3c4",
+    "Note: switching to '1a2b3c4'.",
+    "",
+    "You are in 'detached HEAD' state. You can look around, make experimental",
+    "changes and commit them, and you can discard any commits you make in this",
+    "state without impacting any branches by switching back to a branch.",
+    "",
+    "HEAD is now at 1a2b3c4 Add pancakes",
+    "tripi@mac cookbook % git commit -am \"Double the sugar\"",
+    "[detached HEAD 7e8f9a0] Double the sugar",
+    " 1 file changed, 1 insertion(+), 1 deletion(-)",
+    "tripi@mac cookbook % git log --oneline",
+    "7e8f9a0 (HEAD) Double the sugar",
+    "1a2b3c4 Add pancakes",
+    "tripi@mac cookbook % git status",
+    "HEAD detached from 1a2b3c4",
+    "nothing to commit, working tree clean",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

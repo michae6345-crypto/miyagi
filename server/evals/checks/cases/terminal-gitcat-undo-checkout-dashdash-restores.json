@@ -1,0 +1,63 @@
+{
+ "id": "terminal-gitcat-undo-checkout-dashdash-restores",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Git plan (docs/ui-next/catalog/plans/intro-git.json), 'Undo a change and ignore files' (passes: pancakes.md matches the last commit). The learner threw the bad edit away with the older spelling `git checkout -- pancakes.md` ('Updated 1 path from the index') instead of `git restore pancakes.md`; both do the same thing, and the git status after it says 'nothing to commit, working tree clean'. The first git status above it still shows 'no changes added to commit', but that was before the restore.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Throw away the bad edit",
+  "instructions": "pancakes.md has an edit you don't want. Throw it away with git restore pancakes.md, then run git status: it should say the working tree is clean.",
+  "run_command": "git restore pancakes.md",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git restore pancakes.md",
+    "caption": "Throw the edit away"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "screen_contains",
+    "label": "Working tree clean",
+    "app": "Terminal",
+    "pattern": "nothing\\s+to\\s+commit,?\\s+working\\s+tree\\s+clean"
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "pancakes.md is back to the recipe",
+    "file": "cookbook/pancakes.md",
+    "pattern": "1\\s+tbsp\\s+sugar"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   },
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 egg\n- 1 cup milk\n- 1 tbsp sugar\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "Changes not staged for commit:",
+    "  (use \"git add <file>...\" to update what will be committed)",
+    "  (use \"git restore <file>...\" to discard changes in working directory)",
+    "\tmodified:   pancakes.md",
+    "",
+    "no changes added to commit (use \"git add\" and/or \"git commit -a\")",
+    "tripi@mac cookbook % git checkout -- pancakes.md",
+    "Updated 1 path from the index",
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "nothing to commit, working tree clean",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

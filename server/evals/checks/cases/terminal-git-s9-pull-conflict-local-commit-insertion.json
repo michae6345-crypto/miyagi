@@ -1,0 +1,59 @@
+{
+ "id": "terminal-git-s9-pull-conflict-local-commit-insertion",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Git lesson s9. Before pulling, the learner committed a local edit on main ('[main 6a7b8c9] Tweak title', whose diffstat says '1 insertion(+)'). With pull.rebase=false set, `git pull` merged the PR's commit and stopped: 'CONFLICT (content): Merge conflict in index.html ... Automatic merge failed'. index.html holds conflict markers and the merge is unfinished; `git show` only shows the learner's own local commit. The 'insertion' and 'commit <sha>' the checks look for are on screen, from the wrong commands.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s9"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n<<<<<<< HEAD\n    <h1>Let's Get Cooking</h1>\n=======\n    <h1>Git Going</h1>\n>>>>>>> 9d8c7b6a5f4e3d2c1b0a99887766554433221100\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git switch main",
+    "Switched to branch 'main'",
+    "Your branch is up to date with 'origin/main'.",
+    "tripi@mac gitgoing % git commit -am \"Tweak title\"",
+    "[main 6a7b8c9] Tweak title",
+    " 1 file changed, 1 insertion(+), 1 deletion(-)",
+    "tripi@mac gitgoing % git pull",
+    "remote: Enumerating objects: 1, done.",
+    "remote: Counting objects: 100% (1/1), done.",
+    "remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)",
+    "Unpacking objects: 100% (1/1), 641 bytes | 320.00 KiB/s, done.",
+    "From github.com:ada-learner/gitgoing",
+    "   2b7e9f0..9d8c7b6  main       -> origin/main",
+    "Auto-merging index.html",
+    "CONFLICT (content): Merge conflict in index.html",
+    "Automatic merge failed; fix conflicts and then commit the result.",
+    "tripi@mac gitgoing % git show",
+    "commit 6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7 (HEAD -> main)",
+    "Author: Ada Learner <ada@example.com>",
+    "Date:   Tue Nov 24 10:12:40 2026 -0800",
+    "",
+    "    Tweak title",
+    "",
+    "diff --git a/index.html b/index.html",
+    "index 5e1c309..a7f2d41 100644",
+    "--- a/index.html",
+    "+++ b/index.html",
+    "@@ -1,6 +1,6 @@",
+    " <!DOCTYPE html>",
+    " <html>",
+    "   <body>",
+    "-    <h1>Let's Get Started</h1>",
+    "+    <h1>Let's Get Cooking</h1>",
+    "   </body>",
+    " </html>",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

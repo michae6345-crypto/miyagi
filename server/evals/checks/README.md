@@ -76,6 +76,40 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 5: terminal and Git workflows (Nov 24 2026, `claude/eng-evals-r5-2`)
+
+20 new `terminal` cases (13 train, 7 held out; 8 pass, 12 not_yet), no engine change and no runner change (the
+held-out split already exists). Steps from the repo's lessons (Git video lesson s8 / s9, MNIST s1, calculator s2) and
+inline steps in the lesson builder's shape from Adrian's catalog plans (`docs/ui-next/catalog/plans/`, commit
+213c9238): Intro to Git (undo, .gitignore, log and diff, merge, push, SSH key), Intro to the Terminal (make files,
+wildcards, pipes and grep), Intro to Docker (first container, Compose), Intro to JavaScript (first run), a
+scikit-learn venv setup step and a package added to the ts-shop project.
+
+The traps: .gitignore committed by `git add .` together with the .DS_Store it ignores; a `git pull` that stopped on a
+CONFLICT, with "insertion" from the learner's own commit above it and `git show` of that commit; a commit on a detached
+HEAD (`[detached HEAD 7e8f9a0]`, still "working tree clean"); `grep -h` without the step's `-i` (rain.txt misses the
+capitalised line); `cp notes/day*` where the step says `?` (the backup note copied too); `pip install` interrupted with
+^C, then a pip upgrade's "Successfully installed" and a Jupyter from outside the venv; `docker pull` instead of `docker
+run`, with another container's "Exited (0)"; `npm install` in the parent folder (clean output, shop/package.json
+untouched). Held out: a merge ref typo with `git log --all` showing the branch; `master` pushed after "src refspec main
+does not match any"; `ssh-keygen` waiting at its passphrase prompt; Compose's "Running 1/2" over "port is already
+allocated". Done-but-odd: `git checkout -- file` for `git restore`; `git push` with no upstream, then the
+`--set-upstream` push git suggested; `touch notes/day{1,2,3}.txt` checked with `ls | wc -l`; `pip install sklearn`
+(deprecated name, errors) then `pip install scikit-learn`; `python` not found, then `python3`. Held out: zsh "no
+matches found" then the right glob; `brew install tree` when it is already installed; `node hello` without `.js`.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (13 new) | 0.385 | 0.333 | 0.600 | 6 | 2 |
+| held-out (7 new) | 0.286 | 0.000 | 0.000 | 2 | 3 |
+
+Wrong verdicts. Train: `terminal-dockercat-hello-world-pulled-not-run`, `terminal-git-s9-pull-conflict-local-commit-
+insertion`, `terminal-gitcat-commit-on-detached-head`, `terminal-gitcat-gitignore-committed-with-ds-store`,
+`terminal-pkg-npm-install-outside-project`, `terminal-shellcat-grep-missed-capitalised-rain` (FP);
+`terminal-pkg-sklearn-deprecated-then-scikit-learn`, `terminal-shellcat-touch-brace-expansion-counted` (FN). Held out:
+5 (ids in `baseline.json`). `baseline.json` rewritten: train 270 cases (acc 0.970, the 8 in `known_wrong`), held out
+115 (acc 0.426).
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is

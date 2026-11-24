@@ -1,0 +1,55 @@
+{
+ "id": "terminal-dockercat-compose-up-port-already-allocated",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to Docker plan (docs/ui-next/catalog/plans/intro-docker.json), 'One file to run it with Compose' (passes: docker compose ps shows the web service running on port 8080). The nginx container from the earlier lesson still holds port 8080, so `docker compose up -d` made the network and container and then failed: 'Error response from daemon: ... Bind for 0.0.0.0:8080 failed: port is already allocated'. The '[+] Running 1/2' progress header is on screen; the web service is not running.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Start the site with Compose",
+  "instructions": "In the site folder, start the service in the background with docker compose up -d.",
+  "run_command": "docker compose up -d",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "docker compose up -d",
+    "caption": "Start the service"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "web service started",
+    "app": "Terminal",
+    "pattern": "Started|Running"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "compose.yaml maps port 8080",
+    "file": "site/compose.yaml",
+    "pattern": "8080:80"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "site/compose.yaml": "services:\n  web:\n    build: .\n    ports:\n      - \"8080:80\"\n    volumes:\n      - ./site:/usr/share/nginx/html\n",
+   "site/Dockerfile": "FROM nginx:alpine\nCOPY site /usr/share/nginx/html\n",
+   "site/site/index.html": "<h1>My site</h1>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac site % docker compose up -d",
+    "[+] Running 1/2",
+    " ✔ Network site_default    Created                                            0.0s",
+    " ⠿ Container site-web-1    Starting                                           0.3s",
+    "Error response from daemon: driver failed programming external connectivity on endpoint site-web-1 (4b1c8e0f2a9d): Bind for 0.0.0.0:8080 failed: port is already allocated",
+    "tripi@mac site % "
+   ]
+  }
+ }
+}
