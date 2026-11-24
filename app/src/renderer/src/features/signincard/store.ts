@@ -3,10 +3,12 @@
  *
  * The engine forwards the shared-lesson-cache notice (server/lesson/cloud_cache.py on_notice) as:
  *
- *   cloud.notice {reason, status, resets_at?}             the target event (needs the contract + wire.ts KNOWN: Core requests)
- *   error {message, notice: {reason, status, resets_at?}}  works with today's app core: Error allows extra fields and
- *                                                          wire.ts keeps the payload as sent. Its pill line is dropped
- *                                                          here, since the card or the line says it better.
+ *   cloud.notice {reason, status, resets_at?}             the main path (contract + wire.ts KNOWN, Nov 24): the engine
+ *                                                          registers on_notice in Engine.watch_cloud
+ *   error {message, notice: {reason, status, resets_at?}}  fallback, kept for an engine that sends the notice that way:
+ *                                                          Error allows extra fields and wire.ts keeps the payload as
+ *                                                          sent. Its pill line is dropped here, since the card or the
+ *                                                          line says it better.
  *
  * State:
  *   signin   the sign-in card is up (401 signin_required), until Sign in succeeds, Not now or Esc
@@ -15,7 +17,7 @@
  *   visible  which of the two is the one on the island right now (Esc closes only what the learner sees)
  */
 import { create } from 'zustand'
-import { onMessage, onUi, type MessageType } from '../../core/bus'
+import { onMessage, onUi } from '../../core/bus'
 import { dismissNotice, notify } from '../../core/lesson'
 import { signInWith, useAuth } from '../auth/store'
 import { capLine, classify, parseNotice, SIGNIN, type CapKind } from './notice'
@@ -75,11 +77,11 @@ export function setVisible(which: Shown, on: boolean): void {
   else if (get().visible === which) set({ visible: undefined })
 }
 
-// Engine → app. The target event (dropped by wire.ts until it is in KNOWN; the stage's inline mock delivers it).
-onMessage('cloud.notice' as string as MessageType, (p) => {
+// Engine → app: the main path.
+onMessage('cloud.notice', (p) => {
   receive(p)
 })
-// Today's transport: an engine error frame carrying the notice. Its generic pill line goes once the dispatch is done.
+// Fallback: an engine error frame carrying the notice. Its generic pill line goes once the dispatch is done.
 onMessage('error', (p) => {
   const notice = (p as { notice?: unknown }).notice
   if (notice === undefined || receive(notice) === null) return

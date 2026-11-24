@@ -1,6 +1,6 @@
 # signincard (Linear MIC-17, app side)
 
-**Status:** v1 built, stage-checked · **Port:** 5201 (stage only) · **Branch:** `michael/app-signin-card`
+**Status:** v1 built, stage-checked; `cloud.notice` wired end to end (Nov 24) · **Port:** 5201 (stage only) · **Branch:** `michael/app-signin-card`
 
 ## Goal
 When the engine's shared-lesson-cache client (`server/lesson/cloud_cache.py`, `on_notice`) hears that the cloud refused a
@@ -20,13 +20,13 @@ lesson build claim, the island says so calmly. The lesson still builds on this M
 - `app/mock/scenarios/signincard.json`, `app/test/signincard.test.ts`, `app/agents/shots/signincard-*.png`
 
 ## Contract
-- **In** (engine → app), the dict `on_notice` yields: `{reason, status, resets_at?}`, sent as either
-  - `cloud.notice {reason, status, resets_at?}`: the target (needs Core request 1 to reach Electron), or
-  - `error {message, notice: {reason, status, resets_at?}}`: works with today's app core (`Error` allows extra
-    fields, `wire.ts` passes the payload through). The store drops that error's generic pill line.
-- **Engine change still needed** (not made here, `server/` is not this lane's): register a listener once the WS hub
-  exists, e.g. `cloud_cache.on_notice(lambda n: hub.broadcast("cloud.notice", n))` (or, until Core request 1
-  lands, `hub.broadcast("error", {"message": "Sign in to build new lessons.", "notice": n})`).
+- **In** (engine → app), the dict `on_notice` yields: `{reason, status, resets_at?}`, sent as
+  - `cloud.notice {reason, status, resets_at?}`: the main path (in the contract and `wire.ts` KNOWN), or
+  - `error {message, notice: {reason, status, resets_at?}}`: the fallback, kept (`Error` allows extra fields,
+    `wire.ts` passes the payload through). The store drops that error's generic pill line.
+- **Engine** (`integration/live`): `Engine.watch_cloud` registers `cloud_cache.on_notice` and emits `cloud.notice`
+  with only reason, status and resets_at (no token, no user id), once per refused claim, never also as an `error`
+  (`server/tests/test_cloud_notice.py`).
 - **Out**: none (Sign in goes through main's `auth:google`, the same IPC the login window uses).
 
 ## Plugs in as
@@ -39,12 +39,12 @@ mid-build), below `err-limit` 58 and the off-track card 70. Both gated on `core/
 `~/miyagi/tools/playwright/signincard.mjs 5201 app/agents/shots` (headless).
 Unit: `test/signincard.test.ts` (parsing, classify, local reset time in fixed zones, copy ≤12 words, store paths).
 
-## Core requests
-1. **Contract + wire:** add `"cloud.notice": { reason: string; status: number; resets_at?: string }` to
+## Core requests (done Nov 24)
+1. **Done.** **Contract + wire:** add `"cloud.notice": { reason: string; status: number; resets_at?: string }` to
    `shared/contracts/events.ts` (+ `CloudNotice` in `events.py`) and `'cloud.notice'` to `KNOWN` in
-   `app/src/common/wire.ts`. Until then the store subscribes with a cast and Electron drops the frame (the stage's
-   inline mock delivers it); the `error {notice}` transport is the workaround.
-2. README island priority table: add 56 `cap-line` and 57 `signin-card` (signincard).
+   `app/src/common/wire.ts`. The store now subscribes without a cast; the `error {notice}` transport stays as a
+   fallback.
+2. **Done.** README island priority table: add 56 `cap-line` and 57 `signin-card` (signincard).
 
 ## Notes
 - No hue anywhere (no red, no amber): the bonsai, white text, a quiet + a primary button.
