@@ -1,6 +1,6 @@
 # miyagi UI next: pages, lesson plans, Blender and CAD
 
-Mockups and content from Nov 22 and 23 2026. No app code. The app pages and the engine are built from these in their own lanes.
+Mockups and content from Nov 22 to 24 2026. No app code. The app pages and the engine are built from these in their own lanes.
 
 ## What is here
 
@@ -32,11 +32,14 @@ The rules behind the pages:
 - Content is 1040 px wide. Home and Progress are two columns: a 684 px main column and a 316 px rail, with one hairline between them. Settings is two columns of groups. Library and Plans use the full width.
 - A plan, a playlist and a lesson are a full-width table with two blocks side by side under it. A setup step keeps its one button on the left and has a quiet rail on the right.
 - Numbers sit on one line with hairlines between them. No stat tiles and no dot grids. Charts are plain bars.
+- A page is full of things to open or read, and nothing else. A fact is on a page once: no sentence that repeats the numbers beside it, and no text that explains what the page is for.
+- No stats made for show: no milestones, no "days of 7", no streaks. A static list such as keyboard shortcuts does not go on a working page.
+- A setting with one option is left out until it has two.
 - Lists are rows or tables with a hairline between rows. The only card is Continue.
 - One sidebar on screen. Settings swaps the app sidebar for its own list.
 - A page for a new learner shows things to start: plans, short lessons, goals. It never shows rows of zeros.
 - Green only for passed. Pastels only on option chips.
-- The learner in the mock is sample data. The week and 12-week numbers, the milestones and the cache size are made up.
+- The learner in the mock is sample data. The week and 12-week numbers and the cache size are made up.
 - The copy on Settings, Your data is placeholder text. It has to match what the engine does before it ships.
 
 To render a screen:
@@ -45,7 +48,25 @@ To render a screen:
 node tools/render.mjs <out dir> 1440 900 2 "home-light=file:///<path>/mock/index.html?s=home&t=light"
 ```
 
-For a page taller than the window, add `&h=<height>` to the URL and pass the same height in place of 900. The heights used for the shots: `home` 1356, `progress` 1717, `library` 1460, `settings` 973, `plans` 2505, `home-empty` 958, `library-empty` 1137, `plan` 1223, `course` 1096, `lesson` 1072, `lesson-blender` 959.
+For a page taller than the window, add `&h=<height>` to the URL and pass the same height in place of 900. The heights used for the shots: `home` 1102, `progress` 1467, `library` 1436, `settings` 973, `plans` 2505, `home-empty` 958, `library-empty` 1137, `plan` 1223, `course` 1081, `lesson` 1072, `lesson-blender` 959.
+
+## The trim pass, Nov 24
+
+One pass over the live pages to cut filler. The lesson pages did not change.
+
+| Page | Cut | Added |
+|---|---|---|
+| `home` | The line under the greeting, the three plans to start, the keys list, "days of 7". | "skills mastered" in the week's numbers. |
+| `progress` | Milestones, the finished lessons table, "days of 7", "weeks of 12". The top line is now only the skills count. | The hours left sit on the goal. |
+| `library` | The sentence of counts. The tabs carry them. | |
+| `plans` | The "Starts with" column and the counts in the top line. | "After": the plan to finish first, from each plan's `needs`. |
+| `plan`, `course` | One note under the project, the "Added" date, the repeated video count. | |
+| `settings` | Language, which has one option. | |
+| `settings-apps` | "miyagi looks at the window" on the six screen-only rows. | |
+| `settings-data` | "Export my progress". Download covers it. | |
+| `home-empty` | The keys list. | |
+| `progress-empty` | "What fills this page". | Four short lessons and three plans to start. |
+| `onboard-1`, `onboard-2` | The setup list that repeated the three steps at the foot, and one line of fine print. | |
 
 ## The catalog
 
