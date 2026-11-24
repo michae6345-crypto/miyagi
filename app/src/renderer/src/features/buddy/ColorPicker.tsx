@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { color, type2 } from '../../core/theme'
 import { spring } from '../../core/ui/motion'
 import { Character } from './Character'
+import { words } from './name'
 import { PICKS, SKINS, type SkinName } from './palette'
 import { pickSkin, useSkinName, useSkinPicks } from './skin'
 
@@ -77,7 +78,7 @@ export function BuddySwatches({ size = 30, gap = 14, name: showName = true }: { 
   }
   return (
     <div data-part="buddy-colors" className="flex flex-col items-center">
-      <div ref={group} role="radiogroup" aria-label="Buddy color" className="flex items-center" style={{ gap }} onKeyDown={onKey}>
+      <div ref={group} role="radiogroup" aria-label={words.colors} className="flex items-center" style={{ gap }} onKeyDown={onKey}>
         {PICKS.map((p) => {
           const on = p === name
           return (

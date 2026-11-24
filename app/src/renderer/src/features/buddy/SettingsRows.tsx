@@ -6,13 +6,14 @@
 import type { ReactNode } from 'react'
 import { Group, Row } from '../settings/ui'
 import { BuddyPreview, BuddySwatches } from './ColorPicker'
+import { words } from './name'
 
 export function BuddyColor(): ReactNode {
   return (
-    <Group label="Buddy">
+    <Group label={words.group}>
       <Row
-        label="Buddy color"
-        caption="Your buddy and the loops it draws."
+        label={words.row}
+        caption={words.rowCaption}
         right={
           <span data-settings-buddy className="flex shrink-0 items-center gap-[16px]">
             <BuddyPreview size={36} />

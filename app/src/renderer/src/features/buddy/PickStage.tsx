@@ -13,6 +13,7 @@ import { PrimaryButton } from '../../core/ui/buttons'
 import { fade } from '../../core/ui/motion'
 import { BuddyColorPicker } from './ColorPicker'
 import type { AnnotatePayload } from './marks'
+import { words } from './name'
 
 /** Where the mock sits in the stage: the middle, like the setup window. */
 export const PICK_STAGE = { x: Math.round(STAGE.width / 2 - 340), y: 170, w: 680, h: 520 }
@@ -52,16 +53,16 @@ export function PickStage(): ReactNode {
             exit={{ opacity: 0, transition: fade.out }}
           >
             <h1 id="buddy-pick-title" className="m-0 text-center" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
-              Pick your buddy&apos;s color
+              {words.stepTitle}
             </h1>
             <p className="m-0 mt-[8px] text-center" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
-              It points things out and answers when you ask.
+              {words.stepBody}
             </p>
             <div className="flex flex-1 items-center justify-center">
               <BuddyColorPicker />
             </div>
             <div className="flex items-center justify-between gap-[24px] pt-[24px]" style={{ borderTop: `1px solid ${fill.hairline}` }}>
-              <span style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>You can change it later in Settings.</span>
+              <span style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>{words.stepLater}</span>
               <span data-buddy-pick-done>
                 <PrimaryButton size="lg" label="Continue" onClick={done} />
               </span>

@@ -3,13 +3,14 @@
  * chooses the color when they set miyagi up, like Clicky). One calm screen in Ready's own layout, so the buddy lands
  * where the walk's picture was: the buddy (features/buddy BuddyPreview, it watches the pointer and beams at a pick),
  * one line, the colors, and Continue. Ready.tsx shows it once, until the learner has picked or kept a color; after
- * that the color lives in Settings > General.
+ * that the color lives in Settings > General. What it is called is in features/buddy name.ts (not picked yet).
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { color, font, type2 } from '../../core/theme'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { BuddyPreview, BuddySwatches } from '../buddy/ColorPicker'
+import { words } from '../buddy/name'
 import { confirmSkin } from '../buddy/skin'
 import { STAGE_MAX_H, STAGE_TOP } from './Guided'
 import { rise, stagger } from './parts'
@@ -40,10 +41,10 @@ export function BuddyStep({ chrome, onDone }: { chrome: 'window' | 'flow'; onDon
               <BuddyPreview size={104} />
             </motion.div>
             <motion.h1 id="onb-title" variants={rise} className="m-0 mt-[24px]" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
-              Pick your buddy’s color
+              {words.stepTitle}
             </motion.h1>
             <motion.p variants={rise} className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }}>
-              It points things out and answers when you ask.
+              {words.stepBody}
             </motion.p>
             <motion.div variants={rise} className="mt-[32px]">
               <BuddySwatches />
@@ -52,7 +53,7 @@ export function BuddyStep({ chrome, onDone }: { chrome: 'window' | 'flow'; onDon
               <PrimaryButton label="Continue" onClick={done} />
             </motion.div>
             <motion.p variants={rise} className="m-0 mt-[24px]" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>
-              You can change it later in Settings.
+              {words.stepLater}
             </motion.p>
           </motion.div>
         </div>
