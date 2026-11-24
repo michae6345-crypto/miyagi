@@ -1,0 +1,217 @@
+{
+ "id": "blender-material-glossy-in-empty-slot",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Blender lesson 8 (\"The mug has a material with roughness under 0.3\"). The mug already had the default Material in slot 1. The learner pressed + to add a second slot and made the glossy Ceramic (roughness 0.2) there, but never assigned it (no Edit mode > Assign), so all 294 faces still use the default Material at 0.5 and the mug renders matte grey. Ceramic is on the mug only in name: its slot has 0 faces.",
+ "step": {
+  "id": "s8",
+  "index": 8,
+  "title": "Give it a material",
+  "file": "mug.blend",
+  "instructions": "With the mug selected, open the Material tab, click New and set the Principled BSDF Roughness below 0.3 for a glossy ceramic look. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s8c1",
+    "type": "file_contains",
+    "label": "Material on the mug",
+    "file": "mug.scene.json",
+    "pattern": "\"users\":\\s*\\[\\s*\"Mug\""
+   },
+   {
+    "id": "s8c2",
+    "type": "file_contains",
+    "label": "Roughness under 0.3",
+    "file": "mug.scene.json",
+    "pattern": "\"roughness\":\\s*0\\.[0-2]\\d*"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "mug.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "mug.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Mug",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.6,
+        1.6,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 296,
+        "edges": 590,
+        "faces": 294,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [
+        {
+         "name": "Subdivision",
+         "type": "SUBSURF",
+         "levels": 2,
+         "render_levels": 2,
+         "show_viewport": true
+        }
+       ],
+       "materials": [
+        "Material",
+        "Ceramic"
+       ],
+       "material_slots": [
+        {
+         "name": "Material",
+         "faces": 294
+        },
+        {
+         "name": "Ceramic",
+         "faces": 0
+        }
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Material",
+       "users": [
+        "Mug"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0
+       }
+      },
+      {
+       "name": "Ceramic",
+       "users": [
+        "Mug"
+       ],
+       "principled": {
+        "base_color": [
+         0.9,
+         0.35,
+         0.25,
+         1.0
+        ],
+        "roughness": 0.2,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

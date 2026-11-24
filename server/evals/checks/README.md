@@ -37,9 +37,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
   "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
-  "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
-  "heldOut": false,                         // optional: true = scored apart, never used to tune the checks
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
   "step": {"lesson": "demo/cache/lessons/5c0ea8a49f419487.json", "id": "s2"},  // or an inline step with "checks"
                                             // optional "patch": {...}, "drop_checks": [ids], "adapt": true
@@ -74,6 +72,48 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 2: Blender and CAD file checks (Nov 24 2026, `claude/eng-evals-r2-3`, 20 new cases, 7 held out)
+
+From Adrian's plans on `origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender`, `blender-materials`,
+`blender-animation`, `intro-cad`, `cad-3d-printing`, `intro-fusion`, each lesson's `passes` line) and
+`docs/ui-next/INTEGRATIONS.md` (file level: headless `dump_scene.py` / `dump_fcstd.py` facts recorded as fixtures,
+the STL reader, AutoCAD's DXF), plus the donut and toy-car app-lesson fixtures at screen level. The dumps keep the
+round-1 shape; two fields are new and read by name: an object's `material_slots` (material, face count) and
+`animation` (an action's fcurves: data path, index, `[frame, value]` keyframes, interpolation), and the scene's
+`fps_base` / `frame_current` / FFmpeg output.
+
+Traps: the right numbers on the wrong sketch or body (an abandoned fully constrained sketch beside the 60 x 40 one
+that still slides; a 30 mm pad in a new Body, not joined), a material in a slot with no faces, light names right but
+the power ratio wrong, a key inserted before the move (the unkeyed location is saved), 23.98 fps stored as fps 24 +
+fps_base 1.001, a box stretched in Object mode read as a raised edge, a pattern that fails to recompute, an open
+STL with facets, the whole design in one STL, an UNDO > Back after LINE, a menu-search popup. Done-but-odd: scale
+applied (dimensions halved, scale 1), the mug never renamed from Cylinder, holes sized by Radius, a layer typed
+`Wheels`, fillets split over two features, an MP4 with Blender's frame-range name, EXPORT > Lithography for STLOUT.
+
+Before any fix (no engine change in this step):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121 = 108 + 13 new) | 0.917 | 0.881 | 0.945 | 7 | 3 |
+| train blender (15) | 0.667 | 0.600 | 0.857 | 4 | 1 |
+| train cad (11) | 0.545 | 0.250 | 0.333 | 3 | 2 |
+| held-out (34 = 27 + 7 new) | 0.412 | 0.286 | 0.545 | 15 | 5 |
+
+Train wrong verdicts (all 10 are new cases; the 108 earlier train cases stay right):
+
+- **FP `blender-material-glossy-in-empty-slot`**: the glossy material is on the mug, in a slot with 0 faces.
+- **FP `blender-lights-key-not-twice-fill`**: Key 400 W, Fill 300 W; the names and types are all that is read.
+- **FP `blender-anim-second-key-before-move`**: both keys hold X 0; the saved location X 5 is an unkeyed edit.
+- **FP `blender-edit-wedge-cube-scaled-z`**: S Z 1.5 in Object mode gives the wedge's 2 x 2 x 3 and 8 vertices.
+- **FP `freecad-sketch-60x40-in-second-sketch`**: `"dof": 0` from the abandoned sketch, 60 / 40 from the other.
+- **FP `freecad-hook-stl-open-faces-only`**: an STL with 10 facets and an open top passes "watertight".
+- **FP `autocad-toy-car-s1-profile-undone`**: LINE in the history, then UNDO > Back, "Everything has been undone".
+- **FN `blender-transform-sphere-scale-applied`**: scale applied, so `[0.5, 0.5, 0.5]` is gone; dimensions are 1 m.
+- **FN `freecad-clearance-holes-by-radius`**: Radius 5.1 / 5.2 are the 10.2 / 10.4 mm holes.
+- **FN `autocad-dxf-wheels-layer-mixed-case`**: AutoCAD layer names ignore case; the DXF says `Wheels`.
+
+Held out: 7 new cases, 5 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
 ## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
 
