@@ -31,6 +31,7 @@ from unittest import mock
 VID = "SPEEDtest01"
 URL = f"https://www.youtube.com/watch?v={VID}"
 GOAL = "build a todo app in python"
+TITLE = "Todo app in Python"
 
 PROFILE_10MIN = {
     "name": "typical 10-min video (6 steps)",
@@ -137,19 +138,21 @@ class Fakes:
             self.log("segment", t0)
             steps = [{"start": _mmss(a), "end": _mmss(b), "title": f"Write part {k} of the app",
                       "instructions": f"Write part {k} of todo.py."} for k, (a, b) in enumerate(_spans(p), 1)]
-            return SimpleNamespace(model=mid), json.dumps({"title": "Todo app in Python", "libraries": [], "steps": steps})
+            return SimpleNamespace(model=mid), json.dumps({"title": p.get("title", TITLE), "libraries": [], "steps": steps})
         m = re.search(r"Fill in step (\d+)", txt)
         if m:
             i = int(m.group(1))
             await asyncio.sleep(p["detail_s"][(i - 1) % len(p["detail_s"])])
             self.log("detail", t0, steps=[i])
             a, _b = _spans(p)[i - 1]
-            return SimpleNamespace(model=mid), json.dumps({
-                "file": "todo.py", "code": f"def part_{i}():\n    return {i}",
+            out = {
+                "file": p.get("work_file", "todo.py"), "code": f"def part_{i}():\n    return {i}",
                 "checks": [{"type": "screen_contains", "label": f"part_{i} typed", "app": "Code", "pattern": f"def part_{i}"}],
                 "targets": [{"app": "Code", "match": f"def part_{i}", "caption": "Type it here"}],
                 "explanations": [{"topic": f"idea {i}", "t": _mmss(a + 20)}],
-                "hints": [f"Start with def part_{i}", "Return the number"], "common_mistakes": [f"Naming it part{i}"]})
+                "hints": [f"Start with def part_{i}", "Return the number"], "common_mistakes": [f"Naming it part{i}"]}
+            out.update(copy.deepcopy((p.get("detail_extra") or {}).get(i) or {}))  # a test's own fields for step i
+            return SimpleNamespace(model=mid), json.dumps(out)
         if "previous answer had these problems" in txt or '"index"' in txt:
             idx = [int(x) for x in re.findall(r'"index":\s*(\d+)', txt)]
             retry = "previous answer had these problems" in txt
@@ -160,10 +163,12 @@ class Fakes:
             for i in idx:
                 # lint rejects a screen pattern over 60 chars (OCR is noisy): round 1's for the lint_fail steps
                 pat = (rf"def\s+part_{i}\b" + r"\s*\(\s*\)\s*:" * 6) if (i in p["lint_fail"] and not retry) else rf"def\s+part_{i}\b"
+                wf = p.get("work_file", "todo.py")
                 out.append({"index": i, "checks": [{"type": "screen_contains", "label": f"part_{i} typed", "app": "Code", "pattern": pat}],
-                            "precision_checks": [{"type": "file_contains", "label": f"part_{i} in todo.py", "file": "todo.py",
+                            "precision_checks": [{"type": "file_contains", "label": f"part_{i} in {wf}", "file": wf,
                                                   "pattern": f"def part_{i}"}],
-                            "targets": [{"app": "Code", "file": "todo.py", "match": f"def part_{i}", "caption": "Type it here"}]})
+                            "targets": [{"app": "Code", "file": wf, "match": f"def part_{i}", "caption": "Type it here"}],
+                            **copy.deepcopy((p.get("adapt_extra") or {}).get(i) or {})})
             return SimpleNamespace(model=mid), json.dumps({"steps": out})
         raise AssertionError(f"unexpected model call: {txt[:120]!r}")
 
@@ -177,7 +182,7 @@ class Fakes:
         t0 = now()
         await asyncio.sleep(self.p["watch_page_s"])
         self.log("watch_page", t0)
-        return {"video_id": vid, "title": "Todo app in Python", "description": "Building a todo app.",
+        return {"video_id": vid, "title": self.p.get("title", TITLE), "description": "Building a todo app.",
                 "length_s": self.p["length_s"], "chapters": []}
 
     async def fetch_video_info(self, vid):
@@ -259,7 +264,7 @@ def build_once(profile: dict, *, fast: bool, root: Path | None = None, fakes: Fa
                                       "graph": copy.deepcopy(graph)})
 
             g = await builder.build_lesson(URL, GOAL, str(root / "work"), on_update=on_update,
-                                           video_meta={"title": "Todo app in Python", "length_s": profile["length_s"]},
+                                           video_meta={"title": profile.get("title", TITLE), "length_s": profile["length_s"]},
                                            **build_kw)
             return g, round(now(), 3)
 
@@ -319,7 +324,7 @@ def report(profiles=(PROFILE_10MIN, PROFILE_10MIN_S1_RETRY)) -> str:
         out.append(f"{'stage':40s} {'before':>16s}   {'after':>16s}")
         for (name, b), (_n, a) in zip(timeline_rows(before), timeline_rows(after)):
             out.append(f"{name:40s} {b:>16s}   {a:>16s}")
-        out.append(f"finished lesson identical: {same}")
+        out.append(f"finished lesson, same steps on this deterministic fake: {same}")
     return "\n".join(out)
 
 

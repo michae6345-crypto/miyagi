@@ -60,3 +60,47 @@ def test_step_1_starts_the_lesson_and_the_rest_is_appended(tmp_path, monkeypatch
     s1 = next(s for s in rig.s.steps if s["id"] == "s1")
     assert s1["checks"] == graph["steps"][0]["checks"] and s1["title"] == graph["steps"][0]["title"]
     assert rig.of("step.started")[0]["stepId"] == "s1"
+
+
+def test_the_side_field_for_the_workspace_never_reaches_the_app(tmp_path, monkeypatch):
+    import json
+
+    rig, _graph = _run(tmp_path, monkeypatch, 30.0)
+    assert "upcomingSteps" not in json.dumps(rig.events)
+
+
+def test_a_late_update_from_an_ended_build_never_loads(tmp_path, monkeypatch):
+    """Blocker 2 (session side): an update that arrives after the build was ended (End, a new learn) is dropped."""
+    import json
+
+    from server.orchestrator import stubs
+
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "w"))
+    (tmp_path / "w").mkdir(exist_ok=True)
+    rig = Rig(tmp_path / "w")
+    held = {}
+
+    async def build(url, goal, workdir, on_update=None, **kw):
+        held["on_update"] = on_update
+        await asyncio.sleep(60)  # still building when the learner ends it
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        task = asyncio.ensure_future(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk", skip_preflight=True))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if "on_update" in held:
+                break
+        await rig.s.end_lesson("end_lesson")
+        await asyncio.gather(task, return_exceptions=True)
+        mark = rig.mark()
+        g = json.loads(json.dumps(stubs.load_fixture_lesson()))
+        g["lesson"]["complete"] = False
+        await held["on_update"](g, False)  # step 1 of the abandoned build, arriving late
+        await rig.settle()
+        return rig.since(mark)
+
+    late = asyncio.run(go())
+    assert not [e for e in late if e["type"] in ("lesson.ready", "lesson.updated", "step.started")]
+    assert rig.s.graph is None

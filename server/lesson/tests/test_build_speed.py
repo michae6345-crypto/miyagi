@@ -226,3 +226,161 @@ def test_a_failed_build_after_step_1_keeps_step_1():
         h.build_once(h.PROFILE_10MIN, fast=True, fakes=fakes)
     real = [u for u in fakes.updates if not u["provisional"]]
     assert len(real) == 1 and real[0]["steps"] == ["s1"] and real[0]["complete"] is False
+
+
+# --------------------------------------------------------------------------- review round 1
+def test_the_workspace_sees_the_steps_still_being_built(runs):
+    """Blocker 1: the starter files are made from the first graph the session gets. It carries the other steps as known
+    so far (build.upcomingSteps; no event to the app carries `build`), so the scaffold's leak check and its list of
+    files the learner creates cover steps 2..N."""
+    from server.workspace import paths, scaffold
+
+    first = next(u for u in runs["clean"]["after"]["updates"] if not u["provisional"])["graph"]
+    up = first["build"]["upcomingSteps"]
+    assert [u["index"] for u in up] == [2, 3, 4, 5, 6] and all(u["title"] for u in up)
+    assert any(u.get("checks") for u in up)  # the details already in carry their draft checks
+    steps = paths.lesson_steps(first)
+    assert len(steps) == 6 and steps[0] == first["steps"][0]
+    g = copy.deepcopy(first)
+    g["build"]["upcomingSteps"] = [{"index": 2, "title": "Make data.csv", "checks": [
+        {"id": "x", "type": "file_exists", "file": "data.csv"},
+        {"id": "y", "type": "file_contains", "file": "todo.py", "pattern": "def part_2"}]}]
+    assert "data.csv" in scaffold.learner_creates(g)
+    assert scaffold.leaks("todo.py", "def part_2():\n    pass\n", g)  # a starter file holding step 2's code leaks
+    assert "Make data.csv" in scaffold._lesson_for_prompt(g)
+    done = copy.deepcopy(g)
+    done["lesson"]["complete"] = True  # a finished lesson has every step itself: no side field read
+    assert paths.lesson_steps(done) == done["steps"]
+
+
+def _virtual_build(fakes, root, until_cancel_s=None, **kw):
+    """build_lesson on the virtual clock; with until_cancel_s, cancel it then and report how long the cancel took."""
+    from server.lesson import builder as b
+
+    (root / "work").mkdir(exist_ok=True)
+    with h.patched(fakes, fast=True, root=root):
+        async def go():
+            def on_update(graph, complete):
+                fakes.updates.append({"t": round(h.now(), 3), "complete": complete,
+                                      "provisional": bool((graph.get("lesson") or {}).get("provisional")),
+                                      "steps": [s["id"] for s in graph.get("steps") or []], "graph": copy.deepcopy(graph)})
+
+            task = asyncio.ensure_future(b.build_lesson(h.URL, h.GOAL, str(root / "work"), on_update=on_update,
+                                                        video_meta={"title": h.TITLE, "length_s": 600}, **kw))
+            if until_cancel_s is None:
+                return await task
+            await asyncio.sleep(until_cancel_s)
+            t0 = h.now()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            took = h.now() - t0
+            await asyncio.sleep(120)  # anything still running would have sent step 1 by now
+            return took, claude._sem().busy
+
+        return h.run_virtual(go())
+
+
+def test_a_cancelled_build_stops_at_once_and_never_sends_step_1(tmp_path):
+    """Blocker 2: cancelled while the rest is being adapted and step 1 is still in its (slow) lint retry: the cancel
+    does not wait for step 1, and step 1 is never sent afterwards."""
+    p = {**h.PROFILE_10MIN, "lint_fail": {1}, "escalate_s": (40.0, 2.45)}
+    fakes = h.Fakes(p)
+    took, busy = _virtual_build(fakes, tmp_path, until_cancel_s=25.0)
+    assert took < 0.01 and busy == 0
+    assert not [u for u in fakes.updates if not u["provisional"]]
+    assert max(e["end"] for e in fakes.events if e["kind"] == "detail") < 25  # cancelled in the adapt pass
+    assert not [e for e in fakes.events if e["kind"] == "adapt" and 2 in e["steps"]]  # ...which never finished
+
+
+def test_a_build_that_fails_before_step_1_is_sent_fails_the_normal_way(tmp_path):
+    """Should-fix 4: a later step's detail call is down at once, while step 1 is still being built: step 1 is not sent
+    (no one-step "complete" lesson); the build raises as before."""
+    fakes = h.Fakes(h.PROFILE_10MIN)
+    real_call = fakes.call_once
+
+    async def down(mid, system, prompt, *, effort, schema):
+        if "Fill in step 6" in h._text(prompt):
+            raise RuntimeError("Claude call failed (500): overloaded")
+        return await real_call(mid, system, prompt, effort=effort, schema=schema)
+
+    fakes.call_once = down
+    with pytest.raises(RuntimeError):
+        _virtual_build(fakes, tmp_path)
+    assert not [u for u in fakes.updates if not u["provisional"]]
+
+
+def test_explanations_the_full_build_puts_in_step_1_move_to_step_2():
+    """Should-fix 3: step 2's call reads 15 s before its start; an explanation there belongs to step 1 in the full
+    build, but step 1 went out without it (step 2's detail wasn't in yet). It goes to step 2, never dropped."""
+    p = {**h.PROFILE_10MIN, "detail_extra": {2: {"explanations": [{"topic": "idea 2", "t": "2:05"},
+                                                                    {"topic": "lead-in", "t": "1:35"}]}}}
+    before, after = h.build_once(p, fast=False), h.build_once(p, fast=True)
+
+    def topics(g):
+        return sorted(e["topic"] for s in g["steps"] for e in s.get("explanations") or [])
+
+    assert "lead-in" in [e["topic"] for e in before["graph"]["steps"][0]["explanations"]]
+    assert topics(after["graph"]) == topics(before["graph"])  # nothing dropped
+    assert "lead-in" in [e["topic"] for e in after["graph"]["steps"][1]["explanations"]]
+    assert after["graph"]["build"]["firstStep"]["same"] is False
+
+
+def test_the_full_build_keeps_step_1s_notebook_choice():
+    """Should-fix 5: step 1 went out as a non-notebook lesson (step 4's Jupyter mention wasn't in yet): the full build
+    does not turn the lesson into a notebook lesson the session doesn't know about."""
+    p = {**h.PROFILE_10MIN, "detail_extra": {4: {"code": "# run this cell in jupyter\nx = 4"}}}
+    before, after = h.build_once(p, fast=False), h.build_once(p, fast=True)
+    assert before["graph"]["lesson"].get("notebook")  # the old build would have made it one
+    first = next(u for u in after["updates"] if not u["provisional"])["graph"]
+    assert not first["lesson"].get("notebook") and not after["graph"]["lesson"].get("notebook")
+
+
+def test_an_app_titled_video_decides_app_or_code_on_every_step():
+    """Should-fix 5: for a video whose title names an app, step 1 waits for every step's detail before the app-or-code
+    choice, and the full build keeps that choice even when a later adapt result names a code file."""
+    p = {**h.PROFILE_10MIN, "title": "AutoCAD toy car for 3D printing", "work_file": "car.dwg",
+         "detail_extra": {i: {"code": ""} for i in range(1, 7)},
+         "adapt_extra": {5: {"precision_checks": [{"type": "file_contains", "label": "macro", "file": "macro.py",
+                                                    "pattern": "def part_5"}]}}}
+    after = h.build_once(p, fast=True)
+    first = next(u for u in after["updates"] if not u["provisional"])
+    details_done = max(e["end"] for e in after["events"] if e["kind"] == "detail")
+    assert first["t"] > details_done
+    assert first["graph"]["lesson"]["app"]["tool"] == "autocad"
+    assert after["graph"]["lesson"].get("app") == first["graph"]["lesson"]["app"]
+
+
+def test_a_failed_early_step_1_gets_the_old_batches(monkeypatch):
+    """Nit: step 1's early adapt failed before the full build's round 1: round 1 is exactly the old one."""
+    fakes = h.Fakes(h.PROFILE_10MIN)
+    real_call = fakes.call_once
+
+    async def flaky(mid, system, prompt, *, effort, schema):
+        if '"index": 1' in h._text(prompt) and '"index": 2' not in h._text(prompt):
+            raise RuntimeError("Claude call failed (500): overloaded")
+        return await real_call(mid, system, prompt, effort=effort, schema=schema)
+
+    fakes.call_once = flaky
+    run = h.build_once(h.PROFILE_10MIN, fast=True, fakes=fakes)
+    rounds = sorted(tuple(e["steps"]) for e in run["events"] if e["kind"] == "adapt")
+    assert rounds == [(1, 2, 3), (4, 5, 6)]
+
+
+def test_a_second_watch_attempt_is_ignored():
+    """Nit: a second watch_transcript in the same build (an unusable step list asked again): its details never feed
+    the first attempt's step 1."""
+    from server.lesson import first_step
+    from server.lesson.workdir import scan
+
+    async def go():
+        fs = first_step.FirstStep(url=h.URL, vid=h.VID, goal=h.GOAL, workdir="/nonexistent/_x", info=scan("/nonexistent/_x"),
+                                  key="k" * 16, on_update=None)
+        seg = {"title": "t", "steps": [{"start": "0:05", "end": "1:40", "title": "a", "instructions": "a"},
+                                        {"start": "1:45", "end": "3:20", "title": "b", "instructions": "b"}]}
+        assert fs.segment(seg) == {1}
+        assert fs.segment(seg) == set() and fs.stale
+        fs.detail(1, {**seg["steps"][0], "checks": []})
+        assert fs.task is None and await fs.lock() is None
+        fs.close()
+
+    asyncio.run(go())
