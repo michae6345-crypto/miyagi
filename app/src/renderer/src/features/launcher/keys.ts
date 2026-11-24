@@ -9,11 +9,17 @@
  */
 import { bridge, isElectron } from '../../bridge'
 
-export type NavKeyName = 'enter' | 'tab' | 'arrows'
+export type NavKeyName = 'enter' | 'tab' | 'arrows' | 'flip'
 
 const FALLBACK: Record<'mac' | 'win', Record<NavKeyName, string>> = {
-  mac: { enter: '↵', tab: '⇥', arrows: '↑↓' },
-  win: { enter: 'Enter', tab: 'Tab', arrows: '↑↓' }
+  // flip: ask about this step ⇄ start a new search during a lesson (Tab itself walks the panel's controls, Q15).
+  mac: { enter: '↵', tab: '⇥', arrows: '↑↓', flip: '⌥⇥' },
+  win: { enter: 'Enter', tab: 'Tab', arrows: '↑↓', flip: 'Ctrl+Tab' }
+}
+
+/** ⌥Tab on the Mac, Ctrl+Tab on Windows: during a lesson, flips the launcher between asking and a new search. */
+export function isFlipKey(e: { key: string; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
+  return e.key === 'Tab' && !e.metaKey && (bridge.platform.os === 'win' ? e.ctrlKey : e.altKey)
 }
 
 /** The keycap label for a navigation key, from the platform when it has one. */

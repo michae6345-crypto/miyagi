@@ -11,7 +11,7 @@
  *                                    (card {kind:'answer'}, cards feature) then grows out of the island.
  * The island hides itself while the launcher has it (core), so the two never show at once.
  *
- * Two modes, picked on open (Tab flips them during a lesson):
+ * Two modes, picked on open (⌥Tab, Ctrl+Tab on Windows, flips them during a lesson: keys.isFlipKey):
  *   search : learn {query} → video rows stream in → Build lesson. A pasted YouTube link skips the search
  *            (one row, Enter sends learn_url {url}). Idle shows a few neutral topic suggestions (never the
  *            lesson in progress); a click puts the topic in the field, where the two ways to learn it come up.
@@ -37,6 +37,12 @@
  * always "Just teach me". Under the chips one line says what Enter will do (parts.HOW_DESC). The same two names on the
  * chips, the footer's primary, its key hint and the lesson row. The highlight starts on "Just teach me" when the goal
  * reads like building something (isBuildGoal), on "Watch a video" otherwise; never on Demo unless the learner moves it.
+ *
+ * Tab order (QA Q15): the caret starts in the field and Tab / Shift+Tab walk every control in the panel top to bottom
+ * (the rows, then the footer's actions), wrapping back to the field, with the global focus-visible ring. A click never
+ * leaves focus on a control (the field keeps the keyboard, Michael's test 10); only Tab puts it there. Enter or Space on a
+ * focused control runs it and hands the keyboard back to the field (End lesson keeps it for its second press), Esc
+ * closes, and typing goes to the field. While the ways are offered, Tab in the field still moves their highlight.
  *
  * Nothing typed: the idle list (Continue, the cached lessons, "Try asking") is keyboard navigable. Its first line starts
  * active (the hover tint, never a hue, with the ↵ keycap on it); ↑↓ move it, Enter runs it. Every navigation keycap
@@ -76,7 +82,7 @@ import { librarySections, libraryMatch, refreshLibrary, startLibraryLesson, useL
 import { Action, EndLink, Hint, HOW_LABEL, HOWS, HowChoice, ListHighlight, modKey, NavKey, QuestionChips, Rise, SectionLabel, SuggestionRows, type How } from './parts'
 import { stepQuestions } from './questions'
 import { LessonRow, LibraryContinueRow, LinkPreview, MessageRow, READY_H, ReadyRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
-import { navKey } from './keys'
+import { isFlipKey, navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { isDuplicateToggle } from './guard'
 import { placeClear } from './place'
@@ -417,14 +423,29 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   // The keyboard always lives in the field (Michael's test 10: Return on "Build lesson" did nothing). A click on a chip
   // or a row used to leave DOM focus on that button, so the next Enter went to it instead of submit(). The click
-  // itself still lands: only focus goes back to the field.
+  // itself still lands: only focus goes back to the field. The one exception is Tab (Q15): `keyFocus` is set while
+  // Tab has put focus on a control in the panel, and any pointer press hands the keyboard back to the field.
+  const keyFocus = useRef(false)
   useEffect(() => {
     if (phase !== 'open') return
     const keep = (e: FocusEvent): void => {
-      if (e.target !== input.current) input.current?.focus({ preventScroll: true })
+      if (e.target === input.current) return
+      if (keyFocus.current && e.target instanceof Node && content.current?.contains(e.target)) return
+      keyFocus.current = false
+      input.current?.focus({ preventScroll: true })
+    }
+    const press = (e: PointerEvent): void => {
+      // Motion's whileTap answers Enter on a focused control with synthetic pointer events: only a real press counts.
+      if (!keyFocus.current || !e.isTrusted) return
+      keyFocus.current = false
+      input.current?.focus({ preventScroll: true })
     }
     document.addEventListener('focusin', keep)
-    return () => document.removeEventListener('focusin', keep)
+    document.addEventListener('pointerdown', press, true)
+    return () => {
+      document.removeEventListener('focusin', keep)
+      document.removeEventListener('pointerdown', press, true)
+    }
   }, [phase])
 
   // The panel springs to its content's height, so it grows down as rows stream in.
@@ -738,6 +759,57 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }
   }
 
+  /** Hand the keyboard back to the field (after a control ran, or the learner starts typing). */
+  const toField = (): void => {
+    keyFocus.current = false
+    input.current?.focus({ preventScroll: true })
+  }
+
+  /** Tab order (Q15): the field, then every enabled control in the panel top to bottom, wrapping. */
+  const cycle = (from: Element | null, dir: 1 | -1): void => {
+    const root = content.current
+    if (!root) return
+    const stops = [...root.querySelectorAll<HTMLElement>('input, button:not([disabled])')].filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.height > 0
+    })
+    if (stops.length < 2) return
+    const i = stops.indexOf(from as HTMLElement)
+    const next = i < 0 ? stops[dir === 1 ? 0 : stops.length - 1] : stops[(i + dir + stops.length) % stops.length]
+    if (next === input.current) return toField()
+    keyFocus.current = true
+    next.focus({ preventScroll: true })
+  }
+
+  /** Keys on a control Tab focused (the field's own keys are onKey). */
+  const onPanelKey = (e: KeyboardEvent<HTMLDivElement>): void => {
+    if (e.target === input.current || !(e.target instanceof HTMLElement)) return
+    const el = e.target
+    if (isFlipKey(e)) {
+      e.preventDefault()
+      toField()
+      return switchMode()
+    }
+    if (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      return cycle(el, e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey) ? -1 : 1)
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation() // the stage's Esc would also dismiss cards
+      return close()
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      el.click()
+      // End lesson arms on the first press and keeps focus for the second; anything else gives the field the keyboard back.
+      if (!el.hasAttribute('data-end')) toField()
+      return
+    }
+    // Typing goes to the field (the key lands there: focus moves before the character is inserted).
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) toField()
+  }
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -770,10 +842,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       return submit()
     }
     if (e.key === 'Tab') {
-      e.preventDefault() // focus stays in the field either way
-      // While the ways are offered, Tab (Shift+Tab back) moves the highlight over all three; otherwise it flips ask / new lesson.
+      e.preventDefault()
+      // ⌥Tab (Ctrl+Tab on Windows) flips ask / new lesson during a lesson.
+      if (isFlipKey(e)) return switchMode()
+      // While the ways are offered, Tab (Shift+Tab back) moves the highlight over all three; otherwise it walks the
+      // panel's controls (Q15).
       if (choosing) return setHowPicked(HOWS[(HOWS.indexOf(how) + (e.shiftKey ? HOWS.length - 1 : 1)) % HOWS.length])
-      return switchMode()
+      return cycle(input.current, e.shiftKey ? -1 : 1)
     }
     // Continue is the only row: ↑↓ have nothing to move to (End lesson is out of the keys' reach on purpose).
     if (resumeRows && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return e.preventDefault()
@@ -931,6 +1006,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       />
 
       <motion.div
+        // data-glass: the focus ring (styles.css) follows the glass text, like the other glass panels.
+        data-glass
         className="absolute left-1/2 overflow-hidden text-white"
         style={{ top: islandTopY, x: '-50%', transformOrigin: '50% 0%' }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
@@ -952,6 +1029,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           // flow-root: the first section's top margin must not collapse through, or the measured height comes up short and the panel clips the footer.
           className="flow-root"
           style={{ width: place.w, marginLeft: `calc(50% - ${place.w / 2}px)` }}
+          onKeyDown={onPanelKey}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
@@ -1149,10 +1227,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             <div className="h-px" style={{ background: fill.hairline }} />
             <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
               {/* No "New lesson" while a lesson runs (Michael's review A13): the ask panel is about this step, and the
-                  footer's End lesson is the way out. Tab still flips to a new search, where "Back to step" (quiet, far
+                  footer's End lesson is the way out. ⌥Tab still flips to a new search, where "Back to step" (quiet, far
                   left, away from the primary: audit A20) is the way back. */}
-              {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap={navKey('tab')} enabled onClick={switchMode} />}
-              {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. No key reaches it. */}
+              {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap={navKey('flip')} enabled onClick={switchMode} />}
+              {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. No shortcut reaches it; Tab does, still two presses (Q15). */}
               {lesson.hasLesson && resumeRows && <EndLink armed={endArmed} onClick={tapEnd} />}
               <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[12px]" style={{ color: note ? color.text : color.label }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
