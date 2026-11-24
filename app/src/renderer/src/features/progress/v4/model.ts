@@ -2,18 +2,18 @@
  * Feature: progress, the v4 Progress page (Adrian's ui-next mock `progress` / `progress-empty`, Nov 24 trim pass).
  * Pure data: no React, no bridge, so test/progressV4.test.ts runs it in node.
  *
- * Reads the additive fields the UI-V4 data contract adds to the engine's `progress` answer, tolerantly, until the
- * contract lands in shared/contracts (then these readers switch to its types; the names below are the ones asked for):
+ * Reads the UI-V4 contract's messages (shared/contracts/UI-V4.md), tolerantly:
  *
- *   activity[].minutes    minutes practiced that local day (next to reps); absent = minutes not tracked yet
- *   recent[] | passed[]   the last passed steps: {at, step|title, skill?, lesson?}, newest first
- *   totals                {minutes?, steps?, lessons?} over all time
- *   bon                   {passed}: the buddy's passed-step count (engine side, not localStorage)
- *   goal                  {title, mastered, total, minutesLeft?, eta?}
- *   plans[]               {id?, title, done, total}
- *   milestones[]          {label, at}: dated, engine-made (the Nov 24 trim pass took them off the page; kept here)
+ *   activity              readActivity: days[] {date, minutes, steps} (84, oldest first, the last is today), week, totals,
+ *                         recent[] {at (ISO), stepTitle, skills[], lessonTitle}, minutesTracked
+ *   bon                   readBon: {steps, level, name, next {name, left}}
+ *   plans                 readPlans: items[] {id, title, done, total}
+ *
+ * and the parts the contract does not carry yet, still from the engine's `progress` answer (readV4):
+ *
+ *   goal                  {title, mastered, total, minutesLeft?, eta?}   (placeholder field names: not in UI-V4)
+ *   review.minutes        how long the Keep fresh review takes          (placeholder: not in UI-V4)
  *   skills[].skills[]     per skill `reps` and `need` (steps to master) for "Closest to mastered"
- *   review.minutes        how long the Keep fresh review takes ("4 min" over the rail's Keep fresh)
  *
  * Nothing is made up: a part that is missing stays empty and the page leaves it out (or shows steps where minutes
  * aren't known). Times are epoch seconds, epoch ms or ISO text; here they are epoch ms.
@@ -72,7 +72,6 @@ export type Goal = {
   eta?: number
 }
 export type Plan = { id?: string; title: string; done: number; total: number }
-export type Milestone = { label: string; at: number }
 export type SkillSteps = {
   label: string
   done: number
@@ -80,72 +79,129 @@ export type SkillSteps = {
   mastered: boolean
 }
 
+export type Bon = { steps: number; level?: number; name?: string; next?: { name: string; left: number } }
+export type WeekTotals = { minutes?: number; steps: number; mastered: number }
+
 export type V4 = {
-  /** Per local day ("YYYY-MM-DD"). */
+  /** Per local day ("YYYY-MM-DD"), from `activity`. */
   days: Map<string, Day>
-  /** Some day carries minutes: the charts are in minutes. Otherwise they count passed steps. */
+  /** The last day `activity` sent (the engine's today): the charts end there. */
+  today?: string
+  /** `activity` arrived: until then the page shows no numbers (never a row of zeros that then jumps). */
+  activitySeen: boolean
+  /** activity.minutesTracked: the charts are in minutes. Otherwise they count passed steps. */
   minutesKnown: boolean
+  week?: WeekTotals
   passes: Pass[]
-  totals: { minutes?: number; steps?: number; lessons?: number }
-  bonPassed?: number
+  totals: { minutes?: number; steps?: number; lessons?: number; mastered?: number }
+  /** The engine's bon (`bon`), when it sent one. */
+  bon?: Bon
   /** Minutes the Keep fresh review takes, when the engine says. */
   reviewMinutes?: number
   goal?: Goal
+  /** From `plans`. */
   plans: Plan[]
-  milestones: Milestone[]
   skills: SkillSteps[]
 }
 
 export const EMPTY_V4: V4 = {
   days: new Map(),
+  activitySeen: false,
   minutesKnown: false,
   passes: [],
   totals: {},
   plans: [],
-  milestones: [],
   skills: []
 }
 
-/** The additive v4 fields of a `progress` payload. Anything malformed is dropped, never filled in. */
-export function readV4(raw: unknown): V4 {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return EMPTY_V4
+export type ActivityPart = Pick<V4, 'days' | 'today' | 'activitySeen' | 'minutesKnown' | 'week' | 'passes' | 'totals'>
+
+/** The `activity` message (UI-V4 section 1). Anything malformed is dropped, never filled in. */
+export function readActivity(raw: unknown): ActivityPart {
   const m = rec(raw)
+  const minutesKnown = m.minutesTracked === true
   const days = new Map<string, Day>()
-  let minutesKnown = false
-  for (const x of list(m.activity)) {
+  let today: string | undefined
+  for (const x of list(m.days)) {
     const r = rec(x)
     const date = typeof r.date === 'string' && DAY_RE.test(r.date) ? r.date : ''
     if (!date) continue
     const have = days.get(date) ?? { steps: 0 }
-    have.steps += count(r.reps) ?? count(r.steps) ?? 0
-    const min = count(r.minutes)
-    if (min !== undefined) {
-      minutesKnown = true
-      have.minutes = (have.minutes ?? 0) + min
-    }
+    have.steps += count(r.steps) ?? 0
+    if (minutesKnown) have.minutes = (have.minutes ?? 0) + (count(r.minutes) ?? 0)
     days.set(date, have)
+    if (!today || date > today) today = date
+  }
+  const w = rec(m.week)
+  const week: WeekTotals | undefined = Object.keys(w).length
+    ? {
+        minutes: minutesKnown ? count(w.minutes) : undefined,
+        steps: count(w.stepsPassed) ?? 0,
+        mastered: count(w.skillsMastered) ?? 0
+      }
+    : undefined
+  const t = rec(m.totals)
+  const totals = {
+    minutes: minutesKnown ? count(t.minutes) : undefined,
+    steps: count(t.stepsPassed),
+    lessons: count(t.lessonsFinished),
+    mastered: count(t.skillsMastered)
   }
   const passes: Pass[] = []
-  for (const x of list(Array.isArray(m.recent) ? m.recent : m.passed)) {
+  for (const x of list(m.recent)) {
     const r = rec(x)
-    const at = toMs(r.at ?? r.passedAt)
-    const step = plain(str(r.step) || str(r.title) || str(r.stepTitle))
+    const at = toMs(r.at)
+    const step = plain(str(r.stepTitle))
     if (!at || !step) continue
     passes.push({
       at,
       step,
-      skill: plain(str(r.skill, 60)) || undefined,
-      lesson: plain(str(r.lesson, 120) || str(r.lessonTitle, 120)) || undefined
+      skill: plain(str(list(r.skills)[0], 60)) || undefined,
+      lesson: plain(str(r.lessonTitle, 120)) || undefined
     })
   }
   passes.sort((a, b) => b.at - a.at)
-  const t = rec(m.totals)
-  const totals = {
-    minutes: count(t.minutes),
-    steps: count(t.steps),
-    lessons: count(t.lessons)
+  return { days, today, activitySeen: true, minutesKnown, week, passes, totals }
+}
+
+/** The `bon` message (UI-V4 section 2). undefined when it carries no step count. */
+export function readBon(raw: unknown): Bon | undefined {
+  const m = rec(raw)
+  const steps = count(m.steps)
+  if (steps === undefined) return undefined
+  const n = rec(m.next)
+  const nextName = str(n.name, 40)
+  const left = count(n.left)
+  return {
+    steps,
+    level: count(m.level) || undefined,
+    name: str(m.name, 40) || undefined,
+    next: nextName && left !== undefined ? { name: nextName, left } : undefined
   }
-  const bonPassed = count(rec(m.bon).passed)
+}
+
+/** The `plans` message (UI-V4 section 3): the plans in progress, for the rail. */
+export function readPlans(raw: unknown): Plan[] {
+  const plans: Plan[] = []
+  for (const x of list(rec(raw).items)) {
+    const p = rec(x)
+    const title = plain(str(p.title, 120))
+    const total = count(p.total)
+    if (!title || !total) continue
+    plans.push({
+      id: str(p.id, 80) || undefined,
+      title,
+      done: Math.min(count(p.done) ?? 0, total),
+      total
+    })
+  }
+  return plans
+}
+
+/** What the engine's `progress` answer still carries for this page (the parts UI-V4 does not have yet). */
+export type ProgressPart = Pick<V4, 'reviewMinutes' | 'goal' | 'skills'>
+export function readV4(raw: unknown): ProgressPart {
+  const m = rec(raw)
   const reviewMinutes = count(rec(m.review).minutes) || undefined
   const g = rec(m.goal)
   const gTitle = plain(str(g.title, 120))
@@ -160,27 +216,6 @@ export function readV4(raw: unknown): V4 {
           eta: toMs(g.eta)
         }
       : undefined
-  const plans: Plan[] = []
-  for (const x of list(m.plans)) {
-    const p = rec(x)
-    const title = plain(str(p.title, 120))
-    const total = count(p.total)
-    if (!title || !total) continue
-    plans.push({
-      id: str(p.id, 80) || undefined,
-      title,
-      done: Math.min(count(p.done) ?? 0, total),
-      total
-    })
-  }
-  const milestones: Milestone[] = []
-  for (const x of list(m.milestones)) {
-    const r = rec(x)
-    const label = str(r.label, 80)
-    const at = toMs(r.at)
-    if (label && at) milestones.push({ label, at })
-  }
-  milestones.sort((a, b) => b.at - a.at)
   const skills: SkillSteps[] = []
   for (const tr of list(m.skills)) {
     for (const x of list(rec(tr).skills ?? rec(tr).items)) {
@@ -196,18 +231,23 @@ export function readV4(raw: unknown): V4 {
       })
     }
   }
-  return {
-    days,
-    minutesKnown,
-    passes,
-    totals,
-    bonPassed,
-    reviewMinutes,
-    goal,
-    plans,
-    milestones,
-    skills
+  return { reviewMinutes, goal, skills }
+}
+
+/** The newest pass per skill label (lowercase), from `activity.recent`: a track's "Last practiced". */
+export function lastPassed(v: V4): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const p of v.passes) {
+    const k = p.skill?.toLowerCase()
+    if (k && (out.get(k) ?? 0) < p.at) out.set(k, p.at)
   }
+  return out
+}
+
+/** bon's passed steps to show: the engine's count, else the local one; never 0 once activity counts passed steps. */
+export function bonSteps(v: V4, local: number): number {
+  const n = v.bon?.steps ?? local
+  return n > 0 ? n : (v.totals.steps ?? 0)
 }
 
 // ---- charts -----------------------------------------------------------------------------------------------------
@@ -223,28 +263,32 @@ export type Bar = {
 const value = (d: Day | undefined, minutes: boolean): number => (d ? (minutes ? (d.minutes ?? 0) : d.steps) : 0)
 const WEEKDAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-/** This week, Monday to Sunday: minutes (or steps) a day. Today is `now`; later days are `future`. */
+/** The day the charts end on: the last day `activity` sent (the engine's today), else today here. */
+export const chartEnd = (v: V4, now: number): number => (v.today ? (toMs(v.today) ?? now) : now)
+
+/** The last 7 days, ending on the engine's today (UI-V4: "the week chart is the last 7"): minutes (or steps) a day. */
 export function weekBars(v: V4, now: number): Bar[] {
-  const mon = mondayOf(now)
-  const today = dayKey(now)
-  return WEEKDAY.map((label, i) => {
-    const t = addDays(mon, i)
+  const end = dayStart(chartEnd(v, now))
+  const out: Bar[] = []
+  for (let i = 6; i >= 0; i--) {
+    const t = addDays(end, -i)
     const key = dayKey(t)
-    return {
+    out.push({
       key,
-      label,
+      label: WEEKDAY[(new Date(t).getDay() + 6) % 7],
       value: value(v.days.get(key), v.minutesKnown),
-      now: key === today,
-      future: t > now
-    }
-  })
+      now: i === 0,
+      future: false
+    })
+  }
+  return out
 }
 
 const monthDay = (t: number): string => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
 /** The last 12 weeks, oldest first: minutes (or steps) a week. Labels on weeks 1, 5 and 9 and "Now" on the last. */
 export function weeks12(v: V4, now: number): Bar[] {
-  const thisMon = mondayOf(now)
+  const thisMon = mondayOf(chartEnd(v, now))
   const out: Bar[] = []
   for (let w = 11; w >= 0; w--) {
     const start = addDays(thisMon, -7 * w)
@@ -282,14 +326,16 @@ export const hm = (min: number): { h: number; m: number } => ({
   m: Math.round(min % 60)
 })
 
-export type WeekNums = { minutes?: number; steps: number }
+export type WeekNums = { minutes?: number; steps: number; mastered?: number }
+/** This week's numbers: the engine's `activity.week` when sent, else summed from the week's bars. */
 export function weekNums(v: V4, now: number): WeekNums {
+  if (v.week) return { minutes: v.week.minutes, steps: v.week.steps, mastered: v.week.mastered }
   const bars = weekBars(v, now)
   const steps = bars.reduce((n, b) => n + (v.days.get(b.key)?.steps ?? 0), 0)
   const minutes = v.minutesKnown ? bars.reduce((n, b) => n + (v.days.get(b.key)?.minutes ?? 0), 0) : undefined
   return { minutes, steps }
 }
-/** All-time numbers: the engine's totals when sent, otherwise summed from what was sent (never guessed). */
+/** All-time numbers: the engine's `activity.totals` when sent, otherwise summed from the days (never guessed). */
 export function allNums(v: V4, lessonsFinished: number): { minutes?: number; steps: number; lessons: number } {
   let steps = 0
   let minutes = 0

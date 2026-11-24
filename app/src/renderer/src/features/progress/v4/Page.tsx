@@ -32,13 +32,16 @@ import { Scroller } from '../../shell/pages/Column'
 import {
   aboutHr,
   allNums,
+  bonSteps,
   closest,
+  EMPTY_V4,
   dayLabel,
   freshLabel,
   GOAL_PICKS,
   goalLine,
   guide,
   hm,
+  lastPassed,
   plain,
   STARTER_PLANS,
   STARTERS,
@@ -50,7 +53,7 @@ import {
   type Starter,
   type V4
 } from './model'
-import { useV4 } from './store'
+import { requestV4, useV4 } from './store'
 
 const RAIL_W = 300
 const TWO_COL = 860
@@ -380,8 +383,9 @@ function trackNext(t: DashTrack): string {
   const needs = prereqs(t, locked.id).map(label)
   return needs.length ? `Needs ${needs.length > 1 ? `${needs.slice(0, -1).join(', ')} and ${needs[needs.length - 1]}` : needs[0]}` : ''
 }
-const trackLast = (t: DashTrack): number | undefined => {
-  const ts = t.skills.map((s) => s.lastPracticedAt ?? 0).filter(Boolean)
+/** A track's last practice: its skills' lastPracticedAt, or the newest `activity.recent` pass of one of its skills. */
+const trackLast = (t: DashTrack, passed: Map<string, number>): number | undefined => {
+  const ts = t.skills.map((s) => Math.max(s.lastPracticedAt ?? 0, passed.get(s.label.toLowerCase()) ?? 0)).filter(Boolean)
   return ts.length ? Math.max(...ts) : undefined
 }
 
@@ -443,7 +447,8 @@ const rr: CSSProperties = {
 
 function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number; stacked: boolean }): ReactNode {
   const steps = useGrowth((g) => g.steps)
-  const passed = v4.bonPassed ?? steps
+  // The engine's bon (`bon`), else the local count; never Seed at 0 while activity counts passed steps.
+  const passed = bonSteps(v4, steps)
   const near = closest(v4)
   const fresh = (data?.review?.items ?? []).slice(0, 3)
   return (
@@ -563,18 +568,7 @@ function Cover({ kind, w }: { kind: Starter['cover']; w: number }): ReactNode {
 }
 
 function FirstMain({ wide }: { wide: boolean }): ReactNode {
-  const empty = weekBars(
-    {
-      days: new Map(),
-      minutesKnown: true,
-      passes: [],
-      totals: {},
-      plans: [],
-      milestones: [],
-      skills: []
-    },
-    Date.now()
-  )
+  const empty = weekBars({ ...EMPTY_V4, minutesKnown: true }, Date.now())
   return (
     <>
       <Sec first link="minutes a day">
@@ -745,19 +739,26 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
   const minutes = v4.minutesKnown
   const wk = weekNums(v4, now)
   const all = allNums(v4, data.completed.length)
-  const masteredWeek = data.tracks.reduce((n, t) => n + t.skills.filter((s) => s.masteredAt && s.masteredAt >= now - 7 * 86_400_000).length, 0)
+  const masteredWeek = wk.mastered ?? data.tracks.reduce((n, t) => n + t.skills.filter((s) => s.masteredAt && s.masteredAt >= now - 7 * 86_400_000).length, 0)
   const tracks = data.tracks
+  const passed = lastPassed(v4)
   const wkBars = weekBars(v4, now)
   const w12 = weeks12(v4, now)
-  // Never rows of zeros: the 12 weeks and their numbers show once there is something in them.
-  const any12 = w12.some((b) => b.value > 0)
+  // Never rows of zeros: the week waits for `activity` (no empty chart that then fills), and the 12 weeks and their
+  // numbers show once there is something in them.
+  const seen = v4.activitySeen
+  const any12 = seen && w12.some((b) => b.value > 0)
   return (
     <>
-      <Sec first link={minutes ? 'minutes a day' : 'steps a day'}>
-        This week
-      </Sec>
-      <Bars bars={wkBars} minutes={minutes} weekly={false} height={150} empty={!wkBars.some((b) => b.value > 0)} />
-      {wkBars.some((b) => b.value > 0) && (
+      {seen && (
+        <>
+          <Sec first link={minutes ? 'minutes a day' : 'steps a day'}>
+            This week
+          </Sec>
+          <Bars bars={wkBars} minutes={minutes} weekly={false} height={150} empty={!wkBars.some((b) => b.value > 0)} />
+        </>
+      )}
+      {seen && wkBars.some((b) => b.value > 0) && (
         <Stats
           items={[
             ...(wk.minutes !== undefined
@@ -795,7 +796,7 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
       )}
       {tracks.length > 0 && (
         <>
-          <Sec link="Skills" onLink={() => setPage('skills')}>
+          <Sec first={!seen} link="Skills" onLink={() => setPage('skills')}>
             Tracks
           </Sec>
           <Table
@@ -805,7 +806,7 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
             rowH={40}
             rows={tracks.map((t) => {
               const next = trackNext(t)
-              const last = trackLast(t)
+              const last = trackLast(t, passed)
               const done = t.total > 0 && t.mastered >= t.total
               return [
                 <b key="t" style={{ fontWeight: 550, color: color.text }}>
@@ -882,6 +883,7 @@ export function ProgressV4(): ReactNode {
   const [ref, w] = useWidth<HTMLDivElement>()
   useEffect(() => {
     void requestDashboard()
+    requestV4()
   }, [connected, hello])
 
   const mastered = data?.tracks.reduce((n, t) => n + t.mastered, 0) ?? 0
