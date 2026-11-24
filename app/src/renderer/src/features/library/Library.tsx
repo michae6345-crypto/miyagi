@@ -371,7 +371,9 @@ function LibraryList(): ReactNode {
   const going = items.filter(inProgress)
   const done = items.filter(finished)
   const ready = items.filter((i) => !inProgress(i) && !finished(i))
-  const cols = colsFor(w)
+  // A column with nothing to say on any row (no lesson from a plan yet, no dates from the engine) is left out.
+  const fit = colsFor(w)
+  const cols: Cols = { ...fit, plan: fit.plan && items.some((i) => !!planOf(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.openedAt ?? i.passedAt ?? i.updatedAt)) }
   const cardCols = w < 640 ? 2 : 4
   const planCols = w < 760 ? 1 : 2
   const fresh = s.loaded && s.items.length === 0 && mine.length === 0

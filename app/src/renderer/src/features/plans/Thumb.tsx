@@ -171,7 +171,7 @@ export function Thumb({ art, w, h, radius }: { art: Art; w: number | string; h?:
         aspectRatio: h ? undefined : '16 / 9',
         borderRadius: radius ?? radius2.control,
         background: dark ? brand.ink : surface.row,
-        boxShadow: dark ? undefined : `inset 0 0 0 1px ${surface.border}`,
+        boxShadow: `inset 0 0 0 1px ${surface.border}`,
         color: color.text
       }}
     >
