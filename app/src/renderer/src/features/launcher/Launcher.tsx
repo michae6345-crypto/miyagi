@@ -440,10 +440,30 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       keyFocus.current = false
       input.current?.focus({ preventScroll: true })
     }
+    // A control Tab focused can unmount under it (the step changes and its questions with it, a cached or library row
+    // re-renders): focus then falls to <body> and typing, Enter and Tab stop reaching the panel. Once the dust settles,
+    // if focus is no longer in the panel, the field takes the keyboard back.
+    let frame = 0
+    const lost = (e: FocusEvent): void => {
+      if (!keyFocus.current) return
+      if (e.relatedTarget instanceof Node && content.current?.contains(e.relatedTarget)) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (!keyFocus.current) return
+        const at = document.activeElement
+        if (!at || at === document.body || !content.current?.contains(at)) {
+          keyFocus.current = false
+          input.current?.focus({ preventScroll: true })
+        }
+      })
+    }
     document.addEventListener('focusin', keep)
+    document.addEventListener('focusout', lost, true)
     document.addEventListener('pointerdown', press, true)
     return () => {
+      cancelAnimationFrame(frame)
       document.removeEventListener('focusin', keep)
+      document.removeEventListener('focusout', lost, true)
       document.removeEventListener('pointerdown', press, true)
     }
   }, [phase])
@@ -707,7 +727,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('sending')
   }
 
-  /** During a lesson, Tab flips between asking about this step and starting a new lesson. */
+  /** During a lesson, ⌥Tab (Ctrl+Tab on Windows; keys.isFlipKey) flips between asking about this step and starting a new lesson. */
   const switchMode = (): void => {
     if (!lesson.hasLesson || phaseRef.current !== 'open') return
     setMode((m) => (m === 'ask' ? 'search' : 'ask'))
