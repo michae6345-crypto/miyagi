@@ -10,6 +10,7 @@
 import type { Activity, LessonTool, LibraryItem, PlanState } from '../../../../../../../shared/contracts/events'
 import { DAY_MS, dayKey, mondayOf } from '../../dashboard/model'
 import type { DashData } from '../../dashboard/types'
+import type { SkillGraph } from '../../skills/model'
 
 // ---- the view model ------------------------------------------------------------------------------------------------
 
@@ -262,6 +263,14 @@ export function fromContract(i: { activity?: Activity; plans?: PlanState[]; name
     if (g?.project) out.goal = { title: g.project.title, done: g.done, total: g.total, unit: 'lessons', minutesLeft: g.minutesLeft ?? undefined }
   }
   return out
+}
+
+/**
+ * skills/planGoal.ts usePlanGoal's rule: the plan's goal (fromContract) stands in for the skill graph's goal only when
+ * that one is inferred (the learner never picked one), and only when it counts something.
+ */
+export function planGoalFor(g: SkillGraph | undefined, goal: GoalView | undefined): GoalView | undefined {
+  return g?.goal?.inferred && goal?.total ? goal : undefined
 }
 
 /** "Ends with a desk lamp, modeled and rendered" (a catalog plan's project, for Start here). */

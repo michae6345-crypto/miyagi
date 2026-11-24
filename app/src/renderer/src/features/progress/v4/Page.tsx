@@ -27,6 +27,7 @@ import { canReview, requestDashboard, startGoal, startReview, startSaved, useDas
 import type { DashData, DashTrack } from '../../dashboard/types'
 import { openLauncher } from '../../library/Library'
 import { useLibrary } from '../../library/store'
+import { useAskPlanGoal, usePlanGoal } from '../../skills/planGoal'
 import { useSkillGraph } from '../../skills/store'
 import { setPage } from '../../shell/store'
 import { PageColumn } from '../../shell/ui'
@@ -47,6 +48,7 @@ import {
   hm,
   lastPassed,
   plain,
+  railGoal,
   STARTER_PLANS,
   STARTERS,
   weekBars,
@@ -454,8 +456,11 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
   // The engine's bon (`bon`), else the local count; never Seed at 0 while activity counts passed steps.
   const passed = bonSteps(v4, steps)
   // The engine's own goal / need / review first; else the skill graph the Skills and Home pages draw (QA R3-04).
-  const graph = fromGraph(useSkillGraph(now))
-  const goal = v4.goal ?? graph.goal
+  const sg = useSkillGraph(now)
+  const graph = fromGraph(sg)
+  // One goal across Home, Skills and here (QA R2-02): an inferred graph goal gives way to the plan's project, as on Skills.
+  useAskPlanGoal()
+  const goal = railGoal(v4.goal, usePlanGoal(sg), graph.goal)
   const own = closest(v4)
   const near = own.length ? own : graph.near
   const review = (data?.review?.items ?? []).slice(0, 3)
@@ -480,7 +485,7 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
             </div>
             <div className="flex justify-between gap-[12px]" style={{ fontSize: 13, color: color.label, ...num }}>
               <span className="whitespace-nowrap">
-                {goal.mastered} of {goal.total} skills
+                {goal.mastered} of {goal.total} {goal.unit ?? 'skills'}
               </span>
               <span className="truncate">{goalLine(goal)}</span>
             </div>

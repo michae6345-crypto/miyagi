@@ -4,7 +4,7 @@
  * pages then state one goal the same way (QA R2-02): "Goal A network that finds a circle · 3 of 9 lessons".
  */
 import { useMemo } from 'react'
-import { fromContract, type GoalView } from '../library/home/data'
+import { fromContract, planGoalFor, type GoalView } from '../library/home/data'
 import { useAskV4, useV4 } from '../library/home/v4'
 import type { SkillGraph } from './model'
 
@@ -13,7 +13,7 @@ export function usePlanGoal(g: SkillGraph | undefined): GoalView | undefined {
   const activity = useV4((s) => s.activity)
   const plans = useV4((s) => s.plans)
   const goal = useMemo(() => fromContract({ activity, plans }).goal, [activity, plans])
-  return g?.goal?.inferred && goal?.total ? goal : undefined
+  return planGoalFor(g, goal)
 }
 
 /** Asks for the plans (and the week) when Skills opens on its own, as Home does. */

@@ -18,6 +18,7 @@
  * Nothing is made up: a part that is missing stays empty and the page leaves it out (or shows steps where minutes
  * aren't known). Times are epoch seconds, epoch ms or ISO text; here they are epoch ms.
  */
+import type { GoalView } from '../../library/home/data'
 import type { SkillGraph } from '../../skills/model'
 
 export const DAY_MS = 86_400_000
@@ -69,6 +70,8 @@ export type Goal = {
   title: string
   mastered: number
   total: number
+  /** What the count counts ("lessons" for a plan's project, as Home says it); absent: skills. */
+  unit?: string
   minutesLeft?: number
   eta?: number
 }
@@ -404,7 +407,7 @@ export type FreshRow = { key: string; label: string; lastAt?: number; when?: str
 /**
  * The rail's Goal, Closest to mastered and Keep fresh from the skill graph (progress.graph, the one the Skills and Home
  * pages draw), for an engine whose `progress` carries no goal / need / review of its own (QA R3-04). The goal is the
- * graph's (picked or inferred, as the Skills page names it); closest are practicing skills by evidence (steps passed
+ * graph's (picked or inferred); an inferred one gives way to the plan's goal in railGoal, as on Skills; closest are practicing skills by evidence (steps passed
  * of the steps behind it); keep fresh are the graph's keepFresh ids.
  */
 export function fromGraph(g: SkillGraph | undefined, n = 3): { goal?: Goal; near: SkillSteps[]; fresh: FreshRow[] } {
@@ -421,6 +424,17 @@ export function fromGraph(g: SkillGraph | undefined, n = 3): { goal?: Goal; near
     .slice(0, n)
     .map((s) => ({ key: s.id, label: plain(s.label), lastAt: s.lastPracticedAt ?? s.masteredAt, dueAt: s.dueAt }))
   return { goal, near, fresh }
+}
+
+/**
+ * The rail's one goal (QA R2-02, R3-04): the engine's own `progress.goal`; else the goal Home and Skills name for an
+ * inferred graph goal (skills/planGoal.ts usePlanGoal: the plan's project, counted in lessons); else the graph's goal
+ * (picked on Skills, or inferred with no plan project to stand in for it).
+ */
+export function railGoal(own: Goal | undefined, plan: GoalView | undefined, graph: Goal | undefined): Goal | undefined {
+  if (own) return own
+  if (plan && plan.total > 0) return { title: plan.title, mastered: Math.min(plan.done, plan.total), total: plan.total, unit: plan.unit, minutesLeft: plan.minutesLeft }
+  return graph
 }
 
 // ---- first run --------------------------------------------------------------------------------------------------

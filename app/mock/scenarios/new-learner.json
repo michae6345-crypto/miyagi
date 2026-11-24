@@ -4,7 +4,8 @@
   "connect": "newlearner_hello",
   "progress.get": "newlearner_progress",
   "library.list": "newlearner_library",
-  "set_goal": "newlearner_progress"
+  "set_goal": "newlearner_progress",
+  "bon.get": "newlearner_bon"
  },
  "segments": {
   "newlearner_hello": [
@@ -23,7 +24,8 @@
       "progress.get",
       "panel.state",
       "set_goal",
-      "skills.ack"
+      "skills.ack",
+      "bon.get"
      ]
     }
    }
@@ -1232,6 +1234,24 @@
       },
       "portfolio": []
      }
+    }
+   }
+  ],
+  "newlearner_bon": [
+   {
+    "wait": 60,
+    "type": "bon",
+    "payload": {
+     "steps": 31,
+     "level": 5,
+     "name": "Budding",
+     "next": {
+      "level": 6,
+      "name": "In bloom",
+      "at": 40,
+      "left": 9
+     },
+     "fraction": 0.4
     }
    }
   ]
