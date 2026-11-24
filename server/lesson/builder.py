@@ -15,7 +15,7 @@ from pathlib import Path
 
 import os
 
-from . import app_lesson, budget, claude, first_step, gemini, links, materials, timing, transcript
+from . import app_lesson, batched, budget, claude, first_step, gemini, links, materials, timing, transcript
 from .transcript import parse_ts  # noqa: F401  (re-exported: claude.py, progressive.py, tests use builder.parse_ts)
 from .schema import (
     CHECK_TYPES,
@@ -54,6 +54,7 @@ _material_urls: contextvars.ContextVar = contextvars.ContextVar("lesson_material
 # this build's captions + linked code, fetched from the start while the lesson caches are asked (_start_prefetch)
 _prefetched: contextvars.ContextVar = contextvars.ContextVar("lesson_prefetched", default=None)
 _first: contextvars.ContextVar = contextvars.ContextVar("lesson_first_step", default=None)  # first_step.FirstStep
+_batched: contextvars.ContextVar = contextvars.ContextVar("lesson_batched", default=None)  # batched.BatchedAdapt
 
 
 def _emit(stage: str, message: str = "") -> None:
@@ -350,7 +351,10 @@ async def _build_lesson_impl(
     first = (first_step.FirstStep(url=source_url, vid=vid, goal=goal, workdir=workdir, info=info, key=key,
                                   on_update=on_update, transcript_only=transcript_only)
              if fast and on_update is not None and (transcript_only or engines() == ["claude"]) else None)
-    tokens = (_prefetched.set(pre), _first.set(first))
+    # the adapt pass's first round starts batch by batch as the step details land (batched.py)
+    bat = (batched.BatchedAdapt(goal=goal, info=info, first=first, batch=ADAPT_BATCH, vid=vid)
+           if fast and batched.enabled() and (transcript_only or engines() == ["claude"]) else None)
+    tokens = (_prefetched.set(pre), _first.set(first), _batched.set(bat))
     try:
         if cache and not (refresh or readapt):
             hit = path if path.is_file() else find_cached(vid, workdir, info)
@@ -486,9 +490,34 @@ async def _build_lesson_impl(
     finally:
         _prefetched.reset(tokens[0])
         _first.reset(tokens[1])
+        _batched.reset(tokens[2])
+        if bat is not None:
+            bat.close()
         _stop_prefetch(pre)
         if first is not None:
             first.close()
+
+
+class _DetailHooks:
+    """claude.DETAIL_HOOKS for both watchers of the per-step detail calls: step 1 first (its steps go first) and the
+    batched adapt pass. Neither may break the build: each hook's own errors are its own."""
+
+    def __init__(self, first, bat) -> None:
+        self.first, self.bat = first, bat
+
+    def segment(self, seg: dict) -> set[int]:
+        if self.bat is not None:
+            try:
+                self.bat.segment(seg)
+            except Exception as e:  # noqa: BLE001
+                log.warning("batched adapt hook (segment) failed: %s", e)
+        return self.first.segment(seg) if self.first is not None else set()
+
+    def detail(self, i: int, step: dict) -> None:
+        if self.first is not None:
+            self.first.detail(i, step)  # step 1 first: it may start building now
+        if self.bat is not None:
+            self.bat.detail(i, step)
 
 
 def _draft_cached(vid: str, goal: str) -> bool:
@@ -725,9 +754,13 @@ async def _watch(url: str, vid: str, goal: str, *, transcript_only: bool = False
         first = _first.get() if order == ["claude"] else None  # step 1 first: never while Gemini races this draft
         if first is not None:
             first.video_info = info
+        bat = _batched.get() if order == ["claude"] else None
+        if bat is not None:
+            bat.video_info = info
+        both = _DetailHooks(first, bat) if (first is not None or bat is not None) else None
         last: Exception | None = None
         for _attempt in range(2):
-            hooks = claude.DETAIL_HOOKS.set(first)
+            hooks = claude.DETAIL_HOOKS.set(both)
             try:
                 draft = normalize_draft(await claude.watch_transcript(info, goal))
                 break
@@ -968,7 +1001,17 @@ async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] 
         ids = {st["index"] for st in batch}
         return [p for p in feedback if not (m := _STEP_PROBLEM.match(p)) or int(m.group(1)) in ids] or None
 
-    results = await asyncio.gather(*(claude.adapt_checks(goal, b, summary, fb_for(b)) for b in batches), return_exceptions=True)
+    bat = _batched.get() if not feedback else None  # round 1: batches started as their details landed (batched.py)
+    if bat is not None:
+        batches = bat.layout(steps) or batches
+
+    async def one(b: list[dict]):
+        started = bat.take(batched.key(goal, b, summary)) if bat is not None else None
+        if started is not None:  # the very call this batch would make, already running (or done)
+            return await started
+        return await claude.adapt_checks(goal, b, summary, fb_for(b))
+
+    results = await asyncio.gather(*(one(b) for b in batches), return_exceptions=True)
     errs = [r for r in results if isinstance(r, BaseException)]
     if len(errs) == len(results):
         raise errs[0] if isinstance(errs[0], RuntimeError) else RuntimeError(str(errs[0]))

@@ -86,6 +86,15 @@ the adapt batches differ, so the wording can). A video whose title names an app 
 `build.upcomingSteps` for the starter files (`server.workspace.paths.lesson_steps`). The 4 Claude lanes are
 process-wide. `LESSON_FAST_FIRST_STEP=0` turns it all off.
 
+## Batched adapt (`batched.py`, lane eng-build-speed-2)
+The rest of the lesson's adapt pass no longer waits for every step's detail: each batch of 3 starts as soon as its own
+details are in, and retries its own lint problems right away (when the app-or-code choice is already fixed); the full
+build then lints the whole lesson and retries what is still wrong, as before. Same prompts, models and round-1 batches
+(Haiku calls unchanged); a retry is per batch (one more Sonnet call when failing steps sit in two batches). Offline
+model: the full lesson at ~31 s instead of ~36 s on a 10-minute video, ~38 s instead of ~41 s on the recorded build;
+same steps on the deterministic fake. Nothing streams early (a batch is final only after the whole-lesson lint).
+`LESSON_BATCHED_ADAPT=0` turns it off.
+
 ## Lesson shape rules (from S3's 5-tutorial eval)
 - Playable from an empty folder: step 1 sets up any code/data/repo state the tutorial prepared off camera.
 - Every step has at least one check any learner passes with their own names/data (tool output, API names);
