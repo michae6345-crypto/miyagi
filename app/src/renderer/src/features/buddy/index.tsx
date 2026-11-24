@@ -23,6 +23,7 @@ import { PointStage, POINT_STAGE } from './PointStage'
 import { ReachLayer } from './Reach'
 import { BuddyStage } from './Stage'
 import './wire' // the back and forth, wired to the engine and push to talk
+import './engine' // bon's passed-step count from the engine (after wire: a pass is counted before the engine's total)
 
 const preview = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('buddy') : null
 
