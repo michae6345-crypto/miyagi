@@ -83,6 +83,7 @@ class FirstStep:
 
         if self._hooked:  # a second watch_transcript in the same build (an unusable step list was asked again)
             self.stale = True
+            self.seg_latest, self.filled_latest = seg, {}  # what the lesson's other steps now are (upcoming())
             if self.task is None:
                 self._settle(None)
                 self._unreserve()
@@ -104,16 +105,25 @@ class FirstStep:
 
         titles = {"lesson": {"title": seg.get("title") or ""}, "sources": [{"title": (self.video_info or {}).get("title") or ""}]}
         self.app_wait = app_lesson.work_app(titles) is not None
+        if not self.app_wait:  # step 1's adapt call follows its detail at once: keep it a lane from now
+            self._take_reserve()  # (an app-titled video waits for every detail: the lane is kept only once step 1 starts)
+        return set(self.need)
+
+    def _take_reserve(self) -> None:
+        if self._reserve is not None or self.closed:
+            return
         try:
             self._reserve = claude._sem().reserve()
             self._reserve.__enter__()
         except RuntimeError:  # no running loop (never in a build)
             self._reserve = None
-        return set(self.need)
 
     def detail(self, i: int, step: dict) -> None:
         """Segment step i is filled (the per-step call returned). Step 1 starts building once all its pieces are in."""
-        if self.seg is None or self.stale or self.closed:
+        if self.stale and not self.closed:
+            getattr(self, "filled_latest", {})[i] = step
+            return
+        if self.seg is None or self.closed:
             return
         self.filled[i] = step  # also after step 1 started: the workspace's view of the other steps (upcoming())
         if self.task is not None or self._lock.done() or not self.need or not self.need <= set(self.filled):
@@ -123,6 +133,7 @@ class FirstStep:
 
             if not app_lesson.has_code({"steps": list(self.filled.values())}):
                 return  # not known yet whether this is an app lesson: wait for the other steps
+        self._take_reserve()
         self.task = asyncio.ensure_future(self._from_details())
         self.task.add_done_callback(_retrieve)
 
@@ -167,7 +178,11 @@ class FirstStep:
         detail is in), for the workspace's starter files: they must not hold what a later step has the learner write.
         Rides in graph["build"]["upcomingSteps"], which no event to the app carries."""
         keep = ("title", "instructions", "file", "checks", "precision_checks", "targets", "common_mistakes")
-        if self.seg is not None:
+        latest = getattr(self, "seg_latest", None)
+        if latest is not None:  # a second step list replaced the first: its steps after the first
+            filled = getattr(self, "filled_latest", {})
+            rows = [(i, filled.get(i) or s) for i, s in enumerate(latest.get("steps") or [], 1) if i > 1]
+        elif self.seg is not None:
             rows = [(i, self.filled.get(i) or s) for i, s in enumerate(self.seg.get("steps") or [], 1) if i not in self.need]
         else:
             rows = [(k, s) for k, s in enumerate(sent_steps or [], 2)]
