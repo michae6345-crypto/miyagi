@@ -11,9 +11,17 @@ python -m server.evals.checks            # scores + wrong verdicts, worst first
 python -m server.evals.checks -v         # plus every case
 python -m server.evals.checks -k jupyter # only ids containing "jupyter"
 python -m server.evals.checks --json
+python -m server.evals.checks --held-out # also the held-out wrong verdicts' rows (reviewing the set, not fixing)
 python -m server.evals.checks --write-baseline   # after the checks improve or cases are added
 python -m pytest server/evals/checks -q  # fails below baseline.json or on a new wrong verdict
 ```
+
+**Held-out cases** (`"heldOut": true`, about a third of each new batch) are scored and reported on their own and are
+**never used to tune a fix**. The train set (every other case) is what the scores, `failures`, `known_wrong` and the
+per-case pytest guard work on. The held-out set gets its own score line and the ids of its wrong verdicts only (no
+rows, no `why`, unless `--held-out`), its own block in `baseline.json` (`held_out`), and one aggregate pytest guard
+(accuracy / precision / recall must not drop) that names no case. A fix loop reads the train report; the held-out
+score says whether the fix generalises. A case never moves between the two sets.
 
 `pass` is the positive class. **Precision** = of the steps the checks passed, the share that were really done
 (a miss here is a *false pass*: the learner moves on with broken work, the worse error). **Recall** = of the steps
@@ -28,6 +36,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "kind": "jupyter",                        // jupyter | vscode | terminal | metric
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
   "expected": "not_yet",                    // pass | not_yet
+  "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
   "step": {"lesson": "demo/cache/lessons/5c0ea8a49f419487.json", "id": "s2"},  // or an inline step with "checks"
@@ -51,9 +60,39 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
 ```
 
 Lessons used: the MNIST Jupyter video lesson (`5c0ea8a49f419487`, with the learner's real notebook from desktop
-test 10), the calculator and NN-from-scratch text lessons, the Git, React/Vite and convection-PINN video lessons.
+test 10), the calculator and NN-from-scratch text lessons, the Git, React/Vite and convection-PINN video lessons,
+and two fixture lessons in `lessons/` written in the same step shape for multi-file projects: `py-modules.json` (the
+calculator split into operations.py / main.py / test_operations.py: an import, an F2 rename, pytest) and
+`ts-shop.json` (a React + TypeScript Vite app with a shared src/utils.ts: a named import, `npm run build`, Jest).
 
-## Baseline (56 cases, Nov 22 2026, origin/integration/live)
+## Round 1: multi-file VS Code projects (Nov 24 2026, 19 new cases, 6 held out)
+
+Imports across files, renamed symbols, tests passing, build output and dev servers, in Python and JS/TS/React.
+Train 69 (56 earlier + 13 new), held-out 6. Before any fix:
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (69) | 0.855 | 0.857 | 0.857 | 5 | 5 |
+| held-out (6) | 0.333 | 0.333 | 1.000 | 4 | 0 |
+
+Train wrong verdicts (`baseline.json` → `known_wrong`):
+
+- **FP `terminal-pymod-m5-pytest-one-failed`** / **FP `terminal-tsshop-t3-build-error-under-old-success`**: a bare
+  `failed` / `error` in a `screen_absent` pattern is exempted unless its line is an error form (`_absent_hit`), so
+  pytest's `1 failed, 2 passed` and tsc's `- error TS2305:` don't count; and `built in` from an earlier build in the
+  scrollback passes the newest (failed) one.
+- **FP `vscode-pymod-m2-import-in-test-tab`**: the two code patterns are matched on the whole VS Code window, so a
+  split editor supplies the import from test_operations.py and the call from main.py.
+- **FP `vscode-pymod-m4-stale-import`** / **FP `vscode-react-s3-no-default-export`**: per-line code patterns can't
+  see that a cross-file symbol no longer resolves (stale `import add` after the def was renamed; a default import of
+  a file with only a named export). The ImportError / browser console error on screen is not consulted.
+- **FN `vscode-pymod-m2-import-alias`**, **`-module-import`**, **`vscode-react-s3-aliased-import`**,
+  **`vscode-tsshop-t2-multi-named-import`**, **`vscode-react-s6-named-fragment`**: equivalent import forms
+  (`import x as y`, `import mod` + `mod.f()`, a default import under another name, several names in one `{ }`,
+  `<Fragment>` for `<>`) fail patterns that hard-code the video's form. (s3c2 "Header component rendered" is also
+  read as an output check because of the word "rendered".)
+
+## Baseline (56 cases, Nov 22 2026, origin/integration/live; historical, since fixed)
 
 | | acc | prec | rec | FP | FN |
 |---|---|---|---|---|---|

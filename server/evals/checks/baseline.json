@@ -1,10 +1,35 @@
 {
- "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a score drops below these or a case outside known_wrong gets a wrong verdict. Raise it when the checks get better.",
- "cases": 56,
- "accuracy": 1.0,
- "precision": 1.0,
- "recall": 1.0,
- "fp": 0,
- "fn": 0,
- "known_wrong": {}
+ "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
+ "cases": 69,
+ "accuracy": 0.8551,
+ "precision": 0.8571,
+ "recall": 0.8571,
+ "fp": 5,
+ "fn": 5,
+ "known_wrong": {
+  "terminal-pymod-m5-pytest-one-failed": "FP",
+  "terminal-tsshop-t3-build-error-under-old-success": "FP",
+  "vscode-pymod-m2-import-in-test-tab": "FP",
+  "vscode-pymod-m4-stale-import": "FP",
+  "vscode-react-s3-no-default-export": "FP",
+  "vscode-pymod-m2-import-alias": "FN",
+  "vscode-pymod-m2-module-import": "FN",
+  "vscode-react-s3-aliased-import": "FN",
+  "vscode-react-s6-named-fragment": "FN",
+  "vscode-tsshop-t2-multi-named-import": "FN"
+ },
+ "held_out": {
+  "cases": 6,
+  "accuracy": 0.3333,
+  "precision": 0.3333,
+  "recall": 1.0,
+  "fp": 4,
+  "fn": 0,
+  "known_wrong": {
+   "terminal-react-s1-server-stopped": "FP",
+   "terminal-tsshop-t4-jest-one-failed": "FP",
+   "vscode-pymod-m2-module-in-subfolder": "FP",
+   "vscode-tsshop-t2-renamed-export": "FP"
+  }
+ }
 }

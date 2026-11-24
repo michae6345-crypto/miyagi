@@ -1,0 +1,32 @@
+{
+ "id": "vscode-tsshop-t2-renamed-export",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Cart.tsx imports formatPrice and calls formatPrice(item.price) exactly as asked, but utils.ts exports formatCurrency (renamed earlier), so the import is unresolved: VS Code's Problems panel shows ts(2305) and the app won't build.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatCurrency(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "utils.ts",
+    "import { formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.price)}</li>)}</ul>)",
+    "}",
+    "PROBLEMS 1",
+    "Cart.tsx src/components 1",
+    "Module '\"../utils\"' has no exported member 'formatPrice'. ts(2305) [Ln 1, Col 10]"
+   ]
+  }
+ }
+}

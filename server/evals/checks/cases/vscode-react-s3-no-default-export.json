@@ -1,0 +1,37 @@
+{
+ "id": "vscode-react-s3-no-default-export",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Header.jsx has only a named export (export function Header) and no export default Header, so App's import Header from './Header.jsx' throws 'does not provide an export named default' and the page is blank (the browser console shows it). App.jsx alone looks finished.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "export function Header() {\n  return <header><h1>My website</h1></header>\n}\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\n\nfunction App() {\n  return (<Header/>)\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "Header.jsx",
+    "import Header from './Header.jsx'",
+    "function App() {",
+    "return (<Header/>)",
+    "}",
+    "export default App",
+    "export function Header() {",
+    "return <header><h1>My website</h1></header>",
+    "}"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "Console",
+    "Uncaught SyntaxError: The requested module '/src/Header.jsx' does not provide an export named 'default' (at App.jsx:1:8)"
+   ]
+  }
+ }
+}

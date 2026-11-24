@@ -10,6 +10,11 @@ the lesson folder in a temp dir, calls evaluate_gate exactly as the orchestrator
   recall    = of the steps that were done, how many the checks passed     (1 - recall: false "not yet"s)
 A false pass is the worse error (the learner moves on with broken work), so failures are listed false passes first.
 
+Held-out cases ("heldOut": true) are scored and reported on their own and never used to tune the checks: the train
+set's scores, wrong verdicts and baseline are what a fix works against; the held-out set only says whether a fix
+generalises. The report gives held-out scores and the ids of its wrong verdicts, never their rows (--held-out shows
+them, for a human reviewing the set, not for a fix loop).
+
 No model call, no network, no screen: pure functions on files written to a temp folder.
 """
 from __future__ import annotations
@@ -65,7 +70,14 @@ def validate_case(case: dict) -> list[str]:
         out.append("step must be an object")
     if not str(case.get("why") or "").strip():
         out.append("why (the reason for the expected verdict) is required")
+    if not isinstance(case.get("heldOut", False), bool):
+        out.append("heldOut must be true or false")
     return out
+
+
+def is_held_out(case: dict) -> bool:
+    """A held-out case: scored and reported apart, never used to tune a fix."""
+    return case.get("heldOut") is True
 
 
 _LESSONS: dict[str, dict] = {}
@@ -274,16 +286,34 @@ def failures(outcomes: list[Outcome]) -> list[Outcome]:
     return sorted((o for o in outcomes if not o.correct), key=lambda o: (order[o.label], o.case["id"]))
 
 
-def summary(outcomes: list[Outcome]) -> dict[str, Any]:
+def split(outcomes: list[Outcome]) -> tuple[list[Outcome], list[Outcome]]:
+    """(train, held-out) outcomes."""
+    return ([o for o in outcomes if not is_held_out(o.case)], [o for o in outcomes if is_held_out(o.case)])
+
+
+def _failure(o: Outcome) -> dict[str, Any]:
+    return {"id": o.case["id"], "label": o.label, "expected": o.expected, "got": o.got,
+            "kind": o.case["kind"], "trap": o.case.get("trap", "none"), "why": o.case["why"],
+            "rows": [f"{r['checkId']} {r['status']}: {r['label']} ({r['detail']})" for r in o.rows],
+            **({"error": o.error} if o.error else {})}
+
+
+def summary(outcomes: list[Outcome], held_out_detail: bool = False) -> dict[str, Any]:
+    """"overall", "by_kind", "by_trap" and "failures" are the TRAIN set (what a fix works against). "held_out" is
+    scored apart, with only the ids and labels of its wrong verdicts (their rows with ``held_out_detail``)."""
+    train, held = split(outcomes)
     return {
-        "overall": score(outcomes),
-        "by_kind": breakdown(outcomes, "kind"),
-        "by_trap": breakdown(outcomes, "trap"),
-        "failures": [{"id": o.case["id"], "label": o.label, "expected": o.expected, "got": o.got,
-                      "kind": o.case["kind"], "trap": o.case.get("trap", "none"), "why": o.case["why"],
-                      "rows": [f"{r['checkId']} {r['status']}: {r['label']} ({r['detail']})" for r in o.rows],
-                      **({"error": o.error} if o.error else {})}
-                     for o in failures(outcomes)],
+        "overall": score(train),
+        "by_kind": breakdown(train, "kind"),
+        "by_trap": breakdown(train, "trap"),
+        "failures": [_failure(o) for o in failures(train)],
+        "held_out": {
+            **score(held),
+            "by_kind": breakdown(held, "kind"),
+            "failures": [_failure(o) if held_out_detail else {"id": o.case["id"], "label": o.label}
+                         for o in failures(held)],
+        },
+        "all": score(outcomes),
     }
 
 
@@ -294,9 +324,22 @@ def _fmt_score(s: dict) -> str:
             f"(n={s['cases']} TP={s['tp']} TN={s['tn']} FP={s['fp']} FN={s['fn']})")
 
 
-def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None = None) -> str:
-    s = summary(outcomes)
+def _fmt_failure(f: dict) -> list[str]:
+    what = "FALSE PASS" if f["label"] == "FP" else "FALSE NOT-YET"
+    if "why" not in f:  # a held-out verdict without its detail
+        return [f"  [{what}] {f['id']}"]
+    out = [f"  [{what}] {f['id']} ({f['kind']}, trap={f['trap']}): expected {f['expected']}, got {f['got']}",
+           f"      why: {f['why']}"]
+    if f.get("error"):
+        out.append(f"      error: {f['error']}")
+    return out + [f"      {r}" for r in f["rows"]]
+
+
+def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None = None,
+           held_out_detail: bool = False) -> str:
+    s = summary(outcomes, held_out_detail=held_out_detail)
     lines = ["Step-check eval (server.checks.evaluate_gate, offline, no model call)", ""]
+    lines.append("train set (fixes are tuned on these):")
     lines.append(f"{'overall':<18}" + _fmt_score(s["overall"]))
     for k, v in s["by_kind"].items():
         lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
@@ -308,30 +351,46 @@ def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None 
     lines.append("")
     lines.append(f"{len(fails)} wrong verdict(s), worst first:" if fails else "no wrong verdicts")
     for f in fails:
-        what = "FALSE PASS" if f["label"] == "FP" else "FALSE NOT-YET"
-        lines.append(f"  [{what}] {f['id']} ({f['kind']}, trap={f['trap']}): expected {f['expected']}, got {f['got']}")
-        lines.append(f"      why: {f['why']}")
-        if f.get("error"):
-            lines.append(f"      error: {f['error']}")
-        for r in f["rows"]:
-            lines.append(f"      {r}")
+        lines += _fmt_failure(f)
+    h = s["held_out"]
+    lines.append("")
+    lines.append("held-out set (scored apart; NEVER tune a fix on these):")
+    if h["cases"]:
+        lines.append(f"{'held-out':<18}" + _fmt_score(h))
+        for k, v in h["by_kind"].items():
+            lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
+        lines.append(f"{len(h['failures'])} wrong verdict(s), worst first:" if h["failures"] else "no wrong verdicts")
+        for f in h["failures"]:
+            lines += _fmt_failure(f)
+    else:
+        lines.append("  no held-out cases")
+    lines.append("")
+    lines.append(f"{'all cases':<18}" + _fmt_score(s["all"]))
     if verbose:
         lines.append("")
-        lines.append("all cases:")
+        lines.append("all cases (H = held out):")
         for o in outcomes:
-            lines.append(f"  {o.label} {o.case['id']:<52} expected {o.expected:<8} got {o.got:<8} via {o.via}"
+            tag = "H" if is_held_out(o.case) else " "
+            lines.append(f"  {tag} {o.label} {o.case['id']:<52} expected {o.expected:<8} got {o.got:<8} via {o.via}"
                          f"  {o.ms:.0f} ms")
     return "\n".join(lines)
 
 
+_BASELINE_KEYS = ("cases", "accuracy", "precision", "recall", "fp", "fn")
+
+
 def baseline_from(outcomes: list[Outcome]) -> dict[str, Any]:
-    s = score(outcomes)
+    train, held = split(outcomes)
+    s, h = score(train), score(held)
     return {
-        "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a "
-                    "score drops below these or a case outside known_wrong gets a wrong verdict. Raise it when the "
-                    "checks get better.",
-        **{k: s[k] for k in ("cases", "accuracy", "precision", "recall", "fp", "fn")},
-        "known_wrong": {o.case["id"]: o.label for o in failures(outcomes)},
+        "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong "
+                    "are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case "
+                    "outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in "
+                    "aggregate (never tune a fix on it). Raise it when the checks get better.",
+        **{k: s[k] for k in _BASELINE_KEYS},
+        "known_wrong": {o.case["id"]: o.label for o in failures(train)},
+        "held_out": {**{k: h[k] for k in _BASELINE_KEYS},
+                     "known_wrong": {o.case["id"]: o.label for o in failures(held)}},
     }
 
 
@@ -342,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-k", help="only cases whose id contains this")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every case")
     ap.add_argument("--json", action="store_true", help="print the summary as JSON")
+    ap.add_argument("--held-out", action="store_true",
+                    help="also show the held-out wrong verdicts' rows (for reviewing the set, never for a fix loop)")
     ap.add_argument("--write-baseline", action="store_true", help=f"write {BASELINE.name} from this run")
     args = ap.parse_args(argv)
 
@@ -352,9 +413,9 @@ def main(argv: list[str] | None = None) -> int:
     outcomes = run_all(cases)
     wall = time.perf_counter() - t0
     if args.json:
-        print(json.dumps({**summary(outcomes), "wall_s": round(wall, 3)}, indent=1))
+        print(json.dumps({**summary(outcomes, held_out_detail=args.held_out), "wall_s": round(wall, 3)}, indent=1))
     else:
-        print(report(outcomes, verbose=args.verbose, wall_s=wall))
+        print(report(outcomes, verbose=args.verbose, wall_s=wall, held_out_detail=args.held_out))
     if args.write_baseline:
         if args.k:
             print("--write-baseline needs the full set (no -k)", file=sys.stderr)

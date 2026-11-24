@@ -1,0 +1,39 @@
+{
+ "id": "terminal-tsshop-t3-build-error-under-old-success",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The newest npm run build stopped at tsc (error TS2305: '../utils' has no exported member 'formatPrice', after formatPrice was renamed in utils.ts; 'Found 1 error.') and never reached vite build. The '✓ built in 812ms' higher up is the previous build's output.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t3"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatCurrency(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> tsc -b && vite build",
+    "vite v5.4.10 building for production...",
+    "✓ 38 modules transformed.",
+    "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+    "dist/assets/index-DiwrgTda.css    1.39 kB │ gzip:  0.72 kB",
+    "dist/assets/index-C8f3kq2v.js   143.36 kB │ gzip: 46.10 kB",
+    "✓ built in 812ms",
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> tsc -b && vite build",
+    "src/components/Cart.tsx:1:10 - error TS2305: Module '\"../utils\"' has no exported member 'formatPrice'.",
+    "1 import { formatPrice } from '../utils'",
+    "           ~~~~~~~~~~~",
+    "Found 1 error.",
+    "tripi@mac shop %"
+   ]
+  }
+ }
+}

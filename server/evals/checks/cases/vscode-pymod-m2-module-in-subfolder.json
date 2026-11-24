@@ -1,0 +1,39 @@
+{
+ "id": "vscode-pymod-m2-module-in-subfolder",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "main.py has the import and the call, but operations.py was created inside a utils/ folder, so 'from operations import add' can't find it: python3 main.py fails with ModuleNotFoundError (on screen).",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "utils/operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add\n\nprint(add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "utils",
+    "operations.py",
+    "main.py",
+    "main.py",
+    "from operations import add",
+    "print(add(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "Traceback (most recent call last):",
+    "File \"/Users/tripi/calc/main.py\", line 1, in <module>",
+    "from operations import add",
+    "ModuleNotFoundError: No module named 'operations'",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}
