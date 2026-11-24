@@ -1,0 +1,258 @@
+{
+ "id": "blender-lights-key-not-twice-fill",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials and light, lesson 7 (\"Area lights named Key, Fill and Rim exist and Key has at least twice Fill's power\"). The three area lights are there and named right, but Key is 400 W and Fill 300 W: the learner raised the fill to brighten the shadows, so the key is only 1.33 times the fill and the crate comes out flat-lit. Names and types are all a pattern can see.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Three-point lighting",
+  "file": "crate.blend",
+  "instructions": "Add three area lights and name them Key, Fill and Rim. Put the Key in front and to one side, the Fill on the other side, the Rim behind the crate. Give the Key at least twice the Fill's power (for example 500 W and 200 W). Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Key light",
+    "file": "crate.scene.json",
+    "pattern": "\"name\":\\s*\"Key\",\\s*\"type\":\\s*\"AREA\""
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "Fill light",
+    "file": "crate.scene.json",
+    "pattern": "\"name\":\\s*\"Fill\",\\s*\"type\":\\s*\"AREA\""
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "Rim light",
+    "file": "crate.scene.json",
+    "pattern": "\"name\":\\s*\"Rim\",\\s*\"type\":\\s*\"AREA\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Key",
+       "type": "LIGHT",
+       "location": [
+        4.0,
+        -4.0,
+        5.0
+       ],
+       "rotation_deg": [
+        45.0,
+        0.0,
+        45.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Fill",
+       "type": "LIGHT",
+       "location": [
+        -4.0,
+        -3.0,
+        3.0
+       ],
+       "rotation_deg": [
+        60.0,
+        0.0,
+        -50.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Rim",
+       "type": "LIGHT",
+       "location": [
+        0.0,
+        5.0,
+        4.0
+       ],
+       "rotation_deg": [
+        -50.0,
+        0.0,
+        180.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.6,
+         0.4,
+         0.2,
+         1.0
+        ],
+        "roughness": 0.7,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Key",
+       "type": "AREA",
+       "energy": 400.0,
+       "size": 2.0
+      },
+      {
+       "name": "Fill",
+       "type": "AREA",
+       "energy": 300.0,
+       "size": 2.0
+      },
+      {
+       "name": "Rim",
+       "type": "AREA",
+       "energy": 250.0,
+       "size": 1.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

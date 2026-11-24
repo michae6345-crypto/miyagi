@@ -1,0 +1,28 @@
+{
+ "id": "terminal-react-s1-other-project-server",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The Vite server on screen is another project's: the prompt is in ~/shop and npm prints '> shop@0.0.0 dev'. my-react-app was never scaffolded (no my-react-app/package.json), so the step's app isn't running; 'ready in' and localhost belong to the old project.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"scripts\": {\"dev\": \"vite\"}\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm run dev",
+    "> shop@0.0.0 dev",
+    "> vite",
+    "VITE v5.4.10  ready in 287 ms",
+    "➜  Local:   http://localhost:5173/",
+    "➜  Network: use --host to expose",
+    "➜  press h + enter to show help"
+   ]
+  }
+ }
+}

@@ -1,0 +1,31 @@
+{
+ "id": "autocad-toy-car-s3-export-dialog-stl",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done, by another road: the toy car's s3 asks to subtract the wheel wells and export an STL. The learner subtracted both cylinders, then used EXPORT and picked Lithography (*.stl) in the file dialog instead of typing STLOUT; AutoCAD asks the same \"Select solids or watertight meshes\" and wrote the file (1 found, no cancel). The STL exists; the word STLOUT never appears.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/autocad_toy_car.json",
+  "id": "s3",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "AutoCAD 2025": [
+    "Command: SUBTRACT",
+    "Select solids, surfaces, and regions to subtract from ..",
+    "Select objects: 1 found",
+    "Select solids, surfaces, and regions to subtract ..",
+    "Select objects: 1 found, 2 total",
+    "Command: EXPORT",
+    "Select solids or watertight meshes: 1 found",
+    "Select solids or watertight meshes:",
+    "Command:",
+    "Model",
+    "Layout1",
+    "Layout2"
+   ]
+  }
+ }
+}

@@ -37,9 +37,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
   "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
-  "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
-  "heldOut": false,                         // optional: true = scored apart, never used to tune the checks
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
   "step": {"lesson": "demo/cache/lessons/5c0ea8a49f419487.json", "id": "s2"},  // or an inline step with "checks"
                                             // optional "patch": {...}, "drop_checks": [ids], "adapt": true
@@ -74,6 +72,235 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
+
+The four round-2 case sets merged: 214 cases, 159 train + 55 held out. Every fix is general (no lesson ids, no case
+text); each has a regression test in `server/checks/tests/test_round2_fixes.py`. Fixed against the train cases only;
+the held-out wrong verdicts were never read (ids only) while fixing.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (159), before | 0.780 | 0.706 | 0.857 | 25 | 10 |
+| train (159), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (55), before | 0.455 | 0.382 | 0.591 | 21 | 9 |
+| held-out (55), after | 0.545 | 0.448 | 0.591 | 16 | 9 |
+
+Held-out: 5 wrong verdicts became right (one of the 15 new round-2 ones, four from round 1), none became wrong.
+
+What changed in `server/checks`:
+
+- **Scene dumps as the app evaluates them** (`model_files.scene_view`): an animated channel holds its keyframe's
+  value at the current frame (an unkeyed move is lost on the next frame change); a material in a slot no face uses
+  is not on the object; a body's sketch that is neither its tip nor used by a feature is an abandoned try; an Edit
+  mode step reads each object's mesh size (dimensions at scale 1). A second reading (`alt_views`): a primitive whose
+  scale was applied (scale 1, dimensions changed) has the scale its size means; a Radius r is a Diameter 2r. The step's
+  own comparison between two named things ("the Key at least twice the Fill's power") is checked on the dump
+  (`claims`, a gate row "Scene matches the step"). An STL the step prints must be a closed shell (`open_mesh`).
+  AutoCAD names (layer, block, style groups of a DXF) match in any case.
+- **Terminal history** (`blocks.py`): "is not a git command" is a failure; AutoCAD's UNDO takes back the commands it
+  names ("Everything has been undone": all of them); a match under a `git status` section other than the one the
+  label names ("untracked", "staged") doesn't count once a status listing is on screen; the step's command run with
+  the prompt in another folder of the lesson than its files' (and not one an earlier command made) doesn't count; a
+  test run that selects some tests (`::name`, `-k`, `--lf`, jest `-t`) is not the suite; a home-folder label wants
+  the prompt user's folder; an every / each / per label holds for every row of the pattern's shape; a command the
+  step names that failed last and never ran again (`git commit` -> "no changes added to commit") fails the step;
+  text the learner quoted in a command (a commit message) matches in any case.
+- **Notebooks**: a Markdown pattern (`"# `, `"## `, `"- `) on a Markdown step reads Markdown cells only, and a
+  "headings" label counts any level below the title; an exported notebook's HTML is read without its code inputs
+  unless the label is about code; a Keras fit whose last `Epoch k/N` has k < N is unfinished (pending; fail after an
+  error or a kernel crash); "The Kernel crashed" on screen fails a notebook step; a cell run after a restart without a
+  cell above it that sets up what it reads (the counts before its own all on cells above) fails ("The kernel has what
+  the cell needs"); a step whose code spans cells needs all of them run; a metric printed as bare `step value` rows
+  by the step's own `print(epoch, loss.item())` is read; a matrix drawn as a figure (`ConfusionMatrixDisplay`) reads
+  as numpy's printout from its OCR rows.
+- **Code across files** (`code_equiv.py`): a Python name used but never imported, defined in another lesson module,
+  fails "Imports resolve"; CommonJS `const { x } = require('./m')` is checked against `module.exports`; a relative
+  import of a file that doesn't exist fails; `const f = (a) =>` / `function` expressions read as `function f(a)`;
+  an import through a tsconfig `paths` alias reads as the relative import it means; a label naming a file that isn't
+  open on screen is read from that file on disk; a JSON config key the step's code puts in a section
+  (`compilerOptions.strict`) fails when it sits elsewhere.
+
+Held-out wrong after the fixes (25): ids in `baseline.json` → `held_out.known_wrong`; not read.
+
+## Round 2: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r2-0`)
+
+19 new cases (12 train, 7 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s5
+fit, s6 predict) and, inline, from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): Intro to Jupyter ("Write notes in Markdown cells", "Help, tab completion and
+magics", "Install a package and draw a chart", "Restart and run all", "Export and share the notebook"), PyTorch
+("Write the training loop", "Hold out data and measure accuracy", "Save and load a model", the sine-wave project's
+validation loss) and scikit-learn ("Score a classifier", "Cross-validation"), plus a "plot the training loss" step
+in the MNIST lesson's shape. Cell sources in the Markdown cases are saved as VS Code saves them (a list of lines).
+
+The traps: a fit the kernel crashed in (epoch 3's 0.9771 on screen, the model gone), a fit interrupted in epoch 2,
+accuracy that peaks above the bar then collapses (no NaN), a kernel restart that skipped the training cell before
+predict (its stale `[19]` beside `[1]`-`[4]`), headings typed as `#` comments in a code cell, a second `%timeit`
+cell never run, an HTML export with no outputs whose chart title is only in the code, validation loss that falls
+then climbs (overfitting). Done-but-odd: Run All with an empty trailing cell, `###` headings and `*` bullets, a loss
+printed with `print(epoch, loss.item())`, a confusion matrix drawn with `ConfusionMatrixDisplay`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (120: 108 earlier + 12 new) | 0.925 | 0.895 | 0.944 | 6 | 3 |
+| train, the 12 new | 0.250 | | | 6 | 3 |
+| held-out (34: 27 earlier + 7 new) | 0.382 | 0.318 | 0.538 | 15 | 6 |
+| held-out, the 7 new | 0.143 | | | 3 | 3 |
+
+Train wrong verdicts (all new; the 108 earlier train cases still score right):
+
+- **FP `jupyter-mnist-s5-kernel-crashed-epoch3`**: the metric is read from the notebook's last saved epoch line;
+  "The Kernel crashed while executing code" on screen and a fit that stops at `Epoch 4/5` are never weighed.
+- **FP `jupyter-mnist-s5-keyboard-interrupt-epoch2`**: the running accuracy of a half-done epoch passes; the cell's
+  `KeyboardInterrupt` error output is not read (s5 has no error check of its own).
+- **FP `jupyter-mnist-s6-restart-skipped-fit`**: nothing compares run counts across the cells the step depends on:
+  the predict cell's `[4]` after a training cell still at `[19]` means the model that predicted was never trained.
+- **FP `jupyter-markdown-headings-in-code-cell`**: `file_contains` over the raw .ipynb finds `"# ...` / `"## ...` in a
+  code cell's source; nothing ties a Markdown pattern to a Markdown cell.
+- **FP `jupyter-timeit-second-cell-not-run`**: the step's cells are found by its target (the first `%timeit` cell);
+  the second cell of the step's own code, typed but never run, is not one of them.
+- **FP `jupyter-export-html-chart-not-run`**: "Chart in the export" matches the chart's title in the exported code;
+  an export whose cells have no outputs (`jp-mod-noOutputs`, no `<img`) passes.
+- **FN `jupyter-markdown-level3-headings`**: `##\s` refuses `### The data`; heading level is not what the step asks.
+- **FN `jupyter-pytorch-xor-loss-printed-bare`**: the loss rows `0 0.2614...` don't fit `epoch N loss V`, so the
+  trend waits forever on a finished run.
+- **FN `jupyter-sklearn-confusion-matrix-plotted`**: an output check for numpy's `[[..]]` text can't see the same
+  3 by 3 counts drawn by `ConfusionMatrixDisplay` (an image output, OCR'd as rows of numbers).
+
+Seen right (train): the collapse to 0.1062 fails on the last epoch; the overfit sine run fails its trend (0.1585 ->
+0.1675); the empty trailing cell doesn't break "Restart and run all".
+
+Held-out wrong verdicts (ids only, in `baseline.json` → `held_out.known_wrong`):
+`jupyter-pytorch-save-untrained-after-restart`, `jupyter-pytorch-val-acc-on-train-loader`,
+`jupyter-timeit-second-uses-time` (FP); `jupyter-mnist-loss-curve-pandas-plot`,
+`jupyter-pip-resolver-notice-installed`, `jupyter-sklearn-cv-kfold-object` (FN).
+
+## Round 2: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r2-1`)
+
+20 new cases (13 train, 7 held out), no engine change: imports across files, renamed symbols, tests passing, build
+output and dev servers. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json` (t2, t3, t4), the React/Vite
+lesson (s1, s3, s6), and two inline steps written from Adrian's catalog plans in the lesson builder's shape: Intro
+to VS Code "Jump around and rename safely" (scaleRecipe defined in recipe-utils.js, called from scale.js, CommonJS)
+and Intro to TypeScript "Set up tsconfig with strict on" (strict true, `npx tsc` writes dist/index.js).
+
+Traps: a name called but not imported (a wrapper added instead of a rename), a `require` that still destructures the
+old name, a named import of a default-only export, a component imported from where it isn't (`./Header` vs
+`src/components/`), `"strict": true` outside `compilerOptions` (tsc ignores it), `npx vite build` run by hand to get
+past a tsc error, a Vite server from another project, a Jest suite that failed to compile under an all-green
+`Tests:` line, a pytest collection error under an older green run. Done-but-odd: a parenthesised multi-line import,
+a path alias (`@/utils`), a utils folder with an `index.ts`, an arrow-function definition, a rename finished in a
+file that isn't on screen, `Error` inside a passing test's name, `error` as a chunk file name, tsc's silent success
+after an earlier error.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121 = 108 + 13 new), before any fix | 0.934 | 0.914 | 0.946 | 5 | 3 |
+| train, the 13 new cases | 0.385 | 0.000 | 0.500 | 5 | 3 |
+| held-out (34 = 27 + 7 new) | 0.529 | 0.409 | 0.750 | 13 | 3 |
+
+Train wrong verdicts (in `baseline.json` → `known_wrong`), worst first:
+
+- **FP `terminal-react-s1-other-project-server`**: `ready in` / `localhost:` from a Vite server started in another
+  project (`~/shop`, `> shop@0.0.0 dev`); the lesson's project folder was never created.
+- **FP `vscode-pymod-m4-wrapper-not-imported`**: main.py calls `add_numbers` but imports only `add` (NameError on
+  screen); `_broken_imports` checks that imported names exist, not that called names are imported.
+- **FP `vscode-react-s3-header-in-components-unresolved`**: `import Header from './Header'` with the file in
+  `src/components/`; the unresolved path (and Vite's "Failed to resolve import" in the terminal) isn't weighed.
+- **FP `vscode-recipe-rename-require-stale`**: `const { scale } = require('./recipe-utils')` after the export became
+  `scaleRecipe`; CommonJS `require` destructuring isn't read as an import.
+- **FP `vscode-ts-tsconfig-strict-outside-compileroptions`**: the `"strict": true` regex matches a top-level key
+  tsc ignores.
+- **FN `vscode-pymod-m4-main-off-screen`**: F2 renamed every file on disk; `main.py calls add_numbers(2, 3)` is
+  graded on the screen (only operations.py open), not on main.py.
+- **FN `vscode-recipe-rename-arrow-fn`**: `const scaleRecipe = (recipe, factor) =>` fails `function\s+scaleRecipe`.
+- **FN `vscode-tsshop-t2-path-alias`**: `from '@/utils'` (a tsconfig / Vite alias for src/) fails the `'../utils'`
+  pattern.
+
+Held-out wrong verdicts: ids in `baseline.json` → `held_out.known_wrong` (one new); not read while fixing.
+
+## Round 2: terminal and git (Nov 24 2026, `claude/eng-evals-r2-2`, 20 new cases, 7 held out)
+
+Added after the round 1 fixes. These cases cover what round 1 did not: the Git lesson's s1 (config), s9 (pull + show) and s10
+(delete branches), `git add .` staging a file the step keeps untracked, a commit stopped by "Author identity
+unknown", a clone nested inside project1 (the lesson's own common mistake), a push of a branch whose commit
+never happened, a pull that failed on divergent branches, pytest run on one selected test, pip dropping
+tensorflow, a Jupyter server shut down after it started, and two inline steps in the form of Adrian's
+`intro-terminal` plan ("Find where you are": the *last* pwd is /Users/Shared; "Read files": wc -l shows 2
+for one note). Done-but-odd: `git config set` / `git config list` (git 2.46+), `gh repo clone`, a
+capitalised commit message, `git switch -c` on an existing branch and then `git switch`, a remote branch
+GitHub already deleted, `git branch -D` after a squash merge, pip "already satisfied" with Jupyter on port 8889,
+npm warnings and audit notices before Vite's ready line, and `cd ~ && pwd`.
+
+Before any fix (the engine is the round 1 fix state). Train is 121 cases (108 + 13 new) and held-out is 34 (27 + 7 new):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121) | 0.934 | 0.885 | 0.982 | 7 | 1 |
+| train terminal (46) | 0.826 | 0.731 | 0.950 | 7 | 1 |
+| train, new terminal cases only (13) | 0.385 | | | 7 | 1 |
+| held-out (34) | 0.471 | 0.391 | 0.692 | 14 | 4 |
+| held-out, new terminal cases only (7) | 0.571 | | | 2 | 1 |
+
+Wrong train verdicts, worst first. `baseline.json` → `known_wrong` lists them so the pytest guard stays green until a fix:
+
+- **FP `terminal-git-s1-alias-typo-not-a-command`**: `alias.i` matches only in `git confg ... alias.i init`, the
+  command line git refused ("is not a git command"). The `git config --list` that follows has no `alias.i`.
+- **FP `terminal-git-s3-add-dot-staged-waiting`**: `waiting.py` matches under "Changes to be committed". The check
+  wants it under "Untracked files".
+- **FP `terminal-git-s6-cloned-inside-project1`**: the clone ran with the prompt in project1. Both patterns match.
+- **FP `terminal-git-s8-pushed-without-committing`**: "no changes added to commit", then `* [new branch]
+  update-name -> update-name`. The push succeeded, but the edited heading was never committed.
+- **FP `terminal-pymod-m5-ran-one-test-only`**: `pytest test_operations.py::test_add` printed "1 passed" with exit 0.
+  A test that is never selected can't fail.
+- **FP `terminal-shell-pwd-last-is-users-shared`**: `^/Users/[^/\s]+$` matches the last pwd's `/Users/Shared`
+  (and the first pwd's home folder).
+- **FP `terminal-shell-wc-one-note-two-lines`**: one `3 notes/day1.txt` row is enough. The `2 notes/summit.txt`
+  row is never weighed.
+- **FN `terminal-git-s5-commit-capitalised-message`**: "Add waiting file" vs the pattern `add\s+waiting\s+file`.
+
+Held-out: new wrong verdicts are in `baseline.json` → `held_out.known_wrong` (ids only, not read when fixing).
+
+## Round 2: Blender and CAD file checks (Nov 24 2026, `claude/eng-evals-r2-3`, 20 new cases, 7 held out)
+
+From Adrian's plans on `origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender`, `blender-materials`,
+`blender-animation`, `intro-cad`, `cad-3d-printing`, `intro-fusion`, each lesson's `passes` line) and
+`docs/ui-next/INTEGRATIONS.md` (file level: headless `dump_scene.py` / `dump_fcstd.py` facts recorded as fixtures,
+the STL reader, AutoCAD's DXF), plus the donut and toy-car app-lesson fixtures at screen level. The dumps keep the
+round-1 shape; two fields are new and read by name: an object's `material_slots` (material, face count) and
+`animation` (an action's fcurves: data path, index, `[frame, value]` keyframes, interpolation), and the scene's
+`fps_base` / `frame_current` / FFmpeg output.
+
+Traps: the right numbers on the wrong sketch or body (an abandoned fully constrained sketch beside the 60 x 40 one
+that still slides; a 30 mm pad in a new Body, not joined), a material in a slot with no faces, light names right but
+the power ratio wrong, a key inserted before the move (the unkeyed location is saved), 23.98 fps stored as fps 24 +
+fps_base 1.001, a box stretched in Object mode read as a raised edge, a pattern that fails to recompute, an open
+STL with facets, the whole design in one STL, an UNDO > Back after LINE, a menu-search popup. Done-but-odd: scale
+applied (dimensions halved, scale 1), the mug never renamed from Cylinder, holes sized by Radius, a layer typed
+`Wheels`, fillets split over two features, an MP4 with Blender's frame-range name, EXPORT > Lithography for STLOUT.
+
+Before any fix (no engine change in this step):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (121 = 108 + 13 new) | 0.917 | 0.881 | 0.945 | 7 | 3 |
+| train blender (15) | 0.667 | 0.600 | 0.857 | 4 | 1 |
+| train cad (11) | 0.545 | 0.250 | 0.333 | 3 | 2 |
+| held-out (34 = 27 + 7 new) | 0.412 | 0.286 | 0.545 | 15 | 5 |
+
+Train wrong verdicts (all 10 are new cases; the 108 earlier train cases stay right):
+
+- **FP `blender-material-glossy-in-empty-slot`**: the glossy material is on the mug, in a slot with 0 faces.
+- **FP `blender-lights-key-not-twice-fill`**: Key 400 W, Fill 300 W; the names and types are all that is read.
+- **FP `blender-anim-second-key-before-move`**: both keys hold X 0; the saved location X 5 is an unkeyed edit.
+- **FP `blender-edit-wedge-cube-scaled-z`**: S Z 1.5 in Object mode gives the wedge's 2 x 2 x 3 and 8 vertices.
+- **FP `freecad-sketch-60x40-in-second-sketch`**: `"dof": 0` from the abandoned sketch, 60 / 40 from the other.
+- **FP `freecad-hook-stl-open-faces-only`**: an STL with 10 facets and an open top passes "watertight".
+- **FP `autocad-toy-car-s1-profile-undone`**: LINE in the history, then UNDO > Back, "Everything has been undone".
+- **FN `blender-transform-sphere-scale-applied`**: scale applied, so `[0.5, 0.5, 0.5]` is gone; dimensions are 1 m.
+- **FN `freecad-clearance-holes-by-radius`**: Radius 5.1 / 5.2 are the 10.2 / 10.4 mm holes.
+- **FN `autocad-dxf-wheels-layer-mixed-case`**: AutoCAD layer names ignore case; the DXF says `Wheels`.
+
+Held out: 7 new cases, 5 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
 ## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
 

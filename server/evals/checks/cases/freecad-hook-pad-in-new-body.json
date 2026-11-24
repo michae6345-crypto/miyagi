@@ -1,0 +1,207 @@
+{
+ "id": "freecad-hook-pad-in-new-body",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss, a classic FreeCAD slip: Intro to CAD lesson 6 (\"A second pad 30 mm long is joined to the plate\"). The learner clicked Create body before sketching the hook, so the 30 mm Pad001 lives in Body001, sketched on the XZ plane instead of the plate's face. Each body is one valid solid, but they are two separate parts that only overlap in space: the hook is not joined to the plate and would print as two pieces.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Add the hook",
+  "file": "hook.FCStd",
+  "instructions": "In the same Body, select the plate's front face, Create sketch, draw a 10 x 5 mm rectangle at the top edge and Pad it 30 mm out. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Second pad 30 mm",
+    "file": "hook.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Pad\",[^}]*\"Length\":\\s*30(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Joined: one solid",
+    "file": "hook.scene.json",
+    "pattern": "\"solids\":\\s*1\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hook.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "hook.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "hook.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Pad",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 12000.0,
+        "bound_box": [
+         60.0,
+         40.0,
+         5.0
+        ]
+       }
+      },
+      {
+       "name": "Body001",
+       "tip": "Pad001",
+       "features": [
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "XZ_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 10.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 5.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad001",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch001",
+         "Length": 30.0,
+         "Reversed": true,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 1500.0,
+        "bound_box": [
+         10.0,
+         30.0,
+         5.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

@@ -20,7 +20,10 @@ Pure: reads files in the lesson folder, never runs them.
 from __future__ import annotations
 
 import ast
+import builtins
+import json
 import os
+import symtable
 import re
 import time
 from pathlib import Path
@@ -103,7 +106,7 @@ def _stem(path: str) -> str:
     return p.parent.name if stem == "index" and p.parent.name else stem
 
 
-def _js_view(text: str) -> str:
+def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> str:
     extra: list[str] = []
     body = text
     for m in _JS_IMPORT.finditer(text):
@@ -123,16 +126,87 @@ def _js_view(text: str) -> str:
                 extra.append(f"import {{ {f} }} from {q}{path}{q}")
             body = re.sub(rf"(?<![\w.$]){re.escape(star)}\.(?=\w)", "", body)
     body = _FRAGMENT_CLOSE.sub("</>", _FRAGMENT_OPEN.sub("<>", body))
+    # a function bound to a name (const f = (a, b) => ..., const f = function (a, b) {...}) is `function f(a, b)`
+    for m in _JS_BOUND_FN.finditer(text):
+        params = next((g for g in m.groups()[1:] if g is not None), "")
+        extra.append(f"function {m.group(1)}({params}) {{")
+    if file is not None:  # an import through the project's path alias ('@/utils') is the relative import it stands for
+        for m in _JS_IMPORT.finditer(text):
+            spec, q = m.group(5), m.group(4)
+            if spec.startswith(".") or (rel := _alias_as_relative(file, root, spec)) is None:
+                continue
+            if m.group(1) and m.group(1) != "type":
+                extra.append(f"import {m.group(1)} from {q}{rel}{q}")
+            for name, _ in _names(m.group(2) or ""):
+                extra.append(f"import {{ {name} }} from {q}{rel}{q}")
     return body + ("\n" + "\n".join(extra) if extra else "")
 
 
-def equivalent_view(text: str, filename: str | None) -> str | None:
+_JS_BOUND_FN = re.compile(r"^[ \t]*(?:export[ \t]+)?(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*(?::[^=\n]+)?=[ \t]*"
+                          r"(?:async[ \t]+)?(?:function[ \t]*\*?[ \t]*[\w$]*[ \t]*\(([^()]*)\)"
+                          r"|\(([^()]*)\)[ \t]*(?::[^=\n]+)?=>|([A-Za-z_$][\w$]*)[ \t]*=>)", re.M)
+
+
+def _tsconfig_paths(start: Path, root: Path) -> tuple[Path, dict] | None:
+    """The nearest tsconfig.json / jsconfig.json at or above ``start`` (inside ``root``) that maps import paths:
+    (the folder its ``baseUrl`` names, its ``paths``)."""
+    from .code_text import strip_comments
+
+    here = start
+    while True:
+        for name in ("tsconfig.json", "jsconfig.json"):
+            cfg = here / name
+            src = read(cfg) if cfg.is_file() else None
+            if src is None:
+                continue
+            try:
+                data = json.loads(re.sub(r",(\s*[}\]])", r"\1", strip_comments(src, "c")))
+            except ValueError:
+                continue
+            opts = data.get("compilerOptions") if isinstance(data, dict) else None
+            if isinstance(opts, dict) and isinstance(opts.get("paths"), dict):
+                return here / str(opts.get("baseUrl") or "."), opts["paths"]
+        if here == root or root not in here.parents:
+            return None
+        here = here.parent
+
+
+def _alias_as_relative(path: Path, root: Path | None, spec: str) -> str | None:
+    """``@/utils`` in src/components/Cart.tsx with tsconfig ``"paths": {"@/*": ["src/*"]}`` -> ``../utils``; None when
+    no path alias of the project maps it."""
+    if root is None:
+        return None
+    found = _tsconfig_paths(path.parent, root)
+    if found is None:
+        return None
+    base, paths = found
+    for key, targets in paths.items():
+        if not isinstance(targets, list) or not targets or not isinstance(targets[0], str):
+            continue
+        k, t = str(key), targets[0]
+        if k.endswith("*") and t.endswith("*") and spec.startswith(k[:-1]):
+            target = base / (t[:-1] + spec[len(k) - 1:])
+        elif k == spec:
+            target = base / t
+        else:
+            continue
+        rel = os.path.relpath(target.resolve(), path.parent.resolve()).replace(os.sep, "/")
+        return rel if rel.startswith(".") else "./" + rel
+    return None
+
+
+def equivalent_view(text: str, filename: str | None, root: str | os.PathLike | None = None) -> str | None:
     """``text`` written in the canonical form (see the module doc), or None when that is ``text`` itself or the
-    language is not Python / JS / TS. Line structure is kept; the canonical import lines are appended."""
+    language is not Python / JS / TS. Line structure is kept; the canonical import lines are appended. With the lesson
+    folder (``root``), an import through a tsconfig path alias also reads as the relative import it means."""
     kind = kind_of(filename)
     if kind is None or not text:
         return None
-    view = _py_view(text) if kind == "py" else _js_view(text)
+    if kind == "py":
+        view = _py_view(text)
+    else:
+        path = find_file(root, str(filename)) if root and os.path.isabs(os.fspath(root)) else None
+        view = _js_view(text, path, Path(root) if path is not None else None)
     return view if view != text else None
 
 
@@ -250,10 +324,59 @@ def _py_broken(path: Path, root: Path, text: str) -> list[str]:
             if (mod.parent / name).is_dir() or (mod.parent / f"{name}.py").is_file():
                 continue  # a submodule of a package
             out.append(f"{path.name} imports {name} from {mod.name}, which doesn't define it")
+    out += _py_not_imported(path, root, text)
+    return out
+
+
+_MODULE_NAMES = frozenset({"__name__", "__file__", "__doc__", "__spec__", "__loader__", "__package__", "__builtins__",
+                           "__path__", "__cached__", "__annotations__", "__dict__", "__debug__"})
+
+
+def _py_free_names(text: str) -> set[str] | None:
+    """The global names a Python module uses but never binds (no def / class / assignment / import of its own, not a
+    builtin): each is a NameError when that line runs. None: can't tell (doesn't parse, ``import *``, ``globals()``)."""
+    if re.search(r"^\s*from\s+\S+\s+import\s+\*|\bglobals\s*\(|\bexec\s*\(|\b__getattr__\b", text, re.M):
+        return None
+    try:
+        top = symtable.symtable(text, "<lesson>", "exec")
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    bound = {s.get_name() for s in top.get_symbols() if s.is_assigned() or s.is_imported() or s.is_namespace()}
+    used: set[str] = set()
+    stack = [top]
+    while stack:
+        t = stack.pop()
+        for s in t.get_symbols():
+            if t is not top and s.is_declared_global() and (s.is_assigned() or s.is_imported()):
+                bound.add(s.get_name())  # def setup(): global total; total = 0
+            if s.is_referenced() and (s.is_global() or t is top) and not (s.is_assigned() or s.is_imported()
+                                                                        or s.is_parameter() or s.is_namespace()):
+                used.add(s.get_name())
+        stack.extend(t.get_children())
+    return used - bound - set(dir(builtins)) - _MODULE_NAMES
+
+
+def _py_not_imported(path: Path, root: Path, text: str) -> list[str]:
+    """A name the file uses but never imports or defines, that another of the lesson's own modules defines (a wrapper
+    ``add_numbers`` added to operations.py, still called from main.py that imports only ``add``)."""
+    free = _py_free_names(text)
+    if not free:
+        return []
+    out = []
+    for other in lesson_files(root, _PY):
+        if other == path or not free:
+            continue
+        src = read(other)
+        defined = _py_defines(src) if src is not None else None
+        for name in sorted(free & (defined or set())):
+            out.append(f"{path.name} uses {name}, which it never imports (it is defined in {other.name})")
+            free.discard(name)
     return out
 
 
 _JS_RESOLVE = ("", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte")
+# TypeScript's ESM imports name the file the .ts compiles to (NodeNext, bundler resolution): "./util.js" is util.ts
+_TS_FOR_JS = {".js": (".ts", ".tsx"), ".jsx": (".tsx",), ".mjs": (".mts",), ".cjs": (".cts",)}
 
 
 def _js_module(importer: Path, spec: str) -> Path | None:
@@ -266,6 +389,10 @@ def _js_module(importer: Path, spec: str) -> Path | None:
             return cand
     for ext in _JS_RESOLVE[1:]:
         cand = base / f"index{ext}"
+        if cand.is_file():
+            return cand
+    for ext in _TS_FOR_JS.get(base.suffix, ()):
+        cand = base.with_suffix(ext)
         if cand.is_file():
             return cand
     return None
@@ -287,11 +414,55 @@ def _js_exports(text: str) -> tuple[bool, set[str]] | None:
     return default, named
 
 
+_CJS_OBJECT = re.compile(r"\bmodule\.exports\s*=\s*\{([^{}]*)\}\s*;?\s*$", re.M)
+_CJS_ANY = re.compile(r"\bmodule\.exports\s*=")
+_CJS_PROP = re.compile(r"\b(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=")
+_JS_REQUIRE = re.compile(r"\b(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*require\(\s*(['\"`])([^'\"`\n]+)\2\s*\)")
+
+
+def _cjs_exports(text: str) -> set[str] | None:
+    """The names a CommonJS module exports (``module.exports = { a, b: c }``, ``exports.x = ...``); None when it can't
+    tell (``module.exports = someFunction``, a spread, a computed key)."""
+    names = set(_CJS_PROP.findall(text))
+    objs = _CJS_OBJECT.findall(text)
+    if len(_CJS_ANY.findall(text)) != len(objs):
+        return None
+    for body in objs:
+        for part in body.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            key = part.split(":", 1)[0].strip()
+            if part.startswith("...") or not re.fullmatch(r"[A-Za-z_$][\w$]*", key):
+                return None
+            names.add(key)
+    return names if names or objs else None
+
+
 def _js_broken(path: Path, text: str) -> list[str]:
     out = []
+    for m in _JS_REQUIRE.finditer(text):  # const { scale } = require('./recipe-utils')
+        spec = m.group(3)
+        if not spec.startswith("."):
+            continue
+        mod = _js_module(path, spec)
+        if mod is None:
+            out.append(f"{path.name} requires '{spec}', which doesn't exist")
+            continue
+        src = read(mod) if mod != path and mod.suffix.lower() in _JS else None
+        names = _cjs_exports(src) if src is not None else None
+        if names is None:
+            continue
+        for part in m.group(1).split(","):
+            name = part.split(":", 1)[0].strip()
+            if re.fullmatch(r"[A-Za-z_$][\w$]*", name) and name not in names:
+                out.append(f"{path.name} requires {name} from {mod.name}, which doesn't export it")
     for m in _JS_IMPORT.finditer(text):
         default, named, spec = m.group(1), m.group(2), m.group(5)
         mod = _js_module(path, spec)
+        if mod is None and spec.startswith("."):
+            out.append(f"{path.name} imports '{spec}', which doesn't exist (no such file next to it)")
+            continue
         if mod is None or mod == path or not mod.suffix.lower() in _JS:
             continue
         src = read(mod)

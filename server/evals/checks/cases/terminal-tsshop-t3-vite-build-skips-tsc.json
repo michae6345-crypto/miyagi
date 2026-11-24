@@ -1,0 +1,39 @@
+{
+ "id": "terminal-tsshop-t3-vite-build-skips-tsc",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "npm run build stopped at tsc (Cart.tsx: error TS2345, a string passed to formatPrice; 'Found 1 error.'). The learner then ran npx vite build by hand, which skips the type check (esbuild strips types without checking them), so dist/ was written while the type error is still in Cart.tsx. The step's build, npm run build, has not succeeded.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t3"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"jest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.priceLabel)}</li>)}</ul>)\n}\n",
+   "shop/dist/index.html": "<!doctype html>\n<html><body><div id=\"root\"></div></body></html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> tsc -b && vite build",
+    "src/components/Cart.tsx:4:62 - error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.",
+    "4   return (<ul>{items.map(item => <li key={item.id}>{formatPrice(item.priceLabel)}</li>)}</ul>)",
+    "                                                               ~~~~~~~~~~~~~~~",
+    "Found 1 error.",
+    "tripi@mac shop % npx vite build",
+    "vite v5.4.10 building for production...",
+    "✓ 38 modules transformed.",
+    "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+    "dist/assets/index-DiwrgTda.css    1.39 kB │ gzip:  0.72 kB",
+    "dist/assets/index-Bm2x9qLe.js   143.41 kB │ gzip: 46.12 kB",
+    "✓ built in 790ms",
+    "tripi@mac shop %"
+   ]
+  }
+ }
+}

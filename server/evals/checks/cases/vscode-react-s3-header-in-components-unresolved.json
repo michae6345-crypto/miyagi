@@ -1,0 +1,39 @@
+{
+ "id": "vscode-react-s3-header-in-components-unresolved",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Header.jsx was created in src/components/, but App.jsx imports './Header' (src/Header), which doesn't exist: Vite can't resolve it ('Failed to resolve import \"./Header\" from \"src/App.jsx\". Does the file exist?' in the dev-server log) and the page doesn't render. App.jsx alone looks done.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{}\n",
+   "my-react-app/src/components/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './Header'\n\nfunction App() {\n  return (<Header />)\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "src",
+    "components",
+    "Header.jsx",
+    "App.jsx",
+    "App.jsx",
+    "import Header from './Header'",
+    "function App() {",
+    "return (<Header />)",
+    "}",
+    "export default App"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 301 ms",
+    "➜  Local:   http://localhost:5173/",
+    "3:41:07 PM [vite] Pre-transform error: Failed to resolve import \"./Header\" from \"src/App.jsx\". Does the file exist?"
+   ]
+  }
+ }
+}

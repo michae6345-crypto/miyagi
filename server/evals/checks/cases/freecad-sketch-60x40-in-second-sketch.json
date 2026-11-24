@@ -1,0 +1,172 @@
+{
+ "id": "freecad-sketch-60x40-in-second-sketch",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 3 (\"The sketch has no free movement and measures 60 by 40 mm\"). The learner's first try, Sketch, is a fully constrained 30 x 20 rectangle they gave up on; they started Sketch001 and gave it 60 and 40 but never pinned it to the origin, so it still has 2 degrees of freedom (it slides). \"dof\": 0 comes from the abandoned sketch, 60 and 40 from the other one.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Constrain it fully",
+  "file": "plate.FCStd",
+  "instructions": "Give the rectangle a horizontal distance of 60 mm and a vertical distance of 40 mm, then make it symmetric about the origin until the solver says Fully constrained. Close the sketch and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "60 mm long",
+    "file": "plate.scene.json",
+    "pattern": "\"value\":\\s*60(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "40 mm wide",
+    "file": "plate.scene.json",
+    "pattern": "\"value\":\\s*40(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s3c3",
+    "type": "file_contains",
+    "label": "Fully constrained",
+    "file": "plate.scene.json",
+    "pattern": "\"dof\":\\s*0\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Sketch001",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 30.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 20.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          }
+         ],
+         "dof": 2,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": false,
+        "solids": 0
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

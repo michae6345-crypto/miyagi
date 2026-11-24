@@ -1,0 +1,53 @@
+{
+ "id": "jupyter-mnist-s6-restart-skipped-fit",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "The learner restarted the kernel, re-ran the imports, the shapes cell and the model cell ([1]-[3]), skipped the training cell and ran the predict cell ([4]). The training cell still shows [19] and its 0.9858 accuracy from the kernel before the restart. So the network that predicted was built fresh and never trained: its ten probability bars are all near 0.1. The Class Probability figure and the 1/1 progress line are there with no error, but the prediction is an untrained model's.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "counts": [
+      1,
+      2,
+      3,
+      null,
+      4
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[4]",
+    "def view_classify(image, probabilities):",
+    "fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)",
+    "image, label = test_images[0], test_labels[0]",
+    "probabilities = model.predict(image.reshape(1, 28, 28, 1))",
+    "view_classify(image, probabilities[0])",
+    "1/1 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 41ms/step",
+    "Class Probability",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0.0 0.2 0.4 0.6 0.8 1.0"
+   ]
+  }
+ }
+}

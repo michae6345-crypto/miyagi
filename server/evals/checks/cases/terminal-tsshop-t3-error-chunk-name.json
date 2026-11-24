@@ -1,0 +1,34 @@
+{
+ "id": "terminal-tsshop-t3-error-chunk-name",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "A clean build: tsc passed and Vite wrote dist/ ('✓ built in 904ms'). The lowercase 'error' on screen is the file name of a lazily loaded page's chunk (src/pages/error.tsx becomes dist/assets/error-DkH2s1aP.js) in Vite's list of written files, not an error.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t3"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/pages/error.tsx": "export default function ErrorPage() {\n  return <h1>Something went wrong</h1>\n}\n",
+   "shop/dist/index.html": "<!doctype html>\n<html><body><div id=\"root\"></div></body></html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm run build",
+    "> shop@0.0.0 build",
+    "> tsc -b && vite build",
+    "vite v5.4.10 building for production...",
+    "✓ 41 modules transformed.",
+    "dist/index.html                   0.46 kB │ gzip:  0.30 kB",
+    "dist/assets/index-DiwrgTda.css    1.39 kB │ gzip:  0.72 kB",
+    "dist/assets/error-DkH2s1aP.js     0.84 kB │ gzip:  0.51 kB",
+    "dist/assets/index-C8f3kq2v.js   144.02 kB │ gzip: 46.31 kB",
+    "✓ built in 904ms",
+    "tripi@mac shop %"
+   ]
+  }
+ }
+}

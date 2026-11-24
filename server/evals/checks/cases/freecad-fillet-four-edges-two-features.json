@@ -1,0 +1,215 @@
+{
+ "id": "freecad-fillet-four-edges-two-features",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done, but odd-looking: Intro to CAD lesson 7 (\"At least four edges carry a 2 mm fillet\"). The learner rounded two edges, clicked OK, then went back for the other two, so there are two Fillet features of 2 edges each, both 2 mm and both valid. Four hook edges carry a 2 mm fillet; no single feature lists four.",
+ "step": {
+  "id": "s7",
+  "index": 7,
+  "title": "Round the hook",
+  "file": "hook.FCStd",
+  "instructions": "Select the four outer edges of the hook, click Fillet and set Radius to 2 mm. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s7c1",
+    "type": "file_contains",
+    "label": "Fillet added",
+    "file": "hook.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Fillet\""
+   },
+   {
+    "id": "s7c2",
+    "type": "file_contains",
+    "label": "2 mm radius",
+    "file": "hook.scene.json",
+    "pattern": "\"Radius\":\\s*2(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s7c3",
+    "type": "file_contains",
+    "label": "Four edges rounded",
+    "file": "hook.scene.json",
+    "pattern": "\"edges\":\\s*(?:[4-9]|\\d{2,})\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hook.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "hook.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "hook.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Fillet001",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face1",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 10.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 5.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad001",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch001",
+         "Length": 30.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Fillet",
+         "type": "PartDesign::Fillet",
+         "base": "Pad001",
+         "Radius": 2.0,
+         "edges": 2,
+         "valid": true
+        },
+        {
+         "name": "Fillet001",
+         "type": "PartDesign::Fillet",
+         "base": "Fillet",
+         "Radius": 2.0,
+         "edges": 2,
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 13437.2,
+        "bound_box": [
+         60.0,
+         40.0,
+         35.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

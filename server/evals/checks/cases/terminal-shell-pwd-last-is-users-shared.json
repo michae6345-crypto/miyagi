@@ -1,0 +1,48 @@
+{
+ "id": "terminal-shell-pwd-last-is-users-shared",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to the terminal, 'Find where you are' (passes: the last pwd prints the home folder). The learner walked into /Users/Shared and the last pwd prints '/Users/Shared': /Users/ plus one folder, but not their home. The earlier '/Users/tripi' is the first pwd, before the walk.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Come back home",
+  "instructions": "Go back to your home folder (cd on its own, or cd ~), then run pwd to check where you are. Your home folder is /Users/ followed by your user name.",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "pwd",
+    "caption": "Print the folder you are in"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "screen_contains",
+    "label": "pwd prints your home folder",
+    "app": "Terminal",
+    "pattern": "^/Users/[^/\\s]+\\s*$"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % pwd",
+    "/Users/tripi",
+    "tripi@mac ~ % cd /",
+    "tripi@mac / % ls",
+    "Applications\tSystem\t\tUsers\t\tVolumes\t\tbin\t\tusr",
+    "tripi@mac / % cd Users",
+    "tripi@mac /Users % ls",
+    "Shared\ttripi",
+    "tripi@mac /Users % cd Shared",
+    "tripi@mac Shared % pwd",
+    "/Users/Shared",
+    "tripi@mac Shared % "
+   ]
+  }
+ }
+}

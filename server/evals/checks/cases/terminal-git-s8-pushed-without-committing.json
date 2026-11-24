@@ -1,0 +1,46 @@
+{
+ "id": "terminal-git-s8-pushed-without-committing",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The heading edit was never committed: `git commit -m` answered 'no changes added to commit' (index.html not staged). The push then created update-name on origin ('* [new branch] update-name -> update-name') holding no new commit, so the pushed branch does not have the new heading.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "index.html",
+    "<h1>Let's Get Git Going</h1>"
+   ],
+   "Terminal": [
+    "tripi@mac gitgoing % git commit -m \"update heading\"",
+    "On branch update-name",
+    "Changes not staged for commit:",
+    "  (use \"git add <file>...\" to update what will be committed)",
+    "  (use \"git restore <file>...\" to discard changes in working directory)",
+    "        modified:   index.html",
+    "",
+    "no changes added to commit (use \"git add\" and/or \"git commit -a\")",
+    "tripi@mac gitgoing % git push -u origin update-name",
+    "Total 0 (delta 0), reused 0 (delta 0), pack-reused 0",
+    "remote: ",
+    "remote: Create a pull request for 'update-name' on GitHub by visiting:",
+    "remote:      https://github.com/ada-learner/GitGoing/pull/new/update-name",
+    "remote: ",
+    "To https://github.com/ada-learner/GitGoing.git",
+    " * [new branch]      update-name -> update-name",
+    "branch 'update-name' set up to track 'origin/update-name'.",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

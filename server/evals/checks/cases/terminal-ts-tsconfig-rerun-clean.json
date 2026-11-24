@@ -1,0 +1,72 @@
+{
+ "id": "terminal-ts-tsconfig-rerun-clean",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "The first npx tsc hit error TS7006 (strict mode doing its job); the learner typed name: string and ran npx tsc again, which printed nothing: tsc is silent on success. strict is true inside compilerOptions and dist/index.js is written. The error on screen is the earlier run's.",
+ "step": {
+  "id": "ts2s2",
+  "title": "Turn on strict mode and compile",
+  "kind": "run",
+  "instructions": "In tsconfig.json, set \"strict\": true inside compilerOptions (next to \"outDir\": \"dist\"), then run npx tsc in the terminal. It compiles src/index.ts to dist/index.js.",
+  "file": "tsconfig.json",
+  "run_command": "npx tsc",
+  "code": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "tsconfig.json",
+    "match": "\"compilerOptions\"",
+    "caption": "strict goes inside compilerOptions"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts2s2c1",
+    "type": "file_contains",
+    "label": "tsconfig.json sets strict to true",
+    "file": "tsconfig.json",
+    "pattern": "\"strict\"\\s*:\\s*true"
+   },
+   {
+    "id": "ts2s2c2",
+    "type": "file_exists",
+    "label": "npx tsc wrote dist/index.js",
+    "file": "dist/index.js"
+   },
+   {
+    "id": "ts2s2c3",
+    "type": "screen_absent",
+    "label": "tsc reports no errors",
+    "app": "Terminal",
+    "pattern": "error\\s+TS\\d+"
+   }
+  ],
+  "hints": [
+   "tsc prints nothing when it succeeds."
+  ],
+  "common_mistakes": [
+   "Putting strict outside compilerOptions, where tsc ignores it."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}\n",
+   "src/index.ts": "function greet(name: string) {\n  return `Hello, ${name}!`\n}\n\nconsole.log(greet('Ada'))\n",
+   "dist/index.js": "\"use strict\";\nfunction greet(name) {\n    return `Hello, ${name}!`;\n}\nconsole.log(greet('Ada'));\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac hello-ts % npx tsc",
+    "src/index.ts:1:16 - error TS7006: Parameter 'name' implicitly has an 'any' type.",
+    "1 function greet(name) {",
+    "                 ~~~~",
+    "Found 1 error in src/index.ts:1",
+    "tripi@mac hello-ts % npx tsc",
+    "tripi@mac hello-ts %"
+   ]
+  }
+ }
+}

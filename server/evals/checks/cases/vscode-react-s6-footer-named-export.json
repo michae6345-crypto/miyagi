@@ -1,0 +1,36 @@
+{
+ "id": "vscode-react-s6-footer-named-export",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Footer.jsx has only a named export (export function Footer) and no export default, so App's import Footer from './Footer.jsx' has no default to bind and the page breaks. App.jsx (the only file on screen) imports Footer, renders <Footer/> and wraps both in <>...</>, exactly as asked.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "export function Footer() {\n  return (\n    <footer>\n      <p>&copy; Your website name</p>\n    </footer>\n  )\n}\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n      <Footer/>\n    </>\n  )\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import Header from './Header.jsx'",
+    "import Footer from './Footer.jsx'",
+    "function App() {",
+    "return (",
+    "<>",
+    "<Header/>",
+    "<Footer/>",
+    "</>",
+    ")",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

@@ -1,0 +1,29 @@
+{
+ "id": "terminal-git-s7-switch-c-exists-then-switch",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done after a detour: the branch was already made with `git branch update-name`, so `git switch -c update-name` said 'fatal: a branch named 'update-name' already exists'; the learner then ran `git switch update-name` and git answered \"Switched to branch 'update-name'\". HEAD is on update-name.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Started</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git branch update-name",
+    "tripi@mac gitgoing % git switch -c update-name",
+    "fatal: a branch named 'update-name' already exists",
+    "tripi@mac gitgoing % git switch update-name",
+    "Switched to branch 'update-name'",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

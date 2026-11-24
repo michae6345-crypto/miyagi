@@ -1,0 +1,96 @@
+{
+ "id": "jupyter-pytorch-val-acc-on-train-loader",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "PyTorch plan (docs/ui-next/catalog/plans/pytorch.json), 'Hold out data and measure accuracy' (accuracy on the 200 held-out points is printed each epoch and ends above 0.9): the scoring loop reads train_loader, not val_loader, and divides by the 800 training points. 'val acc 0.9612' is accuracy on data the model trained on: the held-out points are never scored. model.eval() and torch.no_grad() are there, and the number is above 0.9, but it measures the wrong set.",
+ "step": {
+  "id": "pt7s3",
+  "title": "Measure accuracy on the held-out points",
+  "instructions": "In points.ipynb, after each epoch switch to model.eval() and, under torch.no_grad(), count the correct predictions on val_loader (the 200 held-out points). Print 'epoch N val acc A' each epoch; it should end above 0.9.",
+  "file": "points.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "points.ipynb",
+    "match": "for xb, yb in val_loader:",
+    "caption": "Score the held-out batches"
+   }
+  ],
+  "code": "for epoch in range(20):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n\n    model.eval()\n    correct = 0\n    with torch.no_grad():\n        for xb, yb in val_loader:\n            correct += ((model(xb) > 0.5).float() == yb).sum().item()\n    print(f'epoch {epoch} val acc {correct / len(val_ds):.4f}')",
+  "checks": [
+   {
+    "id": "pt7s3c1",
+    "type": "screen_contains",
+    "label": "model.eval() before scoring",
+    "app": "Code",
+    "pattern": "model\\.eval\\(\\)"
+   },
+   {
+    "id": "pt7s3c2",
+    "type": "screen_contains",
+    "label": "Scored without gradients",
+    "app": "Code",
+    "pattern": "torch\\.no_grad\\(\\)"
+   },
+   {
+    "id": "pt7s3c3",
+    "type": "metric_threshold",
+    "label": "Held-out accuracy ends above 0.9",
+    "metric": "val_acc",
+    "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+val\\s+acc\\s+(?P<value>[0-9.]+)",
+    "op": ">",
+    "value": 0.9
+   },
+   {
+    "id": "pt7s3c4",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "points.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\nfrom torch.utils.data import TensorDataset, DataLoader, random_split\nfrom sklearn.datasets import make_moons\n\nXn, yn = make_moons(1000, noise=0.2, random_state=0)\nds = TensorDataset(torch.tensor(Xn, dtype=torch.float32), torch.tensor(yn, dtype=torch.float32).unsqueeze(1))\ntrain_ds, val_ds = random_split(ds, [800, 200])\ntrain_loader = DataLoader(train_ds, batch_size=32, shuffle=True)\nval_loader = DataLoader(val_ds, batch_size=200)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "model = nn.Sequential(nn.Linear(2, 16), nn.ReLU(), nn.Linear(16, 1), nn.Sigmoid())\nloss_fn = nn.BCELoss()\noptimizer = torch.optim.Adam(model.parameters(), lr=0.01)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "for epoch in range(20):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n\n    model.eval()\n    correct = 0\n    with torch.no_grad():\n        for xb, yb in train_loader:\n            correct += ((model(xb) > 0.5).float() == yb).sum().item()\n    print(f'epoch {epoch} val acc {correct / len(train_loader.dataset):.4f}')",
+       "count": 3,
+       "stdout": "epoch 0 val acc 0.8312\nepoch 1 val acc 0.8650\nepoch 2 val acc 0.8812\nepoch 3 val acc 0.8937\nepoch 4 val acc 0.9025\nepoch 5 val acc 0.9112\nepoch 6 val acc 0.9187\nepoch 7 val acc 0.9250\nepoch 8 val acc 0.9300\nepoch 9 val acc 0.9337\nepoch 10 val acc 0.9387\nepoch 11 val acc 0.9412\nepoch 12 val acc 0.9437\nepoch 13 val acc 0.9475\nepoch 14 val acc 0.9500\nepoch 15 val acc 0.9525\nepoch 16 val acc 0.9550\nepoch 17 val acc 0.9575\nepoch 18 val acc 0.9587\nepoch 19 val acc 0.9612\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "points.ipynb",
+    "model.eval()",
+    "correct = 0",
+    "with torch.no_grad():",
+    "for xb, yb in train_loader:",
+    "correct += ((model(xb) > 0.5).float() == yb).sum().item()",
+    "print(f'epoch {epoch} val acc {correct / len(train_loader.dataset):.4f}')",
+    "epoch 16 val acc 0.9550",
+    "epoch 17 val acc 0.9575",
+    "epoch 18 val acc 0.9587",
+    "epoch 19 val acc 0.9612"
+   ]
+  }
+ }
+}
