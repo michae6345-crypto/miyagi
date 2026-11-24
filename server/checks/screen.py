@@ -196,6 +196,20 @@ def wrapper_tolerant(pattern: str) -> str:
     return pattern[:at] + r"(?:[A-Za-z_][\w.]*\()?" + pattern[at:]
 
 
+_DECIMAL_ONLY = re.compile(r"(\\d|\[0-9\])([+*])\\\.(\\d|\[0-9\])\+")
+
+
+def whole_tolerant(pattern: str) -> str:
+    """A value group that insists on a decimal point (``(?P<value>\\d+\\.\\d+)%``) also reads a whole number: a
+    percentage formatted with ``:.0%`` prints ``98%``, the same accuracy rounded."""
+    span = _value_group_span(pattern)
+    if span is None:
+        return pattern
+    a, b = span
+    body = _DECIMAL_ONLY.sub(lambda m: f"{m.group(1)}{m.group(2)}(?:\\.{m.group(3)}+)?", pattern[a:b])
+    return pattern[:a] + body + pattern[b:]
+
+
 def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     """Apply a check's ``metric_pattern`` to terminal text → ``[(step, value), ...]``.
 
@@ -203,7 +217,7 @@ def extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
     group is used, and without ``step`` the line order is the step (0, 1, 2, ...).
     Duplicate steps (the same line visible across screenshots) keep the last value.
     """
-    rx = safe_compile(wrapper_tolerant(nonfinite_tolerant(pattern)))
+    rx = safe_compile(wrapper_tolerant(nonfinite_tolerant(whole_tolerant(pattern))))
     pts: dict[int, float] = {}
     order = 0
     for line in text.splitlines():

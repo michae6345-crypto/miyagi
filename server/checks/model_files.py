@@ -605,8 +605,8 @@ def _overshoot_claims(text: str, doc: dict) -> list[str]:
     if not curves or any(hi > last + 1e-6 for _, _, hi, last in curves):
         return []
     name, fc, hi, _ = curves[0]
-    return [f"{name}'s {fc.get('data_path')}[{fc.get('index')}] curve never rises above its last key ({hi:g}): tilt "
-            f"the key's handle so the curve overshoots"]
+    return [(f"{name}'s {fc.get('data_path')}[{fc.get('index')}] curve never rises above its last key ({hi:g}): "
+             f"tilt the key's handle so the curve overshoots")]
 
 
 _OPEN_FACE = re.compile(r"\bopen\b|\bopening\b|\bremov\w*\b", re.I)
@@ -625,19 +625,25 @@ _TALL = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*mm\s+(?:tall|high)\b", re.I)
 
 
 def _height_claims(text: str, doc: dict) -> list[str]:
-    """"30 mm tall": no body of the design measures that on any side (a Symmetric extrude of 30 is 30 each side, 60
-    tall)."""
+    """"30 mm tall" from an extrude of distance 30 set to Symmetric (measured one side): 30 mm each way, 60 mm tall.
+    Only when no body of the design measures 30 on any side (a whole-length symmetric extrude does)."""
     m = _TALL.search(text)
     if not m:
         return []
     want = float(m.group(1))
     boxes = [n["bound_box"] for n in _walk(doc) if isinstance(n.get("bound_box"), list) and len(n["bound_box"]) == 3
              and all(_num(v) for v in n["bound_box"])]
-    if not boxes or any(abs(v - want) <= 1e-3 for bb in boxes for v in bb):
+    if any(abs(v - want) <= 1e-3 for bb in boxes for v in bb):
         return []
-    sym = next((n for n in _walk(doc) if str(n.get("extent") or "").lower() == "symmetric"), None)
-    hint = f" ({sym.get('name') or 'the extrude'} is Symmetric: its distance goes both ways)" if sym else ""
-    return [f"the body measures {' x '.join(f'{v:g}' for v in boxes[0])} mm, not {want:g} mm tall{hint}"]
+    out = []
+    for n in _walk(doc):
+        if str(n.get("extent") or "").lower() == "symmetric" and _num(n.get("distance")) \
+                and abs(float(n["distance"]) - want) <= 1e-3 \
+                and not re.search(r"whole|full|total", str(n.get("measurement") or ""), re.I):
+            size = f": the body measures {' x '.join(f'{v:g}' for v in boxes[0])} mm" if boxes else ""
+            out.append(f"{n.get('name') or 'the extrude'} is Symmetric, so its {want:g} mm go both ways ({2 * want:g} "
+                       f"mm tall){size}; set Direction to One Side")
+    return out
 
 
 # ---------------------------------------------------------------- ASCII DXF: what the drawing is

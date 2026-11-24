@@ -76,6 +76,61 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
+
+The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is
+general (no lesson ids, no case text); each has a regression test in `server/checks/tests/test_round4_fixes.py` (all
+31 fail on the engine before these fixes, and each also checks the finished form still passes). Fixed against the
+train cases only; the held-out cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (257), before | 0.875 | 0.820 | 0.909 | 22 | 10 |
+| train (257), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (108), before | 0.417 | 0.276 | 0.432 | 42 | 21 |
+| held-out (108), after | 0.435 | 0.300 | 0.486 | 42 | 19 |
+| held-out, the 26 new, before / after | 0.346 / 0.346 | | | 12 / 12 | 5 / 5 |
+
+Honest generalisation: the 17 round-4 held-out wrong verdicts are all still wrong; two earlier-round held-out cases
+are now right (`gh repo clone` read as `git clone`, and a git failure the learner got past with the same subcommand),
+and no held-out case got worse. A broader "N mm tall" rule (no body measures N) also caught one more held-out case,
+but it was narrowed to the Symmetric extrude before that was known, because it would false-fail a boss "10 mm high"
+on a plate; it stays narrow.
+
+What changed (server/checks):
+
+- **Scene / drawing claims** (`model_files.claims`, `dxf_claims`, `alt_views`): a modifier off in both viewport and
+  render; overlapping UV islands when the step says none overlap; a curve that never rises above its last key when the
+  step asks for an overshoot; a Shell that removed no face when the step opens one; a Symmetric extrude of N (one side)
+  for "N mm tall"; the step's entities on another layer than "On layer X" (a layer only in the table holds nothing).
+  Read another way: a rotation by its size (R X -90 is turned 90 degrees) and a bound box with X / Y swapped, unless
+  the step gives a direction or names an axis; numbers a step gives only "for example" (any value), with a label's
+  relation checked on the two named values ("Slot 0.3 mm wider than the arm": SlotWidth - ArmWidth).
+- **Exports**: a render named for its frames (`0001-0048.mp4`) when the step renders another range is not the step's
+  file (`_claim_any_names`).
+- **Terminal** (`blocks`, `_on_blocks`): `git merge` / `rebase` with another branch than the step's is another command;
+  `gh repo create --source --remote --push` runs `git remote add` and `git push`, and its `HEAD -> main` is `main ->
+  main` when git says main tracks origin/main; a git failure followed by a successful run of the same subcommand is
+  history; `cargo run` with nothing to compile (`Finished`, no `Compiling`) matches the `Compiling <pkg> v<ver>` row from
+  the lesson's Cargo.toml; a dev server's own error rows (`[vite] Internal server error`, `Pre-transform error`,
+  webpack `ERROR in`) fail a "no errors" check until a later `hmr update`; a scaffolder prompt answered with none of the
+  step's chosen words (`✔ Select a framework: › Vanilla`) fails the step (`scaffold_choices`).
+- **Code** (`code_equiv`, `evaluate_gate`): a type-hinted def reads as the plain def; a list callback that destructures
+  its element (`items.map(({ price }) => ...)`) reads as `item.price`; a rename step after which a lesson file still
+  binds the old name (a copy, or `export const scale = scaleRecipe`) fails (`renamed_leftover`); an import beside a
+  top-level declaration of the same name (TS2440); a `return (...)` with two JSX roots side by side; a code check whose
+  label says a method is "called" and whose pattern is only its name needs the call's `(`.
+- **Notebooks** (`evaluate_gate`, `_screen`): a metric value group that insists on decimals also reads a whole number
+  (`98%`); a printed NumPy vector (`[[0.] [0.] [0.] [1.]]`) also reads as a list `[0, 0, 0, 1]`; an output check never
+  passes on another cell's output on screen (cells holding a line of the step's code count as the step's); an output
+  printed before a later run rebound what it reads (non-constant) is stale; `backward()` without zeroing, run again
+  since the cell that made the tensors, accumulated the gradient; a keyword the instructions spell out left out of the
+  call (`bins=`), or a slice of the data where the step passes all of it (`fit(train_images[:1000], ...)`); drawing on
+  axes made in an earlier cell with no figure in the cell's output (inline backend); a value printed after an update
+  (`optimizer.step()`) that was computed before it, where the step's code computes it again.
+
+`baseline.json`: train 1.000 with no `known_wrong`; held-out 0.435 (61 known wrong, ids only).
+
 ## Round 4: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r4-0`)
 
 18 new cases (12 train, 6 held out), no engine change. The runner's notebook cells gained `stderr`, `result`

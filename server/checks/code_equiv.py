@@ -131,7 +131,7 @@ def _unannotated(param: str) -> str:
     m = re.match(r"\s*(\**\s*[A-Za-z_]\w*)\s*(?::[^=]*)?(=.*)?$", param)
     if not m:
         return param.strip()
-    return m.group(1).replace(" ", "") + (m.group(2).strip() if m.group(2) else "")
+    return m.group(1).replace(" ", "") + ("=" + m.group(2)[1:].strip() if m.group(2) else "")
 
 
 def _stem(path: str) -> str:

@@ -92,6 +92,9 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
 - `model_files.py`: scene dumps read for the objects the step names, float noise rounded (dumps only, never code),
   "every / all" over every
   instance of a key, empty STL / OBJ exports, DXF numbers only from numeric group codes.
+- Round 4 (`server/evals/checks/README.md`, "Round 4 fixes"): notebook cells checked against the step's code
+  (`call_args_differ`, `figure_closed`, `stale_after_update`, `stale_output`, `accumulated_grad`), renames that keep
+  the old name (`renamed_leftover`), scaffolder answers (`scaffold_choices`), more scene / DXF claims.
 - In `evaluator.py`: an "Add..." menu's items are not added things; an export / render the step never named may have any
   name (image, mesh, CAD export kinds only; one file per check; never a file older than the step); "restart and run
   all" needs run counts in order from [1]; a `nan` beside the checked metric in the newest run is divergence; a

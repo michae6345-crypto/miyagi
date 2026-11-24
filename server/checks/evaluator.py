@@ -1179,6 +1179,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
             return _result(check, "pending", "checked when the cell runs")
         if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
             src = nb.output_text if output else code_view(nb.source_text, check, ".py", check.get("_sigs"))
+            if output and (lists := numpy_lists(src)):  # [[0.] [0.] [0.] [1.]] is the list [0, 0, 0, 1]
+                src = f"{src}\n{lists}"
             if search_wrapped(pattern, scan_text(src)):
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
             if output and _plotted(pattern, nb):
@@ -1199,7 +1201,12 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if not absent and app in _TERMINAL_APPS and not ctx.running:  # typed at the prompt, Enter not pressed: not run
         text = _without_typed_input(text)
     if output:  # t9 V3: the print() line on screen is code, never the output it promises
-        text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
+        # nor is another cell's output ("(133, 13) (45, 13)" from the split cell)
+        others = _other_cells_output(nb, check.get("_step_code"))
+        text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code"))
+                         and " ".join(ln.split()) not in others)
+        if lists := numpy_lists(text):
+            text = f"{text}\n{lists}"
     text = scan_text(text, SCREEN_SCAN_CHARS)  # the newest 4 KB of the window(s): never a whole scrollback
     try:
         if not output and app != "Code" and (by_block := _on_blocks(check, ctx, absent, text, where)) is not None:
@@ -1232,6 +1239,49 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
     f = _learner_file(os.path.basename(str(check.get("file") or "")), ctx)
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
+
+
+def _other_cells_output(nb: Notebook | None, step_code: str | None) -> set[str]:
+    """The printed lines (whitespace collapsed) of the notebook's cells that are not the step's: neither its own cells
+    (``nb`` is the step's view) nor a cell holding a whole line of the step's code (its code split over two cells),
+    minus any line those printed too. Empty when the step's cells printed nothing yet or the file can't be read."""
+    if nb is None or not nb.executed or not any(c.outputs for c in nb.cells):
+        return set()
+    full = read_notebook(nb.path)
+    if full is None:
+        return set()
+    own = {(c.source, c.count) for c in nb.cells}
+    code = {" ".join(ln.split()) for ln in str(step_code or "").splitlines() if len(ln.strip()) >= 8}
+    mine = [c for c in full.cells if (c.source, c.count) in own
+            or any(" ".join(ln.split()) in code for ln in c.source.splitlines())]
+    def lines(cs: list) -> set[str]:
+        return {" ".join(ln.split()) for c in cs for o in c.outputs for ln in o.splitlines() if ln.strip()}
+
+    return lines([c for c in full.cells if c not in mine]) - lines(mine)
+
+
+# NumPy's print of a vector: [0. 0. 0. 1.] or a column [[0.] [0.] [0.] [1.]] (no commas, any line breaks)
+_NP_ARRAY = re.compile(r"\[(?:\s*\[[-+\d.eE\s]*\])+\s*\]|\[[-+\d.eE\s]+\]")
+
+
+def numpy_lists(text: str) -> str:
+    """Every NumPy vector printed in ``text`` (a row or a column, no commas) written as a Python list, whole floats as
+    ints: ``[[0.]\\n [0.]\\n [0.]\\n [1.]]`` -> ``[0, 0, 0, 1]``; one per line. A matrix is left alone."""
+    out = []
+    for m in _NP_ARRAY.finditer(text):
+        body = m.group(0)
+        rows = [r.split() for r in re.findall(r"\[([-+\d.eE\s]*)\]", body[1:-1])] if body.count("[") > 1 \
+            else [body[1:-1].split()]
+        if not rows or any(not r for r in rows) or not (len(rows) == 1 or all(len(r) == 1 for r in rows)):
+            continue
+        try:
+            vals = [float(v) for r in rows for v in r]
+        except ValueError:
+            continue
+        if len(vals) < 2:
+            continue
+        out.append("[" + ", ".join(str(int(v)) if v.is_integer() else repr(v) for v in vals) + "]")
+    return "\n".join(out)
 
 
 # an app's "add something" menu: its header row ("Add", "Add Modifier", "Insert") then a long column of short labels
@@ -2013,7 +2063,8 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
         ctx = dataclasses.replace(ctx, notebook=False)
     code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
                      + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
-    checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
+    checks = [{**c, "_code": code, "_step_code": str(step.get("code") or "")} if c.get("type") == "screen_contains"
+              and is_output_check(c) else c for c in checks]
     results = [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
     return _no_cell_yet(step, checks, results, ctx)
 
@@ -2312,6 +2363,282 @@ def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
     return None
 
 
+def _parse_cell(src: str) -> ast.Module | None:
+    code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
+    try:
+        return ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+
+
+def _call_name(call: ast.Call) -> str | None:
+    f = call.func
+    return f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else None
+
+
+def _calls(tree: ast.AST) -> list[ast.Call]:
+    return [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+
+
+def _ran_step_cells(step: dict, ctx: RunContext | None) -> tuple[Notebook, list[int]] | None:
+    nb = _step_notebook(step, ctx)
+    if nb is None:
+        return None
+    cells = [i for i in step_cells(nb, step) if nb.cells[i].executed and nb.cells[i].source.strip()]
+    return (nb, cells) if cells else None
+
+
+# what accumulates into a tensor's .grad, and what clears it
+_BACKWARD = re.compile(r"\.backward\s*\(")
+_ZERO_GRAD = re.compile(r"zero_grad\s*\(|\.grad\s*\.\s*(?:data\s*\.\s*)?zero_\s*\(|\.grad\s*=\s*None")
+_GRAD_LEAF = re.compile(r"requires_grad|\bnn\.\w+\(|\.parameters\s*\(")
+
+
+def accumulated_grad(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's cell calls ``loss.backward()`` without zeroing the gradients, and its run count says it ran again
+    since the cell that made the tensors it differentiates (``w = torch.tensor(1.0, requires_grad=True)`` at [2], the
+    backward cell at [4], [3] on no cell): PyTorch adds every backward into ``.grad``, so ``w.grad`` holds two
+    gradients. Why, else None. A cell above this one that ran after the maker may have taken the missing count."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, cells = found
+    counts = {c.count for c in nb.cells if c.count is not None}
+    for i in cells:
+        cell = nb.cells[i]
+        if cell.count is None or not _BACKWARD.search(cell.source) or _ZERO_GRAD.search(cell.source):
+            continue
+        mine = _py_names(cell.source)
+        if mine is None:
+            continue
+        makers = [c.count for k, c in enumerate(nb.cells) if k != i and c.count is not None and c.count < cell.count
+                  and _GRAD_LEAF.search(c.source) and (names := _py_names(c.source))
+                  and names[0] & (mine[2] - mine[0])]
+        if not makers:
+            continue
+        made = max(makers)
+        if any(c.count is not None and c.count > made for c in nb.cells[:i]):
+            continue
+        gap = [k for k in range(made + 1, cell.count) if k not in counts]
+        if gap and len(gap) == cell.count - made - 1:
+            return (f"this cell ran {len(gap) + 1} times since [{made}] made the tensors, and backward() adds to .grad "
+                    f"each time: run [{made}] again (or zero the gradients), then this cell once")
+    return None
+
+
+# a value that is the same every time it is made (a literal, an array of literals): re-binding it changes nothing
+_CONSTANT_MAKERS = frozenset("array asarray tensor zeros ones arange linspace eye full DataFrame Series list tuple dict "
+                             "set float int str range".split())
+
+
+def _constant(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return all(_constant(e) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(k is None or _constant(k) for k in node.keys) and all(_constant(v) for v in node.values)
+    if isinstance(node, ast.UnaryOp):
+        return _constant(node.operand)
+    if isinstance(node, ast.Call):
+        return _call_name(node) in _CONSTANT_MAKERS and all(_constant(a) for a in node.args) \
+            and all(_constant(k.value) for k in node.keywords)
+    return False
+
+
+def _rebinds(src: str) -> set[str]:
+    """Names a cell binds to a new value that may differ from before: assignments / augmented assignments / loop
+    targets, never an import, a def or a constant (``X = np.array([[0, 0], ...])``)."""
+    tree = _parse_cell(src)
+    if tree is None:
+        return set()
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and not _constant(node.value):
+            targets = node.targets
+        elif (isinstance(node, (ast.AugAssign, ast.AnnAssign)) and node.value is not None
+              and not (isinstance(node, ast.AnnAssign) and _constant(node.value))) \
+                or isinstance(node, (ast.For, ast.AsyncFor)):
+            targets = [node.target]
+        else:
+            continue
+        for t in targets:
+            out |= {n.id for n in ast.walk(t) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    return out
+
+
+def stale_output(step: dict, ctx: RunContext | None) -> str | None:
+    """What a step's output check reads was printed by a cell that ran BEFORE a later run of a cell that rebinds what
+    it printed from: the predictions cell [4] printed [0, 0, 0, 1], then the training cell above it ran again at [5]
+    (new w and b); nothing has printed the current model's predictions. Only when every cell whose output matches is
+    stale. Why, else None."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, _ = found
+    outs = [c for c in step.get("checks") or [] if is_output_check(c) and c.get("pattern")]
+    if not outs:
+        return None
+    for chk in outs:
+        try:
+            matching = [k for k, c in enumerate(nb.cells) if c.count is not None and c.outputs
+                        and search_wrapped(str(chk["pattern"]), scan_text("\n".join(c.outputs)))]
+        except re.error:
+            continue
+        if not matching:
+            continue
+        why = None
+        for k in matching:
+            c = nb.cells[k]
+            names = _py_names(c.source)
+            if names is None:
+                why = None
+                break
+            reads = names[2] - names[0]
+            later = [(d, sorted(_rebinds(d.source) & reads)) for d in nb.cells
+                     if d is not c and d.count is not None and d.count > c.count]
+            later = [(d, n) for d, n in later if n]
+            if not later:
+                why = None
+                break
+            d, n = later[0]
+            why = why or (f"the output in [{c.count}] was printed before [{d.count}] ({_first_line(d.source)!r}) "
+                          f"changed {n[0]}: run [{c.count}]'s cell again to print the current result")
+        if why:
+            return why
+    return None
+
+
+_SLICE_OK = re.compile(r"\b(?:slic\w*|subset|part\s+of|first\s+\d+|last\s+\d+|sample|batch)\b|\[\s*-?\d*\s*:", re.I)
+
+
+def call_args_differ(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's cell calls what the step's code calls, but not with what the step gives it: a keyword argument the
+    instructions spell out (``bins=np.arange(1.5, 13.5)``) left out (and no extra positional argument in its place),
+    or a slice of the data where the step passes all of it (``model.fit(train_images[:1000], ...)`` for
+    ``model.fit(train_images, ...)``). Why, else None."""
+    code = _parse_cell(str(step.get("code") or ""))
+    found = _ran_step_cells(step, ctx) if code is not None else None
+    if found is None:
+        return None
+    nb, cells = found
+    words = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    mine = [call for i in cells if (t := _parse_cell(nb.cells[i].source)) is not None for call in _calls(t)]
+    for want in _calls(code):
+        name = _call_name(want)
+        theirs = [c for c in mine if _call_name(c) == name]
+        if not name or not theirs:
+            continue
+        for kw in want.keywords:
+            if kw.arg and re.search(rf"(?<![\w.]){re.escape(kw.arg)}\s*=", words) and not any(
+                    any(k.arg in (kw.arg, None) for k in c.keywords) or len(c.args) > len(want.args) for c in theirs):
+                return (f"{name}(...) has no {kw.arg}=: the step passes {kw.arg}={ast.unparse(kw.value)}; add it and "
+                        f"run the cell again")
+        if _SLICE_OK.search(words):
+            continue
+        for j, arg in enumerate(want.args):
+            if not isinstance(arg, ast.Name):
+                continue
+            for c in theirs:
+                got = c.args[j] if j < len(c.args) else None
+                if isinstance(got, ast.Subscript) and isinstance(got.value, ast.Name) and got.value.id == arg.id \
+                        and isinstance(got.slice, ast.Slice) and all(
+                            isinstance(cc, ast.Call) and _call_name(cc) == name and not (
+                                j < len(cc.args) and isinstance(cc.args[j], ast.Name) and cc.args[j].id == arg.id)
+                            for cc in theirs):
+                    return (f"{name}({ast.unparse(got)}, ...) uses only part of {arg.id}: the step passes all of "
+                            f"{arg.id}; run it on the whole of it")
+    return None
+
+
+_INTERACTIVE_MPL = re.compile(r"%matplotlib\s+(?:widget|notebook|ipympl|qt\w*|tk|osx)")
+_FIGURE_MAKERS = frozenset({"subplots", "figure", "add_subplot", "gca", "axes", "subplot", "subplot_mosaic"})
+_DRAWS = frozenset("""plot scatter bar barh hist hist2d imshow matshow fill_between errorbar pie boxplot violinplot step
+stem contour contourf pcolormesh axhline axvline hlines vlines stackplot""".split())
+
+
+def figure_closed(step: dict, ctx: RunContext | None) -> str | None:
+    """A step's cell draws on axes made in an earlier cell (``fig, ax = plt.subplots()`` run alone in [3], then
+    ``ax.plot(...)`` in [4]) and shows no figure: the inline backend draws and closes a figure when its cell ends, so
+    the line went onto a figure nobody sees (Out is only ``[<matplotlib.lines.Line2D ...>]``). Why, else None."""
+    found = _ran_step_cells(step, ctx)
+    if found is None:
+        return None
+    nb, cells = found
+    if any(_INTERACTIVE_MPL.search(c.source) for c in nb.cells):
+        return None
+    made: dict[str, int] = {}
+    for c in nb.cells:
+        tree = _parse_cell(c.source) if c.count is not None else None
+        for node in ast.walk(tree) if tree is not None else []:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
+                    and _call_name(node.value) in _FIGURE_MAKERS:
+                for t in node.targets:
+                    for n in ast.walk(t):
+                        if isinstance(n, ast.Name):
+                            made[n.id] = c.count
+    for i in cells:
+        cell = nb.cells[i]
+        tree = _parse_cell(cell.source)
+        if tree is None or cell.images or "display(" in cell.source:
+            continue
+        names = _py_names(cell.source)
+        own = names[0] if names else set()
+        for call in _calls(tree):
+            f = call.func
+            if isinstance(f, ast.Attribute) and f.attr in _DRAWS and isinstance(f.value, ast.Name) \
+                    and f.value.id in made and f.value.id not in own and made[f.value.id] < (cell.count or 0):
+                return (f"{f.value.id}.{f.attr}(...) drew on a figure made in an earlier cell ([{made[f.value.id]}]), "
+                        f"which Jupyter has already shown and closed, so no chart came out: make the figure and draw "
+                        f"in the same cell")
+    return None
+
+
+_UPDATES = frozenset({"step", "fit", "partial_fit", "train_on_batch", "update"})
+
+
+def _post_update_prints(tree: ast.Module) -> tuple[str, set[str], set[str]] | None:
+    """(the update call, names bound by a computation before it and not after, names read by print calls after it),
+    for the first top-level statement that calls an update (``optimizer.step()``, ``model.fit(...)``); else None."""
+    body = tree.body
+    at = next((k for k, s in enumerate(body) if any(_call_name(c) in _UPDATES and isinstance(c.func, ast.Attribute)
+                                                     for c in _calls(s))), None)
+    if at is None:
+        return None
+    before: set[str] = set()
+    for s in body[:at]:
+        if isinstance(s, ast.Assign) and _calls(s.value):
+            before |= {n.id for t in s.targets for n in ast.walk(t) if isinstance(n, ast.Name)}
+    after_bound = {n.id for s in body[at:] for n in ast.walk(s) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    printed = {n.id for s in body[at + 1:] for c in _calls(s) if _call_name(c) == "print"
+               for n in ast.walk(c) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    upd = next(c for c in _calls(body[at]) if _call_name(c) in _UPDATES)
+    return ast.unparse(upd), before - after_bound, printed
+
+
+def stale_after_update(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's code prints a value again after an update (``optimizer.step()``) by computing it anew, and the
+    learner's cell prints the variable computed before the update instead (``print(f'after {loss.item():.4f}')``):
+    the "after" line is the "before" value. Why, else None."""
+    code = _parse_cell(str(step.get("code") or ""))
+    want = _post_update_prints(code) if code is not None else None
+    found = _ran_step_cells(step, ctx) if want is not None else None
+    if found is None:
+        return None
+    nb, cells = found
+    for i in cells:
+        tree = _parse_cell(nb.cells[i].source)
+        got = _post_update_prints(tree) if tree is not None else None
+        if got is None:
+            continue
+        upd, stale, printed = got
+        for name in sorted(stale & printed):
+            if name in want[1] and name not in want[2]:
+                return (f"after {upd} the cell prints {name}, which was computed before it: compute it again after "
+                        f"the update so the second line shows the new value")
+    return None
+
+
 def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
     """server.checks.code_equiv.broken_imports over the step's code files in the lesson folder: its targets', checks'
     and own file, and the files its check labels name ("main.py calls add_numbers(2, 3)")."""
@@ -2463,7 +2790,7 @@ def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
 
 
 # a scaffolder's answered prompt (create-vite, create-next-app, npm init ...): "✔ Select a framework: › Vanilla"
-_PROMPT_ANSWER = re.compile(r"^\s*[✔✓√?]\s*(?P<q>[^:›»?]{3,60}?)\s*[:?]?\s*(?:›|»|…)\s*(?P<a>\S.*?)\s*$")
+_PROMPT_ANSWER = re.compile(r"^\s*[✔✓√]\s*(?P<q>[^:›»?]{3,60}?)\s*[:?]?\s*(?:›|»|…)\s*(?P<a>\S.*?)\s*$")
 _CHOOSES = re.compile(r"\b(?:choos\w*|chose|select\w*|pick\w*|answer\w*)\b", re.I)
 _YES_NO = re.compile(r"^(?:y(?:es)?|no?|true|false|ok)$", re.I)
 
@@ -2656,9 +2983,15 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # the kernel that ran the step's cell is gone, or ran it without a cell above it that the cell needs
         crash = _kernel_crashed(ctx)
         why = f"{crash} on screen: restart the kernel and run the notebook again" if crash else (
-            stale_inputs(step, ctx) or undone_setup(step, ctx) or rerun_self_update(step, ctx))
+            stale_inputs(step, ctx) or undone_setup(step, ctx) or rerun_self_update(step, ctx)
+            or accumulated_grad(step, ctx) or stale_output(step, ctx))
         if why:
             checks = [*checks, {"checkId": f"{step.get('id', '')}-kernel", "label": "The kernel has what the cell needs",
+                                "status": "fail", "detail": why}]
+            return {"passed": False, "via": None, "checks": checks, "precision": prec}
+        # the cell ran with what it needs, but doesn't do what the step's code does
+        if why := call_args_differ(step, ctx) or figure_closed(step, ctx) or stale_after_update(step, ctx):
+            checks = [*checks, {"checkId": f"{step.get('id', '')}-code", "label": "The cell does what the step asks",
                                 "status": "fail", "detail": why}]
             return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (step_passed(checks) or step_passed(prec)) and (broken := _broken_imports(step, ctx)):

@@ -576,8 +576,8 @@ def _other_ref(segment: str, target: str) -> bool:
     its direction (merge, rebase)? A remote's copy of the branch (``origin/add-waffles``) is the same one; a target
     with a placeholder (``<branch>``) takes any."""
     a, t = _ref_arg(segment), _ref_arg(target)
-    if not a or not t or re.search(r"[<>{}\[\]]|\.\.\.", t):
-        return False
+    if not a or not t or re.search(r"[<>{}\[\]~^@]|\.\.\.", t) or re.fullmatch(r"[0-9a-f]{7,40}", t):
+        return False  # a placeholder, or a commit counted back from HEAD / named by its hash: how far is the learner's
     a, t = a.lower(), t.lower()
     return a != t and not a.endswith("/" + t) and not t.endswith("/" + a)
 
