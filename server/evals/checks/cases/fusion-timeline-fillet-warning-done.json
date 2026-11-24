@@ -1,0 +1,114 @@
+{
+ "id": "fusion-timeline-fillet-warning-done",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, but odd-looking: Intro to Fusion lesson 9 (\"The base and lid are both 100 mm long and the Timeline shows no errors\"). Both bodies rebuilt to 100 mm. Fillet1 turned yellow: Fusion repaired its edge references after the sketch changed and still computed it (health warning, not error). A warning is not an error: the fillets, shell, hole and lid are all there, so the step's own line holds.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Check the rebuild",
+  "file": "box.design.json",
+  "instructions": "Double-click Sketch1 in the Timeline, change the 80 mm dimension to 100 and Finish Sketch. Check that the base and the lid both grow to 100 mm long and that the Timeline shows no errors (no red features).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Base is 100 mm long",
+    "file": "box.design.json",
+    "pattern": "\"bound_box\":\\s*\\[\\s*100(?:\\.0+)?,"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Every feature rebuilds",
+    "file": "box.design.json",
+    "pattern": "\"health\":\\s*\"healthy\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Base",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          100.0,
+          50.0,
+          30.0
+         ],
+         "volume": 34452.4
+        }
+       ]
+      },
+      {
+       "name": "Lid",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          100.0,
+          50.0,
+          3.0
+         ],
+         "volume": 14899.1
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 7,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "warning",
+        "message": "Compute Warning: edge references were repaired after the sketch changed"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       },
+       {
+        "name": "Hole1",
+        "type": "Hole",
+        "health": "healthy"
+       },
+       {
+        "name": "Sketch2",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude2",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": []
+    }
+   }
+  }
+ }
+}

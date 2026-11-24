@@ -1,0 +1,183 @@
+{
+ "id": "blender-cup-extruded-up-not-hollow",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to Blender lesson 4 (\"The cylinder has a hollow with a wall and a floor\"). After the inset the learner pressed E and moved the mouse up, so the top face rose 0.3 m into a raised lid instead of sinking into the cylinder. The mesh gained exactly the faces a hollow would give (34 -> 98) and is still one piece, but the cylinder grew from 2 m to 2.3 m tall and there is no hollow: nothing to pour into.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Make the hollow",
+  "file": "mug.blend",
+  "instructions": "Select the Cylinder, Tab into Edit mode and pick the top face (3 for face select). Press I and inset it by 0.1, then press E and drag down (or type -1.8) to push it into the cylinder and make the cup's hollow. Tab out and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Inset and extrude added faces",
+    "file": "mug.scene.json",
+    "pattern": "\"faces\":\\s*(?:[5-9]\\d|\\d{3,})\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Still one piece",
+    "file": "mug.scene.json",
+    "pattern": "\"islands\":\\s*1\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "mug.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "mug.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Cylinder",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.3
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 128,
+        "edges": 224,
+        "faces": 98,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Material"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Material",
+       "users": [
+        "Cylinder"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

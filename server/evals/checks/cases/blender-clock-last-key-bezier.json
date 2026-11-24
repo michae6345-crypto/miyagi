@@ -1,0 +1,295 @@
+{
+ "id": "blender-clock-last-key-bezier",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, but odd-looking: Blender animation lesson 3 (\"One hand's rotation keys are Constant and the other hand's are Linear\"). The learner box-selected the minute hand's keys and missed the last one before pressing T > Constant, so its list reads CONSTANT x4 then BEZIER. A keyframe's interpolation sets the curve from that key to the next one; the last key has no next one, so its mode changes nothing: the minute hand ticks in steps over the whole clip and the second hand sweeps linearly.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Constant and Linear keys",
+  "file": "clock.blend",
+  "instructions": "Select MinuteHand, select all five of its keys in the Timeline and press T > Constant so it ticks. Then select SecondHand, select both of its keys and press T > Linear so it sweeps. Play it back and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Minute hand ticks (Constant keys)",
+    "file": "clock.scene.json",
+    "pattern": "\"interpolation\":\\s*\\[\\s*\"CONSTANT\",\\s*\"CONSTANT\",\\s*\"CONSTANT\",\\s*\"CONSTANT\",\\s*\"CONSTANT\"\\s*\\]"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Second hand sweeps (Linear keys)",
+    "file": "clock.scene.json",
+    "pattern": "\"interpolation\":\\s*\\[\\s*\"LINEAR\",\\s*\"LINEAR\"\\s*\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "clock.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see clock.scene.json)\n",
+   "clock.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "clock.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 97,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1
+     },
+     "objects": [
+      {
+       "name": "Face",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        0.1
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 64,
+        "edges": 96,
+        "faces": 34,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "MinuteHand",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.06
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.05,
+        0.8,
+        0.02
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "MinuteHandAction",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 1,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            25.0,
+            -1.570796
+           ],
+           [
+            49.0,
+            -3.141593
+           ],
+           [
+            73.0,
+            -4.712389
+           ],
+           [
+            97.0,
+            -6.283185
+           ]
+          ],
+          "interpolation": [
+           "CONSTANT",
+           "CONSTANT",
+           "CONSTANT",
+           "CONSTANT",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "SecondHand",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.07
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.02,
+        0.9,
+        0.02
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "SecondHandAction",
+        "fcurves": [
+         {
+          "data_path": "rotation_euler",
+          "index": 1,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            97.0,
+            -6.283185
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

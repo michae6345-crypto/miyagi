@@ -48,6 +48,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
       "calculator.py": "def add(a, b): ...",          // a text file
       "project1/.git": {"dir": true},                 // a folder
       "mug.scene.json": {"json": {"objects": [...]}},  // a JSON document (indent 1): a headless dump, see below
+      "base.stl": {"base64": "U1RM..."},              // a binary file, byte for byte (a binary STL)
       "mnist.ipynb": {"notebook": {"from": "server/tests/fixtures/t10_mnist.ipynb", "keep_cells": 1,
                                    "unrun": [0], "replace": [[0, "old", "new"]], "append": [cell],
                                    "counts": [16, 17, null]}},   // execution counts in cell order (run order)
@@ -205,6 +206,48 @@ Train wrong verdicts (all new; the 159 earlier train cases still score right): F
 `terminal-gitcat-branch-commit-on-main`; FN `terminal-git-s9-pull-rebased-no-diffstat`,
 `terminal-rebase-s1-log-fatal-before-first-commit`. Held-out wrong: ids in `baseline.json` → `held_out.known_wrong`;
 not read while fixing.
+## Round 3: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r3-3`, 19 new cases, 7 held out)
+
+From Adrian's plans on `origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender`, `blender-materials`,
+`blender-animation`, `intro-fusion`, `cad-3d-printing`, each lesson's `passes` line) and
+`docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the STL reader), plus
+the AutoCAD toy-car steps as ASCII DXF. Two shapes are new: the Fusion live add-in's design JSON
+(`box.design.json`: `components` with their `bodies` and bound boxes, one `timeline` with each item's `health`,
+`features` such as a Hole's diameter, centre and axis), and binary files (`{"base64": ...}`, a binary STL as Fusion
+saves one by default). Blender 4.2 dumps read inputs by their 4.x names (`transmission_weight`); a scene with two
+cameras lists them in `cameras` and names the render camera in `scene.camera`.
+
+Traps: a handle that is a separate torus (the mug is one island, unjoined), the cube moved on Y instead of X, only
+the Z curve retimed in the Graph Editor, an open PLINE closed by clicking the start point, a dimension that measures
+102 while the body's 120 is a vertex, a Fusion lid body made in Base (Lid component empty), an 8 mm hole in a long
+wall, Depth of Field on a second camera that never renders. Done-but-odd: Transmission Weight (Blender 4.x name),
+the last key left Bezier (it shapes nothing), PrusaSlicer's default G-code names, a yellow Fusion warning (not an
+error).
+
+Before any fix (no engine change in this step; the runner learned `{"base64": ...}` files):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171 = 159 + 12 new) | 0.936 | 0.909 | 0.946 | 7 | 4 |
+| train blender (21) | 0.762 | 0.700 | 0.778 | 3 | 2 |
+| train cad (17) | 0.647 | 0.429 | 0.600 | 4 | 2 |
+| held-out (62 = 55 + 7 new) | 0.484 | 0.382 | 0.542 | 21 | 11 |
+
+Train wrong verdicts (11 of the 12 new train cases; the 159 earlier train cases stay right):
+
+- **FP `blender-handle-separate-torus-not-joined`**: the Mug is one island; the handle is a separate Torus.
+- **FP `blender-transform-cube-moved-on-y`**: location (0, 2, 0); "a 2 in the location" is read, not the X axis.
+- **FP `blender-dopesheet-only-z-scaled`**: Z keys end on 97, the X travel keys still end on 49.
+- **FP `autocad-dxf-profile-open-polyline`**: LWPOLYLINE with group 70 = 0 passes "a closed polyline".
+- **FP `autocad-dxf-length-dimension-wrong-points`**: the DIMENSION measures 102 (group 42); 120.0 is a vertex.
+- **FP `fusion-lid-body-in-base-component`**: Base has two bodies, Lid none; both names and an 80 x 50 x 3 body exist.
+- **FP `fusion-hole-on-long-wall`**: Hole1 is 8 mm, its axis along Y (a long wall), not X.
+- **FN `blender-glass-transmission-weight-42`**: `transmission_weight: 1.0` vs a pattern on `"transmission"`.
+- **FN `blender-clock-last-key-bezier`**: CONSTANT x4 then BEZIER on the last key, which shapes no segment.
+- **FN `freecad-slicer-gcode-default-names`**: base_0.2mm_PLA_MK4_1h12m.gcode is the base's G-code.
+- **FN `fusion-timeline-fillet-warning-done`**: "every feature rebuilds" fails on a `warning` health.
+
+Held out: 7 new cases, 7 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
 ## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
 
