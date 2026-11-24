@@ -62,9 +62,9 @@ def _clean_pass(p: Any) -> dict | None:
     if not isinstance(p, dict) or _num(p.get("at")) is None or not isinstance(p.get("day"), str):
         return None
     out = {"at": float(p["at"]), "day": p["day"][:10], "assisted": bool(p.get("assisted"))}
-    for k in ("lessonId", "stepId", "proofId"):
+    for k in ("lessonId", "stepId", "proofId", "lessonTitle", "stepTitle"):
         if isinstance(p.get(k), str) and p[k]:
-            out[k] = p[k][:120]
+            out[k] = p[k][:200]
     return out
 
 
@@ -117,7 +117,8 @@ def _review_outcome(sid: str, row: dict, passed: bool, now: float, tz: tzinfo | 
 
 
 def record_pass(skill_ids: list[str], *, lesson_id: str | None = None, step_id: str | None = None, assisted: bool = False,
-                now: float | None = None, tz: tzinfo | None = None, proof_id: str | None = None) -> list[dict]:
+                now: float | None = None, tz: tzinfo | None = None, proof_id: str | None = None,
+                lesson_title: str | None = None, step_title: str | None = None) -> list[dict]:
     """A step that practises `skill_ids` passed (never call this for a skipped step). Returns what changed:
     {"kind": "mastered" | "reviewed" | "review_missed", "skillId", "at", ...}. Unknown ids are ignored."""
     now = time.time() if now is None else float(now)
@@ -136,6 +137,10 @@ def record_pass(skill_ids: list[str], *, lesson_id: str | None = None, step_id: 
                 p["stepId"] = str(step_id)[:120]
             if proof_id:
                 p["proofId"] = str(proof_id)[:120]
+            if lesson_title:
+                p["lessonTitle"] = str(lesson_title)[:200]
+            if step_title:
+                p["stepTitle"] = str(step_title)[:200]
             row["passes"] = (row["passes"] + [p])[-MAX_PASSES:]
             if row["masteredAt"] is None:
                 if not assisted and len(unassisted_days(row)) >= MASTERY_DAYS:

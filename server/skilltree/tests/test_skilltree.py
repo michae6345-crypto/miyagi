@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from server.skilltree import api, catalog, ledger, proofs, tagging
+from server.skilltree import catalog, graph, ledger, proofs, service, tagging
+from shared.contracts import events as contract
 
 UTC = timezone.utc
 DAY = 86_400
@@ -192,30 +193,46 @@ def test_passes_are_capped(state):
 
 
 # ------------------------------------------------------------------------------------------------ proofs
-def test_proof_snippet_is_the_learners_lines_redacted_and_capped(state):
+def test_proof_code_is_the_learners_lines_redacted_and_capped(state):
     step = {"id": "s1", "file": "app.py", "code": "def add(a, b):\n    return a + b"}
     text = 'KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"\n\ndef add(a, b):\n    return a+b  # mine\n    return a + b\n'
     body = proofs.build(step, file_text=text, file_ref="app.py")
-    assert body["kind"] == "snippet" and body["file"] == "app.py"
-    assert body["text"].startswith("def add(a, b):") and "sk-ant" not in body["text"]
+    assert body["kind"] == "code" and body["file"] == "app.py" and body["lang"] == "python" and body["line"] == 3
+    assert body["text"].startswith("def add(a, b):") and "sk-ant" not in body["text"] and "truncated" not in body
     long = "def add(a, b):\n" + "\n".join(f"    x{i} = {i}" for i in range(200)) + "\n    return a + b\n"
     body = proofs.build({**step, "code": long}, file_text=long, file_ref="app.py")
-    assert body["truncated"] and len(body["text"].splitlines()) <= proofs.MAX_LINES
+    assert body["truncated"] and len(body["text"].splitlines()) <= proofs.MAX_LINES and len(body["text"]) <= proofs.TEXT_MAX
 
 
-def test_proof_output_cell_and_secret_files(state):
+def test_proof_command_cell_and_secret_files(state):
     run = {"command": "python3 app.py", "output": ["ok"] * 100 + ["token=ghp_" + "a" * 36]}
     body = proofs.build({"id": "r", "kind": "run", "run_command": "python3 app.py"}, run=run)
-    assert body["kind"] == "output" and body["text"].count("\n") < proofs.MAX_LINES and "ghp_" not in body["text"]
-    cell = proofs.build({"id": "c"}, cell={"source": "x = 1\nx", "output": "1"})
-    assert cell["kind"] == "cell" and "# output" in cell["text"]
+    assert body["kind"] == "command" and body["text"] == "python3 app.py" and body["lang"] == "shell"
+    assert body["truncated"] and "ghp_" not in body["output"] and len(body["output"]) <= proofs.OUTPUT_MAX
+    cell = proofs.build({"id": "c", "file": "a.ipynb"}, cell={"source": "x = 1\nx", "output": "1"})
+    assert cell["kind"] == "cell" and cell["output"] == "1" and cell["file"] == "a.ipynb"
     assert proofs.build({"id": "s", "code": "A=1"}, file_text="A=1", file_ref=".env") is None
     assert proofs.build({"id": "s", "code": "print(1)"}, file_text="nothing here") is None
 
 
-def test_proof_save_get_cap_and_delete(state, monkeypatch):
+def test_proof_save_wire_validates_against_the_contract(state):
+    step = {"id": "s3", "title": "Hollow the cup", "checks": [{"id": "c1", "label": "The cup is hollow"}]}
+    pid = proofs.save({"kind": "code", "text": "bpy.ops.mesh.inset()", "lang": "python"}, skill_ids=["bl.extrude"],
+                      lesson={"id": "lesson-abc12345", "title": "Mug cup"}, step=step, now=t(1))
+    rec = proofs.get(pid)
+    assert pid.startswith("pf-") and rec["key"] == "lesson-abc12345:s3" and rec["check"] == {"label": "The cup is hollow"}
+    wire = proofs.wire(rec, UTC)
+    assert wire["at"] == "2026-11-01T10:00:00+00:00"
+    contract.Proof.model_validate(wire)
+    ev = service.proof_payload(None, "bl.extrude", "r1")
+    contract.ProofEvent.model_validate(ev)
+    assert ev["reqId"] == "r1" and [i["id"] for i in ev["items"]] == [pid]
+    assert service.proof_payload("pf-nope-0000", None)["items"] == []
+
+
+def test_proof_cap_and_delete(state, monkeypatch):
     monkeypatch.setattr(proofs, "MAX_PROOFS", 3)
-    ids = [proofs.save({"kind": "snippet", "text": f"x = {i}"}, skill_ids=["py.variables"], now=t(1) + i) for i in range(5)]
+    ids = [proofs.save({"kind": "code", "text": f"x = {i}"}, skill_ids=["py.variables"], now=t(1) + i) for i in range(5)]
     left = [p["id"] for p in proofs.for_skill("py.variables", limit=10)]
     assert left == ids[:1:-1]  # the newest 3, newest first
     assert proofs.get(ids[4])["text"] == "x = 4" and proofs.get("../etc") is None
@@ -227,31 +244,77 @@ def test_proof_save_get_cap_and_delete(state, monkeypatch):
     assert proofs.wipe() == 1 and proofs.for_skill("np.arrays") == []
 
 
-# ------------------------------------------------------------------------------------------------ payloads
-def test_tracks_payload_shapes(state):
-    _master("bl.navigate")
-    out = api.tracks(now=t(10), tz=UTC)
-    blender = next(tr for tr in out["tracks"] if tr["id"] == "blender")
-    assert blender["counts"]["mastered"] == 1 and blender["counts"]["total"] == len(blender["skills"])
-    assert blender["due"] == 1 and out["due"] == 1
-    assert blender["plans"][0]["project"]["title"]
-    nav = next(s for s in blender["skills"] if s["id"] == "bl.navigate")
-    assert nav["review"]["due"] is True and nav["state"] == "mastered"
-    assert [tr["id"] for tr in api.tracks(track="cad")["tracks"]] == ["cad"]
-    json.dumps(out)  # wire-ready
+def test_data_delete_kinds_that_remove_proofs():
+    assert service.deletes_proofs(None) and service.deletes_proofs(["proofs"]) and service.deletes_proofs(["all"])
+    assert not service.deletes_proofs(["notes"]) and not service.deletes_proofs([])
 
 
-def test_skill_mastery_reviews_update_payloads(state):
-    pid = proofs.save({"kind": "snippet", "text": "bpy.ops.mesh.extrude_region()"}, skill_ids=["bl.extrude"], now=t(1))
-    ledger.record_pass(["bl.extrude"], now=t(1), tz=UTC, proof_id=pid, lesson_id="L1", step_id="s3")
-    sk = api.skill("bl.extrude", now=t(1), tz=UTC)["skill"]
-    assert sk["lessons"] and sk["steps"][0] == {"lessonId": "L1", "stepId": "s3", "at": t(1), "assisted": False}
-    assert sk["proofIds"] == [pid] and sk["proofs"][0]["text"].startswith("bpy")
-    assert api.skill("nope") is None
-    _master("cad.pad")
-    m = api.mastery(now=t(3), tz=UTC)
-    assert [r["id"] for r in m["mastered"]] == ["cad.pad"] and [r["id"] for r in m["practicing"]] == ["bl.extrude"]
-    r = api.reviews(now=t(3), tz=UTC)
-    assert r["due"] == 0 and [i["skillId"] for i in r["items"]] == ["cad.pad"]  # upcoming within 7 days
-    up = api.update([{"kind": "mastered", "skillId": "cad.pad", "at": t(2)}], now=t(2), skill_ids=["bl.extrude"])
-    assert [s["id"] for s in up["skills"]] == ["bl.extrude", "cad.pad"]
+# ------------------------------------------------------------------------------------------------ progress.graph
+def test_graph_merge_adds_touched_tracks_round3_fields_and_validates(state):
+    pid = proofs.save({"kind": "code", "text": "x"}, skill_ids=["bl.navigate"], lesson={"id": "L1"}, step={"id": "s1"}, now=t(1))
+    ledger.record_pass(["bl.navigate"], now=t(1), tz=UTC, lesson_id="L1", step_id="s1", proof_id=pid,
+                       lesson_title="Viewport", step_title="Orbit")
+    ledger.record_pass(["bl.navigate"], now=t(2), tz=UTC, lesson_id="L2", step_id="s1", assisted=True)
+    ledger.record_pass(["bl.navigate"], now=t(3), tz=UTC, lesson_id="L2", step_id="s2")
+    current = {"lesson": {"id": "L3", "title": "Move, rotate and scale"}, "steps": [{"id": "s1", "title": "Grab"}],
+               "tags": {"s1": ["bl.transform"]}}
+    base = {"skills": [], "completed": [], "graph": {"skills": [{"id": "python.x", "label": "x", "track": "Python"}], "edges": []}}
+    out = graph.merge(base, current=current, now=t(10), tz=UTC)
+    g = out["graph"]
+    contract.SkillGraphInfo.model_validate(g)
+    contract.validate_engine_payload("progress", out)
+    ids = [s["id"] for s in g["skills"]]
+    assert ids[0] == "python.x" and "bl.navigate" in ids and "bl.render" in ids and "cad.pad" not in ids
+    nav = next(s for s in g["skills"] if s["id"] == "bl.navigate")
+    assert nav["state"] == "mastered" and nav["catalogId"] == "bl.navigate"
+    assert nav["mastery"] == {"need": 2, "days": ["2026-11-01", "2026-11-03"], "assisted": 1}
+    assert nav["schedule"] == {"dueAt": "2026-11-06T00:00:00+00:00", "round": 0, "interval": 3}
+    assert nav["review"] == {"dueAt": "2026-11-06T00:00:00+00:00"} and nav["proofIds"] == [pid]
+    assert [st["key"] for st in nav["steps"]] == ["L1:s1", "L2:s1", "L2:s2"] and nav["evidence"] == {"done": 3, "total": 3}
+    assert nav["steps"][0]["lessonTitle"] == "Viewport" and nav["steps"][1]["assisted"] is True
+    tr = next(s for s in g["skills"] if s["id"] == "bl.transform")
+    assert tr["state"] == "ready" and tr["steps"] == [{"lessonId": "L3", "stepId": "s1", "title": "Grab", "passed": False,
+                                                       "lessonTitle": "Move, rotate and scale"}]
+    assert {"from": "bl.navigate", "to": "bl.transform", "kind": "requires"} in g["edges"]
+    (track,) = g["tracks"]
+    assert track["id"] == "blender" and track["mastered"] == 1 and track["next"] == "bl.transform"
+    assert track["planIds"] == ["intro-blender", "blender-animation", "blender-materials"]
+    assert g["masteryDays"] == 2 and g["reviewDays"] == [3, 7, 21, 60] and g["keepFresh"] == ["bl.navigate"]
+
+
+def test_graph_merge_events_and_nothing_touched(state):
+    assert graph.merge({}, now=t(5)) == {} and graph.merge(None, now=t(5)) == {}
+    ledger.record_pass(["cad.pad"], now=t(1), tz=UTC)
+    ledger.record_pass(["cad.pad"], now=t(2), tz=UTC)
+    g = graph.merge({}, now=t(2, 12), tz=UTC)["graph"]
+    assert [e["kind"] for e in g["events"]] == ["mastered"] and g["events"][0]["skillId"] == "cad.pad"
+    g = graph.merge({"graph": {"ackedUntil": t(2, 11)}}, now=t(2, 12), tz=UTC)["graph"]
+    assert "events" not in g
+    assert [tr["id"] for tr in g["tracks"]] == ["cad"]
+
+
+# ------------------------------------------------------------------------------------------------ review.start
+def test_catalog_review_graph_replays_the_steps_behind_the_skill(state):
+    from server.skilltree import review
+
+    src = {"lesson": {"id": "L9", "title": "A FreeCAD bracket", "_folder": "/tmp/x"},
+           "steps": [{"id": "s1", "title": "Sketch a rectangle"}, {"id": "s2", "title": "Pad the sketch 5 mm"}]}
+    assert review.review_graph("cad.pad", lambda lid: src) is None  # not mastered yet
+    ledger.record_pass(["cad.pad"], now=t(1), lesson_id="L9", step_id="s2")
+    ledger.record_pass(["cad.pad"], now=t(2), lesson_id="L9", step_id="s2")
+    asked: list[str] = []
+    g = review.review_graph("cad.pad", lambda lid: asked.append(lid) or (src if lid == "L9" else None))
+    assert asked == ["L9"] and [s["id"] for s in g["steps"]] == ["s2"] and g["steps"][0]["skillIds"] == ["cad.pad"]
+    assert g["lesson"]["review"] == {"key": "skilltree::cad.pad", "label": "Pad", "skillId": "cad.pad"}
+    assert g["lesson"]["id"] == "review-cad-pad-L9" and g["lesson"]["_folder"] == "/tmp/x"
+    assert "skillIds" not in src["steps"][1]  # the cached lesson is never changed
+    assert tagging.tag_graph(g) == {"s2": ["cad.pad"]}
+    (ev,) = ledger.record_pass(tagging.tag_graph(g)["s2"], now=t(6), tz=UTC, lesson_id=g["lesson"]["id"], step_id="s2")
+    assert ev["kind"] == "reviewed" and ev["interval"] == 7
+
+
+def test_sessions_review_never_schedules_a_catalog_key(state):
+    from server.sessions import review as old_review
+
+    old_review.record_result_safely("skilltree::cad.pad", True)
+    assert old_review.load_state() == {}

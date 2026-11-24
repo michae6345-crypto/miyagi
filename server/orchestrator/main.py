@@ -65,7 +65,7 @@ from shared.contracts.events import parse_app_message
 from server import config as server_config
 from server.skilltree import service as skills_service
 
-from . import config, recorder, stage
+from . import config, recorder, skill_hooks, stage
 from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
@@ -126,8 +126,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
-# ui-v4 skill tree (server/skilltree/service.py): local reads and small edits, answered beside the queue
-SKILL_INSTANT = frozenset(skills_service.READS)
+# ui-v4 skill tree (server/skilltree/service.py): proof.get, a local read answered beside the queue
+SKILL_INSTANT = frozenset({"proof.get"})
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
@@ -366,8 +366,6 @@ def parse_command(raw: dict) -> Any:
     type_ = raw.get("type")
     if type_ in V2_COMMANDS and type_ not in _CONTRACT_COMMANDS:
         return SimpleNamespace(type=type_, payload=_parse_v2(type_, raw.get("payload")))
-    if type_ in skills_service.COMMANDS and type_ not in _CONTRACT_COMMANDS:  # until the ui-v4 contract lands
-        return SimpleNamespace(type=type_, payload=skills_service.parse(type_, raw.get("payload")))
     return parse_app_message(raw)
 
 
@@ -796,7 +794,7 @@ class Engine:
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
-        caps += list(skills_service.COMMANDS)  # ui-v4 skill tree (provisional names until the contract lands)
+        caps.append("proof.get")  # ui-v4 skill tree: a pass's proof (server/skilltree/proofs.py); the tree rides on progress
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         return caps
 
@@ -907,7 +905,25 @@ class Engine:
 
     async def _read_progress(self) -> dict | None:
         p = await asyncio.to_thread(progress_mod.progress)
-        return contract_progress(p) if p is not None else None
+        out = contract_progress(p) if p is not None else None
+        try:  # ui-v4: the catalog skill tree (tracks -> skills -> steps, mastery, review rounds) on progress.graph
+            from server.skilltree import graph as tree
+
+            current = self.session_skill_lesson()
+            merged = await asyncio.to_thread(tree.merge, out, current=current)
+            return merged or out
+        except Exception:  # noqa: BLE001 - the tree is an extra: progress still answers without it
+            log.exception("skill tree merge failed")
+            return out
+
+    def session_skill_lesson(self) -> dict | None:
+        """The running lesson for the Steps zoom: {lesson, steps, tags} (tags: stepId -> catalog skill ids)."""
+        s = self.session
+        g = s.graph if isinstance(s.graph, dict) else None
+        if not g:
+            return None
+        return {"lesson": dict(g.get("lesson") or {}), "steps": [dict(st) for st in (s.steps or []) if isinstance(st, dict)],
+                "tags": skill_hooks.tags(s)}
 
     async def skills_set_goal(self, capstone_id: str) -> None:
         """set_goal: kept in skills.json (the learner's state on this Mac). An id that is not a capstone is ignored when
@@ -956,7 +972,8 @@ class Engine:
             await s.panel_state(p.open, _rect(p.rect))
         elif type_ == "data.delete":  # Settings > Privacy > Delete my data: the engine's local lesson notes go too
             await asyncio.to_thread(_wipe_context_memory, s)  # no reply: the app's sheet already says what it erased
-            await asyncio.to_thread(_wipe_skill_proofs)  # the skill tree's proofs (snippets of the learner's work)
+            if skills_service.deletes_proofs(getattr(p, "what", None)):  # no `what` (Delete my data), proofs or all
+                await asyncio.to_thread(_wipe_skill_proofs)  # the skill tree's proofs (snippets of the learner's work)
 
     async def library_start(self, lid: str) -> None:
         """library.start: a cached lesson, with no build and no lesson-writing model call. The cached graph's workdir is
@@ -1016,6 +1033,8 @@ class Engine:
         if review_mod is None or library_mod is None:
             return None
         row = review_mod.find({"skillId": skill_id, "label": label})
+        if row is None and skill_id:  # ui-v4: a catalog skill ("bl.extrude") from graph.keepFresh (server/skilltree)
+            return self._catalog_review_graph(skill_id)
         if row is None or not isinstance(row.get("_lessonId"), str):
             return None
         lib_id = library_mod.index_by_lesson_id().get(row["_lessonId"])
@@ -1027,6 +1046,21 @@ class Engine:
             return None
         graph["lesson"].pop("workdir", None)
         graph["lesson"]["_folder"] = _library_folder(source)  # the finished lesson's own folder: the learner's code is there
+        return graph
+
+    def _catalog_review_graph(self, skill_id: str) -> dict | None:
+        from server.skilltree import review as tree_review
+
+        def find(lesson_id: str) -> dict | None:
+            lib_id = library_mod.index_by_lesson_id().get(lesson_id)
+            source = library_mod.load_graph(lib_id) if lib_id else None
+            if isinstance(source, dict):
+                source = {**source, "lesson": {**(source.get("lesson") or {}), "_folder": _library_folder(source)}}
+            return source
+
+        graph = tree_review.review_graph(skill_id, find)
+        if graph is not None:
+            graph["lesson"].pop("workdir", None)
         return graph
 
     async def _load_library(self, graph: dict, title: str, folder: str | None = None) -> None:
@@ -1152,8 +1186,8 @@ class Engine:
                 else:
                     await self.hub.send_to(ws, type_, payload)
 
-            s.note_app_v2()  # only a ui-v4 app sends skills messages: it draws the v2 surfaces
-            await skills_service.handle(msg.type, p, reply)
+            s.note_app_v2()  # only a ui-v4 app sends proof.get: it draws the v2 surfaces
+            await skills_service.proof_get(p, reply)
         elif msg.type == "library.start":
             await self.library_start(p.id)
         elif msg.type == "review.start":

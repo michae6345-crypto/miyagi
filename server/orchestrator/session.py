@@ -718,7 +718,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
         self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
-        self.skill_update: dict | None = None  # skill tree: what the last pass changed (skill_hooks.on_pass)
+        self.skill_events: list[dict] = []  # skill tree: what the last pass changed (skill_hooks.on_pass)
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
         self.idx = -1
@@ -4314,14 +4314,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if step["id"] not in self.skipped_steps:
                 self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
         await advice_clear.step_passed(self)  # t9 (V10): its "Not yet" card goes with the step
+        # ui-v4 skill tree: key, assisted, skillIds, proofId; records mastery / review rounds and the proof (local only)
+        payload.update(await skill_hooks.on_pass(self, step, skipped))
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
             await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
         self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
-        self.skill_update = await skill_hooks.on_pass(self, step, skipped)  # skill tree: mastery, reviews, proof (local)
-        if self.skill_update is not None:
-            await self.emit("skills.update", self.skill_update)
         await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:  # Nov 15: steps whose code is already in the file pass at once, ONE card (quiet_save.advance)

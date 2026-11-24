@@ -21,8 +21,6 @@ log = logging.getLogger("orchestrator.hub")
 # (engine.hello goes to every app on connect), with one DEBUG line per type instead of a warning on every send.
 V2_EVENTS = frozenset({"engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item",
                        "progress"})
-# ui-v4 skill tree (server/skilltree/service.py EVENTS): provisional names, unvalidated until the ui-v4 contract lands
-V2_EVENTS = V2_EVENTS | frozenset({"skills.tracks", "skill", "skills.mastery", "skills.reviews", "skills.proofs", "skills.update"})
 _KNOWN_EVENTS = frozenset(getattr(_contract, "ENGINE_EVENTS", {}))
 PROGRESS_EVENTS = frozenset({"lesson.ready", "lesson.ended", "step.started", "check.updated", "lesson.complete"})
 SEND_TIMEOUT_S = 5.0  # a client that takes longer to accept one message is dropped: it must not stall every emitter

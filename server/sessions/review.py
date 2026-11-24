@@ -121,7 +121,7 @@ def record_result(key: str, passed: bool, *, now: float | None = None) -> dict:
 
 def record_result_safely(key: str | None, passed: bool, *, now: float | None = None) -> None:
     try:
-        if key:
+        if key and not key.startswith("skilltree::"):  # a catalog skill's review: server/skilltree/ledger.py schedules it
             record_result(key, passed, now=now)
     except Exception as e:  # noqa: BLE001 - remembering a review must never break the lesson
         log.warning("could not record the review: %s", e)
