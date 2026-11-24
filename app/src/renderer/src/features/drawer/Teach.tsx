@@ -291,7 +291,8 @@ function KindBadge({ kind }: { kind: StepKind }): ReactNode {
       data-part="drawer-kind"
       data-kind={kind}
       className="mr-[7px] inline-flex h-[19px] items-center gap-[4px] rounded-[6px] px-[6px] align-[1px] text-[11.5px] font-semibold leading-none"
-      style={{ background: glass.key, color: glass.keyText }}
+      // glass.label, not keyText: keyText measured 4.24:1 on the key fill in light at this size (QA R4-06).
+      style={{ background: glass.key, color: glass.label }}
     >
       <I size={11} strokeWidth={2} />
       {label}

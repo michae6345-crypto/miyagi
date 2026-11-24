@@ -7,7 +7,7 @@
  * reaches everything under it through MotionConfig.
  */
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { color, fill, radius2, type2 } from '../../core/theme'
 import { riseIn } from '../../core/ui/motion'
 import type { useKeyFlow } from './account'
@@ -23,7 +23,7 @@ import { Permissions } from './sections/Permissions'
 import { Privacy } from './sections/Privacy'
 import { Shortcuts } from './sections/Shortcuts'
 import { Flat, InlineSettings, Note } from './ui'
-import { Apps4, Data4, General4 } from './v4/Panels'
+import { Apps4, BackToData, Data4, General4, Sees4, SEES_TITLE } from './v4/Panels'
 
 type Flow = ReturnType<typeof useKeyFlow>
 
@@ -50,11 +50,18 @@ function Header({ panel }: { panel: PanelId }): ReactNode {
 /** The v4 page's header (Adrian's ui-next mock): a 32 px title and, where the panel has one, a lede. */
 function BigHeader({ panel }: { panel: PanelId }): ReactNode {
   const p = panelOf(panel)
-  const lede = panel === 'apps' || panel === 'data' ? p.caption : undefined
+  // Privacy is Your data's "See the list" here: its own title, a way back, and focus on the title it opened on.
+  const sees = panel === 'privacy'
+  const lede = panel === 'apps' || panel === 'data' ? p.caption : sees ? 'Each source, and where it goes.' : undefined
+  const h1 = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (sees) h1.current?.focus({ preventScroll: true })
+  }, [sees])
   return (
     <header className="flex flex-col">
-      <h1 className="m-0" style={{ fontSize: 32, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
-        {p.label}
+      {sees && <BackToData />}
+      <h1 ref={h1} tabIndex={sees ? -1 : undefined} className="m-0 outline-none" style={{ fontSize: 32, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
+        {sees ? SEES_TITLE : p.label}
       </h1>
       {lede && (
         <p className="m-0" style={{ fontSize: 14.5, marginTop: 6, color: color.label }}>
@@ -76,6 +83,8 @@ function BigBody({ panel, flow, live }: { panel: PanelId; flow: Flow; live: bool
     case 'data':
     case 'storage':
       return <Data4 live={live} onDeleted={flow.replaceView} />
+    case 'privacy':
+      return <Sees4 secure={flow.view?.secure} />
     case 'lessons':
       return (
         <div className="flex flex-col" style={{ maxWidth: 684 }}>

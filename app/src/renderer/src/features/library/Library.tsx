@@ -151,15 +151,37 @@ function Passed(): ReactNode {
 
 // ---- lesson tables --------------------------------------------------------------------------------------------------
 
-type Cols = { plan: boolean; grows: boolean; opened: boolean; tool: boolean }
+/** `title`: the px the Lesson column needs for its longest title (titleWidth), so Plan and Grows give way first (QA Q20). */
+type Cols = { plan: boolean; grows: boolean; opened: boolean; tool: boolean; title?: number }
 function colsFor(w: number): Cols {
   return { plan: w >= 900, grows: w >= 820, opened: w >= 700, tool: w >= 520 }
 }
+
+/** A lesson title's width in the row's own type (14 px, 600); the estimate when there is no canvas. */
+let ctx: CanvasRenderingContext2D | null | undefined
+function textWidth(t: string): number {
+  if (ctx === undefined) {
+    try {
+      ctx = document.createElement('canvas').getContext('2d')
+      if (ctx) ctx.font = `600 ${type2.md}px ${getComputedStyle(document.body).fontFamily || 'system-ui'}`
+    } catch {
+      ctx = null
+    }
+  }
+  return Math.ceil(ctx ? ctx.measureText(t).width : t.length * 7.6)
+}
+/** The Lesson column's floor: the thumb (56) + its gap (12) + the longest title, + a hair for the font's rounding. */
+function titleWidth(items: Item[]): number {
+  return items.reduce((m, i) => Math.max(m, textWidth(i.title)), 0) + 56 + 12 + 4
+}
+
 function template(c: Cols): string {
   return [
-    'minmax(0,2.4fr)',
+    // Whole titles first, but never more than half the table (a long title still truncates in a narrow pane).
+    c.title ? `minmax(min(${c.title}px, 50%),2.4fr)` : 'minmax(0,2.4fr)',
     c.plan ? 'minmax(0,1.2fr)' : '',
-    c.tool ? 'minmax(64px,0.8fr)' : '',
+    // Works in holds one short word ("Jupyter", "Blender"): a fixed 76 leaves the rest to Plan and Grows.
+    c.tool ? '76px' : '',
     c.grows ? 'minmax(0,1.4fr)' : '',
     '56px',
     '150px',
@@ -440,7 +462,7 @@ function LibraryList(): ReactNode {
   }, [])
   // A column with nothing to say on any row (no lesson from a plan yet, no dates from the engine) is left out.
   const fit = colsFor(w)
-  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i, known).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)) }
+  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i, known).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)), title: titleWidth(items) }
   const cardCols = w < 640 ? 2 : 4
   const planCols = w < 760 ? 1 : 2
   const fresh = s.loaded && s.items.length === 0 && mine.length === 0

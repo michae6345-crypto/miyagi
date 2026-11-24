@@ -101,7 +101,8 @@ function PlanTable({ label, plans, after, width }: { label: string; plans: Catal
   // Plan · Works in · Lessons · Skills · Time · Ends with · After
   // The Plan column gets room for the longest name (about 210 px, 'Working with language models') before the text
   // columns share the rest; a name that still doesn't fit wraps to a second line rather than clipping.
-  const template = narrow ? 'minmax(0,1.6fr) minmax(0,1fr) 48px 52px' : `minmax(150px,224px) minmax(0,0.8fr) 56px 48px 52px minmax(0,1.6fr)${showAfter ? ' minmax(0,1.2fr)' : ''}`
+  // Lessons is 56 in both: the head word itself needs 50 (it read "Lesso…" at 48, QA R4-02).
+  const template = narrow ? 'minmax(0,1.6fr) minmax(0,1fr) 56px 52px' : `minmax(150px,224px) minmax(0,0.8fr) 56px 48px 52px minmax(0,1.6fr)${showAfter ? ' minmax(0,1.2fr)' : ''}`
   const cols = narrow
     ? [{ label: 'Plan' }, { label: 'Works in' }, { label: 'Lessons', align: 'right' as const }, { label: 'Time', align: 'right' as const }]
     : [{ label: 'Plan' }, { label: 'Works in' }, { label: 'Lessons', align: 'right' as const }, { label: 'Skills', align: 'right' as const }, { label: 'Time', align: 'right' as const }, { label: 'Ends with' }, ...(showAfter ? [{ label: 'After' }] : [])]

@@ -384,7 +384,8 @@ function Usage({ help, i = 2 }: { help?: HelpMeter; i?: number }): ReactNode {
           <div className="flex items-baseline justify-between" style={{ marginTop: 4 }}>
             <span className="font-semibold" style={{ fontSize: type2.xxl, lineHeight: '32px', letterSpacing: '-0.4px', color: color.text, fontVariantNumeric: 'tabular-nums' }}>
               {help.used}
-              <span className="font-normal" style={{ fontSize: type2.lg, color: color.faint }}>
+              {/* label, not faint: faint read 4.15:1 on the dark card (QA R4-06). */}
+              <span className="font-normal" style={{ fontSize: type2.lg, color: color.label }}>
                 {' '}
                 / {help.limit}
               </span>
