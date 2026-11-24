@@ -27,7 +27,7 @@ import { FACTS } from '../privacy/facts'
 import { SettingRowById } from '../rows'
 import { IslandRow } from '../sections/General'
 import { Group, OnWord, Plain, Row } from '../ui'
-import { APP_GROUPS, APPS, appCaption, askDelete, size, tryInvoke, useYourData, type AppRow } from './data'
+import { APP_GROUPS, APPS, appCaption, askDelete, clearCache, size, tryInvoke, useYourData, type AppRow } from './data'
 import { isElectron } from '../../../bridge'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 
@@ -251,7 +251,7 @@ export function Data4({ live }: { live: boolean }): ReactNode {
             <Row
               label="Lesson cache"
               caption={`Built lessons kept so they open fast.${cache ? ` ${cache}.` : ''}`}
-              right={<RunButton label="Clear" pending run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
+              right={d.fromEngine ? d.canClearCache ? <RunButton label="Clear" run={clearCache} /> : undefined : <RunButton label="Clear" pending run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
             />
           </Group>
         </>

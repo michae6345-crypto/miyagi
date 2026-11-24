@@ -8,10 +8,12 @@
  * status in the panel; only an ok health item says Connected (no item: "Reads exactly" or "Screen only").
  */
 
+import type { DataInventory, PlanToolId } from '../../../../../../../shared/contracts/events'
+
 export type AppGroup = 'Code' | 'Sheets and design' | '3D and CAD' | 'Games' | 'Everything else'
 /** connected: read exactly through an add-on or the editor; connect: an add-on exists but is not set up; screen: miyagi looks at the window. */
 export type AppHow = 'connected' | 'connect' | 'screen'
-export type AppRow = { id: string; name: string; group: AppGroup; reads?: string; how: AppHow; plans?: number }
+export type AppRow = { id: PlanToolId | 'other'; name: string; group: AppGroup; reads?: string; how: AppHow; plans?: number }
 
 export const APP_GROUPS: readonly AppGroup[] = ['Code', 'Sheets and design', '3D and CAD', 'Games', 'Everything else']
 
@@ -44,6 +46,23 @@ export function size(bytes?: number): string | undefined {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
   if (bytes < 1024 ** 3) return `${Math.round(bytes / 1024 ** 2)} MB`
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+}
+
+/** What Your data shows, from the engine's `data` inventory (ui-v4 contract, data.get) when it answered. */
+export type YourData = { cacheBytes?: number; folder: string; lessons?: number; canClearCache?: boolean; fromEngine?: boolean }
+
+/** The contract's inventory to the panel's rows: the lesson folder's path and count, the cache's size and whether the
+ * engine can really clear it (canDelete; the app offers Clear only then). */
+export function fromInventory(inv: DataInventory): YourData {
+  const folder = inv.items.find((i) => i.id === 'lesson_folder')
+  const cache = inv.items.find((i) => i.id === 'lesson_cache')
+  return {
+    folder: folder?.path || '~/miyagi',
+    lessons: folder?.count ?? undefined,
+    cacheBytes: cache?.bytes ?? undefined,
+    canClearCache: !!inv.canDelete?.includes('lesson_cache'),
+    fromEngine: true
+  }
 }
 
 /** Your data's Delete account opens the Privacy panel straight on its two-step confirm. A moment, not a flag: React's

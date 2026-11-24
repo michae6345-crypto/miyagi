@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { APP_GROUPS, APPS, appCaption, askDelete, size, takeDeleteAsk, usedBy } from '../src/renderer/src/features/settings/v4/facts'
+import { APP_GROUPS, APPS, appCaption, askDelete, fromInventory, size, takeDeleteAsk, usedBy } from '../src/renderer/src/features/settings/v4/facts'
 import { isPanel, panelOf, PANELS } from '../src/renderer/src/features/settings/panels'
 
 test('size: KB, MB and GB; nothing for a missing or bad number', () => {
@@ -32,6 +32,20 @@ test('panels: apps and data are panels for the page, not rows of the sheet', () 
   assert.equal(panelOf('apps').label, 'Apps')
   assert.equal(panelOf('data').label, 'Your data')
   assert.ok(!PANELS.some((p) => p.id === 'apps' || p.id === 'data'))
+})
+
+test('your data: the ui-v4 inventory gives the folder, its count, the cache size, and Clear only when the engine can', () => {
+  const items = [
+    { id: 'lesson_folder', label: 'Lesson folder', where: 'this_mac' as const, path: '~/miyagi/lessons', bytes: 48211968, count: 14, delete: null },
+    { id: 'lesson_cache', label: 'Lesson cache', where: 'this_mac' as const, path: '~/miyagi/cache/lessons', bytes: 212336640, count: 31, delete: 'lesson_cache' as const }
+  ]
+  const d = fromInventory({ items })
+  assert.equal(d.folder, '~/miyagi/lessons')
+  assert.equal(d.lessons, 14)
+  assert.equal(size(d.cacheBytes), '203 MB')
+  assert.equal(d.canClearCache, false)
+  assert.equal(fromInventory({ items, canDelete: ['notes', 'lesson_cache'] }).canClearCache, true)
+  assert.equal(fromInventory({ items: [] }).folder, '~/miyagi')
 })
 
 test('delete ask: opens the confirm once, right after the ask', () => {
