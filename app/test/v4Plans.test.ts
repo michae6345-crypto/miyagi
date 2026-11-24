@@ -111,6 +111,13 @@ test('a goal builds a plan from the catalog, the picked tool first, ending in a 
   assert.deepEqual(planFromGoal('').lessons, [])
 })
 
+test('a goal plan offers each app once, only the apps the goal matches (QA R2-06)', () => {
+  const labels = (proposalFromGoal('a budget in google sheets')?.tools ?? []).map((t) => t.label)
+  assert.equal(new Set(labels).size, labels.length)
+  assert.ok(labels.includes('Google Sheets'), labels.join(', '))
+  for (const off of ['Docker Desktop', 'VS Code', 'Terminal']) assert.ok(!labels.includes(off), `${off} in ${labels.join(', ')}`)
+})
+
 test('a playlist video grows the skill its title names, from any catalog plan; no match gives no skill', () => {
   const blender = planById('intro-blender')
   const label = (t: string): string | undefined => skillForTitle(t, blender)?.label

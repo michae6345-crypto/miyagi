@@ -14,6 +14,7 @@ import { Check, ChevronRight, Compass, Flag, Play, RefreshCw, SquarePen } from '
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLesson } from '../../../core/lesson'
+import { closeWindow } from '../../../core/surfaces'
 import { PrimaryButton } from '../../../core/ui/atoms'
 import { color, fill, type2 } from '../../../core/theme'
 import { Character } from '../../buddy/Character'
@@ -105,7 +106,7 @@ function Sec({ children, link, onLink, first }: { children: ReactNode; link?: st
       </h2>
       {link &&
         (onLink ? (
-          <button type="button" onClick={onLink} className="mg-press ml-auto flex cursor-pointer items-center gap-[2px]" style={{ fontWeight: 450, color: color.label }}>
+          <button type="button" onClick={onLink} className="mg-press ml-auto flex cursor-pointer items-center gap-[2px]" style={{ fontWeight: 450, color: color.label, minHeight: 24, marginBlock: -3 }}>
             {link}
             <ChevronRight size={13} strokeWidth={1.8} />
           </button>
@@ -879,6 +880,8 @@ export function ProgressV4(): ReactNode {
   const starting = useDash((s) => s.starting)
   const connected = useLesson((s) => s.connected)
   const hello = useLesson((s) => s.hello)
+  // A lesson open right now is the one to continue, as on Home's continue card (QA R2-07).
+  const live = useLesson((s) => (s.lesson?.title && !s.building ? s.lesson.title : undefined))
   const now = useNow()
   const [ref, w] = useWidth<HTMLDivElement>()
   useEffect(() => {
@@ -896,8 +899,10 @@ export function ProgressV4(): ReactNode {
 
   const primary = first ? (
     <PrimaryButton label="Start a lesson" icon={SquarePen} onClick={() => openLauncher()} />
+  ) : live ? (
+    <PrimaryButton label={`Continue ${live}`} icon={Play} onClick={() => void closeWindow(ROUTE)} />
   ) : cont ? (
-    <PrimaryButton label={`Continue ${cont.stepTitle ?? cont.title}`} icon={Play} disabled={!!starting} onClick={() => void startSaved(cont.libraryId, ROUTE)} />
+    <PrimaryButton label={`Continue ${cont.title}`} icon={Play} disabled={!!starting} onClick={() => void startSaved(cont.libraryId, ROUTE)} />
   ) : (
     <PrimaryButton label="Start a lesson" icon={Compass} onClick={() => openLauncher()} />
   )

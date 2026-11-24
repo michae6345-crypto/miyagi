@@ -360,12 +360,12 @@ export function PageFrame({ children, top = v4.page.top, bottom = v4.page.bottom
 }
 
 /** A v4 page title: 32 / 700, the page's actions on its right, a one-line lede under it. */
-export function PageHeader({ title, lede, caption, right }: { title: ReactNode; lede?: ReactNode; /** = lede */ caption?: ReactNode; right?: ReactNode }): ReactNode {
+export function PageHeader({ title, lede, caption, right, wrap = false }: { title: ReactNode; lede?: ReactNode; /** = lede */ caption?: ReactNode; right?: ReactNode; /** Wrap a long title onto a second line instead of cutting it with an ellipsis (a plan page beside its picture). */ wrap?: boolean }): ReactNode {
   const line = lede ?? caption
   return (
     <header data-v4-header className="flex flex-col">
       <div className="flex min-w-0 items-center gap-[16px]" style={{ minHeight: 38 }}>
-        <h1 className="m-0 min-w-0 truncate" style={{ ...v4type.title, color: color.text }}>
+        <h1 className={wrap ? 'm-0 min-w-0 line-clamp-2 break-words' : 'm-0 min-w-0 truncate'} style={{ ...v4type.title, color: color.text }}>
           {title}
         </h1>
         {right && (

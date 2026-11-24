@@ -73,7 +73,7 @@ export function Segmented<T extends string>({
 export function Toggle({ on, onChange, label, disabled, surface = 'dark' }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; surface?: ControlSurface }): ReactNode {
   const onPaper = surface === 'paper'
   const track = on ? (onPaper ? paper.ink : color.accent) : onPaper ? paper.border : fill.toggleOff
-  const knob = on ? (onPaper ? paper.surface : color.onAccent) : onPaper ? paper.surface : color.text
+  const knob = on ? (onPaper ? paper.surface : color.onAccent) : onPaper ? paper.surface : fill.toggleKnobOff
   // Polish: the stretch origin is captured when the press starts and held until the next press, so the knob does not
   // jump when `on` flips on release while scaleX is still springing back from 1.15.
   const [origin, setOrigin] = useState(on ? 1 : 0)

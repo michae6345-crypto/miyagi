@@ -195,6 +195,8 @@ const palette: Record<string, readonly [string, string]> = {
   'f-track-next-mini': ['rgba(255,255,255,.24)', `rgba(${INK},.2)`],
   'f-practicing': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],
   'f-toggle-off': ['rgba(255,255,255,.16)', `rgba(${INK},.16)`],
+  // An off Toggle's knob: light on dark, white on light (it was the ink, which read as on; QA R2-05).
+  'f-toggle-knob-off': [APP_DARK.text, '#FFFFFF'],
   // ---- surface.* ----
   's-panel': ['rgba(30,30,29,0.96)', 'rgba(253,252,250,0.97)'],
   's-sheet': ['#2C2B2A', '#FFFFFF'],
@@ -421,7 +423,9 @@ export const fill = {
   /** A skill being practiced (Prog-Progress-Window): white at 55%, never a hue. */
   practicing: 'var(--f-practicing)',
   /** A Toggle that is off. */
-  toggleOff: 'var(--f-toggle-off)'
+  toggleOff: 'var(--f-toggle-off)',
+  /** The knob of a Toggle that is off: light on dark, white on light. */
+  toggleKnobOff: 'var(--f-toggle-knob-off)'
 } as const
 
 /**

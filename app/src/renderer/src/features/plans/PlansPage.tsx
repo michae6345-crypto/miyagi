@@ -45,6 +45,7 @@ export function PlansPage(): ReactNode {
                 autoFocus
                 type="search"
                 aria-label="Search plans"
+                className="[&::-webkit-search-cancel-button]:hidden"
                 placeholder="Search plans"
                 value={query}
                 onChange={(e) => setQuery(e.target.value.slice(0, 80))}
@@ -55,10 +56,10 @@ export function PlansPage(): ReactNode {
                     setSearching(false)
                   }
                 }}
-                style={{ width: 200, height: 28, padding: '0 26px 0 28px', borderRadius: radius2.control, background: surface.well, border: 0, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, fontSize: type2.sm, outline: 'none' }}
+                style={{ width: 200, height: 28, padding: '0 30px 0 28px', borderRadius: radius2.control, background: surface.well, border: 0, boxShadow: `inset 0 0 0 1px ${surface.border}`, color: color.text, fontSize: type2.sm, outline: 'none' }}
               />
-              <button type="button" aria-label="Close search" onClick={() => (setQuery(''), setSearching(false))} className="absolute cursor-pointer" style={{ right: 6, background: 'none', border: 0, padding: 0, color: color.label, display: 'flex' }}>
-                <X size={13} />
+              <button type="button" aria-label="Close search" onClick={() => (setQuery(''), setSearching(false))} className="absolute flex cursor-pointer items-center justify-center" style={{ right: 2, width: 24, height: 24, background: 'none', border: 0, padding: 0, color: color.label }}>
+                <X size={14} />
               </button>
             </span>
           ) : (
