@@ -17,6 +17,7 @@ import { bridge } from '../../../bridge'
 import { useNotchInfo } from '../../../core/notchInfo'
 import { openOnboarding } from '../../../core/surfaces'
 import { startTour } from '../../tips/tourStore'
+import { BuddyColor } from '../../buddy/SettingsRows'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
@@ -114,6 +115,8 @@ export function General({ live }: { live: boolean }): ReactNode {
       </Group>
 
       <PushToTalk />
+
+      <BuddyColor />
 
       <WorksWith health={health} inLesson={inLesson} />
 

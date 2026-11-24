@@ -67,5 +67,13 @@ export type SkinName = keyof typeof SKINS
 /** What the buddy comes in until the learner picks: Adrian's pick from the color sheet, Nov 23. */
 export const DEFAULT_SKIN: SkinName = 'sand'
 
-/** The colors a learner can pick from, in the order the picker shows them (ColorPicker.tsx). The rest are stage-only. */
-export const PICKS: readonly SkinName[] = ['sand', 'cream', 'butter', 'peach', 'clay', 'pink', 'lilac', 'sky', 'mint']
+/**
+ * The colors a learner can pick from, in the order the picker shows them (ColorPicker.tsx). Seven, each one easy to
+ * tell from the others (Adrian, Nov 23: "not too many and not too similar... maybe 6-8"): one per hue, with sand as
+ * the neutral it comes in. Cream is out because it is too close to sand, clay because it is the one dark color.
+ * test/buddySkin.test.ts holds the set to that: 6 to 8, and no two closer than PICK_APART in CIE Lab.
+ * The rest of SKINS are stage-only.
+ */
+export const PICKS: readonly SkinName[] = ['sand', 'butter', 'peach', 'pink', 'lilac', 'sky', 'mint']
+/** The least CIE Lab distance (delta E 1976) between any two colors a learner can pick. Sand and cream are 14 apart; lilac and sky, the closest pair kept, 20. */
+export const PICK_APART = 18

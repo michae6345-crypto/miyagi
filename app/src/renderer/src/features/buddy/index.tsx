@@ -49,9 +49,10 @@ export { LivingMark, usePointerLean, type BuddyState, type LivingMarkProps } fro
 // For a layer that draws its own stroke (features/annotate): where the living mark is, and the point pose.
 export { useBonsaiPoint } from './Reach'
 export { Character, type CharacterKind, type Mood } from './Character'
-// For setup and Settings: the picker, and the learner's color.
-export { BuddyColorPicker } from './ColorPicker'
-export { pickSkin, useSkin, useSkinName } from './skin'
+// The learner's color, and the pieces setup (features/onboarding BuddyStep) and Settings (SettingsRows) pick it with.
+export { BuddyColorPicker, BuddyPreview, BuddySwatches } from './ColorPicker'
+export { BuddyColor } from './SettingsRows'
+export { confirmSkin, isSkinChosen, pickSkin, useSkin, useSkinName } from './skin'
 export { annotate, pointAt, usePointing } from './pointing'
 export { say, sendHome, setActivity, summon, useTalk } from './talk'
 export { Buddy, useBuddy } from './store'

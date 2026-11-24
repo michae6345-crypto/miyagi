@@ -1,29 +1,34 @@
 /**
- * Feature: buddy. Pick your buddy's color: the buddy, big, and a row of swatches under it. A pick shows at once: it
- * beams and hops, and everything it does from then on (its loop, the bars in its bubble) is in that color (skin.ts).
- * No window of its own: setup and Settings mount it (brief, Core requests); ?buddy=pick shows it in a mock setup step.
- * The buddy looks at the pointer, so it feels alive before the learner has done anything.
+ * Feature: buddy. Pick your buddy's color, in two pieces so setup and Settings can lay them out their own way:
+ *
+ *   BuddyPreview    the buddy itself. It watches the pointer, and beams and hops when a color is picked.
+ *   BuddySwatches   the colors to pick from (palette.ts PICKS), as a radio group, with the picked one's name under it.
+ *   BuddyColorPicker  both, stacked (the stage's ?buddy=pick mock).
+ *
+ * A pick shows at once and everything the buddy does from then on (its loop, the bars in its bubble) is in that
+ * color (skin.ts). Used by features/onboarding BuddyStep.tsx and SettingsRows.tsx here.
  */
 import { motion, useReducedMotion } from 'motion/react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { color, type2 } from '../../core/theme'
 import { spring } from '../../core/ui/motion'
 import { Character } from './Character'
 import { PICKS, SKINS, type SkinName } from './palette'
-import { pickSkin, useSkinName } from './skin'
+import { pickSkin, useSkinName, useSkinPicks } from './skin'
 
 /** How long it beams after a pick (ms). */
 const BEAM_MS = 900
-const SWATCH = 30
 
-const title = (name: SkinName): string => name.charAt(0).toUpperCase() + name.slice(1)
+export const skinTitle = (name: SkinName): string => name.charAt(0).toUpperCase() + name.slice(1)
 
-export function BuddyColorPicker({ size = 132 }: { size?: number }): ReactNode {
+export function BuddyPreview({ size = 132 }: { size?: number }): ReactNode {
   const name = useSkinName()
+  const picks = useSkinPicks()
   const reduced = useReducedMotion() ?? false
   const [beam, setBeam] = useState(false)
   const [look, setLook] = useState({ x: 0, y: 0 })
   const body = useRef<HTMLDivElement>(null)
+  const seen = useRef(picks)
 
   // It watches the pointer.
   useEffect(() => {
@@ -38,26 +43,41 @@ export function BuddyColorPicker({ size = 132 }: { size?: number }): ReactNode {
     return () => window.removeEventListener('mousemove', move)
   }, [])
 
+  // A pick: it beams for a moment.
   useEffect(() => {
-    if (!beam) return
+    if (picks === seen.current) return
+    seen.current = picks
+    setBeam(true)
     const t = setTimeout(() => setBeam(false), BEAM_MS)
     return () => clearTimeout(t)
-  }, [beam, name])
-
-  const pick = (next: SkinName): void => {
-    pickSkin(next)
-    setBeam(true)
-  }
+  }, [picks])
 
   return (
+    <div ref={body} data-part="buddy-preview" style={{ width: size, height: size }}>
+      {/* A new color lands with a small hop. */}
+      <motion.div key={name} initial={reduced || picks === 0 ? false : { y: size * 0.08, scale: 0.9 }} animate={{ y: 0, scale: 1 }} transition={spring}>
+        <Character size={size} mood={beam ? 'happy' : 'calm'} look={beam ? undefined : look} />
+      </motion.div>
+    </div>
+  )
+}
+
+export function BuddySwatches({ size = 30, gap = 14, name: showName = true }: { size?: number; gap?: number; name?: boolean }): ReactNode {
+  const name = useSkinName()
+  const group = useRef<HTMLDivElement>(null)
+  // Arrow keys move the pick, like any radio group.
+  const onKey = (e: KeyboardEvent): void => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const i = PICKS.indexOf(name)
+    const next = PICKS[(Math.max(0, i) + step + PICKS.length) % PICKS.length]
+    pickSkin(next)
+    group.current?.querySelector<HTMLElement>(`[data-swatch="${next}"]`)?.focus()
+  }
+  return (
     <div data-part="buddy-colors" className="flex flex-col items-center">
-      <div ref={body} style={{ height: size }}>
-        {/* A new color lands with a small hop. */}
-        <motion.div key={name} initial={reduced ? false : { y: 10, scale: 0.9 }} animate={{ y: 0, scale: 1 }} transition={spring}>
-          <Character size={size} mood={beam ? 'happy' : 'calm'} look={beam ? undefined : look} />
-        </motion.div>
-      </div>
-      <div role="radiogroup" aria-label="Buddy color" className="mt-[28px] flex items-center gap-[14px]">
+      <div ref={group} role="radiogroup" aria-label="Buddy color" className="flex items-center" style={{ gap }} onKeyDown={onKey}>
         {PICKS.map((p) => {
           const on = p === name
           return (
@@ -66,27 +86,46 @@ export function BuddyColorPicker({ size = 132 }: { size?: number }): ReactNode {
               type="button"
               role="radio"
               aria-checked={on}
-              aria-label={title(p)}
+              aria-label={skinTitle(p)}
+              title={skinTitle(p)}
+              tabIndex={on || (!PICKS.includes(name) && p === PICKS[0]) ? 0 : -1}
+              data-no-drag
               data-swatch={p}
               data-on={on || undefined}
-              onClick={() => pick(p)}
-              className="cursor-pointer p-0"
+              onClick={() => pickSkin(p)}
+              className="shrink-0 cursor-pointer p-0"
               style={{
-                width: SWATCH,
-                height: SWATCH,
-                borderRadius: SWATCH / 2,
+                width: size,
+                height: size,
+                borderRadius: size / 2,
                 background: SKINS[p].body,
                 border: 'none',
-                // The ring of the one that is picked: a gap in the window's color, then the text color.
-                boxShadow: on ? `0 0 0 3px ${color.window}, 0 0 0 5px ${color.text}` : `inset 0 0 0 1px rgba(0,0,0,.18)`,
-                transition: 'box-shadow 140ms ease-out'
+                // A hairline, so a pale one shows on a light window. The picked one wears a ring in the text color, a
+                // gap out from it (an outline, so the gap is whatever it sits on: a window, a settings card).
+                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)',
+                outline: on ? `2px solid ${color.text}` : '2px solid transparent',
+                outlineOffset: size > 24 ? 3 : 2,
+                transition: 'outline-color 140ms ease-out'
               }}
             />
           )
         })}
       </div>
-      <div data-part="buddy-color-name" className="mt-[16px]" style={{ fontSize: type2.sm, color: color.label }}>
-        {title(name)}
+      {showName && (
+        <div data-part="buddy-color-name" className="mt-[16px]" style={{ fontSize: type2.sm, color: color.label }}>
+          {skinTitle(name)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function BuddyColorPicker({ size = 132 }: { size?: number }): ReactNode {
+  return (
+    <div className="flex flex-col items-center">
+      <BuddyPreview size={size} />
+      <div className="mt-[28px]">
+        <BuddySwatches />
       </div>
     </div>
   )
