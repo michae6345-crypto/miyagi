@@ -3,10 +3,13 @@
  * to talk. And today's pointing (pointing.ts spotlit): the spotlight's boxes. Loaded for its side effects by index.tsx. Kept apart from talk.ts because these imports need the app's
  * bridge, and talk.ts is checked offline.
  */
+import { cmd } from '../../../../common/wire'
+import { bridge } from '../../bridge'
 import { onMessage } from '../../core/bus'
-import { useLesson } from '../../core/lesson'
+import { canSend, useLesson } from '../../core/lesson'
 import { sendAction, usePressed } from '../../core/shortcuts'
-import { LEVELS, passStep } from './growth'
+import { createBonLink } from './engine'
+import { bonImported, LEVELS, localSteps, markBonImported, passStep, syncSteps } from './growth'
 import { words } from './name'
 import { cheer, spotlit } from './pointing'
 import { engineThinking, say, setActivity, setEngine, summon } from './talk'
@@ -66,12 +69,30 @@ if (typeof window !== 'undefined') {
     .catch(() => undefined)
 }
 
-// It grows each time the learner passes a step (growth.ts). A skipped step is not a pass, and neither is one that was
-// already done when the lesson got to it. On a level-up it comes out, hops, and says its new level; Companion.tsx
-// shows the growing itself. After pointing.ts's own step.passed handler has cleared the marks, so its words show.
+// bon's count from the engine (engine.ts, ui-v4): on every connect, bon.import once per Mac and bon.get, each only when
+// the hello lists it; every `bon` (the answer, and the push after a counted pass) syncs the count, quietly.
+const bon = createBonLink({
+  canSend,
+  send: (type, payload) => {
+    if (type === 'bon.import') bridge.send(cmd('bon.import', payload as { steps: number; seen?: string[] }))
+    else bridge.send(cmd('bon.get', {}))
+  },
+  local: localSteps,
+  imported: bonImported,
+  markImported: markBonImported,
+  sync: syncSteps,
+  pass: passStep,
+  lessonId: () => useLesson.getState().lesson?.id
+})
+onMessage('engine.hello', (p) => bon.hello(p?.capabilities))
+onMessage('bon', (p) => bon.bon(p))
+
+// It grows each time the learner passes a step (growth.ts, engine.ts counts): a ui-v4 engine says which passes count
+// (`counted`); otherwise a skipped step is not a pass, and neither is one that was already done when the lesson got to
+// it. On a level-up it comes out, hops, and says its new level; Companion.tsx shows the growing itself. After
+// pointing.ts's own step.passed handler has cleared the marks, so its words show.
 onMessage('step.passed', (p) => {
-  if (!p?.stepId || p.skipped || p.already) return
-  const level = passStep(`${useLesson.getState().lesson?.id ?? 'lesson'}:${p.stepId}`)
+  const level = bon.passed(p)
   if (!level) return
   summon()
   say(words.grew(level, LEVELS[level - 1].name))

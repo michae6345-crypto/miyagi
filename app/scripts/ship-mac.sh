@@ -57,7 +57,10 @@ for helper in "$APP"/Contents/Frameworks/*Helper*.app; do
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $shown" "$plist"
 done
 # Before the dmg: the image carries the signed app. No Developer ID yet (SHIP.md, Known gaps).
-codesign --force --deep -s - "$APP"
+# MIYAGI_SIGN_ID: a local signing identity (e.g. "miyagi Local Dev", a self-signed cert in the login keychain) so every
+# local build keeps the same signature and the keychain's "Always Allow" for safeStorage sticks. Unset: ad hoc, as before.
+SIGN_ID="${MIYAGI_SIGN_ID:--}"
+codesign --force --deep -s "$SIGN_ID" "$APP"
 codesign --verify --deep --strict "$APP"
 
 echo "[ship] 4/5 dmg ($FORMAT)"
