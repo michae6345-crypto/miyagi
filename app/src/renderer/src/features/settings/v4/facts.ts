@@ -5,7 +5,7 @@
  * `APPS` is a LOCAL TYPED PLACEHOLDER until the ui-v4 contract (shared/contracts/UI-V4.md, plans catalog) lands: the
  * apps a plan can use, how miyagi reads each, and how many catalog plans use it (counted from docs/ui-next/catalog on
  * origin/adrian/ui-next, Nov 24). Engine health (vscode, jupyter, any other id it reports) overrides the placeholder
- * status in the panel, so nothing says Connected that the engine said is missing.
+ * status in the panel; only an ok health item says Connected (no item: "Reads exactly" or "Screen only").
  */
 
 export type AppGroup = 'Code' | 'Sheets and design' | '3D and CAD' | 'Games' | 'Everything else'

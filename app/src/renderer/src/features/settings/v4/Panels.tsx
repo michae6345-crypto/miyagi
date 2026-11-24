@@ -28,6 +28,7 @@ import { SettingRowById } from '../rows'
 import { IslandRow } from '../sections/General'
 import { Group, OnWord, Plain, Row } from '../ui'
 import { APP_GROUPS, APPS, appCaption, askDelete, size, tryInvoke, useYourData, type AppRow } from './data'
+import { isElectron } from '../../../bridge'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 
 /** Two columns 56 apart (one under the other when the panel is narrower than two 330 px columns). */
@@ -49,8 +50,12 @@ export function Cols({ left, right }: { left: ReactNode; right: ReactNode }): Re
   )
 }
 
-/** A quiet button that may say a word after it ran ("Cleared.", "Not ready yet."). */
-function RunButton({ label, run }: { label: string; run: () => Promise<string> | string | void }): ReactNode {
+/**
+ * A quiet button that may say a word after it ran ("Cleared."). `pending`: main has no handler for it yet
+ * (apps:connect:<id>, data:open-folder, data:cache-clear; Core request in agents/v4-settings.md), so in Electron it
+ * shows disabled with a tooltip instead of answering every click with an error; the stage's stand-ins keep it working.
+ */
+function RunButton({ label, run, pending = false }: { label: string; run: () => Promise<string> | string | void; pending?: boolean }): ReactNode {
   const [note, setNote] = useState<string>()
   useEffect(() => {
     if (!note) return
@@ -66,6 +71,8 @@ function RunButton({ label, run }: { label: string; run: () => Promise<string> |
       )}
       <QuietButton
         label={label}
+        disabled={pending && isElectron}
+        title={pending && isElectron ? 'Coming in an update.' : undefined}
         onClick={() => {
           void Promise.resolve(run()).then((r) => r && setNote(r))
         }}
@@ -165,7 +172,10 @@ export function General4(): ReactNode {
 
 // ---- Apps ------------------------------------------------------------------------------------------------------------
 
-/** What the engine said, when it said something; the placeholder otherwise. Never green: a white tick and the word. */
+/**
+ * What the engine said, and only that: Connected only when its health item is ok (a white tick and the word, never
+ * green). With no health item the row says how miyagi reads the app (Reads exactly / Screen only), never Connected.
+ */
 function AppStatus({ app, item }: { app: AppRow; item?: HealthItem }): ReactNode {
   if (item?.state === 'ok') return <OnWord>Connected</OnWord>
   if (item?.state === 'checking') return <StatusGlyph state="checking" size={14} />
@@ -176,8 +186,8 @@ function AppStatus({ app, item }: { app: AppRow; item?: HealthItem }): ReactNode
         Not found
       </span>
     )
-  if (app.how === 'connected') return <OnWord>Connected</OnWord>
-  if (app.how === 'connect') return <RunButton label="Connect" run={() => tryInvoke(`apps:connect:${app.id}`, 'Connected.')} />
+  if (app.how === 'connected') return <Plain>Reads exactly</Plain>
+  if (app.how === 'connect') return <RunButton label="Connect" pending run={() => tryInvoke(`apps:connect:${app.id}`, 'Connected.')} />
   return <Plain>Screen only</Plain>
 }
 
@@ -237,11 +247,11 @@ export function Data4({ live }: { live: boolean }): ReactNode {
             <Row label={`Everything ${copy.name} sees`} caption="Each source, and where it goes." right={<PanelLink label="See the list" to="privacy" />} />
           </Group>
           <Group label="On this Mac">
-            <Row label="Lesson folder" caption={`${d.folder}${d.lessons ? ` · ${d.lessons} lessons` : ''}`} right={<RunButton label="Open" run={() => tryInvoke('data:open-folder', '')} />} />
+            <Row label="Lesson folder" caption={`${d.folder}${d.lessons ? ` · ${d.lessons} lessons` : ''}`} right={<RunButton label="Open" pending run={() => tryInvoke('data:open-folder', '')} />} />
             <Row
               label="Lesson cache"
               caption={`Built lessons kept so they open fast.${cache ? ` ${cache}.` : ''}`}
-              right={<RunButton label="Clear" run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
+              right={<RunButton label="Clear" pending run={() => tryInvoke('data:cache-clear', 'Cleared.')} />}
             />
           </Group>
         </>

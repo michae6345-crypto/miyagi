@@ -14,7 +14,7 @@ import { ChevronDown } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { setPrefs, usePrefs, type Appearance } from '../../core/prefs'
 import { color, fill, radius2, type2 } from '../../core/theme'
-import { QuietButton, Segmented, Toggle } from '../../core/ui/atoms'
+import { QuietButton, Toggle } from '../../core/ui/atoms'
 import { useDash } from '../dashboard/store'
 import { useProgress } from '../progress/store'
 import { RemindersGroup } from '../reminders/Settings'
@@ -25,7 +25,7 @@ import { checkNow, useUpdates } from '../updates/store'
 import { CODE_SIZES, DENSITIES, MOTIONS, START_PAGES, TEXT_SIZES, progressJson, resetLocal, setLocal, useLocal, type Findable } from './local'
 import { RATE_OPTIONS, VOLUMES, useVideoPref } from './videoPrefs'
 import type { PanelId } from './panels'
-import { Badge, Group, Plain, Row } from './ui'
+import { Badge, Group, Plain, Row, Seg } from './ui'
 
 // Every window loads every feature: this lets the one-time reminders offer show, now that Notifications holds its group.
 reachableInSettings()
@@ -242,7 +242,7 @@ export const SETTINGS: readonly Setting[] = [
     label: 'Export my progress',
     caption: 'A JSON file of your skills and finished lessons.',
     keywords: 'download backup json',
-    control: { kind: 'button', label: 'Export', run: exportProgress }
+    control: { kind: 'button', label: 'Download', run: exportProgress }
   },
   {
     id: 'reset-tips',
@@ -415,7 +415,7 @@ function Control({ s }: { s: Setting }): ReactNode {
 
 function SegmentedControl({ s, c }: { s: Setting; c: Extract<Control, { kind: 'segmented' }> }): ReactNode {
   const [v, set] = c.use()
-  return <Segmented label={s.label} options={c.options} value={v} onChange={set} />
+  return <Seg label={s.label} options={c.options} value={v} onChange={set} />
 }
 function SelectControl({ s, c }: { s: Setting; c: Extract<Control, { kind: 'select' }> }): ReactNode {
   const [v, set] = c.use()
