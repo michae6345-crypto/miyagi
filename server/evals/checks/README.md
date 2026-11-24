@@ -74,6 +74,53 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
+
+The four round-3 case sets merged: 290 cases, 208 train + 82 held out. Every fix is general (no lesson ids, no case
+text); each has a regression test in `server/checks/tests/test_round3_fixes.py` (all 31 fail on the engine before
+these fixes). Fixed against the train cases only; the held-out cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (208), before | 0.851 | 0.802 | 0.880 | 20 | 11 |
+| train (208), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (82), before | 0.427 | 0.311 | 0.467 | 31 | 16 |
+| held-out (82), after | 0.439 | 0.318 | 0.467 | 30 | 16 |
+
+The held-out set barely moved (one case, `terminal-tsshop-t4-failing-test-skipped`, now right): the round-3 traps
+are mostly one of a kind, so a fix for one rarely covers another. Read that as the honest generalisation number.
+
+What changed (server/checks):
+
+- **Notebook kernel state** (`evaluate_gate`): `undone_setup` (a cell that changes a name, `model.fit`, ran, then a
+  cell above it that binds the name afresh ran again before the step's cell); `rerun_self_update` (a cell computing a
+  name from itself with arithmetic, `x = x.astype(...) / 255`, ran more than once since the cell that made it: the
+  counts between are on no cell); Run All fails on any cell's error output, on screen or not; `cell_not_run` trusts a
+  `[N]` run count the editor shows above the cell over an unsaved file.
+- **Metrics** (`_metric_view`, `_as_fraction`): Keras's short names (`acc`, `mse`, `mae`) read as the long ones; when
+  several step cells print the metric, only the newest-run cell counts; a single-argument print of the metric
+  (`print(history.history['accuracy'][-1])`) is its value; an accuracy-like metric against a 0..1 bar reads 1..100 as
+  a percentage and above 100 as a count (fail).
+- **Terminal** (`blocks`): a command at a continuation prompt (`dquote>`) never ran; `git config <key>` with no value
+  and no output set nothing; a `--dry-run` / `git push -n` is not the step's command; a test summary with skipped
+  tests is not "every test passes"; a commit row on another branch than the one the step's command makes, before it
+  was made, fails; a rebasing / merging `git pull` counts where "Fast-forward" is expected; a failure from before the
+  repo was set up (`git log` before the first commit, `not a git repository` before `git init`) is history once the
+  setup succeeded.
+- **Code** (`code_equiv`, `_file_contains`, `editor_problems`): a top-level def / class / assignment below
+  `from mod import name` that rebinds it; a React component whose block body holds JSX and never returns it; a
+  relative import naming the module's extension (`'../utils.ts'`) is the import without it; JSON (tsconfig) is read
+  without its comments; a TypeScript / tsc step fails while VS Code's status bar counts errors (`⊗ 1`).
+- **App files** (`model_files`): DXF claims (a profile the step closes whose polylines are all open; a dimension that
+  should read N whose group 42 measures something else); scene claims from the step's words and file-check labels
+  ("Cube at X 2", "Keys end on frame 97" for every channel, a separate object touching a part that must be one piece,
+  a Hole through a short / long wall, a component the step activates and builds a body in that has none); the last
+  key's interpolation reads as the key before it; Blender 4.x Principled BSDF names read as 3.x ones and back
+  (`transmission_weight` / `transmission`); a timeline feature's health `warning` is not an error for an "every"
+  check; G-code is an export a slicer names itself (`base_0.2mm_PLA_MK4_1h12m.gcode` for `base.gcode`).
+
+`baseline.json`: train 1.000 with no `known_wrong`; held-out 0.439 (46 known wrong, ids only).
+
 ## Round 3: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r3-0`)
 
 18 new cases (12 train, 6 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s2

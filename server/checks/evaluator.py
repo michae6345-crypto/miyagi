@@ -33,7 +33,7 @@ from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
 from . import blocks, code_equiv, model_files
-from .code_text import code_view, lang_of, signatures
+from .code_text import code_view, lang_of, signatures, strip_comments
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
 
@@ -364,7 +364,8 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
 # file a step may leave unnamed. Never code, a notebook, a project or a text file: "a new Python file for the math
 # helpers" is the operations.py the lesson goes on to import, and main.py beside it is not that file.
 EXPORT_EXTS = frozenset(""".png .jpg .jpeg .webp .tif .tiff .bmp .gif .exr .hdr .pdf .mp4 .mov .webm .mkv .avi
-.stl .obj .3mf .ply .fbx .glb .gltf .dae .usd .usdz .abc .step .stp .iges .igs .sat .dwg .dxf .dwf""".split())
+.stl .obj .3mf .ply .fbx .glb .gltf .dae .usd .usdz .abc .step .stp .iges .igs .sat .dwg .dxf .dwf .gcode .bgcode
+.gco""".split())
 
 
 def _name_words(name: str) -> set[str]:
@@ -549,6 +550,9 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     if why := model_files.empty_mesh(path) or (check.get("_print") and model_files.open_mesh(path)):
         return _result(check, "fail", why)
     view = code_view(full, check, rel, check.get("_sigs")) if lang_of(rel) else full  # no comments, one function
+    if rel.lower().endswith((".json", ".jsonc")) and not re.search(r"//|/\\?\*|\\/\\/", pattern):
+        # tsconfig.json / settings.json are JSON with comments: a key commented out (// "strict": true) is not set
+        view = strip_comments(view, "c")
     if rel.lower().endswith(".ipynb") and check.get("_markdown") and _MD_PATTERN.match(pattern):
         view = _markdown_cells(full, check)  # a Markdown title / heading / list is one only in a Markdown cell
     if rel.lower().endswith((".html", ".htm")) and not _CODE_LABEL.search(str(check.get("label") or "")):
@@ -676,23 +680,95 @@ def _notebook_points(ctx: RunContext, check: dict | None) -> list[tuple[int, flo
 
 
 _BARE_ROW = r"^\s*(?P<step>\d+)\s*[,:;|]?\s+(?P<value>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
+_BARE_VALUE = r"^\s*(?P<value>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*$"
 _PRINT_ARGS = re.compile(r"\bprint\s*\(([^\n]*)\)")
 
 
 def _bare_metric_pattern(check: dict, nb: Notebook) -> str | None:
     """The learner printed the metric their own way, without the words the check's pattern expects
     (``print(epoch, loss.item())`` -> ``0 0.2614``): rows of a step number and a value count when the step's own cell
-    prints the metric (a print( call naming it) and the pattern reads a step and a value."""
+    prints the metric (a print( call naming it) and the pattern reads a step and a value. A print of the metric alone
+    (``fit(..., verbose=0)`` then ``print(history.history['accuracy'][-1])`` -> ``0.9858000040054321``) is its value,
+    when the pattern reads one."""
     name, pattern = str(check.get("metric") or ""), str(check.get("metric_pattern") or "")
-    if not re.fullmatch(r"\w+", name) or "(?P<step>" not in pattern or "(?P<value>" not in pattern:
+    if not re.fullmatch(r"\w+", name) or "(?P<value>" not in pattern:
         return None
     for c in nb.cells:
         for m in _PRINT_ARGS.finditer(c.source):
             args = [a.strip() for a in m.group(1).split(",")]
-            if len(args) == 2 and re.search(rf"\b{re.escape(name)}\b", args[1]) \
+            if len(args) == 2 and "(?P<step>" in pattern and re.search(rf"\b{re.escape(name)}\b", args[1]) \
                     and not re.search(r"['\"]", m.group(1)):
                 return _BARE_ROW
+            # one argument naming the metric (a variable, or a history key) and no text of its own around it
+            if len(args) == 1 and not re.match(r"[fbr]?['\"]", args[0]) \
+                    and re.search(rf"(?<![\w.])['\"]?{re.escape(name)}['\"]?(?!\w)", args[0]):
+                return _BARE_VALUE
     return None
+
+
+# Keras names a metric after the string it was given: metrics=['acc'] prints `acc: 0.9858`, ['mse'] prints `mse: ...`
+_METRIC_ALIASES = {"accuracy": "acc(?:uracy)?", "mean_squared_error": "(?:mean_squared_error|mse)",
+                   "mean_absolute_error": "(?:mean_absolute_error|mae)"}
+
+
+def _alias_pattern(pattern: str) -> str | None:
+    """The check's metric pattern with Keras's short metric names allowed too (``accuracy:`` -> ``acc(?:uracy)?:``),
+    or None when it names none of them."""
+    out = pattern
+    for long, either in _METRIC_ALIASES.items():
+        out = re.sub(rf"(?<!\w){re.escape(long)}(?!\w)", lambda _m: either, out)
+    return out if out != pattern else None
+
+
+def _metric_texts(ctx: RunContext, check: dict) -> list[str]:
+    texts = list(ctx.notebook.outputs) if isinstance(ctx.notebook, Notebook) else []
+    return texts + [screen_text(ctx.screen, check.get("app")) or "", ctx.output_text()]
+
+
+def _metric_view(check: dict, ctx: RunContext) -> tuple[dict, RunContext]:
+    """(the check, ctx) as a metric check reads them:
+
+    * the pattern names the metric its long way (``accuracy:``) and nothing on record prints that, while the short name
+      Keras prints for ``metrics=['acc']`` is there (``acc: 0.9858``): the pattern takes either;
+    * the step's metric is printed by more than one of its cells (a run that blew up to ``loss: nan`` in one cell, then a
+      rebuilt model fit again in a new cell below): only the cell that ran last is the model in the kernel now."""
+    pattern = str(check.get("metric_pattern") or "")
+    if pattern and (alias := _alias_pattern(pattern)) is not None:
+        try:
+            rx, arx = _compile(pattern), _compile(alias)
+            texts = [scan_text(t) for t in _metric_texts(ctx, check)]
+            if not any(rx.search(t) for t in texts) and any(arx.search(t) for t in texts):
+                check = {**check, "metric_pattern": alias}
+                pattern = alias
+        except re.error:
+            pass
+    nb = ctx.notebook
+    if pattern and isinstance(nb, Notebook) and len(nb.cells) > 1:
+        printing = [i for i, c in enumerate(nb.cells) if c.outputs
+                    and extract_metrics(pattern, "\n".join(c.outputs))]
+        if len(printing) > 1:
+            counted = [i for i in printing if nb.cells[i].count is not None]
+            newest = max(counted, key=lambda i: nb.cells[i].count) if len(counted) == len(printing) else printing[-1]
+            ctx = dataclasses.replace(ctx, notebook=nb.only([newest]))
+    return check, ctx
+
+
+# an accuracy / precision / recall / F1 is a fraction of 0..1 (a percentage up to 100); a bar the step sets at 1 or below
+# means the fraction
+_FRACTION_METRIC = re.compile(r"(?:^|_|\b)(?:acc|accuracy|precision|recall|f1|auc|iou|dice)(?:$|_|\b)", re.I)
+
+
+def _as_fraction(check: dict, name: str, value: float) -> tuple[float, str | None]:
+    """(the metric's value on the check's 0..1 scale, why it can't be one): a printed ``98.6`` accuracy is 98.6 % =
+    0.986; a printed ``121.0`` is no accuracy at all (a count of right answers never divided by how many there were)."""
+    target = check.get("value")
+    if not _FRACTION_METRIC.search(name) or not isinstance(target, (int, float)) or not 0 < float(target) <= 1 \
+            or value <= 1:
+        return value, None
+    if value <= 100:
+        return value / 100.0, None
+    return value, (f"{name.replace('_', ' ')} {_fmt(value)} is not a fraction: that is a count; divide it by the "
+                   f"number of examples")
 
 
 _EPOCH_HEADER = re.compile(r"^\s*Epoch\s+(\d+)\s*/\s*(\d+)\b", re.I | re.M)
@@ -846,6 +922,7 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     if not name or op not in _OPS or target is None:
         return _result(check, "fail", "check needs 'metric' (or 'metric_pattern'), 'op' and 'value'")
     by_step = check.get("by_step")
+    check, ctx = _metric_view(check, ctx)
     div = _diverged(ctx, name, check)
     if div:
         return div
@@ -864,8 +941,10 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     nb = ctx.notebook if _notebook_points(ctx, check) else None
     if eligible:
         recent = [v for _, v in eligible[-(1 if nb is not None else THRESHOLD_SMOOTH_POINTS):]]
-        current = statistics.median(recent)
+        current, not_fraction = _as_fraction(check, name, statistics.median(recent))
         at = eligible[-1][0]
+        if not_fraction:
+            return _result(check, "fail", not_fraction)
         if _OPS[op](current, float(target)):
             where = f"in {nb.path.name}" if nb is not None else f"at step {at}"
             return _result(check, "pass", f"{name} {_fmt(current)} {op} {_fmt(float(target))} {where}")
@@ -993,6 +1072,7 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     if not name or trend not in ("not_flat", "decreasing"):
         return _result(check, "fail", "check needs 'metric' (or 'metric_pattern') and trend 'not_flat'|'decreasing'")
     window = int(check.get("window") or DEFAULT_TREND_WINDOW)
+    check, ctx = _metric_view(check, ctx)
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
@@ -1235,7 +1315,8 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
             m = _absent_hit(pattern, b.text)
             if not m:
                 continue
-            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()):
+            if b.command and (blocks.superseded(bl, i) or blocks.redundant(bl, i) or b.recovered()
+                              or blocks.cured(bl, i)):
                 continue
             hit = hit or m
         if hit:
@@ -1248,6 +1329,8 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     hits = [i for i, b in enumerate(bl) if search_wrapped(pattern, b.text)]
     if not hits:  # the learner's own quoted text (a commit message) keeps the case they typed it in
         hits = [i for i, b in enumerate(bl) if b.command and _quoted_hit(pattern, b.command)]
+    if not hits:  # the result printed its other way (a rebasing git pull: no "Fast-forward", no diffstat)
+        hits = [i for i, b in enumerate(bl) if blocks.same_outcome(lambda x: bool(search_wrapped(pattern, x)), b)]
     if not hits:
         return None
     why, live, refused = "", False, False
@@ -1324,6 +1407,14 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
         for t in cmds:
             if blocks.runs(s, t) and blocks.narrows(s, t):
                 return f"`{s}` ran only some of the tests; run `{t}`"
+            if blocks.runs(s, t) and blocks.dry_run(s) and not blocks.dry_run(t):
+                return f"`{s}` only showed what it would do (a dry run): run `{t}`"
+            if blocks.runs(s, t) and (skipped := blocks.skipped_tests(b.output)) \
+                    and _ALL_TESTS.search(str(check.get("_instructions") or "")):
+                return (f"{skipped} test(s) skipped, so not every test ran (a .only or .skip left in a test file?): "
+                        f"remove it and run `{t}` again")
+    if wrong := _commit_on_other_branch(cmds, bl, i, pattern):
+        return wrong
     want = next((sec for word, sec in _GIT_SECTION_WORDS.items() if re.search(rf"\b{word}\b", label, re.I)), None)
     status_shown = any(blocks.git_section(e.rows, len(e.rows)) for e in bl)  # a git status listing is on screen
     if want and status_shown and not re.search(r"\b(?:un|not\s+)staged\b", label, re.I):
@@ -1342,6 +1433,27 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
         for r in b.output:
             if shape.search(r) and not rx.search(r):
                 return f"not every one: {r.strip()[:80]!r}"
+    return None
+
+
+_ALL_TESTS = re.compile(r"\b(?:every|all)\b[^.;]{0,30}\btests?\b|\btests?\b[^.;]{0,20}\ball\s+pass", re.I)
+_COMMIT_ROW = re.compile(r"^\s*\[([^\s\]]+)(?:\s+\(root-commit\))?\s+[0-9a-f]{7,40}\]")
+
+
+def _commit_on_other_branch(cmds: list[str], bl: list[blocks.Block], i: int, pattern: str) -> str | None:
+    """The step makes a branch of its own (its command is ``git switch -c add-waffles``) for the commit it checks, and
+    the commit row the check matched (``[main 5d6e7f8] Add waffles``) went onto another branch, before that branch was
+    made: the new branch has nothing the old one lacks."""
+    made = {n for t in cmds for s in blocks.segments(t) if (n := blocks.new_branch(s))}
+    if not made:
+        return None
+    for r in bl[i].output:
+        m = _COMMIT_ROW.match(r)
+        if not m or not search_wrapped(pattern, r) or m.group(1) in made:
+            continue
+        later = [n for b in bl[i + 1:] for s in blocks.segments(b.command or "") if (n := blocks.new_branch(s)) in made]
+        if later:
+            return f"that commit went onto {m.group(1)}, before {later[0]} was made: switch to {later[0]} first, then commit"
     return None
 
 
@@ -1411,7 +1523,7 @@ def _abandoned(check: dict, bl: list[blocks.Block]) -> str | None:
                     and re.search(rf"(?<![\w-]){re.escape(sub)}(?![\w-])", text, re.I):
                 newest[(p, sub)] = i
     for i in newest.values():
-        if (bad := bl[i].failure()) and not blocks.redundant(bl, i):
+        if (bad := bl[i].failure()) and not blocks.redundant(bl, i) and not blocks.cured(bl, i):
             return f"`{bl[i].command}` failed: {bad.strip()[:80]!r}"
     return None
 
@@ -1804,14 +1916,31 @@ def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
     nb = _with_step_notebook(step, ctx).notebook
     if not isinstance(nb, Notebook) or not nb.cells:
         return False
-    if not nb.executed:
-        return True
     # every one of its cells: "run both" with the second still unrun is not done. An unrun copy of a cell below it
     # that ran (an abandoned attempt above: each of its lines is in that cell) is not another cell to run; an unrun
-    # copy below the one that ran is the user's new cell (its output on screen is the older cell's), so it still counts
-    cells = [(_code_lines(c.source), c.executed) for c in nb.cells if c.source.strip()]
+    # copy below the one that ran is the user's new cell (its output on screen is the older cell's), so it still counts.
+    # A cell the file has as unrun but the editor shows with a run count ([4]) ran since the notebook was last saved:
+    # an unsaved notebook is not an unrun cell (no Cmd+S chores)
+    lines = screen_lines(ctx.screen, "Code") if ctx.screen is not None else None
+    cells = [(_code_lines(c.source), c.executed or _count_on_screen(c.source, lines)) for c in nb.cells
+             if c.source.strip()]
+    if not any(done for _, done in cells):
+        return True
     return any(not done and not any(ran and mine <= theirs for theirs, ran in cells[k + 1:])
                for k, (mine, done) in enumerate(cells))
+
+
+_RUN_COUNT_ROW = re.compile(r"^\s*\[\s*\d+\s*\]\s*:?\s*$")
+
+
+def _count_on_screen(source: str, lines: list[str] | None) -> bool:
+    """Does the editor show this cell with a run count: a ``[4]`` row right above the cell's first line?"""
+    first = next((" ".join(ln.split()) for ln in source.splitlines() if ln.strip()), "")
+    if not lines or not first:
+        return False
+    rows = [" ".join(str(ln).split()) for ln in lines]
+    return any(r == first and any(_RUN_COUNT_ROW.match(p) for p in rows[max(0, k - 2):k])
+               for k, r in enumerate(rows))
 
 
 def _code_lines(src: str) -> set[str]:
@@ -1913,6 +2042,91 @@ def stale_inputs(step: dict, ctx: RunContext | None) -> str | None:
     return None
 
 
+def _step_notebook(step: dict, ctx: RunContext | None) -> Notebook | None:
+    if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    nb = read_notebook(find_notebook(ctx.workdir, _files(step)))
+    return nb if nb is not None and nb.cells else None
+
+
+def _first_line(src: str) -> str:
+    return next((ln.strip() for ln in src.splitlines() if ln.strip()), "")[:60]
+
+
+def undone_setup(step: dict, ctx: RunContext | None) -> str | None:
+    """A cell above the step's cell that changes something the step's cell uses (``model.fit(...)`` trains ``model``)
+    ran, and then a cell above IT that binds that name afresh ran again (the model cell re-run "to look at it": a new
+    network with random weights): the step's cell then used the fresh one, and the change is gone. Their counts say so
+    ([4] the fit, [5] the model cell above it, [6] the predict). Why, else None."""
+    nb = _step_notebook(step, ctx)
+    if nb is None:
+        return None
+    for i in step_cells(nb, step):
+        cell = nb.cells[i]
+        mine = _py_names(cell.source) if cell.count is not None and cell.executed else None
+        if mine is None:
+            continue
+        uses = mine[2] - mine[0]
+        before = [(k, c, _py_names(c.source)) for k, c in enumerate(nb.cells[:i])
+                  if c.count is not None and c.count < cell.count and c.source.strip()]
+        for ka, a, na in before:
+            if not na:
+                continue
+            for name in sorted((na[1] - na[0]) & uses):  # it changes the name (a method call) without binding it
+                for kb, b, nbs in before:
+                    if kb < ka and nbs and name in nbs[0] and b.count > a.count:
+                        return (f"{_first_line(b.source)!r} ran again ([{b.count}]) after {_first_line(a.source)!r} "
+                                f"([{a.count}]) and made a new {name}: run {_first_line(a.source)!r} again, then this "
+                                f"cell")
+    return None
+
+
+def _self_updates(src: str) -> set[str]:
+    """Names a cell's code computes from themselves with arithmetic (``x = x.astype('float32') / 255``, ``x += 1``,
+    ``x = (x - mean) / std``): running the cell again applies it again."""
+    code = "\n".join("pass" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError):
+        return set()
+    out: set[str] = set()
+    for stmt in tree.body:
+        if isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name):
+            out.add(stmt.target.id)
+        elif isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name) \
+                and isinstance(stmt.value, ast.BinOp):
+            n = stmt.targets[0].id
+            if any(isinstance(x, ast.Name) and x.id == n and isinstance(x.ctx, ast.Load) for x in ast.walk(stmt.value)):
+                out.add(n)
+    return out
+
+
+def rerun_self_update(step: dict, ctx: RunContext | None) -> str | None:
+    """The step's cell rewrites what it uses from itself (``train_images = train_images.astype('float32') / 255``) and
+    its run count says it ran more than once since the cell that made that value last ran: the counts between the two
+    are on no cell ([1] the load, then [4] here: [2] and [3] were this cell too), so the arithmetic was applied again
+    and again. Why, else None."""
+    nb = _step_notebook(step, ctx)
+    if nb is None:
+        return None
+    counts = {c.count for c in nb.cells if c.count is not None}
+    for i in step_cells(nb, step):
+        cell = nb.cells[i]
+        if cell.count is None or not cell.executed:
+            continue
+        for name in sorted(_self_updates(cell.source)):
+            makers = [c.count for k, c in enumerate(nb.cells) if k != i and c.count is not None and c.count < cell.count
+                      and (names := _py_names(c.source)) and name in names[0]]
+            if not makers:
+                continue
+            gap = [k for k in range(max(makers) + 1, cell.count) if k not in counts]
+            if gap and len(gap) == cell.count - max(makers) - 1:
+                return (f"this cell ran {len(gap) + 1} times since {name} was made ([{max(makers)}]), so "
+                        f"{_first_line(cell.source)!r} was applied {len(gap) + 1} times: run the cell that makes "
+                        f"{name} again, then this cell once")
+    return None
+
+
 def _broken_imports(step: dict, ctx: RunContext | None) -> list[str]:
     """server.checks.code_equiv.broken_imports over the step's code files in the lesson folder: its targets', checks'
     and own file, and the files its check labels name ("main.py calls add_numbers(2, 3)")."""
@@ -1934,21 +2148,51 @@ def _scene_claims(step: dict, ctx: RunContext | None) -> list[str]:
     of the scene's things that the saved scene contradicts."""
     if ctx is None or not os.path.isabs(str(ctx.workdir or "")):
         return []
-    text = " ".join(str(step.get(k) or "") for k in ("title", "instructions", "what", "action"))
-    files = {str(c.get("file")) for c in [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
-             if c.get("type") in FILE_CHECK_TYPES and str(c.get("file") or "").lower().endswith(".json")}
+    file_checks = [c for c in [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
+                   if c.get("type") in FILE_CHECK_TYPES and str(c.get("file") or "").lower().endswith((".json", ".dxf"))]
+    # the step's words and its file checks' labels ("Cube at X 2", "Dimension reads 120")
+    text = " ".join([*(str(step.get(k) or "") for k in ("title", "instructions", "what", "action")),
+                     *(f"{c.get('label') or ''}." for c in file_checks)])
     out: list[str] = []
-    for rel in sorted(files):
+    for rel in sorted({str(c.get("file")) for c in file_checks}):
         path = _resolve(ctx.workdir, rel)
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 raw = fh.read(FILE_SCAN_TOTAL)
+            if rel.lower().endswith(".dxf"):
+                out += model_files.dxf_claims(text, raw)
+                continue
             doc = json.loads(model_files.scene_view(raw, text) or raw)
         except (OSError, ValueError):
             continue
         if isinstance(doc, dict):
             out += model_files.claims(text, doc)
     return out
+
+
+# VS Code's status bar problem counts: "⊗ 1 ⚠ 0" (errors, then warnings); OCR reads the circled x a few ways
+_PROBLEM_COUNT = re.compile(r"(?:⊗|Ⓧ|ⓧ|✖|⨂|⊘)\s*(\d+)\s*(?:⚠|△|▲|⚠️)\s*\d+")
+_TSC = re.compile(r"(?<![\w-])tsc(?![\w-])")
+
+
+def editor_problems(step: dict, ctx: RunContext | None) -> str | None:
+    """A TypeScript step (it compiles with tsc, or its code is a .ts / .tsx file it says must have no errors) whose
+    VS Code status bar counts errors (``⊗ 1``): tsc reports the same errors, whatever the terminal shows now (cleared,
+    or only the ``node dist/...`` run after it: tsc still writes the .js when there are errors). Why, else None."""
+    if ctx is None or ctx.screen is None:
+        return None
+    ts_file = _step_file(step).lower().endswith((".ts", ".tsx", ".mts", ".cts"))
+    error_check = any(c.get("type") == "screen_absent" and re.search(r"error|TS", str(c.get("pattern") or ""))
+                      for c in step.get("checks") or [])
+    if not (_TSC.search(str(step.get("run_command") or "")) or (ts_file and error_check)):
+        return None
+    m = None
+    for m in _PROBLEM_COUNT.finditer(screen_text(ctx.screen, "Code") or ""):
+        pass
+    if m is None or int(m.group(1)) == 0:
+        return None
+    n = int(m.group(1))
+    return f"VS Code shows {n} error{'s' if n != 1 else ''} in the code (⊗ {n}): fix it, then compile again"
 
 
 _RUN_ALL = re.compile(r"\brun\s+all\b|\brestart\b.{0,40}\brun\b", re.I)
@@ -1971,6 +2215,9 @@ def run_all_out_of_order(step: dict, ctx: RunContext | None) -> str | None:
     if counts[0] != 1 or any(b <= a for a, b in zip(counts, counts[1:])):
         shown = ", ".join(f"[{n}]" for n in counts)
         return f"the run counts read {shown}: Restart the kernel, then Run All so they go 1, 2, 3"
+    # Run All stops at the first cell that raises: its error is in the notebook even when it is scrolled off screen
+    if bad := next((c for c in cells if c.errors), None):
+        return f"cell [{bad.count}] stopped with {bad.errors[0].splitlines()[0][:80]!r}: fix it, then Restart and Run All"
     return None
 
 
@@ -2110,7 +2357,8 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
     if (step_passed(checks) or step_passed(prec)) and is_notebook_step(step) and ctx is not None:
         # the kernel that ran the step's cell is gone, or ran it without a cell above it that the cell needs
         crash = _kernel_crashed(ctx)
-        why = f"{crash} on screen: restart the kernel and run the notebook again" if crash else stale_inputs(step, ctx)
+        why = f"{crash} on screen: restart the kernel and run the notebook again" if crash else (
+            stale_inputs(step, ctx) or undone_setup(step, ctx) or rerun_self_update(step, ctx))
         if why:
             checks = [*checks, {"checkId": f"{step.get('id', '')}-kernel", "label": "The kernel has what the cell needs",
                                 "status": "fail", "detail": why}]
@@ -2125,6 +2373,11 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
         # power") is not what the saved scene says
         checks = [*checks, {"checkId": f"{step.get('id', '')}-scene", "label": "Scene matches the step",
                             "status": "fail", "detail": wrong[0]}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
+    if (step_passed(checks) or step_passed(prec)) and (problems := editor_problems(step, ctx)):
+        # the terminal looks clean (cleared, or only the run after the compile is on screen), but VS Code counts errors
+        checks = [*checks, {"checkId": f"{step.get('id', '')}-problems", "label": "No problems in the code",
+                            "status": "fail", "detail": problems}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if (order := run_all_out_of_order(step, ctx)) is not None:
         checks = [*checks, {"checkId": f"{step.get('id', '')}-order", "label": "Cells ran in order from [1]",
