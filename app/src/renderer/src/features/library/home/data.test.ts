@@ -1,9 +1,11 @@
 /** Home v4's view model (home/data.ts): the week, the counts, the rows, first run. Run by test/v4home.test.ts. */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { LibraryItem } from '../../../../../../../shared/contracts/events'
+import { readFileSync } from 'node:fs'
+import type { Activity, LibraryItem, PlanState } from '../../../../../../../shared/contracts/events'
+import { starters } from './catalog'
 import type { DashData } from '../../dashboard/types'
-import { agoLabel, buildHome, greeting, hoursMinutes, isFirstRun, leftLabel, lessonMeta, nextRows, passRows, sizeLabel, weekBars, weekStats } from './data'
+import { agoLabel, buildHome, coverForTool, fromContract, greeting, hoursMinutes, isFirstRun, leftLabel, lessonMeta, nextRows, passRows, sizeLabel, weekBars, weekStats } from './data'
 import { sampleHome } from './sample'
 
 // Tuesday Nov 24 2026, 19:30 local.
@@ -31,7 +33,45 @@ test('the week runs Monday to Sunday, today marked, later days empty', () => {
   assert.ok(bars[2].future)
   assert.equal(weekStats(data, {}, NOW).steps, 5)
   assert.equal(weekStats(data, {}, NOW).minutes, undefined)
-  assert.equal(weekStats(data, { minutes: { '2026-11-23': 20, '2026-11-24': 15, '2026-11-16': 99 } }, NOW).minutes, 35)
+  assert.deepEqual(weekStats(data, { week: { minutes: 35, steps: 4, mastered: 1 }, minutesTracked: true }, NOW), { minutes: 35, steps: 4, mastered: 1 })
+  assert.equal(weekStats(data, { week: { minutes: 35, steps: 4, mastered: 1 }, minutesTracked: false }, NOW).minutes, undefined)
+})
+
+// The contract's own mock (app/mock/scenarios/ui-v4.json): activity and plans as the engine sends them.
+const scenario = JSON.parse(readFileSync(new URL('../../../../../../mock/scenarios/ui-v4.json', import.meta.url), 'utf8')) as { segments: Record<string, Array<{ type?: string; payload?: unknown }>> }
+const sent = <T,>(seg: string, type: string): T => scenario.segments[seg].find((m) => m.type === type)!.payload as T
+
+test('ui-v4 activity and plans map to the week, the numbers, passes, plans, up next and the goal', () => {
+  const activity = sent<Activity>('uiv4_activity', 'activity')
+  const plans = sent<{ items: PlanState[] }>('uiv4_plans', 'plans').items
+  const parts = fromContract({ activity, plans, names: new Map([['bl.materials', 'Materials']]) })
+  const bars = weekBars(undefined, parts, NOW)
+  assert.deepEqual(bars.map((b) => b.value), [0, 22, 41, 0, 18, 12, 15])
+  assert.deepEqual(bars.map((b) => b.label).join(''), 'MTWTFSS')
+  assert.ok(bars[6].today && !bars.some((b) => b.future))
+  assert.deepEqual(weekStats(undefined, parts, NOW), { minutes: 108, steps: 6, mastered: 2 })
+  const m = buildHome({ items: [], extra: parts, now: NOW, skip: new Set(), done: new Set() })
+  assert.equal(m.passes[0].step, 'Add one row to every row')
+  assert.equal(m.passes[0].skill, 'Forward pass')
+  assert.ok(!m.passes.some((p) => p.lesson))
+  assert.deepEqual(m.plans.map((p) => `${p.title} ${p.done}/${p.total} ${p.next}`).slice(0, 2), ['Neural networks from scratch 3/9 The forward pass', 'Intro to Blender 6/10 Subdivision and smooth shading'])
+  assert.ok(m.next.length >= 2)
+  assert.equal(m.next.find((n) => n.title === 'Give it a material')?.skill, 'Materials')
+  assert.equal(m.goal?.unit, 'lessons')
+  assert.equal(isFirstRun(undefined, [], parts), false)
+  // minutesTracked false: the bars count steps and there is no minutes number.
+  const steps = fromContract({ activity: { ...activity, minutesTracked: false } })
+  assert.deepEqual(weekBars(undefined, steps, NOW).map((b) => b.value), [0, 1, 2, 0, 1, 1, 1])
+  assert.equal(weekStats(undefined, steps, NOW).minutes, undefined)
+})
+
+test('start here comes from the catalog plans, leaving out plans already added', () => {
+  const s = starters()
+  assert.deepEqual(s.map((p) => p.id), ['intro-python', 'intro-blender', 'intro-cad'])
+  assert.equal(s[0].ends, 'Ends with a number guessing game')
+  assert.equal(sizeLabel(s[0].minutes), 'about 3 hr')
+  assert.deepEqual(starters(new Set(['intro-blender'])).map((p) => p.id), ['intro-python', 'intro-cad'])
+  assert.equal(coverForTool('blender'), 'mug')
 })
 
 test('up next leaves out what is on Continue, finished or started', () => {

@@ -156,6 +156,9 @@ export function WeekChart({ bars, unit }: { bars: WeekBar[]; unit: string }): Re
   )
 }
 
+/** A cover's line grays (ink at fixed alphas, on the dark editor or on paper): named once, not inline. */
+const COVER_LINE = { onDark: 'rgba(255,255,255,.78)', softOnDark: 'rgba(255,255,255,.34)', floorOnDark: 'rgba(255,255,255,.08)', onPaper: 'rgba(40,38,33,.55)', softOnPaper: 'rgba(40,38,33,.22)' } as const
+
 /**
  * A cover: a small neutral drawing of the tool (16:9), never a photo or a hue. Code covers are dark like an editor,
  * the rest are paper; the lines are grays so the page keeps its two colors (ink and the green of passed).
@@ -163,8 +166,8 @@ export function WeekChart({ bars, unit }: { bars: WeekBar[]; unit: string }): Re
 export function Cover({ kind, width, radius = 8 }: { kind: CoverKind; width: number | string; radius?: number }): ReactNode {
   const dark = kind === 'code' || kind === 'net' || kind === 'term' || kind === 'mug'
   const bg = dark ? brand.ink : brand.surface
-  const ink = dark ? 'rgba(255,255,255,.78)' : 'rgba(40,38,33,.55)'
-  const soft = dark ? 'rgba(255,255,255,.34)' : 'rgba(40,38,33,.22)'
+  const ink = dark ? COVER_LINE.onDark : COVER_LINE.onPaper
+  const soft = dark ? COVER_LINE.softOnDark : COVER_LINE.softOnPaper
   let art: ReactNode = null
   if (kind === 'code' || kind === 'term')
     art = (
@@ -219,7 +222,7 @@ export function Cover({ kind, width, radius = 8 }: { kind: CoverKind; width: num
   else if (kind === 'mug')
     art = (
       <g>
-        <path d="M0 92L60 66M200 92L140 66M100 66V112M40 112L80 66M160 112L120 66M0 76H200" stroke="rgba(255,255,255,.08)" />
+        <path d="M0 92L60 66M200 92L140 66M100 66V112M40 112L80 66M160 112L120 66M0 76H200" stroke={COVER_LINE.floorOnDark} />
         <path d="M70 34h52v44a10 10 0 0 1-10 10H80a10 10 0 0 1-10-10z" fill={brand.surface2} />
         <ellipse cx={96} cy={34} rx={26} ry={6} fill={brand.inkFaint} />
         <path d="M122 44h6a12 12 0 0 1 0 24h-6" fill="none" stroke={brand.surface2} strokeWidth={6} />

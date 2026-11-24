@@ -7,7 +7,7 @@
  *             lesson's progress as a 3 px edge along the bottom.
  */
 import { ArrowRight, Play } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useLesson } from '../../../core/lesson'
 import { useAppearance } from '../../../core/prefs'
 import { color, elevation, fill, highlight, layer, surface, tone, type Tone } from '../../../core/theme'
@@ -59,6 +59,32 @@ export function useCardSurface(): { background: string; boxShadow: string } {
   return { background: layer.overlay.background, boxShadow: [highlight.topSoft, `inset 0 0 0 1px ${surface.border}`, light ? elevation.raised : ''].filter(Boolean).join(', ') }
 }
 
+/** How many of a row's children fit on one line (the mock keeps the chips on one row; the rest are left out). */
+function useFits(row: RefObject<HTMLDivElement | null>, key: string): number {
+  const [fits, setFits] = useState(99)
+  useLayoutEffect(() => {
+    const el = row.current
+    if (!el) return
+    const measure = (): void => {
+      const kids = Array.from(el.children) as HTMLElement[]
+      const right = el.clientWidth - parseFloat(getComputedStyle(el).paddingRight || '0')
+      let n = 0
+      for (const k of kids) {
+        if (k.offsetLeft + k.offsetWidth > right + 0.5) break
+        n++
+      }
+      setFits(Math.max(1, n))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    for (const k of Array.from(el.children)) ro.observe(k)
+    void document.fonts?.ready.then(measure)
+    return () => ro.disconnect()
+  }, [row, key])
+  return fits
+}
+
 export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): ReactNode {
   const ask = useAsk()
   const items = useLibrary((s) => s.items)
@@ -66,6 +92,8 @@ export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): 
   const connected = useLesson((s) => s.connected)
   const input = useRef<HTMLInputElement>(null)
   const [focused, setFocused] = useState(false)
+  const chips = useRef<HTMLDivElement>(null)
+  const fits = useFits(chips, ideas.map((t) => t.text).join('|'))
   const read = readAsk(ask.text, items, canStart)
   const go = (): void => {
     if (!submitAsk(connected) && !useAsk.getState().sending) input.current?.focus()
@@ -111,16 +139,18 @@ export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): 
           <QuietButton label={actionLabel} icon={read.kind === 'link' && read.match ? Play : ArrowRight} busy={!!ask.sending} onClick={go} />
         )}
       </form>
-      <div className="flex flex-wrap items-center gap-[8px]" style={{ padding: '0 14px 12px', minHeight: 40 }}>
+      <div ref={chips} className="relative flex flex-nowrap items-center gap-[8px] overflow-hidden" style={{ padding: '0 14px 12px', minHeight: 40 }}>
         {read.kind === 'idle'
-          ? ideas.map((t) => (
+          ? ideas.map((t, i) => (
               <button
                 key={t.text}
                 type="button"
                 data-idea
+                aria-hidden={i >= fits || undefined}
+                tabIndex={i >= fits ? -1 : undefined}
                 onClick={() => focusAsk(t.text)}
                 className="mg-press inline-flex cursor-pointer items-center outline-offset-2 focus-visible:outline-2"
-                style={{ height: 28, padding: '0 12px', borderRadius: 14, fontSize: 13, fontWeight: 500, background: tone[t.tone].bg, color: tone[t.tone].fg, outlineColor: color.text, whiteSpace: 'nowrap' }}
+                style={{ height: 28, padding: '0 12px', borderRadius: 14, fontSize: 13, fontWeight: 500, background: tone[t.tone].bg, color: tone[t.tone].fg, outlineColor: color.text, whiteSpace: 'nowrap', flexShrink: 0, visibility: i >= fits ? 'hidden' : undefined }}
               >
                 {t.text}
               </button>
@@ -146,7 +176,7 @@ export function ContinueCard({ view, action }: { view: ContView; action: ReactNo
       <Cover kind={view.cover} width={132} />
       <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 180 }}>
         <span style={{ fontSize: T.small, color: color.label, fontVariantNumeric: 'tabular-nums' }}>{view.kicker}</span>
-        <h3 id="home-continue" className="m-0 line-clamp-2" style={{ margin: '2px 0', fontSize: 17, fontWeight: 640, letterSpacing: '-0.01em', color: color.text }}>
+        <h3 id="home-continue" className="m-0 truncate" title={view.title} style={{ margin: '2px 0', fontSize: 17, fontWeight: 640, letterSpacing: '-0.01em', color: color.text }}>
           {view.title}
         </h3>
         {view.sub && (
@@ -156,7 +186,7 @@ export function ContinueCard({ view, action }: { view: ContView; action: ReactNo
           </span>
         )}
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-[6px]">{action}</div>
+      <div className="ml-auto flex shrink-0 flex-col items-end gap-[6px]">{action}</div>
       {f !== undefined && (
         <div role="img" aria-label={`${Math.round(f * 100)}% done`} className="absolute inset-x-0 bottom-0" style={{ height: 3, background: fill.chipHover }}>
           <div style={{ width: `${f * 100}%`, height: '100%', background: color.text }} />

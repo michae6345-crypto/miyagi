@@ -1,6 +1,6 @@
 # v4-home: Home v4 (Adrian's ui-next mock, `home` and `home-empty`)
 
-Branch `michael/v4-home` (from `michael/app-ui-v4`). Stage port 5252.
+Branch `michael/v4-home` (from `michael/app-ui-v4`, merged with it after `contract: ui-v4 data`). Stage port: any free one (`npm run dev:web -- --port <port> --strictPort`; the Nov 24 fix pass used 5383).
 
 ## Status
 
@@ -20,17 +20,29 @@ Done (first pass, matched to the mock in 3 rounds):
 Files: `features/library/Home.tsx` (Continue logic + which page), `features/library/home/{data,sample,bits,Top,Page}.tsx|ts`,
 `home/data.test.ts` (run by `test/v4home.test.ts`).
 
-## Wire later (the contract)
+## Wired to the contract (Nov 24)
 
-`shared/contracts/UI-V4.md` and `mock/scenarios/ui-v4.json` were not on `michael/app-ui-v4` yet. Until then
-`home/data.ts` takes `V4Extra`, a typed placeholder for what the contract adds: activity minutes per day, plans in
-progress, step passes with their skill, the goal, and catalog starters/short lessons/goals (first run uses the local
-`FIRST_RUN` list from Adrian's catalog). Wired now from existing data: Continue, Up next, skills per track, keep fresh
-(review), steps per day, skills mastered this week, recently finished lessons (shown as "Lesson" rows until passes land).
+`shared/contracts/UI-V4.md` is on `michael/app-ui-v4` (4330227c). `home/v4.ts` sends `activity.get` and `plans.list` when
+Home opens, each only when `engine.hello.capabilities` lists it (`canSend`), and keeps the `activity` / `plans` answers and
+pushes. `home/data.ts fromContract` maps them (`V4Parts`, which replaced the `V4Extra` placeholder):
+- the week bars: the last 7 of `activity.days` (minutes, or steps when `minutesTracked` is false); the numbers:
+  `activity.week` {minutes, stepsPassed, skillsMastered}, no minutes when `minutesTracked` is false;
+- Recently passed: `activity.recent` as step rows (When / Step / Skill) with their first skill label;
+- Plans: `plans.items` not done (done of total, Next = the lesson at `nextIndex`); Up next adds each plan's next lesson
+  after the saved lessons (opening one puts its goal in the ask field);
+- Goal: the project of the plan the learner passed a step in last ("A network that finds a circle", lessons done of
+  total, `minutesLeft`). The contract has no learner goal field yet; see Core requests;
+- first run's Start here: the catalog's intro-python / intro-blender / intro-cad (`home/catalog.ts`, the catalog's own
+  numbers and project), minus plans already added;
+- Keep fresh: the progress's review list, else `progress.graph.keepFresh` (read from the skills store).
+
+The Continue cover comes from the lesson's tool (a saved lesson's tools, else its plan's tool: the Blender lesson is the
+mug); only the stage's demo sample uses the network drawing.
 
 ## How to see it
 
-- `http://localhost:5252/?window=library&scenario=home-dashboard` (real mock data)
+- `http://localhost:<port>/?window=library&scenario=ui-v4` (the contract's mock: every section)
+- `?window=library&scenario=home-dashboard` (progress data from an engine before ui-v4)
 - `&homeSample=full` the mock's sample learner (browser stage only), `&homeSample=first` the first-run page
 - `&appearance=dark|light`
 
@@ -44,5 +56,7 @@ progress, step passes with their skill, the goal, and catalog starters/short les
 - The date and week are today's (the mock is fixed on Sunday Nov 22).
 
 ## Core requests
+
+- A learner goal in the contract (the plan or capstone the learner picked) so Home's Goal is not inferred from the last plan.
 
 - A `KeyName` for Return/Enter so the Continue button can show the mock's ↩ keycap.

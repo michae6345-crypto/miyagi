@@ -125,7 +125,14 @@ function UpNext({ m }: { m: HomeModel }): ReactNode {
       <Sec id="home-next" link="Library" onLink={() => setSection('library')}>
         Up next
       </Sec>
-      <LessonRows rows={m.next} onOpen={openDetail} />
+      <LessonRows
+        rows={m.next}
+        onOpen={(id) => {
+          const r = m.next.find((n) => n.id === id)
+          if (r?.goal) focusAsk(r.goal)
+          else openDetail(id)
+        }}
+      />
     </section>
   )
 }
@@ -240,11 +247,11 @@ function Goal({ m }: { m: HomeModel }): ReactNode {
         </b>
       </div>
       <div style={{ margin: '11px 0 8px' }}>
-        <Bar fraction={g.done / g.total} label={`${g.done} of ${g.total} skills`} />
+        <Bar fraction={g.done / g.total} label={`${g.done} of ${g.total} ${g.unit ?? 'skills'}`} />
       </div>
       <div className="flex justify-between" style={muted}>
         <span>
-          {g.done} of {g.total} skills
+          {g.done} of {g.total} {g.unit ?? 'skills'}
         </span>
         {g.minutesLeft !== undefined && <span>{leftLabel(g.minutesLeft)}</span>}
       </div>
@@ -332,16 +339,12 @@ function StarterCard({ p }: { p: StarterPlan }): ReactNode {
       <b className="mt-[10px] block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: color.text }}>
         {p.title}
       </b>
-      <span className="mt-[2px] block" style={{ fontSize: T.small, color: color.label }}>
-        {[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes)].map((t, i) => (
-          <span key={i}>
-            {i > 0 && ' · '}
-            <span className="whitespace-nowrap">{t}</span>
-          </span>
-        ))}
+      {/* One line, like the mock: the size drops its "about" to fit a 1280 window's three cards (the title has it). */}
+      <span className="mt-[2px] block truncate" title={[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes)].join(' · ')} style={{ fontSize: T.small, color: color.label }}>
+        {[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes).replace(/^about /, '')].join(' · ')}
       </span>
       {p.ends && (
-        <span className="block" style={{ fontSize: T.small, color: color.label }}>
+        <span className="line-clamp-2" title={p.ends} style={{ fontSize: T.small, color: color.label }}>
           {p.ends}
         </span>
       )}

@@ -1,22 +1,19 @@
 /**
- * Feature: library. Home v4's local placeholder data (until "contract: ui-v4" lands with app/mock/scenarios/ui-v4.json).
+ * Feature: library. Home v4's local content and the browser stage's sample learner.
  *
  *   FIRST_RUN   what a new learner can start: three catalog plans, four short lessons, four goals (Adrian's catalog,
  *               docs/ui-next/catalog). Shown on the first-run page with real data too: it is content, not progress.
  *   sampleHome  the mock's sample learner (README: "The learner in the mock is sample data"), for the browser stage
- *               only (?homeSample=full), so the page can be checked against the mock before the contract's scenario.
+ *               only (?homeSample=full), so the page can be checked against the mock (the contract's own scenario: ?scenario=ui-v4).
  */
 import { addDays, dayKey, mondayOf } from '../../dashboard/model'
 import type { DashData } from '../../dashboard/types'
 import type { LibraryItem } from '../../../../../../../shared/contracts/events'
-import type { V4Extra } from './data'
+import { starters } from './catalog'
+import type { V4Parts } from './data'
 
-export const FIRST_RUN: Required<Pick<V4Extra, 'starters' | 'shortLessons' | 'goals'>> = {
-  starters: [
-    { id: 'intro-python', title: 'Intro to Python', tool: 'VS Code', lessons: 10, minutes: 180, ends: 'Ends with a number guessing game', cover: 'code' },
-    { id: 'intro-blender', title: 'Intro to Blender', tool: 'Blender', lessons: 10, minutes: 150, ends: 'Ends with a desk lamp, modeled and rendered', cover: 'mug' },
-    { id: 'intro-cad', title: 'Intro to CAD', tool: 'FreeCAD', lessons: 10, minutes: 150, ends: 'Ends with a phone stand you could print', cover: 'cad' }
-  ],
+export const FIRST_RUN: Required<Pick<V4Parts, 'starters' | 'shortLessons' | 'goals'>> = {
+  starters: starters(),
   shortLessons: [
     { id: 'py-first', title: 'Run your first Python file', skill: 'Running a script', meta: 'VS Code · 4 steps · 10 min', cover: 'code', goal: 'Run your first Python file' },
     { id: 'sheets-first', title: 'Start a sign-up sheet', skill: 'Cells and ranges', meta: 'Google Sheets · 5 steps · 15 min', cover: 'table', goal: 'Start a sign-up sheet in Google Sheets' },
@@ -61,14 +58,11 @@ const track = (name: string, done: number, total: number, at: number): DashData[
 }
 
 /** The mock's learner, dated around `now` (today is the last bar). */
-export function sampleHome(now: number): { data: DashData; items: LibraryItem[]; extra: V4Extra; cont: { title: string; line: string; done: number; total: number } } {
+export function sampleHome(now: number): { data: DashData; items: LibraryItem[]; extra: V4Parts; cont: { title: string; line: string; done: number; total: number } } {
   const mon = mondayOf(now)
   const vals = [0, 22, 41, 0, 18, 12, 15]
-  const minutes: Record<string, number> = {}
-  vals.forEach((m, i) => {
-    const t = addDays(mon, i)
-    if (t <= now) minutes[dayKey(t)] = m
-  })
+  // The last 7 days, today last (activity.days).
+  const days = vals.map((m, i) => ({ date: dayKey(addDays(now, i - 6)), minutes: m, steps: m ? Math.max(1, Math.round(m / 20)) : 0 }))
   const at = (daysAgo: number, h = 12, m = 0): number => {
     const d = new Date(now - daysAgo * 86_400_000)
     d.setHours(h, m, 0, 0)
@@ -92,8 +86,10 @@ export function sampleHome(now: number): { data: DashData; items: LibraryItem[];
     item('sales', 'Summarize sales with pandas', ['jupyter'], 6, 20, 't-gb'),
     { ...item('mod', 'Add a modifier', ['vscode'], 5, 15, 't-mod') }
   ]
-  const extra: V4Extra = {
-    minutes,
+  const extra: V4Parts = {
+    days,
+    minutesTracked: true,
+    week: { minutes: 108, steps: 6, mastered: 2 },
     plans: [
       { id: 'nn', title: 'Neural networks from scratch', done: 3, total: 8, next: 'Broadcasting' },
       { id: 'blender', title: 'Intro to Blender', done: 1, total: 10, next: 'Move, rotate and scale' }
@@ -105,7 +101,7 @@ export function sampleHome(now: number): { data: DashData; items: LibraryItem[];
       { key: 'p4', at: at(4), step: 'Slice rows and columns', skill: 'Indexing' },
       { key: 'p5', at: at(5), step: 'Scale the mug on one axis', skill: 'Transforms' }
     ],
-    goal: { title: 'Fit sin(x) with a network', done: 8, total: 13, minutesLeft: 180 }
+    goal: { title: 'Fit sin(x) with a network', done: 8, total: 13, unit: 'skills', minutesLeft: 180 }
   }
   return { data, items, extra, cont: { title: 'Code your first neural network', line: 'Step 4 of 7 · Train it', done: 3, total: 7 } }
 }
