@@ -1,0 +1,216 @@
+{
+ "id": "freecad-bosses-lid-holes-misaligned",
+ "kind": "cad",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: 3D printing lesson 9 (\"Four posts with 2.5 mm holes in the base line up with four 3.4 mm holes in the lid\"). Both patterns have four holes of the right sizes, but the base's posts sit on a 52 by 32 mm rectangle and the lid's holes on 50 by 30 (the learner measured the lid's holes from its lip, not its edge): every screw misses its post by 1 mm in X and Y.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Screw bosses",
+  "file": "enclosure.FCStd",
+  "instructions": "In the base, sketch four 5 mm posts 4 mm in from each inside corner with a 2.5 mm hole in each and pad them up to the rim. In the lid, put four 3.4 mm holes right above the posts (same centres). Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "file_contains",
+    "label": "2.5 mm post holes",
+    "file": "enclosure.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Diameter\\\",\\s*\\\"value\\\":\\s*2\\.5\\b"
+   },
+   {
+    "id": "s9c2",
+    "type": "file_contains",
+    "label": "3.4 mm lid holes",
+    "file": "enclosure.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Diameter\\\",\\s*\\\"value\\\":\\s*3\\.4\\b"
+   },
+   {
+    "id": "s9c3",
+    "type": "file_contains",
+    "label": "Four of each, lined up",
+    "file": "enclosure.scene.json",
+    "pattern": "\\\"occurrences\\\":\\s*4\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "enclosure.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "enclosure.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "enclosure.FCStd",
+     "bodies": [
+      {
+       "name": "Base",
+       "tip": "PostHoles",
+       "features": [
+        {
+         "name": "PostSketch",
+         "type": "Sketcher::SketchObject",
+         "support": "Pocket:Face5",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 5.0
+          },
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 2.5
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 2,
+         "open_wires": 0,
+         "valid": true,
+         "circle_centres": [
+          [
+           -26.0,
+           -16.0
+          ],
+          [
+           26.0,
+           -16.0
+          ],
+          [
+           26.0,
+           16.0
+          ],
+          [
+           -26.0,
+           16.0
+          ]
+         ]
+        },
+        {
+         "name": "Posts",
+         "type": "PartDesign::Pad",
+         "profile": "PostSketch",
+         "Type": "UpToFace",
+         "valid": true
+        },
+        {
+         "name": "PostHoles",
+         "type": "PartDesign::Hole",
+         "Diameter": 2.5,
+         "occurrences": 4,
+         "centres": [
+          [
+           -26.0,
+           -16.0
+          ],
+          [
+           26.0,
+           -16.0
+          ],
+          [
+           26.0,
+           16.0
+          ],
+          [
+           -26.0,
+           16.0
+          ]
+         ],
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 18342.0,
+        "bound_box": [
+         60.0,
+         40.0,
+         20.0
+        ]
+       }
+      },
+      {
+       "name": "Lid",
+       "tip": "LidHoles",
+       "features": [
+        {
+         "name": "LidHoleSketch",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 3.4
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 4,
+         "open_wires": 0,
+         "valid": true,
+         "circle_centres": [
+          [
+           -25.0,
+           -15.0
+          ],
+          [
+           25.0,
+           -15.0
+          ],
+          [
+           25.0,
+           15.0
+          ],
+          [
+           -25.0,
+           15.0
+          ]
+         ]
+        },
+        {
+         "name": "LidHoles",
+         "type": "PartDesign::Pocket",
+         "profile": "LidHoleSketch",
+         "Type": "ThroughAll",
+         "occurrences": 4,
+         "centres": [
+          [
+           -25.0,
+           -15.0
+          ],
+          [
+           25.0,
+           -15.0
+          ],
+          [
+           25.0,
+           15.0
+          ],
+          [
+           -25.0,
+           15.0
+          ]
+         ],
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 7044.3,
+        "bound_box": [
+         60.0,
+         40.0,
+         5.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

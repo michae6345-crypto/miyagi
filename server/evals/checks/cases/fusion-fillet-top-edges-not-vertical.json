@@ -1,0 +1,146 @@
+{
+ "id": "fusion-fillet-top-edges-not-vertical",
+ "kind": "cad",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Fusion lesson 5 (\"The four vertical edges of the body carry a 6 mm fillet\"). The learner clicked the top face's outline, so Fillet1 rounds four edges at 6 mm, but they are the four horizontal edges around the top (directions along X and Y); the four vertical corners of the box are still sharp.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Round the corners with Fillet",
+  "file": "box.design.json",
+  "instructions": "Press F (Fillet), click the four vertical edges at the corners of the block (orbit to reach the back two), set the radius to 6 mm and OK.",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Fillet feature",
+    "file": "box.design.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Fillet\\\""
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "6 mm radius",
+    "file": "box.design.json",
+    "pattern": "\\\"radius\\\":\\s*6(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "Four edges",
+    "file": "box.design.json",
+    "pattern": "\\\"edges\\\":\\s*4\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Box",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          30.0
+         ],
+         "volume": 118455.2,
+         "solid": true
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 3,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch1",
+       "type": "Sketch",
+       "plane": "XY",
+       "profiles": 1,
+       "fully_constrained": true,
+       "dimensions": [
+        80.0,
+        50.0
+       ]
+      },
+      {
+       "name": "Extrude1",
+       "type": "Extrude",
+       "operation": "NewBody",
+       "extent": "one_side",
+       "distance": 30.0,
+       "direction": [
+        0.0,
+        0.0,
+        1.0
+       ]
+      },
+      {
+       "name": "Fillet1",
+       "type": "Fillet",
+       "radius": 6.0,
+       "edges": 4,
+       "edge_directions": [
+        [
+         1.0,
+         0.0,
+         0.0
+        ],
+        [
+         1.0,
+         0.0,
+         0.0
+        ],
+        [
+         0.0,
+         1.0,
+         0.0
+        ],
+        [
+         0.0,
+         1.0,
+         0.0
+        ]
+       ],
+       "edge_z": [
+        30.0,
+        30.0,
+        30.0,
+        30.0
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

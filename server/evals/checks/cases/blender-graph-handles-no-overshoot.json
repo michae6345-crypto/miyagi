@@ -1,0 +1,217 @@
+{
+ "id": "blender-graph-handles-no-overshoot",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 4 (\"The X Location curve has edited handles and rises above its final value\"). The learner did drag the frame-48 key's handles (handle type now ALIGNED, not AUTO_CLAMPED), but flattened them instead of tilting them up: the evaluated curve's maximum is 5.0, exactly the last key, so the cube eases in and never overshoots.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Shape motion in the Graph Editor",
+  "file": "slide.blend",
+  "instructions": "Open the Graph Editor and select the X Location curve. Click the frame 48 key, press G and drag its left handle down so the curve rises past 5 before settling (an overshoot). Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Handles edited",
+    "file": "slide.scene.json",
+    "pattern": "\\\"handle_types\\\":\\s*\\[[^\\]]*\\\"(?:ALIGNED|FREE)\\\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Rises above its final value",
+    "file": "slide.scene.json",
+    "pattern": "\\\"data_path\\\":\\s*\\\"location\\\",\\s*\\\"index\\\":\\s*0"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "slide.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see slide.scene.json)\n",
+   "slide.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "slide.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 72,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1
+     },
+     "objects": [
+      {
+       "name": "Cube",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "CubeAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 0,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            48.0,
+            5.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ],
+          "handle_types": [
+           "AUTO_CLAMPED",
+           "ALIGNED"
+          ],
+          "handles": [
+           {
+            "left": [
+             -8.0,
+             0.0
+            ],
+            "right": [
+             10.0,
+             0.0
+            ]
+           },
+           {
+            "left": [
+             36.0,
+             5.0
+            ],
+            "right": [
+             60.0,
+             5.0
+            ]
+           }
+          ],
+          "evaluated_range": [
+           0.0,
+           5.0
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

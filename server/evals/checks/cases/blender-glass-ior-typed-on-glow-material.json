@@ -1,0 +1,273 @@
+{
+ "id": "blender-glass-ior-typed-on-glow-material",
+ "kind": "blender",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials lesson 2 (\"One material has full transmission and IOR 1.52, and one has emission above 0\"). The Glass material has Transmission Weight 1 but IOR 1.5 (Blender 4.2's default): the learner typed 1.52 while the second sphere's Glow material was showing in the panel, so 1.52 sits on Glow, which glows (strength 5) and transmits nothing. Every number the step names is in the file, never on the right material together.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Glass and glow",
+  "file": "spheres.blend",
+  "instructions": "Select the left sphere and give it a material named Glass: Transmission Weight 1 and IOR 1.52. Select the right sphere and give it a material named Glow with Emission Strength 5. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_contains",
+    "label": "Full transmission",
+    "file": "spheres.scene.json",
+    "pattern": "\\\"transmission_weight\\\":\\s*1(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "IOR 1.52",
+    "file": "spheres.scene.json",
+    "pattern": "\\\"ior\\\":\\s*1\\.52\\b"
+   },
+   {
+    "id": "s2c3",
+    "type": "file_contains",
+    "label": "A glowing material",
+    "file": "spheres.scene.json",
+    "pattern": "\\\"emission_strength\\\":\\s*[1-9]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "spheres.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see spheres.scene.json)\n",
+   "spheres.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "spheres.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Sphere",
+       "type": "MESH",
+       "location": [
+        -1.5,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Glass"
+       ],
+       "material_slots": [
+        {
+         "material": "Glass",
+         "faces": 480
+        }
+       ]
+      },
+      {
+       "name": "Sphere.001",
+       "type": "MESH",
+       "location": [
+        1.5,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Glow"
+       ],
+       "material_slots": [
+        {
+         "material": "Glow",
+         "faces": 480
+        }
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Glass",
+       "users": [
+        "Sphere"
+       ],
+       "principled": {
+        "base_color": [
+         1.0,
+         1.0,
+         1.0,
+         1.0
+        ],
+        "roughness": 0.0,
+        "metallic": 0.0,
+        "ior": 1.5,
+        "transmission_weight": 1.0,
+        "emission_color": [
+         1.0,
+         1.0,
+         1.0,
+         1.0
+        ],
+        "emission_strength": 0.0
+       }
+      },
+      {
+       "name": "Glow",
+       "users": [
+        "Sphere.001"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0,
+        "ior": 1.52,
+        "transmission_weight": 0.0,
+        "emission_color": [
+         1.0,
+         0.45,
+         0.1,
+         1.0
+        ],
+        "emission_strength": 5.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

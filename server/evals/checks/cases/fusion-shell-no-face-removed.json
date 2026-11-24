@@ -1,0 +1,146 @@
+{
+ "id": "fusion-shell-no-face-removed",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Fusion lesson 6 (\"The body is open on top with walls and a floor 2 mm thick\"). The learner started Shell, typed 2 mm and pressed OK before clicking the top face, so Fusion hollowed the block into a closed box with a hidden 2 mm skin (faces_removed 0, the body is still closed on top). The Shell feature with thickness 2 is in the timeline, but there is no opening.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Hollow it out with Shell",
+  "file": "box.design.json",
+  "instructions": "Choose Modify > Shell, click the top face of the block so it is removed, set Inside Thickness to 2 mm and OK.",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Shell feature",
+    "file": "box.design.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Shell\\\""
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "2 mm walls",
+    "file": "box.design.json",
+    "pattern": "\\\"thickness\\\":\\s*2(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Box",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          30.0
+         ],
+         "volume": 27470.6,
+         "solid": true,
+         "open_faces": 0,
+         "shells": 2
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 4,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch1",
+       "type": "Sketch",
+       "plane": "XY",
+       "profiles": 1,
+       "fully_constrained": true,
+       "dimensions": [
+        80.0,
+        50.0
+       ]
+      },
+      {
+       "name": "Extrude1",
+       "type": "Extrude",
+       "operation": "NewBody",
+       "extent": "one_side",
+       "distance": 30.0,
+       "direction": [
+        0.0,
+        0.0,
+        1.0
+       ]
+      },
+      {
+       "name": "Fillet1",
+       "type": "Fillet",
+       "radius": 6.0,
+       "edges": 4,
+       "edge_directions": [
+        [
+         0.0,
+         0.0,
+         1.0
+        ],
+        [
+         0.0,
+         0.0,
+         1.0
+        ],
+        [
+         0.0,
+         0.0,
+         1.0
+        ],
+        [
+         0.0,
+         0.0,
+         1.0
+        ]
+       ]
+      },
+      {
+       "name": "Shell1",
+       "type": "Shell",
+       "thickness": 2.0,
+       "direction": "inside",
+       "faces_removed": 0
+      }
+     ]
+    }
+   }
+  }
+ }
+}
