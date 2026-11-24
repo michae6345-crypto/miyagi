@@ -1,0 +1,83 @@
+{
+ "id": "terminal-ts-greet-emitted-despite-type-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "npx tsc greet.ts reported error TS2345 (greet(42): a number passed to name: string) and 'Found 1 error', but tsc still emits JavaScript by default, so greet.js exists and node greet.js prints 'Hello, 42!'. The point of the step is a typed name that compiles; the compile failed its type check, and the editor still shows ⊗ 1. Fix the call (a string) and compile again.",
+ "step": {
+  "id": "ts1s4",
+  "title": "Compile greet.ts and run it",
+  "kind": "run",
+  "instructions": "In the terminal, run npx tsc greet.ts. tsc prints nothing when the types check and writes greet.js next to greet.ts. Then run node greet.js: it prints the greeting.",
+  "file": "greet.ts",
+  "run_command": "npx tsc greet.ts && node greet.js",
+  "code": "function greet(name: string): string {\n  return `Hello, ${name}!`\n}\n\nconsole.log(greet('Ada'))",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "npx tsc greet.ts",
+    "caption": "Compile, then run"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts1s4c1",
+    "type": "screen_contains",
+    "label": "greet.js prints the greeting",
+    "app": "Terminal",
+    "pattern": "Hello,\\s*\\w+!"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "ts1s4p1",
+    "type": "file_exists",
+    "label": "greet.js sits next to greet.ts",
+    "file": "greet.js"
+   }
+  ],
+  "hints": [
+   "tsc prints nothing when it succeeds."
+  ],
+  "common_mistakes": [
+   "Passing a number to a parameter typed string."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "greet.ts": "function greet(name: string): string {\n  return `Hello, ${name}!`\n}\n\nconsole.log(greet(42))\n",
+   "greet.js": "function greet(name) {\n    return \"Hello, \".concat(name, \"!\");\n}\nconsole.log(greet(42));\n",
+   "package.json": "{\n  \"name\": \"hello-ts\",\n  \"devDependencies\": {\n    \"typescript\": \"^5.6.3\"\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "greet.ts",
+    "function greet(name: string): string {",
+    "return `Hello, ${name}!`",
+    "}",
+    "console.log(greet(42))",
+    "⊗ 1 ⚠ 0"
+   ],
+   "Terminal": [
+    "tripi@mac hello-ts % npx tsc greet.ts",
+    "greet.ts:5:19 - error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.",
+    "5 console.log(greet(42))",
+    "~~",
+    "Found 1 error in greet.ts:5",
+    "tripi@mac hello-ts % node greet.js",
+    "Hello, 42!",
+    "tripi@mac hello-ts %"
+   ]
+  },
+  "run": {
+   "command": "node greet.js",
+   "exit_code": 0,
+   "output_tail": [
+    "Hello, 42!"
+   ],
+   "running": false
+  }
+ }
+}

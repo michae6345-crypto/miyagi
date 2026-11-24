@@ -1,0 +1,45 @@
+{
+ "id": "vscode-pymod-m4-old-name-in-label-string",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "F2 renamed add to add_numbers in all three files (operations.py's def, main.py's import and call, the test). main.py prints labelled results, print(\"add:\", add_numbers(2, 3)), and F2 rightly leaves the text inside the string alone: 'add:' is a label the learner wrote for the output, not a use of the old function. python3 main.py prints 'add: 5' and 'subtract: 3'.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m4"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers, subtract\n\nprint(\"add:\", add_numbers(2, 3))\nprint(\"subtract:\", subtract(5, 2))\n",
+   "test_operations.py": "from operations import add_numbers, subtract, divide\n\n\ndef test_add_numbers():\n    assert add_numbers(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "operations.py",
+    "main.py",
+    "def add_numbers(a, b):",
+    "return a + b",
+    "from operations import add_numbers, subtract",
+    "print(\"add:\", add_numbers(2, 3))",
+    "print(\"subtract:\", subtract(5, 2))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "add: 5",
+    "subtract: 3",
+    "tripi@mac calc %"
+   ]
+  },
+  "run": {
+   "command": "python3 main.py",
+   "exit_code": 0,
+   "output_tail": [
+    "add: 5",
+    "subtract: 3"
+   ],
+   "running": false
+  }
+ }
+}

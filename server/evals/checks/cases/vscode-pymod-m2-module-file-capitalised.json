@@ -1,0 +1,44 @@
+{
+ "id": "vscode-pymod-m2-module-file-capitalised",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "main.py is exactly the step's code, but the learner named the module file Operations.py in the Explorer (capital O). macOS's file system ignores case, yet Python's import does not: 'from operations import add' raises ModuleNotFoundError: No module named 'operations' (on screen, exit 1). main.py does not use add() from the project's module until the file is renamed to operations.py.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "Operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add\n\nprint(add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "main.py",
+    "Operations.py",
+    "from operations import add",
+    "print(add(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "Traceback (most recent call last):",
+    "File \"/Users/tripi/calc/main.py\", line 1, in <module>",
+    "from operations import add",
+    "ModuleNotFoundError: No module named 'operations'",
+    "tripi@mac calc %"
+   ]
+  },
+  "run": {
+   "command": "python3 main.py",
+   "exit_code": 1,
+   "output_tail": [
+    "ModuleNotFoundError: No module named 'operations'"
+   ],
+   "running": false
+  }
+ }
+}

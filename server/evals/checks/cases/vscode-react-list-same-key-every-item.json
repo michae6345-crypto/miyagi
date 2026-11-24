@@ -1,0 +1,82 @@
+{
+ "id": "vscode-react-list-same-key-every-item",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The map gives every <li> the same key, key=\"todo\" (a string, not {todo.id}), so the three items share one key: React warns 'Encountered two children with the same key' and can mix items up when the list changes. 'key=' is on screen, but the step (and the lesson's pass line) is a unique key on each item.",
+ "step": {
+  "id": "re7s3",
+  "title": "Render the to-dos with map",
+  "kind": "code",
+  "instructions": "In src/TodoList.jsx, render the todos array with todos.map, one <li> per to-do. Give each item a unique key (key={todo.id}) and strike through the done ones with style={{ textDecoration: todo.done ? 'line-through' : 'none' }}.",
+  "file": "src/TodoList.jsx",
+  "code": "<ul>\n  {todos.map(todo => (\n    <li key={todo.id} style={{ textDecoration: todo.done ? 'line-through' : 'none' }}>\n      {todo.text}\n    </li>\n  ))}\n</ul>",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/TodoList.jsx",
+    "match": "todos.map(",
+    "caption": "One li per to-do"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re7s3c1",
+    "type": "screen_contains",
+    "label": "The list renders through map",
+    "app": "Code",
+    "pattern": "todos\\.map\\("
+   },
+   {
+    "id": "re7s3c2",
+    "type": "screen_contains",
+    "label": "Each item has a key",
+    "app": "Code",
+    "pattern": "key="
+   },
+   {
+    "id": "re7s3c3",
+    "type": "screen_contains",
+    "label": "Done items are struck through",
+    "app": "Code",
+    "pattern": "line-through"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re7s3p1",
+    "type": "file_contains",
+    "label": "TodoList maps the to-dos",
+    "file": "todo-list/src/TodoList.jsx",
+    "pattern": "todos\\.map\\("
+   }
+  ],
+  "hints": [
+   "The key goes on the outermost element map returns."
+  ],
+  "common_mistakes": [
+   "Leaving the key off, or giving every item the same key."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "todo-list/package.json": "{\n  \"name\": \"todo-list\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "todo-list/src/TodoList.jsx": "const todos = [\n  { id: 1, text: 'Buy milk', done: true },\n  { id: 2, text: 'Walk the dog', done: false },\n  { id: 3, text: 'Write the report', done: false },\n]\n\nfunction TodoList() {\n  return (\n    <ul>\n      {todos.map(todo => (\n        <li key=\"todo\" style={{ textDecoration: todo.done ? 'line-through' : 'none' }}>\n          {todo.text}\n        </li>\n      ))}\n    </ul>\n  )\n}\n\nexport default TodoList\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "TodoList.jsx",
+    "function TodoList() {",
+    "return (",
+    "<ul>",
+    "{todos.map(todo => (",
+    "<li key=\"todo\" style={{ textDecoration: todo.done ? 'line-through' : 'none' }}>",
+    "{todo.text}",
+    "</li>",
+    "))}",
+    "</ul>"
+   ]
+  }
+ }
+}

@@ -1,0 +1,34 @@
+{
+ "id": "vscode-react-s7-year-without-braces",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Footer.jsx's paragraph reads <p>&copy; new Date().getFullYear() Your website name</p>: the expression is typed without the curly braces, so JSX treats it as plain text and the page shows the words 'new Date().getFullYear()' instead of the year. getFullYear() is on screen, call parentheses and all, but it is never run.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "function Footer() {\n  return (<footer><p>&copy; new Date().getFullYear() Your website name</p></footer>)\n}\nexport default Footer\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n      <Footer/>\n    </>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Footer.jsx",
+    "function Footer() {",
+    "return (<footer><p>&copy; new Date().getFullYear() Your website name</p></footer>)",
+    "}",
+    "export default Footer"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 288 ms",
+    "➜  Local:   http://localhost:5173/",
+    "5:02:14 PM [vite] hmr update /src/Footer.jsx"
+   ]
+  }
+ }
+}
