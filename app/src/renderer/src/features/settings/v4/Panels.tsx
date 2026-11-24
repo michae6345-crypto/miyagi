@@ -29,7 +29,9 @@ import { FACTS } from '../privacy/facts'
 import { SettingRowById } from '../rows'
 import { IslandRow } from '../sections/General'
 import { Group, OnWord, Plain, Row } from '../ui'
-import { APP_GROUPS, APPS, appCaption, askDelete, clearCache, clearHistory, size, tryInvoke, useYourData, type AppRow } from './data'
+import type { KeysView } from '../keys'
+import { DeleteAccount } from '../sections/Privacy'
+import { APP_GROUPS, APPS, appCaption, clearCache, clearHistory, size, tryInvoke, useYourData, type AppRow } from './data'
 import { isElectron } from '../../../bridge'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 
@@ -241,7 +243,7 @@ export function Apps4({ live }: { live: boolean }): ReactNode {
 
 const fact = (id: string): (typeof FACTS)[number] | undefined => FACTS.find((f) => f.id === id)
 
-export function Data4({ live }: { live: boolean }): ReactNode {
+export function Data4({ live, onDeleted }: { live: boolean; onDeleted?: (v: KeysView) => void }): ReactNode {
   const d = useYourData(live)
   const share = usePrefs((s) => s.shareTelemetry)
   const account = useAccount((s) => s.account)
@@ -289,19 +291,8 @@ export function Data4({ live }: { live: boolean }): ReactNode {
           </Group>
           <Group label="Account">
             <Row label="Signed in as" caption={email ?? 'Not signed in'} right={account ? <Plain>{planLabel(account.plan)}</Plain> : undefined} />
-            <Row
-              label="Delete my account"
-              caption="Your account, and everything miyagi keeps on this Mac."
-              right={
-                <QuietButton
-                  label="Delete account"
-                  onClick={() => {
-                    askDelete()
-                    setPagePanel('privacy')
-                  }}
-                />
-              }
-            />
+            {/* The two-step confirm opens right here (it used to jump to the old Privacy page, confirm below the fold). */}
+            <DeleteAccount onDeleted={onDeleted} label="Delete my account" row={`Your account, and everything ${copy.name} keeps on this Mac.`} button="Delete account" />
           </Group>
         </>
       }

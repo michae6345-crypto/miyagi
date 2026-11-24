@@ -18,6 +18,8 @@
  * Nothing is made up: a part that is missing stays empty and the page leaves it out (or shows steps where minutes
  * aren't known). Times are epoch seconds, epoch ms or ISO text; here they are epoch ms.
  */
+import type { GoalView } from '../../library/home/data'
+import type { SkillGraph } from '../../skills/model'
 
 export const DAY_MS = 86_400_000
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -68,6 +70,8 @@ export type Goal = {
   title: string
   mastered: number
   total: number
+  /** What the count counts ("lessons" for a plan's project, as Home says it); absent: skills. */
+  unit?: string
   minutesLeft?: number
   eta?: number
 }
@@ -395,6 +399,42 @@ export function closest(v: V4, n = 3): SkillSteps[] {
     .filter((s) => !s.mastered && s.done > 0 && s.done < s.need)
     .sort((a, b) => b.done / b.need - a.done / a.need || b.done - a.done)
     .slice(0, n)
+}
+
+/** A Keep fresh row: a review item from the engine's `progress.review`, or a graph keepFresh skill. */
+export type FreshRow = { key: string; label: string; lastAt?: number; when?: string; dueAt?: number }
+
+/**
+ * The rail's Goal, Closest to mastered and Keep fresh from the skill graph (progress.graph, the one the Skills and Home
+ * pages draw), for an engine whose `progress` carries no goal / need / review of its own (QA R3-04). The goal is the
+ * graph's (picked or inferred); an inferred one gives way to the plan's goal in railGoal, as on Skills; closest are practicing skills by evidence (steps passed
+ * of the steps behind it); keep fresh are the graph's keepFresh ids.
+ */
+export function fromGraph(g: SkillGraph | undefined, n = 3): { goal?: Goal; near: SkillSteps[]; fresh: FreshRow[] } {
+  if (!g) return { near: [], fresh: [] }
+  const goal: Goal | undefined = g.goal && g.goal.total > 0 ? { title: plain(g.goal.label), mastered: Math.min(g.goal.mastered, g.goal.total), total: g.goal.total } : undefined
+  const near = g.nodes
+    .filter((s) => s.kind !== 'capstone' && s.state === 'practicing' && s.evidence && s.evidence.done > 0 && s.evidence.done < s.evidence.total)
+    .map((s) => ({ label: plain(s.label), done: s.evidence!.done, need: s.evidence!.total, mastered: false }))
+    .sort((a, b) => b.done / b.need - a.done / a.need || b.done - a.done)
+    .slice(0, n)
+  const fresh = g.keepFresh
+    .map((id) => g.byId[id])
+    .filter((s): s is NonNullable<typeof s> => !!s)
+    .slice(0, n)
+    .map((s) => ({ key: s.id, label: plain(s.label), lastAt: s.lastPracticedAt ?? s.masteredAt, dueAt: s.dueAt }))
+  return { goal, near, fresh }
+}
+
+/**
+ * The rail's one goal (QA R2-02, R3-04): the engine's own `progress.goal`; else the goal Home and Skills name for an
+ * inferred graph goal (skills/planGoal.ts usePlanGoal: the plan's project, counted in lessons); else the graph's goal
+ * (picked on Skills, or inferred with no plan project to stand in for it).
+ */
+export function railGoal(own: Goal | undefined, plan: GoalView | undefined, graph: Goal | undefined): Goal | undefined {
+  if (own) return own
+  if (plan && plan.total > 0) return { title: plan.title, mastered: Math.min(plan.done, plan.total), total: plan.total, unit: plan.unit, minutesLeft: plan.minutesLeft }
+  return graph
 }
 
 // ---- first run --------------------------------------------------------------------------------------------------

@@ -26,8 +26,8 @@ import { CloudOff, ListPlus, Search, SquarePen, X, Check } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LibraryItem, PlanLesson, PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
-import { bridge } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { bridge, engineMode } from '../../bridge'
+import { canSend, useLesson } from '../../core/lesson'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { color, copy, fill, radius2, surface, type2 } from '../../core/theme'
 import { Empty, PageFrame, PageHeader, setCrumbs } from '../shell/ui'
@@ -36,6 +36,7 @@ import { Skeleton, TOOL_NAME } from './parts'
 import { openDetail, setQuery, useLibrary } from './store'
 import { aboutHours, FIRST_RUN, NEXT_UP, planById, planForLesson, PLANS, planShort, skillLabel, START_HERE, type CatalogPlan } from '../plans/catalog'
 import { PlanDialogs } from '../plans/Dialogs'
+import { primeSkills, useSkills } from '../skills/store'
 import { artForState, PlanPage, planTrail } from '../plans/PlanPage'
 import { PlansPage } from '../plans/PlansPage'
 import { loadPlans, openDialog, showLibrary, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
@@ -98,13 +99,34 @@ function dayLabel(at: string | undefined): string {
   if (days === 1) return 'Yesterday'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
-/** The skills a lesson grows, as the catalog names them. An id the catalog doesn't know is left out (a raw id's last
- *  segment read as chips like "Wt" or "Vec"). */
-const growsOf = (i: LibraryItem): string[] =>
-  (i.teaches ?? [])
-    .map((id) => skillLabel(id))
+/** Skill labels the engine's progress snapshot names (SkillInfo id → label), for ids the catalog doesn't know. */
+function progressLabels(raw: unknown): Map<string, string> {
+  const skills = (raw as { skills?: unknown } | undefined)?.skills
+  const out = new Map<string, string>()
+  // ProgressSnapshot.skills: one entry per track, each with its skills (a flat SkillInfo list reads the same).
+  const add = (list: unknown): void => {
+    if (!Array.isArray(list)) return
+    for (const s of list as { id?: unknown; label?: unknown; skills?: unknown }[]) {
+      if (typeof s?.id === 'string' && typeof s.label === 'string' && s.label.trim()) out.set(s.id, s.label.trim())
+      if (s && Array.isArray(s.skills)) add(s.skills)
+    }
+  }
+  add(skills)
+  return out
+}
+function useKnownSkills(): Map<string, string> {
+  const raw = useSkills((s) => s.raw)
+  return useMemo(() => progressLabels(raw), [raw])
+}
+/** The skills a lesson grows: its own `teaches`, else the plan lesson's skillIds, named by the catalog or the engine's
+ *  progress snapshot. An id neither knows is left out (a raw id's last segment read as chips like "Wt" or "Vec"). */
+const growsOf = (i: Item, known?: Map<string, string>): string[] =>
+  (i.teaches?.length ? i.teaches : (i.lesson?.skillIds ?? []))
+    .map((id) => skillLabel(id) ?? known?.get(id))
     .filter((l): l is string => !!l)
     .slice(0, 2)
+/** Works in: the lesson's tool, else its plan's (a Blender or FreeCAD plan lesson has no LessonTool of its own). */
+const toolOf = (i: Item): string => (i.tools[0] ? TOOL_NAME[i.tools[0]] : (i.plan?.tool?.label ?? planOf(i)?.tool.label ?? ''))
 
 /** A short progress line: ink on the track (never green), a fixed width so every row's line lines up. */
 function ProgressLine({ done, total }: { done: number; total: number }): ReactNode {
@@ -176,6 +198,7 @@ function LessonTable({ label, items, cols, head }: { label: string; items: Item[
 }
 
 function LessonRow({ item, cols, template: t }: { item: Item; cols: Cols; template: string }): ReactNode {
+  const known = useKnownSkills()
   const plan = planName(item)
   const done = finished(item)
   const going = inProgress(item)
@@ -195,12 +218,12 @@ function LessonRow({ item, cols, template: t }: { item: Item; cols: Cols; templa
       )}
       {cols.tool && (
         <span className="truncate" style={meta}>
-          {item.tools[0] ? TOOL_NAME[item.tools[0]] : ''}
+          {toolOf(item)}
         </span>
       )}
       {cols.grows && (
         <span className="flex min-w-0 gap-[4px] overflow-hidden">
-          {growsOf(item).map((g) => (
+          {growsOf(item, known).map((g) => (
             <SkillChip key={g}>{g}</SkillChip>
           ))}
         </span>
@@ -408,9 +431,16 @@ function LibraryList(): ReactNode {
   const going = items.filter(inProgress)
   const done = items.filter(finished)
   const ready = items.filter((i) => !inProgress(i) && !finished(i))
+  const known = useKnownSkills()
+  // Grows names an engine skill id through the progress snapshot: paint main's last one, ask once if there is none.
+  useEffect(() => {
+    void primeSkills().then(() => {
+      if (!useSkills.getState().raw && (canSend('progress.get') || engineMode() === 'inline')) bridge.send(cmd('progress.get', {}))
+    })
+  }, [])
   // A column with nothing to say on any row (no lesson from a plan yet, no dates from the engine) is left out.
   const fit = colsFor(w)
-  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)) }
+  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i, known).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)) }
   const cardCols = w < 640 ? 2 : 4
   const planCols = w < 760 ? 1 : 2
   const fresh = s.loaded && s.items.length === 0 && mine.length === 0

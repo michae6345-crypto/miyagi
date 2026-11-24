@@ -16,11 +16,13 @@ import {
   dayKey,
   EMPTY_V4,
   freshLabel,
+  fromGraph,
   goalLine,
   guide,
   hm,
   lastPassed,
   plain,
+  railGoal,
   readActivity,
   readBon,
   readPlans,
@@ -31,6 +33,9 @@ import {
   whenLabel,
   type V4
 } from '../src/renderer/src/features/progress/v4/model'
+import { buildSkillGraph } from '../src/renderer/src/features/skills/model'
+import { fromContract, planGoalFor } from '../src/renderer/src/features/library/home/data'
+import type { Activity, PlanState } from '../../shared/contracts/events'
 
 // Sunday Nov 22 2026, 6 PM local (the mock's today).
 const NOW = new Date(2026, 10, 22, 18, 0).getTime()
@@ -230,5 +235,65 @@ describe('labels', () => {
   it('keeps "about 2.5 hr" on one line', () => {
     assert.equal(aboutHr(150), 'about\u00a02.5\u00a0hr')
     assert.doesNotMatch(aboutHr(20), / /)
+  })
+})
+
+describe('rail from the skill graph (QA R3-04: progress without goal / need / review)', () => {
+  const graph = buildSkillGraph(first('uiv4_progress', 'progress'), NOW)
+  const r = fromGraph(graph)
+  it('the goal is the graph goal, counted in skills', () => {
+    assert.ok(r.goal)
+    assert.equal(r.goal.title, graph?.goal?.label)
+    assert.ok(r.goal.total > 0 && r.goal.mastered <= r.goal.total)
+  })
+  it('closest to mastered: practicing skills by steps passed, furthest along first', () => {
+    assert.deepEqual(
+      r.near.map((s) => `${s.label} ${s.done}/${s.need}`),
+      ['Layers as matrices 3/5', 'Broadcasting 2/4', 'Modifiers 2/5']
+    )
+  })
+  it('keep fresh: the graph keepFresh skills, with when they were last practiced', () => {
+    assert.deepEqual(
+      r.fresh.map((f) => f.label),
+      ['Transforms']
+    )
+    assert.ok(r.fresh[0].lastAt)
+  })
+  it('no graph: nothing made up', () => {
+    assert.deepEqual(fromGraph(undefined), { near: [], fresh: [] })
+  })
+})
+
+describe('the rail names the one goal Home and Skills name (QA R2-02, R3-04)', () => {
+  const graph = buildSkillGraph(first('uiv4_progress', 'progress'), NOW)
+  const activity = ACTIVITY as unknown as Activity
+  const plans = (first('uiv4_plans', 'plans').items ?? []) as PlanState[]
+  const home = fromContract({ activity, plans }).goal
+  const plan = planGoalFor(graph, home)
+  it('an inferred graph goal gives way to the plan goal (usePlanGoal / fromContract)', () => {
+    assert.equal(graph?.goal?.inferred, true)
+    assert.ok(home && plan)
+    const g = railGoal(undefined, plan, fromGraph(graph).goal)
+    assert.ok(g)
+    assert.equal(g.title, home.title)
+    assert.notEqual(g.title, graph?.goal?.label)
+    assert.equal(g.mastered, home.done)
+    assert.equal(g.total, home.total)
+    assert.equal(g.unit, 'lessons')
+    assert.equal(`${g.mastered} of ${g.total} ${g.unit ?? 'skills'}`, `${home.done} of ${home.total} lessons`)
+  })
+  it('a picked graph goal stays (usePlanGoal is undefined), counted in skills', () => {
+    assert.ok(graph?.goal)
+    const picked = { ...graph, goal: { ...graph.goal, inferred: false } }
+    assert.equal(planGoalFor(picked, home), undefined)
+    const g = railGoal(undefined, planGoalFor(picked, home), fromGraph(picked).goal)
+    assert.equal(g?.title, plain(graph.goal.label))
+    assert.equal(g?.unit, undefined)
+  })
+  it('no plan goal: the graph goal; the engine goal always wins', () => {
+    const fallback = fromGraph(graph).goal
+    assert.deepEqual(railGoal(undefined, undefined, fallback), fallback)
+    const own = { title: 'Own', mastered: 1, total: 2 }
+    assert.deepEqual(railGoal(own, plan, fallback), own)
   })
 })
