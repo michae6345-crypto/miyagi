@@ -321,7 +321,11 @@ def test_explanations_the_full_build_puts_in_step_1_move_to_step_2():
 
     assert "lead-in" in [e["topic"] for e in before["graph"]["steps"][0]["explanations"]]
     assert topics(after["graph"]) == topics(before["graph"])  # nothing dropped
-    assert "lead-in" in [e["topic"] for e in after["graph"]["steps"][1]["explanations"]]
+    s2 = after["graph"]["steps"][1]
+    assert "lead-in" in [e["topic"] for e in s2["explanations"]]
+    assert s2["video"]["start"] <= s2["explanations"][0]["t"] < s2["video"]["end"]  # its jump stays in its own clip
+    keys = [(e["t"], e["topic"]) for s in after["graph"]["steps"] for e in s["explanations"]]
+    assert len(keys) == len(set(keys))  # nothing twice
     assert after["graph"]["build"]["firstStep"]["same"] is False
 
 
@@ -381,6 +385,40 @@ def test_a_second_watch_attempt_is_ignored():
         assert fs.segment(seg) == set() and fs.stale
         fs.detail(1, {**seg["steps"][0], "checks": []})
         assert fs.task is None and await fs.lock() is None
+        fs.close()
+
+    asyncio.run(go())
+
+
+# --------------------------------------------------------------------------- review round 2
+def test_an_app_titled_video_keeps_all_4_lanes_for_the_details():
+    """Should-fix C: while step 1 waits for every detail (app-titled video), no lane is held back for it: step 5's
+    detail starts as soon as step 1's frees a lane (lanes are process-wide: a prebuild would lose one too)."""
+    p = {**h.PROFILE_10MIN, "title": "AutoCAD toy car for 3D printing", "work_file": "car.dwg",
+         "detail_extra": {i: {"code": ""} for i in range(1, 7)}}
+    ev = h.build_once(p, fast=True)["events"]
+    d = {e["steps"][0]: e for e in ev if e["kind"] == "detail"}
+    assert d[5]["start"] == min(x["end"] for x in d.values())
+
+
+def test_upcoming_follows_a_second_step_list():
+    """Nit: after a second watch attempt, the workspace's view of the other steps is the second step list."""
+    from server.lesson import first_step
+    from server.lesson.workdir import scan
+
+    async def go():
+        fs = first_step.FirstStep(url=h.URL, vid=h.VID, goal=h.GOAL, workdir="/nonexistent/_x", info=scan("/nonexistent/_x"),
+                                  key="k" * 16, on_update=None)
+        one = {"title": "t", "steps": [{"start": "0:05", "end": "1:40", "title": "a", "instructions": "a"},
+                                       {"start": "1:45", "end": "3:20", "title": "b", "instructions": "b"}]}
+        two = {"title": "t", "steps": [{"start": "0:05", "end": "1:40", "title": "a2", "instructions": "a"},
+                                       {"start": "1:45", "end": "3:20", "title": "b2", "instructions": "b"},
+                                       {"start": "3:25", "end": "5:00", "title": "c2", "instructions": "c"}]}
+        fs.segment(one)
+        fs.segment(two)
+        fs.detail(2, {**two["steps"][1], "checks": [{"type": "file_exists", "file": "data.csv"}]})
+        up = fs.upcoming()
+        assert [u["title"] for u in up] == ["b2", "c2"] and up[0]["checks"][0]["file"] == "data.csv"
         fs.close()
 
     asyncio.run(go())

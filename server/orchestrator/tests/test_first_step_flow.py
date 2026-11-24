@@ -104,3 +104,62 @@ def test_a_late_update_from_an_ended_build_never_loads(tmp_path, monkeypatch):
     late = asyncio.run(go())
     assert not [e for e in late if e["type"] in ("lesson.ready", "lesson.updated", "step.started")]
     assert rig.s.graph is None
+
+
+@pytest.mark.parametrize("where", ["prepare", "hold"])
+def test_real_step_1_arriving_while_the_placeholder_still_loads(tmp_path, monkeypatch, where):
+    """Blocker A: the quick-start placeholder's on_update is still preparing the folder (a Claude call, up to ~25 s) or
+    in the "ready" hold when the real step 1 arrives (~15-20 s now). The placeholder lands, then the real lesson
+    replaces it; the lesson never stays unloaded."""
+    import time
+
+    from server.orchestrator import workspace as wsmod
+
+    real_prepare = wsmod.prepare
+
+    def slow_prepare(graph, goal):
+        if where == "prepare":
+            time.sleep(0.5)  # in asyncio.to_thread, like the real scaffold call
+        return real_prepare(graph, goal)
+
+    monkeypatch.setattr(wsmod, "prepare", slow_prepare)
+    if where == "hold":
+        monkeypatch.setattr(Rig, "__init__", _with_hold(Rig.__init__, 0.5))
+    rig, graph = _run(tmp_path, monkeypatch, 0.05)
+    readies = rig.of("lesson.ready")
+    assert readies[0]["lesson"]["provisional"] is True and not readies[-1]["lesson"].get("provisional")
+    assert rig.s.graph is not None and [s["id"] for s in rig.s.steps] == [f"s{i}" for i in range(1, 7)]
+    assert rig.s.graph["lesson"]["complete"] is True and not rig.of("error")
+    assert next(s for s in rig.s.steps if s["id"] == "s1")["checks"] == graph["steps"][0]["checks"]
+
+
+def _with_hold(init, hold_s):
+    def patched(self, *a, **k):
+        init(self, *a, **k)
+        self.s.ready_hold_s = hold_s
+    return patched
+
+
+def test_the_session_keeps_the_builders_app_or_code_choice(tmp_path, monkeypatch):
+    """Blocker B: an app-titled video whose code starts in step 2: the builder decided "code lesson" on the whole
+    lesson, so the session's load of step 1 alone never turns it into an app lesson."""
+    import copy
+    import json
+    from pathlib import Path
+
+    fx = Path(__file__).resolve().parents[2] / "workspace" / "tests" / "fixtures" / "autocad_toy_car.json"
+    g = json.loads(fx.read_text(encoding="utf-8"))
+    g["steps"] = g["steps"][:1]
+    g["lesson"]["complete"] = False
+    g.setdefault("build", {})["firstStep"] = True
+    g["lesson"].pop("app", None)
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "w"))
+    (tmp_path / "w").mkdir(exist_ok=True)
+    rig = Rig(tmp_path / "w")
+    checks = copy.deepcopy(g["steps"][0]["checks"])
+    asyncio.run(rig.s.load_graph(g))
+    assert "app" not in rig.s.graph["lesson"] and rig.s.steps[0]["checks"] == checks
+    plain = json.loads(fx.read_text(encoding="utf-8"))  # without the builder's choice: the session still adapts it
+    rig2 = Rig(tmp_path / "w")
+    asyncio.run(rig2.s.load_graph(plain))
+    assert rig2.s.graph["lesson"]["app"]["tool"] == "autocad"
