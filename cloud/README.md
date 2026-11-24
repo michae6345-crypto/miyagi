@@ -202,13 +202,37 @@ it clears within the hour. The engine should read `error.limit`: `ip_hourly`, `t
 transient (TTL = `Retry-After`); only the daily caps (`type: miyagi_quota`) last until midnight. Engine ticket to
 open: "cloud_error: treat error.limit ip_hourly / token_hourly / install_* as transient (TTL retry-after)".
 
-The client IP is the `X-Forwarded-For` entry at position `-TRUSTED_PROXY_HOPS` (1: Render's load balancer
-appends the address it saw). Entries further left are whatever the client wrote and are never trusted; with
-fewer entries than hops, or an invalid entry, the socket peer is used. Ports are stripped and addresses are
-validated. `CLIENT_IP_HEADER` (for example `cf-connecting-ip` behind Cloudflare) is used instead, only when
-set. **Warning:** anyone who can reach the `onrender.com` origin directly can send that header with any value
-they like, so set it only once the origin accepts traffic from that proxy alone. IPv6 clients are counted by
-their /64 (one home or phone gets a whole /64); IPv4 by the full address.
+### Client IP
+
+One helper, `client_ip_scope`, is the only place the proxy reads a client address. Everything that keys on a network
+calls it: the rate limiter and the admin lockout (`ip_bucket`), install minting and the anonymous network spend pool
+(`mint_bucket`, stored as the install's keyed `mint_net`), body bytes per network, lesson-upload networks (`ip_net`)
+and the region block. A test fails if any other code reads `X-Forwarded-For` or the socket peer.
+
+1. `CLIENT_IP_HEADER`, when set and the header holds a valid address: that header.
+2. Else the `X-Forwarded-For` entry at position `-TRUSTED_PROXY_HOPS` (default 1). Each proxy appends the address it
+   saw, so the entries left of it are the client's own text: **the leftmost entry is never used**. Several header
+   lines count as one list, in order.
+3. Else (no header, fewer entries than hops, an invalid trusted entry, hops 0): the socket peer, never a client entry.
+   `render.yaml` starts uvicorn with `--no-proxy-headers` so the peer is the real socket peer; a `FORWARDED_ALLOW_IPS`
+   other than localhost logs a warning, since uvicorn would then rewrite the peer from `X-Forwarded-For` (with `*`,
+   from the leftmost entry).
+
+Values are stripped (spaces, quotes), validated, ports and brackets removed (`1.2.3.4:5`, `[2001:db8::1]:443`), IPv6
+zone ids dropped and IPv4-mapped IPv6 normalised to IPv4. IPv6 clients are rate-limited by their /64, minted by their
+/48; IPv4 by the full address.
+
+**What Render sends.** Render's docs do not document the client-IP headers. Render's own articles say: its proxy
+appends the visitor's address to `X-Forwarded-For` and does not strip what the caller sent, so "a caller who sends their
+own copy of the header controls the leftmost entry and can claim any address"; Cloudflare, in front of every public
+Render web service, writes `CF-Connecting-IP` "on every request that reaches a Render web service, and it overwrites
+whatever the caller sent"; `True-Client-IP` was seen too
+([Host PocketBase on Render](https://render.com/articles/host-pocketbase-on-render),
+[Proxy analytics through your own domain](https://render.com/articles/how-to-proxy-analytics-through-your-own-domain)).
+How many entries Render's chain appends (Cloudflare's and the load balancer's, or one) is not documented. So the
+defaults stay `TRUSTED_PROXY_HOPS=1` and no `CLIENT_IP_HEADER` until the staging check below shows which is right: a
+wrong hop count can lump learners into a few proxy buckets, but can never let a client pick its own address; a
+`CLIENT_IP_HEADER` the edge did not overwrite would.
 
 Memory is bounded: at most `RATE_LIMIT_MAX_KEYS` (200000) keys. Expired keys are swept at most once a
 minute, and when the table is still full a new key evicts the key with the oldest window.
@@ -218,23 +242,35 @@ instances would each allow the full amount. Today the service is one Render star
 a disk runs one instance), so that is the real limit. The install limit and every cap below live in SQLite and
 survive deploys.
 
-**Release gate: check the hop count on staging before this reaches production.** If Render (or Cloudflare in
-front of it) adds more than one entry, `TRUSTED_PROXY_HOPS=1` picks a proxy's address: every learner lands in a
-few proxy buckets, and the 100/h IP limit then blocks `/v1/install` and `/v1/link` for everyone. On its first
-request after a start (and once more on the first request that carries the header, if the first had none) the
-service logs at INFO how many `X-Forwarded-For` entries it saw and what kind of address the chosen entry is, never
-the addresses themselves:
+**Release gate: the live X-Forwarded-For hop check, on staging, before this reaches production.** If Render's
+chain adds more than one entry, `TRUSTED_PROXY_HOPS=1` picks a proxy's address: every learner lands in a few proxy
+buckets, and the 100/h IP limit then blocks `/v1/install` and `/v1/link` for everyone. On its first request after a
+start (and once more on the first request that carries `X-Forwarded-For`, if the first had none) the service logs two
+INFO lines with counts and kinds only, never an address:
 
     first request: 1 X-Forwarded-For entry (TRUSTED_PROXY_HOPS=1); the chosen entry is a global address
+    edge client-IP headers: cf-connecting-ip a global address, same as the chosen entry; true-client-ip a global address, same as the chosen entry; x-real-ip absent; CLIENT_IP_HEADER=unset
 
-Steps: deploy to staging, call `/v1/install` once from a normal connection, and read the Render log.
+Steps (restart the staging service first, so the next request is the "first"):
 
-- `a global address` with 1 entry: right. Ship.
-- `a Cloudflare address (wrong hop count)` or `a private or reserved address (likely a proxy: wrong hop count)`,
-  or a count of 2 or more from a plain request: a proxy sits in front. Set `TRUSTED_PROXY_HOPS` to the count (or
-  `CLIENT_IP_HEADER`, with the warning above) and check again.
-- Then restart and repeat with `curl -H 'X-Forwarded-For: 1.2.3.4' .../v1/install`: the count must go up by one
-  and the kind must stay `a global address` (the client's own entries are on the left and never used).
+1. From a normal connection, with a spoofed entry and spoofed edge headers (the address is a documentation one, so it
+   can never be yours):
+
+       curl -s -X POST https://<staging-host>/v1/install -H 'Content-Type: application/json' -d '{}' \
+         -H 'X-Forwarded-For: 192.0.2.77' -H 'CF-Connecting-IP: 192.0.2.77' -H 'True-Client-IP: 192.0.2.77'
+
+2. Read the two lines in the Render log (Logs tab, search `first request`).
+
+- Right: `2 X-Forwarded-For entries` (yours plus Render's) and `the chosen entry is a global address`. Keep
+  `TRUSTED_PROXY_HOPS=1`.
+- `3 entries` or more, or `a Cloudflare address (wrong hop count)` / `a private or reserved address`: the chain adds
+  more than one entry. Set `TRUSTED_PROXY_HOPS` to (count - 1, the one you sent) and check again.
+- `cf-connecting-ip ... same as the chosen entry` and **no** `EQUALS AN ENTRY THE CLIENT WROTE` on it: Cloudflare
+  overwrote your spoofed value. `CLIENT_IP_HEADER=cf-connecting-ip` is then safe and removes the hop count from the
+  question; set it if you like. If the line says `EQUALS AN ENTRY THE CLIENT WROTE` for a header, that header passed
+  your value through: never use it as `CLIENT_IP_HEADER`.
+- Then, to be sure the spoof changes nothing, send the curl 21 times within an hour with a different spoofed address
+  each time: the 21st gets 429 `install_hourly` (the mint limit counts your real network).
 
 ### Install minting
 
@@ -924,8 +960,9 @@ Open `/admin` in a browser, paste the admin token into the form, and it shows th
 | `ADMIN_LOCKOUT_FAILURES` | `5` | Wrong admin tokens per IP per hour before the lockout. |
 | `RATE_LIMIT_MAX_KEYS` | `200000` | Bound on the limiter's memory. |
 | `ADMIN_FAILURE_MAX_KEYS` | `20000` | Bound on the admin-failure table (a tuple of at most 5 times per IP bucket: a few MB). |
-| `TRUSTED_PROXY_HOPS` | `1` | Which `X-Forwarded-For` entry (from the right) is the client IP. |
-| `CLIENT_IP_HEADER` | empty | A header to read the client IP from instead (for example `cf-connecting-ip`). Forgeable by anyone who reaches the origin directly. |
+| `TRUSTED_PROXY_HOPS` | `1` | Which `X-Forwarded-For` entry (from the right) is the client IP. Confirm with the live hop check (Rate limits). |
+| `FORWARDED_ALLOW_IPS` | unset | uvicorn's own proxy-header trust. Leave it unset (render.yaml passes `--no-proxy-headers`); set, it logs a warning. |
+| `CLIENT_IP_HEADER` | empty | A header the edge overwrites, read instead of the hop (Render: `cf-connecting-ip`, once the live hop check shows a spoofed value was overwritten). A header the edge passes through is forgeable. |
 | `REGISTER_LIMIT_PER_HOUR` / `REGISTER_LIMIT_PER_DAY` | `20` / `60` | Installs minted per client network (SQLite). |
 | `MINT_IPV6_PREFIX` | `48` | The IPv6 prefix mints and the per-network spend ceiling count by. |
 | `GLOBAL_MINTS_WARN_PER_HOUR` / `GLOBAL_MINTS_PER_HOUR` | `500` / `2000` | Installs minted per hour, every client together: warn / refuse. |
