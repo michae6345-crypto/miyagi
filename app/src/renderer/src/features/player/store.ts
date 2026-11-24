@@ -111,7 +111,8 @@ const GATE_ZONE = GATE_ZONE_S
 const TICK_MS = 100
 const REPORT_MS = 1000
 const AUTOPLAY_GRACE_MS = 1500
-const LOAD_ERROR = 'Could not load the YouTube player (offline?)'
+/** Shown under "The video didn’t load" (Player.tsx ErrorState, with Try again): calm, no jargon (QA Q12). */
+const LOAD_ERROR = 'Check your connection, then try again.'
 
 /** Electron loads index.html#/player for the player window; the browser stage is one window that hosts everything. */
 const route = location.hash.replace(/^#\/?/, '')

@@ -91,12 +91,12 @@ describe('a citation link keeps its host in view', () => {
 describe('drawer sources and the Watch tile show where they open', () => {
   const src = (f: string): string => readFileSync(join(__dirname, '..', 'src', 'renderer', 'src', 'features', 'drawer', f), 'utf8')
 
-  test('a source row shows linkHost(url) in its meta line, outside the truncated meta', () => {
+  test('a source row shows linkHost(url) in its meta line, outside the meta (which wraps, QA Q22)', () => {
     const code = src('Drawer.tsx')
     const row = /function SourceRow[\s\S]*?\n}\n/.exec(code)?.[0] ?? ''
     assert.match(row, /const host = linkHost\(link\)/)
     assert.match(row, /<span data-link-host className="shrink-0 whitespace-pre">/)
-    assert.match(row, /<span className="min-w-0 truncate">\{source\.meta\}<\/span>/)
+    assert.match(row, /<span className="min-w-0 break-words">\{source\.meta\}<\/span>/)
   })
 
   test('the Watch tile shows linkHost of the URL openSource gets', () => {

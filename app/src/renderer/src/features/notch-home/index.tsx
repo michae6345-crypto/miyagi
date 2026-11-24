@@ -143,10 +143,20 @@ function Row({ children, onClick, title }: { children: ReactNode; onClick: () =>
   )
 }
 
+/** How long "Only YouTube links work here" stays after a drop that isn't one. */
+const MISS_MS = 2600
+
 /** Drag a video link onto the notch: miyagi builds the lesson from it. A click opens the launcher to paste one. */
 function DropZone(): ReactNode {
   const [over, setOver] = useState(false)
   const [sent, setSent] = useState(false)
+  // A drop that isn't a YouTube link says so for a moment, then the zone reads as before (QA Q05).
+  const [miss, setMiss] = useState(false)
+  useEffect(() => {
+    if (!miss) return
+    const t = setTimeout(() => setMiss(false), MISS_MS)
+    return () => clearTimeout(t)
+  }, [miss])
   const linkOf = (e: DragEvent): string | undefined => {
     const raw = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     const url = raw.split(/\s+/).find((s) => /^https?:\/\//.test(s))
@@ -170,13 +180,16 @@ function DropZone(): ReactNode {
         e.preventDefault()
         setOver(false)
         const url = linkOf(e)
-        if (!url) return
+        if (!url) return setMiss(true)
+        setMiss(false)
         bridge.send(cmd('learn_url', { url }))
         setSent(true)
       }}
     >
       <Link2 size={14} strokeWidth={1.8} className="shrink-0" />
-      <span className="truncate">{sent ? 'Building your lesson…' : 'Drop a YouTube link'}</span>
+      <span className="truncate" aria-live="polite">
+        {sent ? 'Building your lesson…' : miss ? 'Only YouTube links work here' : 'Drop a YouTube link'}
+      </span>
     </div>
   )
 }
@@ -198,7 +211,8 @@ function Home(): ReactNode {
           <Row onClick={() => bridge.emit('launcher:toggle')} title={`${copy.ask}`}>
             <MiyagiMark size={14} />
             <span className="flex-1 truncate">{copy.ask}</span>
-            <Kbd>{bridge.platform.keys.launcher}</Kbd>
+            {/* One keycap per action (QA Q06): with no lesson to continue, Start a lesson already shows it. */}
+            {pick && <Kbd>{bridge.platform.keys.launcher}</Kbd>}
           </Row>
           <DropZone />
           {ready.map((r) => (

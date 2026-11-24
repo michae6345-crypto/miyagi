@@ -220,6 +220,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * Cached lessons join the list only with no lesson running (libKeys), so a key can't swap out a lesson in progress.
    */
   const [idleSel, setIdleSel] = useState(0)
+  /**
+   * The learner chose a "Try asking" line (↑↓ or the pointer). Until then a suggestion is never the active line, so ↵ on
+   * an empty or blank field does nothing instead of silently picking the first suggestion (QA Q14). Continue and the
+   * cached lessons still start active.
+   */
+  const [askPicked, setAskPicked] = useState(false)
+  const pickIdle = (i: number): void => {
+    setAskPicked(true)
+    setIdleSel(i)
+  }
   /** The footer's End lesson got its first click: the next click (within END_ARM_MS) ends the lesson. */
   const [endArmed, setEndArmed] = useState(false)
   const endTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -299,6 +309,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         setHowPicked(undefined)
         disarmEnd()
         setIdleSel(0)
+        setAskPicked(false)
         // The cached lessons can change between opens (a build finished, a lesson moved on): ask again.
         refreshLibrary()
         delays.current.clear()
@@ -322,6 +333,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       setQuery(text.trim())
       setHowPicked(undefined)
       setIdleSel(0)
+      setAskPicked(false)
     }
     const offs = [
       bridge.on('launcher:open', () => void bridge.invoke<string | null>('ptt:prefill-take').then(fill).catch(() => undefined)),
@@ -546,7 +558,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         ...asks.map((text) => ({ kind: mode === 'ask' ? 'question' : 'suggest', text }) as const)
       ]
     : []
-  const active = idleItems.length ? Math.min(Math.max(0, idleSel), idleItems.length - 1) : -1
+  const idleAt = idleItems.length ? Math.min(Math.max(0, idleSel), idleItems.length - 1) : -1
+  const unpickedAsk = idleAt >= 0 && !askPicked && (idleItems[idleAt].kind === 'question' || idleItems[idleAt].kind === 'suggest')
+  const active = unpickedAsk ? -1 : idleAt
   const activeItem = active >= 0 ? idleItems[active] : undefined
   const continueOn = resumeRows && active === 0
   const libSel = libKeys && active >= 0 && active < libRows.length ? active : -1
@@ -676,6 +690,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const switchMode = (): void => {
     if (!lesson.hasLesson || phaseRef.current !== 'open') return
     setMode((m) => (m === 'ask' ? 'search' : 'ask'))
+    setAskPicked(false)
   }
 
   /**
@@ -740,7 +755,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         const step = e.key === 'ArrowDown' ? 1 : -1
-        return setIdleSel(Math.max(0, Math.min(idleItems.length - 1, active + step)))
+        return pickIdle(Math.max(0, Math.min(idleItems.length - 1, active + step)))
       }
       if (e.key === 'Enter' && activeItem && !e.nativeEvent.isComposing && !e.metaKey && !e.ctrlKey) {
         e.preventDefault()
@@ -965,6 +980,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 onChange={(e) => {
                   disarmEnd() // typing hides End lesson; cleared again, it comes back unarmed
                   setIdleSel(0)
+                  setAskPicked(false)
                   if (mode === 'ask') setQuestion(e.target.value)
                   else {
                     setQuery(e.target.value)
@@ -1032,7 +1048,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                     <QuestionChips
                       questions={questions}
                       active={askActive}
-                      onHover={(i) => idleList && setIdleSel(askBase + i)}
+                      onHover={(i) => idleList && pickIdle(askBase + i)}
                       onPick={(q) => ask(q)}
                     />
                   </Rise>
@@ -1070,7 +1086,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                     <SuggestionRows
                       items={suggestions.map((s) => s.label)}
                       active={askActive}
-                      onHover={(i) => idleList && setIdleSel(askBase + i)}
+                      onHover={(i) => idleList && pickIdle(askBase + i)}
                       onPick={suggest}
                     />
                   </Rise>

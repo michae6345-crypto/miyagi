@@ -252,8 +252,10 @@ const palette: Record<string, readonly [string, string]> = {
   // ---- glass panels (theme.glass): the same surfaces, as before ----
   'glass-bg': ['rgba(30, 30, 29, 0.96)', 'rgba(252, 251, 249, 0.97)'],
   'glass-text': [hud.dark.text, brand.ink],
-  'glass-label': ['rgba(255,255,255,.6)', 'rgba(0,0,0,.56)'],
-  'glass-faint': ['rgba(255,255,255,.42)', 'rgba(0,0,0,.38)'],
+  // QA Q08 (Nov 24): faint was 4.0:1 (dark) and 2.65:1 (light) on the glass; now at least 4.5:1 on the pane and its
+  // hover field. Light label moves darker with it so label still reads above faint.
+  'glass-label': ['rgba(255,255,255,.66)', 'rgba(0,0,0,.66)'],
+  'glass-faint': ['rgba(255,255,255,.54)', 'rgba(0,0,0,.57)'],
   'glass-hairline': ['rgba(255,255,255,.12)', 'rgba(0,0,0,.1)'],
   'glass-field': ['rgba(255,255,255,.06)', 'rgba(0,0,0,.045)'],
   'glass-field-hover': ['rgba(255,255,255,.1)', 'rgba(0,0,0,.08)'],
