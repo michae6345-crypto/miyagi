@@ -75,7 +75,7 @@ Adrian: "i like the leaf growing, make it more pronounced, multiple leaves and l
 - **The level-up moment** (`wire.ts`, `Companion.tsx`): on the pass that crosses a line bon comes out by the pointer as it was, hops, says "bon grew to level 3: Shoot.", and what is on its head unfurls in front of the learner about a second later. A pass that does not level it up shows nothing.
 - **The growth card** (`GrowthCard.tsx`, in Settings > General under its color): "Level 3 · Shoot", "9 steps passed. 6 more to Sapling.", a bar (neutral, not green), and the ladder: all eight levels drawn, named, with their step counts, the ones not reached dimmed, the current one marked, and the rule under it. `BonBar`, `BonLadder`, `useLevelWords` are exported for a Progress or Home page.
 - Calm on purpose: no confetti, sparkles or sounds (the brand has none). The game is the ladder, the count and the moment.
-- Its foliage at levels 7 and 8 is in its leaf color (white on sand), not the bonsai's green: green only means passed. Adrian's call if the grown tree should be green.
+- At levels 7 and 8 it is a tree and wears the bonsai's own colors whatever its skin: the logo's green pads and bark (`palette.ts` `BONSAI`). Adrian, Nov 23: "yes green". The kit keeps green for passed with the bonsai's pads as the one exception; this is that tree, grown by passing steps. It wants a line in BRAND.md (Core requests 6).
 
 
 ### Look

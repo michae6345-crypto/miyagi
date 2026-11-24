@@ -16,6 +16,13 @@ import { brand } from '../../core/theme'
 export const INK = brand.ink
 /** The glint in its eyes. */
 export const GLINT = brand.surface
+/**
+ * Once it has grown into a tree (levels 7 and 8, growth.ts) it wears the bonsai's own colors, whatever its skin: the
+ * green of the logo's pads and its bark (Adrian, Nov 23: "yes green"). The kit keeps green for "passed", with the
+ * bonsai's pads as the one exception; this is that same tree, grown by passing steps. Bark is the logo's cut for dark
+ * backgrounds (BRAND.md); it has no theme token.
+ */
+export const BONSAI = { pad: brand.pass, bark: '#A07A5C' } as const
 
 export type Skin = {
   /** Its body. */

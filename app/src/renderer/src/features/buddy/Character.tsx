@@ -24,7 +24,7 @@ import { useId, type CSSProperties, type ReactNode } from 'react'
 import './buddy.css'
 import { brand } from '../../core/theme'
 import { clampLevel, useGrowth } from './growth'
-import { GLINT, INK, type Skin } from './palette'
+import { BONSAI, GLINT, INK, type Skin } from './palette'
 import { useSkin } from './skin'
 
 export type CharacterKind = 'sprout' | 'leaf' | 'dot'
@@ -146,11 +146,15 @@ const STEM_TOP = [8.2, 8.2, 4.4, 3.2, 3.2, 2.6, 3.8, -3.2] as const
 /**
  * What grows on its head, by level (growth.ts): 1 one leaf, 2 two, 3 a third on a taller stem, 4 four in two tiers,
  * 5 a bud, 6 the bud open, 7 a first pad of foliage, 8 a small shaped tree. The lowest pair are its ears and wings at
- * every level that has them: they turn with its mood and beat when it flies.
+ * every level that has them: they turn with its mood and beat when it flies. At 7 and 8 it is a tree, in the bonsai's
+ * green and bark (palette.ts BONSAI).
  */
-function Top({ level, mood, leaf }: { level: number; mood: Mood; leaf: string }): ReactNode {
+function Top({ level, mood, leaf: skinLeaf }: { level: number; mood: Mood; leaf: string }): ReactNode {
   const [l, r] = LEAVES[mood]
   const tree = level >= 7
+  // A tree wears the bonsai's green and bark; before that its leaves are its skin's.
+  const leaf = tree ? BONSAI.pad : skinLeaf
+  const wood = tree ? BONSAI.bark : skinLeaf
   const stem = level === 8 ? TRUNK : `M24 14 L24 ${STEM_TOP[level - 1]}`
   const wide = tree ? 2.4 : 1.5
   const part = (dd: string, key?: string): ReactNode => <path key={key} d={dd} fill={leaf} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
@@ -160,14 +164,14 @@ function Top({ level, mood, leaf }: { level: number; mood: Mood; leaf: string })
     <g className="ch-sprout" data-level={level}>
       {/* The stem: pale over ink, so it shows on a dark app (where the ink is lost) and on a light one. */}
       <path d={stem} fill="none" stroke={INK} strokeWidth={OUTLINE * 2 + wide} strokeLinecap="round" />
-      <path d={stem} fill="none" stroke={leaf} strokeWidth={wide} strokeLinecap="round" />
+      <path d={stem} fill="none" stroke={wood} strokeWidth={wide} strokeLinecap="round" />
       {level === 8 && (
         <>
           {/* The two side branches, then the three pads: low on the left, higher on the right, the crown. */}
           {['M23 10.8 L18.4 9', 'M25.8 6.4 L30.2 5'].map((dd) => (
             <g key={dd}>
               <path d={dd} fill="none" stroke={INK} strokeWidth={OUTLINE * 2 + 1.4} strokeLinecap="round" />
-              <path d={dd} fill="none" stroke={leaf} strokeWidth={1.4} strokeLinecap="round" />
+              <path d={dd} fill="none" stroke={wood} strokeWidth={1.4} strokeLinecap="round" />
             </g>
           ))}
           {part(padD(16.6, 9.2, 11, 5.6), 'pad-l')}
