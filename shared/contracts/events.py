@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 # ---------- shared shapes ----------
 StepStatus = Literal["locked", "active", "passed", "failed"]
@@ -128,37 +128,6 @@ class SearchDone(_Model):
     total: int
 
 
-class LessonBuilding(_Model):
-    message: str
-    progress: float  # 0..1
-    failed: bool | None = None  # the build ended in error; drop the building UI
-    elapsedS: float | None = None  # seconds since the build started (heartbeat); `message` changes only with the stage
-
-
-class GoalMatch(_Model):
-    score: float | None = None
-    note: str = ""
-
-
-class OutlineStep(_Model):
-    """One row of lesson.outline: a step of the lesson, built or still being written."""
-    index: int
-    title: str
-    kind: StepKind | None = None
-    what: str | None = None
-    estMinutes: int | None = None
-    skillIds: list[str] | None = None  # as StepSummary.skillIds
-
-
-class LessonOutline(_Model):
-    """E23: every step from the first lesson.ready on (count = the final step count), so "Step 1 of N" never jumps."""
-    count: int
-    steps: list[OutlineStep]
-    estMinutes: int | None = None  # the whole lesson, when every row has one
-
-
-# ---------- v2 shapes (BUILD-PLAN W0-1) ----------
-# Build* shapes: the same as michael/v2-integration (integration/live did not have them; LibraryItem.source needs BuildSource)
 BuildStage = Literal["watching", "steps", "checks", "ready"]  # v2 Home-Building rows
 BuildFailCode = Literal["unreadable_code", "no_steps", "too_long", "no_captions", "network", "provider", "unknown"]
 
@@ -189,6 +158,45 @@ class BuildAlternative(_Model):
     url: str | None = None
 
 
+class LessonBuilding(_Model):
+    message: str
+    progress: float  # 0..1
+    failed: bool | None = None  # the build ended in error; drop the building UI
+    elapsedS: float | None = None  # seconds since the build started (heartbeat); `message` changes only with the stage
+    # v2 (all optional)
+    stage: BuildStage | None = None
+    phases: list[BuildPhase] | None = None
+    etaS: float | None = None  # about how long is left, seconds
+    source: BuildSource | None = None
+    failCode: BuildFailCode | None = None  # with failed
+    failReason: str | None = None  # with failed: one plain sentence
+    alternatives: list[BuildAlternative] | None = None  # with failed
+    silent: bool | None = None  # with failed: the learner moved on; no failure card
+
+
+class GoalMatch(_Model):
+    score: float | None = None
+    note: str = ""
+
+
+class OutlineStep(_Model):
+    """One row of lesson.outline: a step of the lesson, built or still being written."""
+    index: int
+    title: str
+    kind: StepKind | None = None
+    what: str | None = None
+    estMinutes: int | None = None
+    skillIds: list[str] | None = None  # as StepSummary.skillIds
+
+
+class LessonOutline(_Model):
+    """E23: every step from the first lesson.ready on (count = the final step count), so "Step 1 of N" never jumps."""
+    count: int
+    steps: list[OutlineStep]
+    estMinutes: int | None = None  # the whole lesson, when every row has one
+
+
+# ---------- v2 shapes (BUILD-PLAN W0-1) ----------
 HealthState = Literal["ok", "missing", "off", "checking", "unknown"]  # unknown: can't tell without prompting (gray)
 PermissionKind = Literal["screen", "accessibility", "automation"]
 PauseReason = Literal["editor_closed", "kernel", "network", "permission", "user"]
@@ -336,6 +344,8 @@ class StepStarted(_Model):
     code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
     estMinutes: int | None = None  # about how long this step takes ("about 4 min")
     replay: bool | None = None  # a reconnect's / restore's replay of the step already running (not a new step)
+    where: str | None = None  # v2 (Les-Working): the line above the code ("Type this in the new cell")
+    then: str | None = None  # v2: the line under it ("Then run it with the arrow beside the cell.")
 
 
 class CheckUpdated(_Model):
@@ -354,6 +364,13 @@ class StepPassed(_Model):
     pending: bool | None = None  # no next step yet: the next part is still building
     skipped: bool | None = None  # the learner skipped it (action skip_step): not passed, never shown green
     already: bool | None = None  # its code was already in the file: passed without starting (one "You already did" card)
+    summary: str | None = None  # v2: what the learner just did, <= 12 words
+    # ui-v4 (Nov 24), all optional; see events.ts step.passed
+    key: str | None = None  # "<lessonId>:<stepId>": the pass's stable id (bon, activity.recent and mastery de-dupe on it)
+    counted: bool | None = None  # this pass grew bon's count (a `bon` push follows)
+    assisted: bool | None = None  # passed after Show me's snippet, a level-3 hint or Do it for me: counts for bon, not toward mastery
+    skillIds: list[str] | None = None  # the SkillInfo ids it is evidence for
+    proofId: str | None = None  # the Proof kept for it (proof.get)
 
 
 class OfftrackDiff(_Model):
@@ -439,6 +456,7 @@ class ScreenAvoid(_Model):
     rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
 
 
+
 class ScreenRegion(_Model):
     """Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding Fn+Control.
 
@@ -491,6 +509,36 @@ class AnnotateClear(_Model):
 
 
 Annotate = AnnotateMarks | AnnotateClear
+
+
+class AnswerDelta(_Model):
+    """answer.delta (Circle to ask, streamed, Nov 22; fast circle to ask, server/coach/fast_ask.py): the next words of a
+    streamed answer. Append `text` (the NEW text, never the whole text so far) to the answer for askId; seq counts up
+    from 0 per ask. The model's first-line [DRAW:...] tag never reaches the app (the engine sends it as annotate). The
+    answer card {kind: "answer", askId} still follows answer.done with the same text, so an app that ignores these events
+    loses nothing; nothing streamed: only the card comes, as before. Union of both readings (Nov 24 contract sync):
+    done True marks the last delta for an app that predates answer.done; an engine that sends answer.done need not set
+    it. askId None: an ask that carried no id (the app drops it)."""
+
+    askId: str | None = None
+    seq: int | None = None
+    text: str = ""
+    done: bool | None = None
+
+
+class AnswerDone(_Model):
+    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned: the app MUST replace
+    what the deltas built with it. Deltas are sent as the words arrive, so a sentence the engine flags as a prompt
+    injection may have shown in them; done.text never has it. complete False: cut short (reason "refusal" |
+    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows; refusal:
+    text is "" so the declined words leave the screen, and a failed answer card follows).
+    fallback True: the stream failed and a non-streaming retry answered."""
+
+    askId: str | None = None
+    text: str
+    complete: bool = True
+    fallback: bool | None = None
+    reason: str | None = None
 
 
 class VideoSeek(_Model):
@@ -683,6 +731,49 @@ class SkillExample(_Model):
     caption: str | None = None
 
 
+# ui-v4 (Nov 24, skill tree round 3: tracks -> skills -> steps). A step's skills: StepSummary.skillIds / step.passed.skillIds.
+MASTERY_DAYS = 2  # mastered = passed unassisted on this many different local days (Adrian's rule)
+REVIEW_DAYS: tuple[int, ...] = (3, 7, 21, 60)  # Adrian's review schedule, days after mastery per round; SkillGraphInfo.reviewDays says what the engine uses (sessions/review.py INTERVALS today)
+
+
+class SkillStepRef(_Model):
+    """The Steps zoom: one step behind a skill, passed or not. key: step.passed.key once passed."""
+    key: str | None = None
+    lessonId: str
+    lessonTitle: str | None = None
+    stepId: str
+    title: str
+    passed: bool
+    at: str | None = None
+    assisted: bool | None = None
+
+
+class SkillMastery(_Model):
+    """days: the distinct local dates with an unassisted pass (mastered when len(days) >= need)."""
+    need: int
+    days: list[str] = []
+    assisted: int | None = None  # passes that did not count toward it
+
+
+class SkillReviewInfo(_Model):
+    """round: 0-based into reviewDays; interval: the days this round waits; a miss starts over at round 0."""
+    dueAt: str
+    round: int
+    interval: int
+    lastAt: str | None = None
+    lastResult: Literal["pass", "miss"] | None = None
+
+
+class SkillTrackInfo(_Model):
+    id: str
+    label: str
+    mastered: int
+    total: int
+    next: str | None = None  # the SkillInfo id to do next on this track; None (with mastered == total): the track is done
+    lastPracticedAt: str | None = None
+    planIds: list[str] | None = None
+
+
 class SkillInfo(_Model):
     id: str
     label: str  # <= 4 words
@@ -696,6 +787,13 @@ class SkillInfo(_Model):
     review: SkillReview | None = None
     lessons: list[SkillLessonRef] | None = None
     example: SkillExample | None = None
+    # ui-v4 (Nov 24), all optional
+    catalogId: str | None = None  # the catalog skill id ("py.loops")
+    steps: list[SkillStepRef] | None = None  # every step behind it, passed or not, in lesson order
+    mastery: SkillMastery | None = None
+    schedule: SkillReviewInfo | None = None  # the spaced-review schedule in full (review keeps only dueAt)
+    proofIds: list[str] | None = None  # Proofs kept for its passes, newest first
+    planIds: list[str] | None = None  # PlanState ids that grow it
 
 
 class SkillGraphEdge(_Model):
@@ -776,6 +874,10 @@ class SkillGraphInfo(_Model):
     ackedUntil: Moment | None = None  # events newer than this play once; the app then sends skills.ack {until}
     week: SkillWeek | None = None
     portfolio: list[PortfolioItem] | None = None
+    # ui-v4 (Nov 24), all optional
+    tracks: list[SkillTrackInfo] | None = None  # the Tracks zoom and Progress's Tracks table, in display order
+    masteryDays: int | None = None  # the mastery rule in use (MASTERY_DAYS)
+    reviewDays: list[int] | None = None  # the review schedule in use (REVIEW_DAYS is the proposal)
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
@@ -791,7 +893,7 @@ class Card(_Model):
     # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
     # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw (Show me, or Hint before the
     # step's code is on screen). See events.ts.
-    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where"]
+    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where", "complete"]  # complete (v2): the last step passed
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -813,6 +915,12 @@ class Card(_Model):
     verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
     checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
     skillMap: SkillMap | None = None  # the lesson-complete card: the skill map to draw (mockup 10), server/lesson/skillmap.py
+    # v2 (all optional)
+    hintStep: HintStep | None = None  # kind "hint": rung n of the ladder ("Hint 1 of 2")
+    missingLines: list[MissingLine] | None = None  # Not yet: the step's lines, each there or missing
+    fixCaption: str | None = None  # Not yet: what to do about them
+    waiting: str | None = None  # footer while the engine waits ("Watching for a kernel to start")
+    result: LessonResult | None = None  # kind "complete"
 
 
 class NetworkDiagram(_Model):
@@ -900,8 +1008,9 @@ class Metric(_Model):
 
 
 class Status(_Model):
-    state: Literal["idle", "watching", "offtrack", "passed", "thinking"]
-    detail: str | None = None
+    state: Literal["idle", "watching", "offtrack", "passed", "thinking", "busy"]  # busy (v2): the AI provider is overloaded
+    detail: str | None = None  # v2: what the engine does right now, <= 6 words
+    retryInS: float | None = None  # v2, with busy: retrying in this many seconds
     epoch: int | None = None  # lesson / step generation it was sent under (optional, additive)
     gen: int | None = None
 
@@ -910,32 +1019,6 @@ class Error(_Model):
     message: str
     epoch: int | None = None
     gen: int | None = None
-
-
-class AnswerDelta(_Model):
-    """answer.delta (Nov 22, fast circle to ask, server/coach/fast_ask.py): the next words of a streamed answer. Append
-    `text` to the answer for askId; seq counts up from 0 per ask. The model's first-line [DRAW:...] tag never reaches
-    the app (the engine sends it as annotate). The answer card {kind: "answer", askId} still follows answer.done with the
-    same text, so an app that ignores these events loses nothing; nothing streamed: only the card comes, as before."""
-
-    askId: str | None = None
-    seq: int
-    text: str
-
-
-class AnswerDone(_Model):
-    """answer.done: the streamed answer for askId is over. `text` is the whole answer, cleaned: the app MUST replace
-    what the deltas built with it. Deltas are sent as the words arrive, so a sentence the engine flags as a prompt
-    injection may have shown in them; done.text never has it. complete False: cut short (reason "refusal" |
-    "max_tokens" | "error" | "moved_on", a plain str; moved_on: the step changed, a "moved on" card follows; refusal:
-    text is "" so the declined words leave the screen, and a failed answer card follows).
-    fallback True: the stream failed and a non-streaming retry answered."""
-
-    askId: str | None = None
-    text: str
-    complete: bool = True
-    fallback: bool | None = None
-    reason: str | None = None
 
 
 class LessonEnded(_Model):
@@ -1017,6 +1100,419 @@ class CloudTokenInvalid(_Model):
     reason: Literal["unknown_token"] | None = None
 
 
+# ---------- ui-v4 (Nov 24): Adrian's v4 pages, skill tree round 3, bon. All additive; see events.ts and UI-V4.md ----------
+# Times are ISO 8601 text with the learner's UTC offset; days are the learner's local date ("2026-11-24").
+ACTIVITY_DAYS = 84  # Activity.days covers 12 weeks, ending today
+RECENT_PASSED_MAX = 20  # Activity.recent carries at most this many
+
+
+class ActivityDay(_Model):
+    """One local day. minutes: practice minutes (a minute with a lesson running and the learner doing something in it);
+    steps: counted passes that day."""
+    date: str
+    minutes: int = 0
+    steps: int | None = None
+
+
+class PassedStep(_Model):
+    """One counted pass ("Recently passed"). key: step.passed.key; skills: the labels of skillIds, same order."""
+    key: str
+    lessonId: str
+    lessonTitle: str
+    stepId: str
+    stepTitle: str
+    at: str
+    skillIds: list[str] | None = None
+    skills: list[str] | None = None
+    planId: str | None = None
+    assisted: bool | None = None
+    proofId: str | None = None
+
+
+MilestoneKind = Literal["first_step", "first_lesson", "skill_mastered", "track_done", "plan_finished", "project_done", "steps"]
+
+
+class Milestone(_Model):
+    """Optional (the Nov 24 trim took milestones off Progress). count: for kind "steps"."""
+    id: str
+    kind: MilestoneKind
+    title: str
+    at: str
+    skillId: str | None = None
+    planId: str | None = None
+    count: int | None = None
+
+
+class ActivityTotals(_Model):
+    lessonsFinished: int
+    stepsPassed: int
+    minutes: int | None = None  # None: not recorded yet
+    skillsMastered: int | None = None
+
+
+class ActivityWeek(_Model):
+    minutes: int | None = None
+    stepsPassed: int
+    skillsMastered: int
+
+
+class Activity(_Model):
+    """activity: answer to activity.get, pushed again on change (at most every 10 s) to a connection that asked."""
+    asOf: str
+    tz: str | None = None
+    minutesTracked: bool  # False: minutes are not recorded yet: every minutes is 0 / None
+    days: list[ActivityDay]  # ACTIVITY_DAYS days, oldest first, every day present, the last is today
+    week: ActivityWeek
+    totals: ActivityTotals
+    recent: list[PassedStep] = Field(default_factory=list, max_length=RECENT_PASSED_MAX)  # newest first
+    milestones: list[Milestone] | None = None
+
+
+class BonLevel(_Model):
+    level: int
+    name: str
+    at: int
+    has: str
+
+
+# bon's eight levels (app features/buddy/growth.ts LEVELS): at = the passed steps where the level starts. Same table as events.ts.
+BON_LEVELS: tuple[dict, ...] = (
+    {"level": 1, "name": "Seed", "at": 0, "has": "one leaf"},
+    {"level": 2, "name": "Sprout", "at": 3, "has": "two leaves"},
+    {"level": 3, "name": "Shoot", "at": 8, "has": "a third leaf"},
+    {"level": 4, "name": "Sapling", "at": 15, "has": "four leaves"},
+    {"level": 5, "name": "Budding", "at": 25, "has": "a bud"},
+    {"level": 6, "name": "In bloom", "at": 40, "has": "a blossom"},
+    {"level": 7, "name": "Young tree", "at": 60, "has": "its first pad"},
+    {"level": 8, "name": "Bonsai", "at": 90, "has": "a shaped tree"},
+)
+
+
+def bon_state(steps: int, *, grew: bool | None = None, last_key: str | None = None) -> dict:
+    """The BonState payload for this many counted passes (the same rule as growth.ts progressOf)."""
+    n = max(0, int(steps))
+    i = max(k for k, lv in enumerate(BON_LEVELS) if n >= lv["at"])
+    here = BON_LEVELS[i]
+    out: dict[str, Any] = {"steps": n, "level": here["level"], "name": here["name"], "fraction": 1.0}
+    if i + 1 < len(BON_LEVELS):
+        up = BON_LEVELS[i + 1]
+        out["next"] = {"level": up["level"], "name": up["name"], "at": up["at"], "left": up["at"] - n}
+        out["fraction"] = round((n - here["at"]) / (up["at"] - here["at"]), 4)
+    if grew is not None:
+        out["grew"] = grew
+    if last_key:
+        out["lastKey"] = last_key
+    return out
+
+
+class BonNext(_Model):
+    level: int
+    name: str
+    at: int
+    left: int
+
+
+class BonState(_Model):
+    """bon's count, kept by the engine: lifetime passes counted, each step.passed.key at most once, never a skipped or
+    already-done step. level / name from BON_LEVELS. grew: True only on the push from the pass that crossed a level."""
+    steps: int = Field(ge=0)
+    level: int = Field(ge=1, le=len(BON_LEVELS))
+    name: str
+    next: BonNext | None = None
+    fraction: float | None = None
+    grew: bool | None = None
+    lastKey: str | None = None
+
+
+# Plans: the catalog's shape (docs/ui-next/catalog/SCHEMA.md; catalog.json ships with the app and replaces packs.ts).
+PlanGroup = Literal["language", "environment", "topic"]
+PlanTopic = Literal["code", "data", "ai", "3d", "cad", "design", "tools"]
+PlanCheckKind = Literal["run", "code", "scene", "file", "screen"]
+PLAN_TOOL_IDS: tuple[str, ...] = ("vscode", "jupyter", "terminal", "browser", "blender", "freecad", "fusion", "onshape", "figma",
+                                  "excel", "sheets", "unity", "godot", "xcode", "arduino", "docker", "rstudio")
+
+
+class PlanTool(_Model):
+    id: str  # one of PLAN_TOOL_IDS (a plain str, so a new tool is not rejected)
+    label: str
+
+
+class CatalogSkill(_Model):
+    id: str  # "<prefix>.<name>" ("py.loops"), stable
+    label: str
+    needs: list[str] = []
+
+
+class CatalogProject(_Model):
+    title: str
+    brief: str
+    checks: list[str] = []
+
+
+class CatalogLesson(_Model):
+    title: str
+    goal: str  # build it with learn {query: goal, mode: "lesson"}
+    grows: list[str]
+    minutes: int
+    steps: int
+    check: PlanCheckKind
+    passes: str
+
+
+class PlaylistVideo(_Model):
+    id: str  # the YouTube video id
+    title: str
+    seconds: int | None = None
+
+
+class CatalogPlaylist(_Model):
+    planId: str
+    title: str
+    channel: str
+    playlistId: str
+    url: str
+    videoCount: int
+    totalSeconds: int
+    videos: list[PlaylistVideo] = []
+
+
+class CatalogPlan(_Model):
+    id: str
+    title: str
+    group: PlanGroup
+    topic: PlanTopic
+    track: str
+    tool: PlanTool
+    also: list[str] = []
+    level: Literal["start", "next"]
+    needs: list[str] = []
+    line: str
+    project: CatalogProject
+    skills: list[CatalogSkill]
+    lessons: list[CatalogLesson]
+    minutes: int | None = None  # added by build.mjs
+    playlists: list[CatalogPlaylist] | None = None  # added by build.mjs from playlists.json
+
+
+class Catalog(_Model):
+    version: int
+    plans: list[CatalogPlan]
+
+
+class PlanLessonRef(_Model):
+    """Which plan lesson a learn / learn_url / library.start is. index: 0-based in PlanState.lessons."""
+    id: str
+    index: int = Field(ge=0)
+
+
+PlanSource = Literal["preset", "playlist", "goal"]
+PlanLessonState = Literal["done", "in_progress", "next", "todo", "skipped"]
+
+
+class PlanLessonSteps(_Model):
+    done: int
+    total: int
+
+
+class PlanLesson(_Model):
+    index: int
+    title: str
+    goal: str | None = None  # preset / goal plans: the learn query
+    videoId: str | None = None  # playlist plans
+    seconds: int | None = None
+    minutes: int | None = None
+    stepCount: int | None = None
+    check: PlanCheckKind | None = None
+    passes: str | None = None
+    skillIds: list[str] | None = None
+    state: PlanLessonState
+    lessonId: str | None = None
+    libraryId: str | None = None
+    steps: PlanLessonSteps | None = None
+    openedAt: str | None = None
+    doneAt: str | None = None
+
+
+class PlanProject(CatalogProject):
+    state: Literal["locked", "ready", "done"] | None = None
+    on: bool | None = None  # False: the learner switched the project off
+
+
+class PlanState(_Model):
+    """A plan in progress. id: the catalog id for a preset; "pl-<playlistId>"; "goal-<8 hex>"."""
+    id: str
+    title: str
+    source: PlanSource
+    catalogId: str | None = None
+    playlistId: str | None = None
+    url: str | None = None
+    goal: str | None = None
+    track: str | None = None
+    tool: PlanTool | None = None
+    lessons: list[PlanLesson]
+    project: PlanProject | None = None
+    done: int
+    total: int
+    nextIndex: int | None = None
+    minutesLeft: int | None = None
+    startedAt: str | None = None
+    updatedAt: str | None = None
+    finishedAt: str | None = None
+
+
+LookupError_ = Literal["not_found", "private", "unsupported", "offline", "too_long", "busy", "unknown"]  # events.ts LookupError
+
+
+class ProposedFrom(_Model):
+    planId: str
+    index: int
+
+
+class ProposedLesson(_Model):
+    title: str
+    goal: str | None = None
+    videoId: str | None = None
+    seconds: int | None = None
+    minutes: int | None = None
+    grows: list[str] | None = None  # skill ids
+    skills: list[str] | None = None  # their labels, same order
+    from_: ProposedFrom | None = Field(default=None, alias="from")
+    skip: bool | None = None
+    why: str | None = None
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class HaveCount(_Model):
+    done: int
+    of: int
+
+
+class PlanProposal(_Model):
+    title: str
+    source: Literal["playlist", "goal"]
+    tool: PlanTool | None = None
+    tools: list[PlanTool] | None = None
+    lessons: list[ProposedLesson]
+    skills: list[CatalogSkill] | None = None
+    project: CatalogProject | None = None
+    minutes: int | None = None
+    fromPlans: list[str] | None = None
+    have: HaveCount | None = None
+    note: str | None = None
+
+
+class Plans(_Model):
+    items: list[PlanState] = []
+    reqId: str | None = None
+
+
+class PlaylistInfo(_Model):
+    url: str
+    reqId: str | None = None
+    playlistId: str | None = None
+    title: str | None = None
+    channel: str | None = None
+    videoCount: int | None = None
+    totalSeconds: int | None = None
+    videos: list[PlaylistVideo] = []
+    proposing: bool | None = None
+    proposal: PlanProposal | None = None
+    error: LookupError_ | None = None
+
+
+class PlanProposalEvent(_Model):
+    goal: str
+    reqId: str | None = None
+    proposing: bool | None = None
+    proposal: PlanProposal | None = None
+    error: LookupError_ | None = None
+
+
+class LinkSkill(_Model):
+    id: str | None = None
+    label: str
+
+
+class LinkPreview(_Model):
+    url: str
+    reqId: str | None = None
+    kind: Literal["video", "playlist", "unsupported"]
+    pending: bool | None = None
+    title: str | None = None
+    channel: str | None = None
+    seconds: int | None = None
+    videoId: str | None = None
+    playlistId: str | None = None
+    videoCount: int | None = None
+    totalSeconds: int | None = None
+    thumbnail: str | None = Field(default=None, pattern=r"^https://i\.ytimg\.com/")  # an i.ytimg.com URL only
+    grows: list[LinkSkill] | None = None
+    have: HaveCount | None = None
+    finishesGoal: bool | None = None
+    catalogId: str | None = None
+    error: LookupError_ | None = None
+
+
+PROOF_TEXT_MAX = 2000  # characters of Proof.text
+PROOF_OUTPUT_MAX = 1000  # characters of Proof.output
+ProofKind = Literal["code", "cell", "command", "scene", "file", "screen"]
+
+
+class ProofCheck(_Model):
+    label: str
+    detail: str | None = None
+
+
+class Proof(_Model):
+    """The learner's own work when a step passed. Kept on this Mac (~/miyagi/state) only, never sent anywhere; no
+    screenshot is ever kept (kind "screen" carries the check's words only). file: relative to the lesson folder."""
+    id: str
+    kind: ProofKind
+    key: str
+    skillIds: list[str] = []
+    lessonId: str
+    lessonTitle: str | None = None
+    stepId: str
+    stepTitle: str
+    at: str
+    check: ProofCheck
+    text: str | None = Field(default=None, max_length=PROOF_TEXT_MAX)
+    output: str | None = Field(default=None, max_length=PROOF_OUTPUT_MAX)
+    lang: str | None = None
+    file: str | None = None
+    line: int | None = None
+    truncated: bool | None = None
+
+
+class ProofEvent(_Model):
+    items: list[Proof] = []
+    skillId: str | None = None
+    reqId: str | None = None
+
+
+DataItemId = Literal["lesson_folder", "lesson_cache", "progress", "activity", "bon", "plans", "proofs", "notes", "screenshots", "logs"]
+DataDeleteKind = Literal["notes", "lesson_cache", "progress", "proofs", "all"]  # the lesson folder is never deleted (the learner's own work)
+
+
+class DataItem(_Model):
+    """One row of Settings, Your data. path: "~/..." (home shortened). delete None: miyagi does not delete it."""
+    id: str  # a DataItemId (a plain str, so a new row is not rejected)
+    label: str
+    where: Literal["this_mac", "not_kept", "account"]
+    path: str | None = None
+    bytes: int | None = None
+    count: int | None = None
+    detail: str | None = None
+    delete: DataDeleteKind | None = None
+
+
+class DataInventory(_Model):
+    items: list[DataItem] = []
+    totalBytes: int | None = None
+    deleted: list[DataDeleteKind] | None = None  # a data.delete answer: the kinds really removed
+    canDelete: list[DataDeleteKind] | None = None  # the kinds this engine can really delete today
+
+
 ENGINE_EVENTS: dict[str, Any] = {
     "search.result": SearchResult,
     "search.done": SearchDone,
@@ -1031,6 +1527,8 @@ ENGINE_EVENTS: dict[str, Any] = {
     "screen.seen": ScreenSeen,
     "screen.avoid": ScreenAvoid,
     "annotate": TypeAdapter(Annotate),  # Buddy draws (Nov 22)
+    "answer.delta": AnswerDelta,  # Circle to ask, streamed (Nov 22)
+    "answer.done": AnswerDone,  # fast circle to ask (Nov 22): the stream is over
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -1044,18 +1542,36 @@ ENGINE_EVENTS: dict[str, Any] = {
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
-    "answer.delta": AnswerDelta,  # fast circle to ask (Nov 22): streamed words
-    "answer.done": AnswerDone,
+    # v2
+    "engine.hello": EngineHello,
+    "health": Health,
+    "lesson.paused": LessonPaused,
+    "lesson.resumed": LessonResumed,
+    "blocker": Blocker,
+    "library": Library,
+    "library.item": LibraryItemEvent,
+    "progress": ProgressEvent,
+    # ui-v4 (Nov 24)
+    "activity": Activity,
+    "bon": BonState,
+    "plans": Plans,
+    "playlist": PlaylistInfo,
+    "plan.proposal": PlanProposalEvent,
+    "link.preview": LinkPreview,
+    "proof": ProofEvent,
+    "data": DataInventory,
 }
 
 EngineEventType = Literal[
     "annotate",
+    "answer.delta", "answer.done",
     "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
     "screen.avoid",
-    "answer.delta", "answer.done",
+    "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
+    "activity", "bon", "plans", "playlist", "plan.proposal", "link.preview", "proof", "data",
 ]
 
 
@@ -1063,11 +1579,13 @@ EngineEventType = Literal[
 class Learn(_Model):
     query: str
     mode: Literal["video", "lesson", "demo"] | None = None  # "lesson" = "Just teach me": no video search; "demo": the staged neural-net lesson (server/orchestrator/stage.py)
+    plan: PlanLessonRef | None = None  # ui-v4: this lesson is lesson `index` of plan `id`
 
 
 class LearnUrl(_Model):
     url: str
     transcriptOnly: bool | None = None  # the Build failed card's "Try transcript only": build from the transcript + title/chapters, no video model
+    plan: PlanLessonRef | None = None  # ui-v4: this video is lesson `index` of plan `id` (a playlist plan)
 
 
 class BuildLesson(_Model):
@@ -1141,8 +1659,8 @@ class ConfigKeys(_Model):
     gemini: str | None = None
     elevenlabs: str | None = None
     tigerUrl: str | None = None
-    miyagiToken: str | None = None  # the app's anonymous install token for the miyagi cloud proxy
-    miyagiCloud: str | None = None  # the cloud proxy's base URL
+    miyagiToken: str | None = None  # v2: the app's anonymous install token ("mi_...") for the miyagi cloud proxy; memory only
+    miyagiCloud: str | None = None  # v2: the cloud proxy's https base URL
 
 
 class CardShown(_Model):
@@ -1187,6 +1705,7 @@ class LibraryStart(_Model):
     """Start a cached lesson: zero model calls."""
 
     id: str = Field(pattern=LIBRARY_ID_PATTERN)
+    plan: PlanLessonRef | None = None  # ui-v4: as Learn.plan
 
 
 class ProgressGet(_Model):
@@ -1223,6 +1742,88 @@ class AskWarm(_Model):
     source: str | None = Field(default=None, max_length=32)  # optional tag ("keydown"), for logs only
 
 
+# ---------- engine commands the contract did not list yet (Nov 24 sync with server/orchestrator/main.py V2_COMMANDS) ----------
+def _text80(v: Any) -> str:
+    return " ".join(v.split())[:80] if isinstance(v, str) else ""
+
+
+class ReviewStart(_Model):
+    """Start review (sessions/review.py): replay the steps behind one mastered skill, no build, no model call. Both
+    optional (none: the first review due); a value of the wrong type reads as absent, as the engine always did."""
+    skillId: str = ""
+    label: str = ""
+
+    @field_validator("skillId", "label", mode="before")
+    @classmethod
+    def _clean(cls, v: Any) -> str:
+        return _text80(v)
+
+
+class DataDelete(_Model):
+    """Delete my data, engine part. Today: the lesson notes (server/context), whatever `what` says. what (ui-v4): the
+    DataDeleteKind values to remove; plain strs so an older engine never rejects a newer kind."""
+    what: list[str] | None = None
+
+
+# ---------- ui-v4 commands (Nov 24): sent only when engine.hello.capabilities lists the type ----------
+class ActivityGet(_Model):
+    pass
+
+
+class BonGet(_Model):
+    pass
+
+
+class BonImport(_Model):
+    """Once per Mac: the count growth.ts kept in localStorage. The engine keeps max(its count, steps) and adds seen."""
+    steps: int = Field(ge=0, le=1_000_000)
+    seen: list[str] | None = Field(default=None, max_length=400)
+
+
+class PlansList(_Model):
+    pass
+
+
+class PlanStart(_Model):
+    """Add a plan: catalogId (preset), playlistId + proposal (playlist), or proposal (goal)."""
+    catalogId: str | None = Field(default=None, max_length=64)
+    playlistId: str | None = Field(default=None, max_length=64)
+    url: str | None = Field(default=None, max_length=500)
+    goal: str | None = Field(default=None, max_length=300)
+    proposal: PlanProposal | None = None
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class PlanRemove(_Model):
+    id: str = Field(max_length=80)
+
+
+class PlaylistGet(_Model):
+    url: str = Field(max_length=500)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class PlanPropose(_Model):
+    goal: str = Field(min_length=1, max_length=300)
+    tool: str | None = Field(default=None, max_length=32)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class LinkGet(_Model):
+    url: str = Field(max_length=500)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class ProofGet(_Model):
+    id: str | None = Field(default=None, max_length=80)
+    skillId: str | None = Field(default=None, max_length=120)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class DataGet(_Model):
+    pass
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -1245,15 +1846,35 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "set_goal": SetGoal,
     "skills.ack": SkillsAck,
     "ask.warm": AskWarm,
+    "review.start": ReviewStart,
+    "data.delete": DataDelete,
+    # ui-v4 (Nov 24)
+    "activity.get": ActivityGet,
+    "bon.get": BonGet,
+    "bon.import": BonImport,
+    "plans.list": PlansList,
+    "plan.start": PlanStart,
+    "plan.remove": PlanRemove,
+    "playlist.get": PlaylistGet,
+    "plan.propose": PlanPropose,
+    "link.get": LinkGet,
+    "proof.get": ProofGet,
+    "data.get": DataGet,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
                          "card.shown", "card.closed",
                          "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
-                         "set_goal", "skills.ack", "ask.warm"]
+                         "set_goal", "skills.ack", "ask.warm", "review.start", "data.delete",
+                         "activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get", "plan.propose",
+                         "link.get", "proof.get", "data.get"]
 
 # v2: the command types an engine may list in engine.hello.capabilities.
-V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
+V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
+                                    "ask.warm", "set_goal", "skills.ack", "review.start", "data.delete")
+# ui-v4 (Nov 24): the commands an engine lists in engine.hello.capabilities once it answers them.
+UI_V4_CAPABILITIES: tuple[str, ...] = ("activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get",
+                                       "plan.propose", "link.get", "proof.get", "data.get")
 CONTRACT_VERSION = "2026-11-20"
 
 
