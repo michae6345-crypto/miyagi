@@ -4320,6 +4320,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
         self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
         self.skill_update = await skill_hooks.on_pass(self, step, skipped)  # skill tree: mastery, reviews, proof (local)
+        if self.skill_update is not None:
+            await self.emit("skills.update", self.skill_update)
         await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:  # Nov 15: steps whose code is already in the file pass at once, ONE card (quiet_save.advance)

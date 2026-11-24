@@ -63,6 +63,7 @@ from shared.contracts import events as contract
 from shared.contracts.events import parse_app_message
 
 from server import config as server_config
+from server.skilltree import service as skills_service
 
 from . import config, recorder, stage
 from .hub import Hub, log_received
@@ -125,6 +126,8 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
+# ui-v4 skill tree (server/skilltree/service.py): local reads and small edits, answered beside the queue
+SKILL_INSTANT = frozenset(skills_service.READS)
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
@@ -363,6 +366,8 @@ def parse_command(raw: dict) -> Any:
     type_ = raw.get("type")
     if type_ in V2_COMMANDS and type_ not in _CONTRACT_COMMANDS:
         return SimpleNamespace(type=type_, payload=_parse_v2(type_, raw.get("payload")))
+    if type_ in skills_service.COMMANDS and type_ not in _CONTRACT_COMMANDS:  # until the ui-v4 contract lands
+        return SimpleNamespace(type=type_, payload=skills_service.parse(type_, raw.get("payload")))
     return parse_app_message(raw)
 
 
@@ -791,6 +796,7 @@ class Engine:
         if hasattr(self.session, "panel_state"):
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
+        caps += list(skills_service.COMMANDS)  # ui-v4 skill tree (provisional names until the contract lands)
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         return caps
 
@@ -1139,6 +1145,15 @@ class Engine:
             await self.handle_v2(msg.type, p, reply)
             if msg.type == "library.list":
                 await self._offer_saved_lesson(ws, reply)
+        elif msg.type in SKILL_INSTANT:
+            async def reply(type_: str, payload: dict) -> None:
+                if ws is None:
+                    await self.hub.emit(type_, payload)
+                else:
+                    await self.hub.send_to(ws, type_, payload)
+
+            s.note_app_v2()  # only a ui-v4 app sends skills messages: it draws the v2 surfaces
+            await skills_service.handle(msg.type, p, reply)
         elif msg.type == "library.start":
             await self.library_start(p.id)
         elif msg.type == "review.start":
@@ -1445,7 +1460,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     await engine.dispatch(raw, ws)
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
-            elif raw.get("type") in V2_INSTANT:  # a read never waits behind a build or an answer being written
+            elif raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT:  # a read never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)
