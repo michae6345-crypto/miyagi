@@ -1,0 +1,77 @@
+{
+ "id": "jupyter-order-goal-edited-not-rerun",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan, 'Run order and what the kernel keeps' (passes when the last output compares against the new goal of 8000): the learner typed goal = 8000 but only re-ran the print cell, so the kernel still holds 10000 and the output says '2 of 7 days reached the goal of 10000'. The goal cell's count (2) is older than the print cell's (4).",
+ "heldOut": true,
+ "step": {
+  "id": "jup3s4",
+  "title": "Change the goal and see what the kernel keeps",
+  "instructions": "In steps.ipynb, change goal to 8000 in the second cell, then re-run it and the cell below so the last output compares the steps against the new goal.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "goal = 8000",
+    "caption": "Set the new goal, then re-run"
+   }
+  ],
+  "code": "goal = 8000",
+  "checks": [
+   {
+    "id": "jup3s4c1",
+    "type": "screen_contains",
+    "label": "Goal changed to 8000",
+    "app": "Code",
+    "pattern": "goal\\s*=\\s*8000"
+   },
+   {
+    "id": "jup3s4c2",
+    "type": "screen_contains",
+    "label": "Comparison with the new goal printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "goal\\s+of\\s+8000"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000\ndays_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "count": 4,
+       "stdout": "2 of 7 days reached the goal of 10000\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[2]",
+    "goal = 8000",
+    "days_met = sum(s >= goal for s in steps)",
+    "[4]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "2 of 7 days reached the goal of 10000"
+   ]
+  }
+ }
+}

@@ -1,0 +1,37 @@
+{
+ "id": "jupyter-mnist-s7-evaluated-on-train",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The lesson's listed common mistake: model.evaluate(train_images, train_labels). The print line still says '10000 test images: 98.93%' because it uses test_images.shape[0], but the 1875/1875 progress bar shows it scored the 60000 training images. That number isn't test accuracy.",
+ "heldOut": true,
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "append": [
+      {
+       "source": "test_loss, test_accuracy = model.evaluate(train_images, train_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "stdout": "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 318us/step - accuracy: 0.9893 - loss: 0.0349\nAccuracy of the neural network on the 10000 test images: 98.93%\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "test_loss, test_accuracy = model.evaluate(train_images, train_labels)",
+    "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 318us/step - accuracy: 0.9893 - loss: 0.0349",
+    "Accuracy of the neural network on the 10000 test images: 98.93%"
+   ]
+  }
+ }
+}

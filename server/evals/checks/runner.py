@@ -10,6 +10,10 @@ the lesson folder in a temp dir, calls evaluate_gate exactly as the orchestrator
   recall    = of the steps that were done, how many the checks passed     (1 - recall: false "not yet"s)
 A false pass is the worse error (the learner moves on with broken work), so failures are listed false passes first.
 
+Held-out cases ("heldOut": true) are scored and reported on their own and never gate anything: the baseline, the
+scores and the wrong-verdict list a fix is tuned on are the training cases only. A held-out wrong verdict is reported
+by id and label, without its check rows, so a fix can't be shaped to it. They measure whether a fix generalises.
+
 No model call, no network, no screen: pure functions on files written to a temp folder.
 """
 from __future__ import annotations
@@ -65,7 +69,14 @@ def validate_case(case: dict) -> list[str]:
         out.append("step must be an object")
     if not str(case.get("why") or "").strip():
         out.append("why (the reason for the expected verdict) is required")
+    if "heldOut" in case and not isinstance(case["heldOut"], bool):
+        out.append("heldOut must be true or false")
     return out
+
+
+def is_held_out(case: dict) -> bool:
+    """A held-out case: scored and reported separately, never used to tune a fix (nor in the baseline's gate)."""
+    return case.get("heldOut") is True
 
 
 _LESSONS: dict[str, dict] = {}
@@ -98,8 +109,10 @@ def resolve_step(case: dict) -> dict:
 # ------------------------------------------------------------------ the learner's workspace
 def _notebook(spec: dict) -> dict:
     """An .ipynb from {"from": <repo path>, "keep_cells": n, "unrun": [i], "replace": [[i, old, new]],
-    "append": [cell], "kernel": str, "kernel_version": str} or {"cells": [cell, ...]}.
-    A cell: {"source": str, "run": bool, "stdout": str, "error": "Name: msg", "image": bool, "markdown": bool}."""
+    "append": [cell], "counts": [n | null, ...], "kernel": str, "kernel_version": str} or {"cells": [cell, ...]}.
+    A cell: {"source": str, "run": bool, "count": int, "stdout": str, "error": "Name: msg", "image": bool,
+    "markdown": bool}. "count" is the cell's execution count (default: its position); "counts" sets the counts of
+    the whole notebook's cells in order (run order, a kernel restart), null leaving one as it is."""
     if "from" in spec:
         nb = json.loads((ROOT / spec["from"]).read_text(encoding="utf-8"))
         if "keep_cells" in spec:
@@ -121,6 +134,9 @@ def _notebook(spec: dict) -> dict:
                     else out["text"].replace(old, new)
     for n, c in enumerate([*(spec.get("cells") or []), *(spec.get("append") or [])]):
         nb["cells"].append(_cell(c, n))
+    for cell, count in zip(nb["cells"], spec.get("counts") or []):
+        if count is not None and cell.get("cell_type") == "code":
+            cell["execution_count"] = int(count)
     meta = nb.setdefault("metadata", {})
     if "kernel" in spec:
         meta.setdefault("kernelspec", {})["display_name"] = spec["kernel"]
@@ -143,7 +159,8 @@ def _cell(c: dict, n: int) -> dict:
         outputs.append({"output_type": "error", "ename": name.strip(), "evalue": msg.strip(),
                         "traceback": ["Traceback (most recent call last)", f"{name.strip()}: {msg.strip()}"]})
     ran = bool(c.get("run", bool(outputs)))
-    return {"cell_type": "code", "id": f"c{n}", "metadata": {}, "execution_count": n + 1 if ran else None,
+    count = int(c["count"]) if c.get("count") is not None else n + 1
+    return {"cell_type": "code", "id": f"c{n}", "metadata": {}, "execution_count": count if ran else None,
             "outputs": outputs if ran else [], "source": c.get("source", "")}
 
 
@@ -274,16 +291,30 @@ def failures(outcomes: list[Outcome]) -> list[Outcome]:
     return sorted((o for o in outcomes if not o.correct), key=lambda o: (order[o.label], o.case["id"]))
 
 
+def split(outcomes: list[Outcome]) -> tuple[list[Outcome], list[Outcome]]:
+    """(training outcomes, held-out outcomes)."""
+    return ([o for o in outcomes if not is_held_out(o.case)], [o for o in outcomes if is_held_out(o.case)])
+
+
 def summary(outcomes: list[Outcome]) -> dict[str, Any]:
+    """The training cases' scores and wrong verdicts (with their rows: what a fix is tuned on), and the held-out
+    cases' scores and wrong verdicts by id only."""
+    train, held = split(outcomes)
     return {
-        "overall": score(outcomes),
-        "by_kind": breakdown(outcomes, "kind"),
-        "by_trap": breakdown(outcomes, "trap"),
+        "overall": score(train),
+        "by_kind": breakdown(train, "kind"),
+        "by_trap": breakdown(train, "trap"),
         "failures": [{"id": o.case["id"], "label": o.label, "expected": o.expected, "got": o.got,
                       "kind": o.case["kind"], "trap": o.case.get("trap", "none"), "why": o.case["why"],
                       "rows": [f"{r['checkId']} {r['status']}: {r['label']} ({r['detail']})" for r in o.rows],
                       **({"error": o.error} if o.error else {})}
-                     for o in failures(outcomes)],
+                     for o in failures(train)],
+        "held_out": {
+            "overall": score(held),
+            "by_kind": breakdown(held, "kind"),
+            "failures": [{"id": o.case["id"], "label": o.label, **({"error": o.error} if o.error else {})}
+                         for o in failures(held)],
+        },
     }
 
 
@@ -296,12 +327,20 @@ def _fmt_score(s: dict) -> str:
 
 def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None = None) -> str:
     s = summary(outcomes)
-    lines = ["Step-check eval (server.checks.evaluate_gate, offline, no model call)", ""]
+    lines = ["Step-check eval (server.checks.evaluate_gate, offline, no model call)", "",
+             "training cases (the baseline; what fixes are tuned on):"]
     lines.append(f"{'overall':<18}" + _fmt_score(s["overall"]))
     for k, v in s["by_kind"].items():
         lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
     for k, v in s["by_trap"].items():
         lines.append(f"{'trap ' + k:<18}" + _fmt_score(v))
+    held = s["held_out"]
+    if held["overall"]["cases"]:
+        lines.append("")
+        lines.append("held-out cases (scored on their own, never used to tune a fix):")
+        lines.append(f"{'held-out':<18}" + _fmt_score(held["overall"]))
+        for k, v in held["by_kind"].items():
+            lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
     if wall_s is not None:
         lines.append(f"\n{len(outcomes)} cases in {wall_s:.2f}s")
     fails = s["failures"]
@@ -315,23 +354,33 @@ def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None 
             lines.append(f"      error: {f['error']}")
         for r in f["rows"]:
             lines.append(f"      {r}")
+    if held["failures"]:
+        lines.append("")
+        lines.append(f"{len(held['failures'])} held-out wrong verdict(s) (ids only: don't tune a fix to them):")
+        for f in held["failures"]:
+            what = "FALSE PASS" if f["label"] == "FP" else "FALSE NOT-YET"
+            lines.append(f"  [{what}] {f['id']}" + (f"  error: {f['error']}" if f.get("error") else ""))
     if verbose:
         lines.append("")
         lines.append("all cases:")
         for o in outcomes:
+            tag = "  [held-out]" if is_held_out(o.case) else ""
             lines.append(f"  {o.label} {o.case['id']:<52} expected {o.expected:<8} got {o.got:<8} via {o.via}"
-                         f"  {o.ms:.0f} ms")
+                         f"  {o.ms:.0f} ms{tag}")
     return "\n".join(lines)
 
 
 def baseline_from(outcomes: list[Outcome]) -> dict[str, Any]:
-    s = score(outcomes)
+    train, held = split(outcomes)
+    s, h = score(train), score(held)
     return {
         "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a "
-                    "score drops below these or a case outside known_wrong gets a wrong verdict. Raise it when the "
-                    "checks get better.",
+                    "training-case score drops below these or a training case outside known_wrong gets a wrong "
+                    "verdict. Raise it when the checks get better. held_out is a record only: it never gates.",
         **{k: s[k] for k in ("cases", "accuracy", "precision", "recall", "fp", "fn")},
-        "known_wrong": {o.case["id"]: o.label for o in failures(outcomes)},
+        "known_wrong": {o.case["id"]: o.label for o in failures(train)},
+        "held_out": {**{k: h[k] for k in ("cases", "accuracy", "precision", "recall", "fp", "fn")},
+                     "wrong": {o.case["id"]: o.label for o in failures(held)}},
     }
 
 

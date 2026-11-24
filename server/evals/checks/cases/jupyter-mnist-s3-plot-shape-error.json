@@ -1,0 +1,41 @@
+{
+ "id": "jupyter-mnist-s3-plot-shape-error",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The three print() lines ran (60000, 10000, the shape line), then imshow raised TypeError: Invalid shape (28, 28, 1) for image data (the learner reshaped to the model's input shape). No digits were plotted, which is half the step.",
+ "heldOut": true,
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 1,
+     "append": [
+      {
+       "source": "print('Number of images in the training dataset:', train_images.shape[0])\nprint('Number of images in the testing dataset:', test_images.shape[0])\nprint('Shape of the images in the training dataset:', train_images[0].shape)\n\nfig, axes = plt.subplots(1, 10, figsize=(10, 10))\nfor i in range(10):\n    axes[i].imshow(train_images[i].reshape(28, 28, 1), cmap='gray')\n    axes[i].set_title(train_labels[i])\n    axes[i].axis('off')\nplt.show()",
+       "stdout": "Number of images in the training dataset: 60000\nNumber of images in the testing dataset: 10000\nShape of the images in the training dataset: (28, 28)\n",
+       "image": true,
+       "error": "TypeError: Invalid shape (28, 28, 1) for image data"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "fig, axes = plt.subplots(1, 10, figsize=(10, 10))",
+    "axes[i].imshow(train_images[i].reshape(28, 28, 1), cmap='gray')",
+    "Number of images in the training dataset: 60000",
+    "Number of images in the testing dataset: 10000",
+    "Shape of the images in the training dataset: (28, 28)",
+    "TypeError: Invalid shape (28, 28, 1) for image data"
+   ]
+  }
+ }
+}
