@@ -11,7 +11,8 @@
     "dev.signincard.builds": "sc_builds",
     "dev.signincard.rate": "sc_rate",
     "dev.signincard.full": "sc_full",
-    "dev.signincard.token": "sc_token"
+    "dev.signincard.token": "sc_token",
+    "dev.signincard.region": "sc_region"
   },
   "segments": {
     "sc_connect": [
@@ -180,6 +181,20 @@
         "payload": {
           "reason": "401",
           "status": 401
+        }
+      }
+    ],
+    "sc_region": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "region_unavailable",
+          "status": 451
         }
       }
     ]

@@ -290,6 +290,6 @@ describe('links (R06): every miyagi.study page the app opens exists or is about 
     walk(src)
     for (const path of found) assert.ok(['/', '/privacy', '/terms'].includes(path), `a link to https://miyagi.study${path}`)
     assert.ok(found.has('/privacy') && found.has('/terms'))
-    assert.equal(CONTACT_EMAIL, 'hello@miyagi.study')
+    assert.equal(CONTACT_EMAIL, 'support@miyagi.study')
   })
 })

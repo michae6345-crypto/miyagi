@@ -288,9 +288,9 @@ export const SETTINGS: readonly Setting[] = [
     panel: 'about',
     group: 'Say hello',
     label: 'Send feedback',
-    caption: 'hello@miyagi.study, read by the people who build it.',
+    caption: 'support@miyagi.study, read by the people who build it.',
     keywords: 'email bug idea contact support',
-    control: { kind: 'link', label: 'Write to us', href: 'mailto:hello@miyagi.study?subject=miyagi%20feedback' }
+    control: { kind: 'link', label: 'Write to us', href: 'mailto:support@miyagi.study?subject=miyagi%20feedback' }
   }
 ]
 

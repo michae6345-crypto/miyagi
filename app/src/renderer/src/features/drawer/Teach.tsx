@@ -356,7 +356,7 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         <button
           type="button"
           data-part="drawer-copy"
-          className="flex h-[22px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full px-[9px] text-[12px] font-medium"
+          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full px-[9px] text-[12px] font-medium"
           style={{ background: glass.key, color: glass.text }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={copy}

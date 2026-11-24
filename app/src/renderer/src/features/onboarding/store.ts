@@ -35,7 +35,7 @@ import { sendAction } from '../../core/shortcuts'
 export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown'
 export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number }
 /** main/features/cloud.ts CloudView: what a renderer may see (never the token). */
-export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean }
+export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean; region?: boolean }
 /**
  * What the window was opened for (window args `view`):
  *   intro      the first launch: the branded intro, then guided setup (main/features/onboarding.ts)

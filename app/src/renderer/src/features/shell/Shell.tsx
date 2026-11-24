@@ -47,7 +47,6 @@ import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { itemFor, useLibrary } from '../library/store'
-import { useDash } from '../dashboard/store'
 import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
@@ -127,10 +126,8 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 'settings'])
 
 /**
- * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
- * 1040 (WIDE_W) only while its grid has skills to show: with none it is one centered empty state, and a lone title
- * 160 px left of every other page's hugged the corner of an empty pane. The header pads in by `--page-inset` for this
- * width, so its left edge is the content's left edge.
+ * The column each page's title sits on (content + gutters): 720 (ui.tsx COLUMN_W) or the wide 1040 (WIDE_W). The
+ * header pads in by `--page-inset` for this width, so its left edge is the content's left edge.
  *
  * Who centers the content: every page, through its own column (ui.tsx PageColumn, the one column), centered in the full
  * pane. The shell never pads a page's body: a padded body shrank the box the columns measure (their gutter flips at a
@@ -142,9 +139,10 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 
  * Skills; the layout-home lane: Home, Lessons, the preview). Land this lane with or after those two, never alone:
  * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
-function pageWidth(page: PageId, skills: boolean): number {
-  // Settings is a two-pane page (list + panel), so it takes the wide column too.
-  return (page === 'skills' && skills) || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
+function pageWidth(page: PageId): number {
+  // Settings is a two-pane page (list + panel), so it takes the wide column too. Skills takes it always, its empty
+  // state included (that state is a PageColumn wide), so its title starts where every v4 page's does (QA r1 Q01).
+  return page === 'skills' || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
@@ -172,8 +170,6 @@ const frame: Variants = {
 
 function PageSlot({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
-  // Skills' grid has something to show (the constellation's tracks): only then does its title take the wide column.
-  const skills = useDash((s) => (s.data?.tracks?.length ?? 0) > 0)
   // Reduced motion: a page is born in its final state (no hidden frame to wait on).
   const reduce = useReducedMotion() ?? false
   return (
@@ -192,7 +188,7 @@ function PageSlot({ page, active, covered }: { page: PageId; active: boolean; co
       style={{
         visibility: active ? 'visible' : 'hidden',
         color: color.text,
-        ['--page-inset' as string]: pageInset(pageWidth(page, skills))
+        ['--page-inset' as string]: pageInset(pageWidth(page))
       }}
     >
       <Header page={page} />

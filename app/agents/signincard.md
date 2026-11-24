@@ -14,6 +14,13 @@ lesson build claim, the island says so calmly. The lesson still builds on this M
   `anon_daily_cap` (guest help), `user_daily_cap`, `daily_requests`/`daily_spend`, `daily_usd` (global brake),
   `lesson_builds` (month), `*_hourly` (rate), `new_installs` (full), anything else. Esc closes it; it leaves after 10 s.
 - Any other 401 (unknown install token: the token self-heal owns it) and 403 get no UI.
+- **451 `region_unavailable`** (the cloud's region block, eng-proxy-next PR #267) → the region line: "miyagi isn't
+  available in your region yet." No Sign in (it would not help), **Not now** and **Esc** close it, once per launch; no
+  sign-in card after it. It comes from the engine's `cloud.notice {reason: "region_unavailable", status: 451}` (once
+  per engine run) or from main's install mint (`cloud.ts` CloudView.region: POST /v1/install answered 451, so no
+  engine token exists). It shares the 56 slot with the cap line. Main never re-mints or auto-retries after a 451
+  (cloud.ts), and `cloudSession` returns `region` with no heal and no backoff. Onboarding and the startup status show
+  the same words instead of "Couldn't set up access".
 
 ## Owns
 - `app/src/renderer/src/features/signincard/` (notice.ts pure parsing/formatting, store.ts, Card.tsx, index.tsx, web.ts)
@@ -35,7 +42,7 @@ mid-build), below `err-limit` 58 and the off-track card 70. Both gated on `core/
 
 ## Test
 `npm run dev:web -- --port 5201 --strictPort` → `http://localhost:5201/?scenario=signincard&size=1440x900&clean&nt=<v>`,
-`v` = `signin | signin-error | anon | user | daily | global | builds | rate | full | token`. Shots:
+`v` = `signin | signin-error | anon | user | daily | global | builds | rate | full | token | region`. Shots:
 `~/miyagi/tools/playwright/signincard.mjs 5201 app/agents/shots` (headless).
 Unit: `test/signincard.test.ts` (parsing, classify, local reset time in fixed zones, copy ≤12 words, store paths).
 

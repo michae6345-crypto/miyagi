@@ -232,7 +232,7 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
           </div>
           <button
             type="button"
-            className="mt-[-1px] grid h-[22px] w-[22px] shrink-0 cursor-pointer place-items-center rounded-full"
+            className="mt-[-2px] grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
             style={{ background: glass.key, color: glass.keyText }}
             onMouseDown={(e) => e.preventDefault()}
             onClick={closeDrawer}
@@ -810,7 +810,7 @@ function SourceRow({ source }: { source: Source }): ReactNode {
     <button
       type="button"
       data-source={source.id}
-      className={`group flex h-[48px] w-full items-center gap-[12px] rounded-[12px] px-[10px] text-left ${link ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
+      className={`group flex min-h-[48px] w-full items-center gap-[12px] rounded-[12px] px-[10px] py-[6px] text-left ${link ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
       style={hoverVar}
       disabled={!link}
       onMouseDown={(e) => e.preventDefault()}
@@ -818,15 +818,18 @@ function SourceRow({ source }: { source: Source }): ReactNode {
     >
       <KindTile source={source} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
+        {/* QA Q22: the title and meta wrap (two lines at most for the title) instead of cutting off mid-word. */}
+        {/* No `block` here: it would override line-clamp's display:-webkit-box and the clamp would never apply. */}
+        <span className="line-clamp-2 break-words text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
           {source.title}
         </span>
         {(source.meta || host) && (
-          <span className="flex min-w-0 text-[12px] leading-[16px]" style={{ color: glass.faint }}>
-            {source.meta && <span className="min-w-0 truncate">{source.meta}</span>}
+          <span className="flex min-w-0 flex-wrap gap-x-[0.3em] text-[12px] leading-[16px]" style={{ color: glass.faint }}>
+            {/* The separator ends the meta (glued by a no-break space), so when the host wraps no line begins with a dot. */}
+            {source.meta && <span className="min-w-0 break-words">{host ? `${source.meta}\u00a0·` : source.meta}</span>}
             {host && (
-              <span data-link-host className="shrink-0 whitespace-pre">
-                {source.meta ? ` · ${host}` : host}
+              <span data-link-host className="shrink-0 whitespace-nowrap">
+                {host}
               </span>
             )}
           </span>

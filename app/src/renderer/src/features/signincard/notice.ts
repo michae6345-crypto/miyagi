@@ -30,7 +30,7 @@ export type CloudNotice = { reason: string; status: number; resetsAt?: string }
  *   other   a 429 this build doesn't know yet
  */
 export type CapKind = 'anon' | 'user' | 'daily' | 'global' | 'builds' | 'rate' | 'full' | 'other'
-export type NoticeClass = { kind: 'signin' } | { kind: 'cap'; cap: CapKind }
+export type NoticeClass = { kind: 'signin' } | { kind: 'cap'; cap: CapKind } | { kind: 'region' }
 
 const REASON_RE = /^[A-Za-z0-9_.-]{1,60}$/
 
@@ -73,9 +73,11 @@ export function capKind(reason: string): CapKind {
 /**
  * Which UI a notice gets. Only a 401 that says signin_required is the sign-in card: a 401 for an unknown install
  * token is the token self-heal's business (cloud.token_invalid), and a 403 (an install an operator turned off) has
- * its own config.status line. Every 429 is a cap line.
+ * its own config.status line. Every 429 is a cap line. 451 region_unavailable (the cloud's region block) is the region
+ * line: signing in would not help, so it never offers to.
  */
 export function classify(n: CloudNotice): NoticeClass | null {
+  if (n.reason === 'region_unavailable' || n.status === 451) return { kind: 'region' }
   if (n.status === 401 && n.reason === 'signin_required') return { kind: 'signin' }
   if (n.status === 429) return { kind: 'cap', cap: capKind(n.reason) }
   return null
@@ -130,6 +132,11 @@ export function capLine(n: CloudNotice, now: Date = new Date(), opts: ResetOpts 
       return `You've reached a limit for now. ${retry}`
   }
 }
+
+/** The cloud's own words for its region block (cloud/app.py REGION_UNAVAILABLE). Also onboarding's and the startup
+ *  status's line when POST /v1/install answers 451. */
+export const REGION_LINE = "miyagi isn't available in your region yet."
+export const REGION_NOTICE: CloudNotice = { reason: 'region_unavailable', status: 451 }
 
 /** The sign-in card's copy (one place, so the test can hold it to 12 words). */
 export const SIGNIN = {

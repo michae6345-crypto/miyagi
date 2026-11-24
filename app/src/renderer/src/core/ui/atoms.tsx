@@ -350,7 +350,7 @@ export function CardButton({ children, onClick, primary }: { children: ReactNode
 export function CloseButton(): ReactNode {
   return (
     <motion.button
-      className="mg-press grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+      className="mg-press grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
       style={{ background: fill.key }}
       {...pressMotion()}
       onClick={() => emitUi('dismiss')}
