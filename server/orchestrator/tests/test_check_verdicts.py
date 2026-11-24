@@ -15,7 +15,7 @@ def _core(p):
     """step.passed without the ui-v4 skill tree fields (key, assisted, skillIds, proofId: test_skill_hooks covers them)."""
     if isinstance(p, list):
         return [_core(x) for x in p]
-    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId", "counted")}
+    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId")}
 
 DICE = 'import random\n\nroll = random.randint(1, 6)\nprint("You rolled:", roll)\n'
 DICE_BROKEN = 'import random\n\n\n\nroll = random.randint(1, 6)\nprint("You rolled:" roll)\n'  # frame 012000

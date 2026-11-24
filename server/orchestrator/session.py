@@ -6078,7 +6078,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
                       ask_id: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
         step = self.step
-        skill_hooks.note_assist(self, kind)  # skill tree: a hint / show me / Do it for me on a step is not unassisted
+        if kind != "show_me":  # Show me counts once its box / snippet is actually up (below), never on "Nothing to point at"
+            skill_hooks.note_assist(self, kind)  # skill tree: a hint / show me / Do it for me on a step is not unassisted
         if step is not None:
             if kind in self.NOT_WORK_ACTIONS:
                 self._touch()
@@ -6176,12 +6177,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._lesson_show_me(gen, step)  # E15 + t5 (c): ONE box on the right line + its answer card
                 return
             quick = await self._show_where(step)  # exact match / window: instant
+            if quick:
+                skill_hooks.note_assist(self, "show_me", step)  # a box is up: the pass is assisted
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
             if self.lesson_mode and (cmd := self._run_command(step)):  # no Run ▷ / terminal on screen: never a box
                 await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",  # on a line of the file
                                        "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
                                        "actions": ["run_command"]})
+                skill_hooks.note_assist(self, "show_me", step)  # the command itself was shown
                 return
             if self.m.has_pointing() and not stage.on(self):  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
                 screen = await self._screen_for_coach(step)
@@ -6193,6 +6197,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     if spot:
                         self._action_spot = True
                         await self._show_spot({**spot, **self._snippet(step)})
+                        skill_hooks.note_assist(self, "show_me", step)
                         return
                 if r and r.get("where") and not quick:
                     await self._emit_card({"stepId": step["id"], "kind": "where", "title": "Where to work",

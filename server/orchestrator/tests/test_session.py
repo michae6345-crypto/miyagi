@@ -21,7 +21,7 @@ def _core(p):
     """step.passed without the ui-v4 skill tree fields (key, assisted, skillIds, proofId: test_skill_hooks covers them)."""
     if isinstance(p, list):
         return [_core(x) for x in p]
-    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId", "counted")}
+    return {k: v for k, v in p.items() if k not in ("key", "assisted", "skillIds", "proofId")}
 
 
 class Clock:

@@ -78,6 +78,28 @@ def test_assist_rule_show_me_do_it_for_me_or_the_third_hint():
     assert not skill_hooks.assisted(s, "s1")
 
 
+def test_show_me_counts_only_once_something_is_shown(state):
+    async def press(shown: bool) -> bool:
+        s, _sent = _session()
+        await s.load_graph(_python_graph())
+        await s.drain()
+        s.screen_down_reason = lambda include_ax=False: None
+        s._lesson_window_hidden = lambda: False
+        s._can_see = lambda: False
+        s.m.has_pointing = lambda: False
+
+        async def where(step):
+            return shown
+
+        s._show_where = where
+        await s._action("show_me")
+        await s.drain()
+        return skill_hooks.assisted(s, s.step["id"])
+
+    assert asyncio.run(press(False)) is False  # "Nothing to point at": the pass stays unassisted
+    assert asyncio.run(press(True)) is True  # the box went up: assisted
+
+
 def test_record_keeps_a_proof_from_the_learners_file_inside_the_lesson_folder(state):
     work = state / "work"
     (work / "app.py").write_text("import os\n\ndef add(a, b):\n    return a + b\n")
