@@ -63,6 +63,8 @@ from shared.contracts import events as contract
 from shared.contracts.events import parse_app_message
 
 from server import config as server_config
+from server.plans import progress as plans_progress
+from server.plans import service as plans_service
 
 from . import config, recorder, stage
 from .hub import Hub, log_received
@@ -125,9 +127,11 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
+# ui-v4 plans (server/plans/service.py): reads and edits answered beside the queue; plan.lesson.start queues (a lesson)
+PLAN_INSTANT = frozenset(plans_service.READS)
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
-LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
+LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start", "plan.lesson.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
 LEARNER_ASK_ACTIONS = frozenset({"start", "resume", "build"})  # Start, Continue, the preflight card's Build (a pick)
@@ -144,6 +148,7 @@ KEYS_FAILED = "Couldn't read those keys. Check them and try again."
 V2_FAILED = "Couldn't answer that just now. Try again."
 LIBRARY_GONE = "That lesson isn't on this Mac any more."
 REVIEW_GONE = "That review isn't ready. Try again after your next lesson."
+PLAN_LESSON_GONE = "That plan has no lesson to start. Open the plan again."
 LIBRARY_FAILED = "Couldn't start this lesson. Try again."
 
 
@@ -363,6 +368,8 @@ def parse_command(raw: dict) -> Any:
     type_ = raw.get("type")
     if type_ in V2_COMMANDS and type_ not in _CONTRACT_COMMANDS:
         return SimpleNamespace(type=type_, payload=_parse_v2(type_, raw.get("payload")))
+    if type_ in plans_service.COMMANDS and type_ not in _CONTRACT_COMMANDS:  # until the ui-v4 contract lands
+        return SimpleNamespace(type=type_, payload=plans_service.parse(type_, raw.get("payload")))
     return parse_app_message(raw)
 
 
@@ -977,6 +984,30 @@ class Engine:
         log.info("library.start: %s (lesson %s)", lid, lesson.get("id"))
         await s._run_build("", title, factory=lambda: self._load_library(graph, title))
 
+    async def plan_lesson_start(self, key: str, index: int | None, reply: Any) -> None:
+        """plan.lesson.start {id, index?}: a plan's lesson (index None: its next one). A catalog lesson is built from its
+        goal like "Just teach me" (learn {query: goal, mode: lesson}); a playlist lesson from its video (learn_url).
+        The plan's progress goes out first (the lesson is now current); the lesson's id is linked once it loads, so
+        its completion marks the plan lesson done (plans/progress.py)."""
+        s = self.session
+        s.note_app_v2()
+        spec = await asyncio.to_thread(plans_progress.lesson_spec, key, index)
+        if spec is None:
+            log.info("plan.lesson.start: no lesson %r in plan %s", index, key)
+            await reply("error", {"message": PLAN_LESSON_GONE})
+            return
+        view = await asyncio.to_thread(plans_progress.lesson_starting, key, spec["index"])
+        if view is not None:
+            await reply("plan.progress", view)
+        log.info("plan.lesson.start: %s lesson %d", key, spec["index"])
+        if "url" in spec:
+            await s.learn_url(spec["url"])
+        else:
+            await s.learn(spec["query"], "lesson")
+        lid = ((s.graph or {}).get("lesson") or {}).get("id") if isinstance(s.graph, dict) else None
+        if isinstance(lid, str) and lid:
+            await asyncio.to_thread(plans_progress.link_lesson, key, spec["index"], lid)
+
     async def review_start(self, skill_id: str, label: str) -> None:
         """review.start {skillId?, label?}: a quick spaced review of one mastered skill, with no build and no model call.
         The steps behind the skill are replayed from its lesson's cached graph (sessions/review.py), in that lesson's own
@@ -1128,16 +1159,21 @@ class Engine:
         if (msg.type == "action" and getattr(p, "kind", None) in ("resume", "end_lesson")
                 or msg.type == "card.closed" and getattr(p, "kind", None) == "resume"):
             self._offer_answered = True  # Nov 21: answered or closed: the saved-lesson card is not offered again
-        if msg.type in V2_INSTANT:
-            async def reply(type_: str, payload: dict) -> None:
-                if ws is None:
-                    await self.hub.emit(type_, payload)
-                else:
-                    await self.hub.send_to(ws, type_, payload)
+        async def reply(type_: str, payload: dict) -> None:
+            if ws is None:
+                await self.hub.emit(type_, payload)
+            else:
+                await self.hub.send_to(ws, type_, payload)
 
+        if msg.type in V2_INSTANT:
             await self.handle_v2(msg.type, p, reply)
             if msg.type == "library.list":
                 await self._offer_saved_lesson(ws, reply)
+        elif msg.type in PLAN_INSTANT:
+            s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
+            await plans_service.handle(msg.type, p, reply)
+        elif msg.type == "plan.lesson.start":
+            await self.plan_lesson_start(p.id, p.index, reply)
         elif msg.type == "library.start":
             await self.library_start(p.id)
         elif msg.type == "review.start":
@@ -1434,7 +1470,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     await engine.dispatch(raw, ws)
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
-            elif raw.get("type") in V2_INSTANT:  # a read never waits behind a build or an answer being written
+            elif raw.get("type") in V2_INSTANT or raw.get("type") in PLAN_INSTANT:  # a read never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)
