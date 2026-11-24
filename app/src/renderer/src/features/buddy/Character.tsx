@@ -15,14 +15,15 @@
  *   point    -1 / 1: a little arm on that side (sprout)
  * And two ways it is the learner's own:
  *   its color  the skin they picked at setup (skin.ts, palette.ts); `skin` fixes another one, for the sheets
- *   grown      0 a seedling with one leaf, 1 two leaves, 2 two leaves and a bud: it grows as they learn (the sprout;
- *              a proposal, nothing stores it yet)
+ *   its level  how far it has grown, 1..8: one leaf, two, three, four, a bud, a blossom, a first pad, a small tree
+ *              (growth.ts: it grows each time the learner passes a step); `level` fixes one, for the sheets
  * It blinks by itself. Transform and opacity only; with reduced motion nothing moves (buddy.css).
  * No glow, no gradient. A 48-unit box, like an icon: the body sits low so the sprout has room above it.
  */
 import { useId, type CSSProperties, type ReactNode } from 'react'
 import './buddy.css'
 import { brand } from '../../core/theme'
+import { clampLevel, useGrowth } from './growth'
 import { GLINT, INK, type Skin } from './palette'
 import { useSkin } from './skin'
 
@@ -37,7 +38,10 @@ export type CharacterProps = {
   talking?: boolean
   flying?: boolean
   point?: -1 | 0 | 1
-  grown?: 0 | 1 | 2
+  /** Its level, 1..8, when not the learner's own (growth.ts): for the sheets and the ladder. */
+  level?: number
+  /** It just grew: what is on its head unfurls. */
+  grew?: boolean
   /** Its colors, when not the learner's own (skin.ts): for the color sheet and the picker's swatches. */
   skin?: Skin
   className?: string
@@ -124,28 +128,91 @@ const ROUND = 'M24 12.6 C33.6 12.6 40.4 19.6 40.4 29.4 C40.4 37.8 33.8 43.2 24 4
 /** A shaded skin: the lit part of the body is the body moved this far up and toward the light, so the shade is what is left under it. */
 const LIT = { x: 1.5, y: -2.7 } as const
 
-function Sprout({ mood, point, body, leaf, shade, grown, id }: { mood: Mood; point: -1 | 0 | 1; body: string; leaf: string; shade?: string; grown: 0 | 1 | 2; id: string }): ReactNode {
+/** One leaf of the sprout, from where it meets the stem (ax, ay). `side`: 1 right, -1 left. `s`: its size (1: the first leaves). */
+const leafD = (side: 1 | -1, ax: number, ay: number, s = 1): string =>
+  `M${ax} ${ay} C${ax + 4.4 * s * side} ${ay + s} ${ax + 8.6 * s * side} ${ay - 1.2 * s} ${ax + 9.8 * s * side} ${ay - 5.4 * s} C${ax + 5.2 * s * side} ${ay - 7 * s} ${ax + s * side} ${ay - 4.8 * s} ${ax} ${ay} Z`
+/** A leaf that stands straight up from (ax, ay). */
+const upD = (ax: number, ay: number, s = 1): string =>
+  `M${ax} ${ay} C${ax - 3.4 * s} ${ay - 2.2 * s} ${ax - 3.1 * s} ${ay - 6.6 * s} ${ax} ${ay - 9.4 * s} C${ax + 3.1 * s} ${ay - 6.6 * s} ${ax + 3.4 * s} ${ay - 2.2 * s} ${ax} ${ay} Z`
+/** A pad of foliage, like the pads of a bonsai: three bumps over a flat bottom. (cx, by): the middle of its bottom edge. */
+const padD = (cx: number, by: number, w: number, h: number): string =>
+  `M${cx - w / 2} ${by} a${w * 0.22} ${h * 0.5} 0 0 1 ${w * 0.2} ${-h * 0.62} a${w * 0.3} ${h * 0.55} 0 0 1 ${w * 0.6} 0 a${w * 0.22} ${h * 0.5} 0 0 1 ${w * 0.2} ${h * 0.62} Z`
+
+/** The grown tree's trunk (level 8): an informal upright, like the logo's. */
+const TRUNK = 'M24 14 C21.6 10.4 26.8 7.4 24.4 3.4 C23.2 1 24.4 -1.4 24 -3.2'
+/** How far up the stem goes at each level (1..8). */
+const STEM_TOP = [8.2, 8.2, 4.4, 3.2, 3.2, 2.6, 3.8, -3.2] as const
+
+/**
+ * What grows on its head, by level (growth.ts): 1 one leaf, 2 two, 3 a third on a taller stem, 4 four in two tiers,
+ * 5 a bud, 6 the bud open, 7 a first pad of foliage, 8 a small shaped tree. The lowest pair are its ears and wings at
+ * every level that has them: they turn with its mood and beat when it flies.
+ */
+function Top({ level, mood, leaf }: { level: number; mood: Mood; leaf: string }): ReactNode {
   const [l, r] = LEAVES[mood]
+  const tree = level >= 7
+  const stem = level === 8 ? TRUNK : `M24 14 L24 ${STEM_TOP[level - 1]}`
+  const wide = tree ? 2.4 : 1.5
+  const part = (dd: string, key?: string): ReactNode => <path key={key} d={dd} fill={leaf} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
+  /** Where the lowest pair meets the stem, and how big it is. */
+  const low = level <= 2 ? { y: 8.6, s: 1 } : level === 3 ? { y: 9.4, s: 1 } : level <= 6 ? { y: 9.8, s: 1 } : { y: 10.4, s: 0.84 }
+  return (
+    <g className="ch-sprout" data-level={level}>
+      {/* The stem: pale over ink, so it shows on a dark app (where the ink is lost) and on a light one. */}
+      <path d={stem} fill="none" stroke={INK} strokeWidth={OUTLINE * 2 + wide} strokeLinecap="round" />
+      <path d={stem} fill="none" stroke={leaf} strokeWidth={wide} strokeLinecap="round" />
+      {level === 8 && (
+        <>
+          {/* The two side branches, then the three pads: low on the left, higher on the right, the crown. */}
+          {['M23 10.8 L18.4 9', 'M25.8 6.4 L30.2 5'].map((dd) => (
+            <g key={dd}>
+              <path d={dd} fill="none" stroke={INK} strokeWidth={OUTLINE * 2 + 1.4} strokeLinecap="round" />
+              <path d={dd} fill="none" stroke={leaf} strokeWidth={1.4} strokeLinecap="round" />
+            </g>
+          ))}
+          {part(padD(16.6, 9.2, 11, 5.6), 'pad-l')}
+          {part(padD(31.6, 5.2, 11, 5.6), 'pad-r')}
+          {part(padD(24.2, -2.4, 14, 7), 'crown')}
+        </>
+      )}
+      {level >= 2 && level <= 7 && (
+        <g className="ch-leaf ch-leaf-l" style={{ '--turn': `${-l}deg` } as CSSProperties}>
+          {part(leafD(-1, 24, low.y, low.s))}
+        </g>
+      )}
+      {level <= 7 && (
+        <g className="ch-leaf ch-leaf-r" style={{ '--turn': `${r}deg` } as CSSProperties}>
+          {part(leafD(1, 24, low.y, low.s))}
+        </g>
+      )}
+      {level === 3 && part(upD(24, 4.8, 0.84))}
+      {level >= 4 && level <= 6 && (
+        <>
+          {part(leafD(-1, 24, 3.8, 0.72), 'up-l')}
+          {part(leafD(1, 24, 3.8, 0.72), 'up-r')}
+        </>
+      )}
+      {level === 5 && <circle cx={24} cy={0.6} r={2.8} fill={brand.pastel.pinkDeep} stroke={INK} strokeWidth={OUTLINE} />}
+      {level === 6 && (
+        <g>
+          {[0, 1, 2, 3, 4].map((k) => {
+            const t = ((-90 + k * 72) * Math.PI) / 180
+            return <circle key={k} cx={24 + 3.1 * Math.cos(t)} cy={-0.8 + 3.1 * Math.sin(t)} r={2.4} fill={brand.pastel.pink} stroke={INK} strokeWidth={1.3} />
+          })}
+          <circle cx={24} cy={-0.8} r={1.7} fill={brand.pastel.pinkDeep} stroke={INK} strokeWidth={1.1} />
+        </g>
+      )}
+      {level === 7 && part(padD(24, 4.6, 17, 8.6))}
+    </g>
+  )
+}
+
+function Sprout({ mood, point, body, leaf, shade, level, id }: { mood: Mood; point: -1 | 0 | 1; body: string; leaf: string; shade?: string; level: number; id: string }): ReactNode {
   return (
     <>
       {/* The arm it points with, behind the body. */}
       {point !== 0 && <ellipse cx={24 + point * 19} cy={29.5} rx={5.4} ry={3} fill={body} stroke={INK} strokeWidth={OUTLINE} transform={`rotate(${point * -20} ${24 + point * 15} 30)`} />}
-      <g className="ch-sprout">
-        {/* The stem: pale over ink, so it shows on a dark app (where the ink is lost) and on a light one. */}
-        <path d="M24 13.6 L24 8.2" fill="none" stroke={INK} strokeWidth={OUTLINE * 2 + 1.5} strokeLinecap="round" />
-        <path d="M24 14 L24 8.2" fill="none" stroke={leaf} strokeWidth={1.5} strokeLinecap="round" />
-        {/* A seedling has one leaf; it gets its second as the learner gets going. */}
-        {grown > 0 && (
-          <g className="ch-leaf ch-leaf-l" style={{ '--turn': `${-l}deg` } as CSSProperties}>
-            <path d="M24 8.6 C19.6 9.6 15.4 7.4 14.2 3.2 C18.8 1.6 23 3.8 24 8.6 Z" fill={leaf} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
-          </g>
-        )}
-        <g className="ch-leaf ch-leaf-r" style={{ '--turn': `${r}deg` } as CSSProperties}>
-          <path d="M24 8.6 C28.4 9.6 32.6 7.4 33.8 3.2 C29.2 1.6 25 3.8 24 8.6 Z" fill={leaf} stroke={INK} strokeWidth={OUTLINE} strokeLinejoin="round" />
-        </g>
-        {/* And a bud between them, later on. */}
-        {grown > 1 && <circle cx={24} cy={6.4} r={3} fill={brand.pastel.pinkDeep} stroke={INK} strokeWidth={OUTLINE} />}
-      </g>
+      <Top level={level} mood={mood} leaf={leaf} />
       {shade ? (
         <>
           {/* Flat shading, no gradient: the body in its shade, the lit part over it (cut to the body), then the outline. */}
@@ -179,7 +246,7 @@ function Dot({ rim }: { rim: string }): ReactNode {
   return <rect x={7.6} y={12.4} width={32.8} height={30.8} rx={13.6} fill={INK} stroke={rim} strokeWidth={OUTLINE} />
 }
 
-export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', look, talking = false, flying = false, point = 0, grown = 1, skin: fixed, className }: CharacterProps): ReactNode {
+export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', look, talking = false, flying = false, point = 0, level: fixedLevel, grew = false, skin: fixed, className }: CharacterProps): ReactNode {
   // Each one blinks on its own clock.
   const id = useId().replace(/[^a-zA-Z0-9]/g, '')
   const beat = (parseInt(id.replace(/[^0-9]/g, '') || '0', 10) % 7) * 0.6
@@ -187,11 +254,14 @@ export function Character({ kind = DEFAULT_CHARACTER, size = 44, mood = 'calm', 
   const own = useSkin()
   const skin = fixed ?? own
   const body = skin.body
+  // How far it has grown: the learner's own bon (growth.ts), unless a sheet asks for a level.
+  const ownLevel = useGrowth((g) => g.level)
+  const level = clampLevel(fixedLevel ?? ownLevel)
   return (
-    <span className={`ch shrink-0 select-none ${className ?? ''}`} data-kind={kind} data-mood={mood} data-flying={flying || undefined} data-talking={talking || undefined} style={{ width: size, height: size, '--ch-beat': `${-beat}s` } as CSSProperties} aria-hidden>
+    <span className={`ch shrink-0 select-none ${className ?? ''}`} data-kind={kind} data-mood={mood} data-flying={flying || undefined} data-talking={talking || undefined} data-grew={grew || undefined} style={{ width: size, height: size, '--ch-beat': `${-beat}s` } as CSSProperties} aria-hidden>
       <svg viewBox="0 0 48 48" width="100%" height="100%" style={{ overflow: 'visible', display: 'block' }}>
         <g className="ch-body">
-          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} shade={skin.shade} grown={grown} id={`ch-${id}`} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
+          {kind === 'sprout' ? <Sprout mood={mood} point={point} body={body} leaf={skin.leaf} shade={skin.shade} level={level} id={`ch-${id}`} /> : kind === 'leaf' ? <Leaf body={body} leaf={skin.leaf} /> : <Dot rim={body} />}
           <Face kind={kind} mood={mood} look={look ?? { x: 0, y: 0 }} talking={talking} blush={skin.blush} ink={kind === 'dot' ? body : INK} />
         </g>
       </svg>

@@ -72,6 +72,14 @@
 /* Thinking: the sprout sways. Listening: it swells a little with each beat, all ears. */
 .ch .ch-sprout { transform-box: view-box; transform-origin: 24px 13px; }
 .ch[data-mood='thinking'] .ch-sprout { animation: ch-sway 2.2s ease-in-out infinite; }
+/* It just grew a level: what is on its head unfurls from the stem (Character.tsx grew). */
+.ch[data-grew] .ch-sprout { animation: ch-unfurl 0.9s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+@keyframes ch-unfurl {
+  0% { transform: scale(0.15); opacity: 0; }
+  55% { transform: scale(1.18); opacity: 1; }
+  78% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
 @keyframes ch-sway {
   0%, 100% { transform: rotate(-6deg); }
   50% { transform: rotate(6deg); }

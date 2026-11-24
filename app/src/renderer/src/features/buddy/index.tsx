@@ -10,9 +10,11 @@
  * Both overlay layers draw nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
  * Previews, only in the browser stage: ?buddy (every state of the living mark), ?buddy=point (try the buddy),
  * ?buddy=cast (the character sheet), ?buddy=colors (the color sheet) and ?buddy=pick (the setup step where the
- * learner picks its color). ?skin=<name> puts the buddy in one color.
+ * learner picks its color) and ?buddy=grow (its eight levels). ?skin=<name> puts the buddy in one color, ?level=<1-8>
+ * or ?steps=<n> sets how far it has grown.
  */
 import { defineFeature } from '../../core/registry'
+import { GrowStage } from './GrowStage'
 import { CastStage } from './CastStage'
 import { ColorStage } from './ColorStage'
 import { CompanionLayer } from './Companion'
@@ -38,6 +40,8 @@ export default defineFeature({
         ? [{ route: 'buddy-cast', Component: CastStage, stage: { x: 30, y: 44, w: 1540, h: 850 }, z: 40 }]
       : preview === 'pick'
         ? [{ route: 'buddy-pick', Component: PickStage, stage: PICK_STAGE, z: 40 }]
+      : preview === 'grow'
+        ? [{ route: 'buddy-grow', Component: GrowStage, stage: { x: 30, y: 44, w: 1540, h: 700 }, z: 40 }]
       : preview === 'colors'
         ? [{ route: 'buddy-colors', Component: ColorStage, stage: { x: 30, y: 44, w: 1540, h: 850 }, z: 40 }]
       : preview !== null
@@ -52,6 +56,9 @@ export { Character, type CharacterKind, type Mood } from './Character'
 // The learner's color, and the pieces setup (features/onboarding BuddyStep) and Settings (SettingsRows) pick it with.
 export { BuddyColorPicker, BuddyPreview, BuddySwatches } from './ColorPicker'
 export { BuddyColor } from './SettingsRows'
+// How it has grown: for a Progress or Home page.
+export { BonBar, BonLadder, useLevelWords } from './GrowthCard'
+export { LEVELS, progressOf, useGrowth } from './growth'
 export { confirmSkin, isSkinChosen, pickSkin, useSkin, useSkinName } from './skin'
 export { annotate, pointAt, usePointing } from './pointing'
 export { say, sendHome, setActivity, summon, useTalk } from './talk'

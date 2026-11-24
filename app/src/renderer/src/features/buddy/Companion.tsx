@@ -31,6 +31,7 @@ import { color, fill, shadows, text } from '../../core/theme'
 import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
+import { useGrowth } from './growth'
 import { useSkin } from './skin'
 import { ringBox } from './marks'
 import { setTrip, usePointing } from './pointing'
@@ -51,6 +52,36 @@ const DROP = 'drop-shadow(0 2px 3px rgba(0,0,0,.34))'
 const POP = 0.14
 /** Where it waits when it is called and has not seen the pointer yet: under the notch. */
 const WAIT_BELOW = 112
+
+/** A level-up, in front of the learner: it comes out as it was, and this long after (ms) what is on its head grows. */
+const GROW_AFTER_MS = 1150
+/** How long the growing takes to play (buddy.css ch-unfurl, and a beat to look at it). */
+const GROW_SHOW_MS = 1500
+
+/**
+ * The level the buddy on the screen shows. It follows the learner's count (growth.ts), except at a level-up that
+ * happened here: then it keeps the old look until it has come out, and grows where the learner can see it.
+ */
+function useGrown(): { level: number; grew: boolean } {
+  const level = useGrowth((g) => g.level)
+  const ups = useGrowth((g) => g.grew)
+  const [shown, setShown] = useState({ level, grew: false })
+  const seen = useRef(ups)
+  useEffect(() => {
+    if (ups === seen.current) {
+      setShown((s) => (s.level === level && !s.grew ? s : { level, grew: false }))
+      return
+    }
+    seen.current = ups
+    const a = setTimeout(() => setShown({ level, grew: true }), GROW_AFTER_MS)
+    const b = setTimeout(() => setShown({ level, grew: false }), GROW_AFTER_MS + GROW_SHOW_MS)
+    return () => {
+      clearTimeout(a)
+      clearTimeout(b)
+    }
+  }, [level, ups])
+  return shown
+}
 
 /** Which character it is. The browser stage's ?char=<kind> shows one of the others. */
 const KIND: CharacterKind = (() => {
@@ -138,6 +169,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const total = usePointing((s) => s.total)
   const trip = usePointing((s) => s.trip)
   const cheer = usePointing((s) => s.cheer)
+  const grown = useGrown()
   /** A spotlight box, not the engine's own mark: the spotlight's caption has the right of it, so the buddy takes the left. */
   const bridged = usePointing((s) => s.bridged)
   const talk = useTalk()
@@ -150,7 +182,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const goal: 'mark' | 'follow' | 'home' = key !== undefined ? 'mark' : talk.summoned && !standDown ? 'follow' : 'home'
 
   // What it has to say right now.
-  const line = first ? (talk.sayFor === first.key && talk.say ? talk.say : first.label) : talk.sayFor ? undefined : talk.say
+  // A mark's own words first; a mark with none (a spotlight box) lets it say what it has to say anyway (it grew).
+  const line = first ? (talk.sayFor === first.key && talk.say ? talk.say : (first.label ?? (talk.sayFor ? undefined : talk.say))) : talk.sayFor ? undefined : talk.say
   const model = useMemo((): Model | undefined => {
     if (goal === 'home') return undefined
     if (talk.activity === 'thinking') return { kind: 'thinking' }
@@ -457,7 +490,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
           <motion.div style={{ scale, rotate: tilt, y: hop }}>
             <motion.div style={{ scaleX: wide, scaleY: short, transformOrigin: `0px ${BODY.size * 0.3}px` }}>
               <span data-ui data-part="buddy-body" className="absolute" style={{ left: -BODY.size / 2, top: -lift, lineHeight: 0, filter: DROP }}>
-                <Character kind={KIND} size={BODY.size} mood={mood} look={look} talking={talking} flying={flying} point={point} />
+                <Character kind={KIND} size={BODY.size} mood={mood} look={look} talking={talking} flying={flying} point={point} level={grown.level} grew={grown.grew} />
               </span>
             </motion.div>
           </motion.div>

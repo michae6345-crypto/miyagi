@@ -43,5 +43,9 @@ export const words = {
   row: NAME ? `${NAME}’s color` : 'Buddy color',
   rowCaption: NAME ? `${NAME} and the loops it draws.` : 'Your buddy and the loops it draws.',
   /** The swatches, for a screen reader. */
-  colors: NAME ? `${NAME}’s color` : 'Buddy color'
+  colors: NAME ? `${NAME}’s color` : 'Buddy color',
+  /** How it grows, in one sentence (the growth card). */
+  growRule: `${NAME ?? 'It'} grows each time you pass a step. Skipped steps don’t count.`,
+  /** What it says when it reaches a level. One sentence: its bubble says one (talk.ts). */
+  grew: (level: number, name: string): string => `${NAME ?? 'I'} grew to level ${level}: ${name}.`
 } as const

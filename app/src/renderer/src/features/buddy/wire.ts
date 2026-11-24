@@ -6,8 +6,10 @@
 import { onMessage } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { sendAction, usePressed } from '../../core/shortcuts'
-import { spotlit } from './pointing'
-import { engineThinking, setActivity, setEngine } from './talk'
+import { LEVELS, passStep } from './growth'
+import { words } from './name'
+import { cheer, spotlit } from './pointing'
+import { engineThinking, say, setActivity, setEngine, summon } from './talk'
 
 // Explain from the bubble is the step's Explain action; the mark's label goes with it.
 setEngine({
@@ -63,3 +65,15 @@ if (typeof window !== 'undefined') {
     })
     .catch(() => undefined)
 }
+
+// It grows each time the learner passes a step (growth.ts). A skipped step is not a pass, and neither is one that was
+// already done when the lesson got to it. On a level-up it comes out, hops, and says its new level; Companion.tsx
+// shows the growing itself. After pointing.ts's own step.passed handler has cleared the marks, so its words show.
+onMessage('step.passed', (p) => {
+  if (!p?.stepId || p.skipped || p.already) return
+  const level = passStep(`${useLesson.getState().lesson?.id ?? 'lesson'}:${p.stepId}`)
+  if (!level) return
+  summon()
+  say(words.grew(level, LEVELS[level - 1].name))
+  cheer()
+})

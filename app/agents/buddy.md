@@ -56,6 +56,28 @@ A new annotate while it is out: it flies straight from where it is to the new fi
 
 Borrowed mechanics, in miyagi's own look and with its own character: a companion with a home that travels to the thing, the arc that grows with distance, landing beside the target and not on it, words typed out next to it, staying by the pointer while you talk (Clicky); a loop drawn on whose end overlaps its start (circle to search).
 
+### It grows (Nov 23)
+Adrian: "i like the leaf growing, make it more pronounced, multiple leaves and leveling up clear, gamify it, outline what it means". So bon has **eight levels**, earned by one thing the learner can read in a sentence: **bon grows each time you pass a step.** A skipped step is not a pass (`step.passed` with `skipped`), and neither is one that was already done when the lesson got to it (`already`).
+
+| Level | Name | Steps passed | What is on its head |
+|---|---|---|---|
+| 1 | Seed | 0 | one leaf |
+| 2 | Sprout | 3 | two leaves |
+| 3 | Shoot | 8 | a third leaf, on a taller stem |
+| 4 | Sapling | 15 | four leaves in two tiers |
+| 5 | Budding | 25 | a bud |
+| 6 | In bloom | 40 | the bud open |
+| 7 | Young tree | 60 | a first pad of foliage |
+| 8 | Bonsai | 90 | a small shaped tree: a trunk and three pads |
+
+- `growth.ts`: the levels, `levelFor`, `progressOf` (the level, its name, the steps left to the next one), and the count. One step counts once (its lesson id and step id are remembered), so a replay after a reconnect does not count twice, and two windows hearing the same pass count it once. Kept like the color: localStorage `miyagi.buddy.growth` in the app, memory in the stage (`?level=<1-8>`, `?steps=<n>`).
+- `Character.tsx` draws each level (`Top`); the lowest pair of leaves are still its ears and wings. `level` fixes one for the sheets.
+- **The level-up moment** (`wire.ts`, `Companion.tsx`): on the pass that crosses a line bon comes out by the pointer as it was, hops, says "bon grew to level 3: Shoot.", and what is on its head unfurls in front of the learner about a second later. A pass that does not level it up shows nothing.
+- **The growth card** (`GrowthCard.tsx`, in Settings > General under its color): "Level 3 · Shoot", "9 steps passed. 6 more to Sapling.", a bar (neutral, not green), and the ladder: all eight levels drawn, named, with their step counts, the ones not reached dimmed, the current one marked, and the rule under it. `BonBar`, `BonLadder`, `useLevelWords` are exported for a Progress or Home page.
+- Calm on purpose: no confetti, sparkles or sounds (the brand has none). The game is the ladder, the count and the moment.
+- Its foliage at levels 7 and 8 is in its leaf color (white on sand), not the bonsai's green: green only means passed. Adrian's call if the grown tree should be green.
+
+
 ### Look
 **The learner picks its color.** Adrian picked mint, then the deeper one, from the renders on Nov 22; on Nov 23, seeing it on the character, he did not like the mint, picked sand, asked for cream versions, then said his favorite is to let the learner choose, like Clicky, when they set it up, and then: "not too many and not too similar... maybe 6-8 colors. go ahead and wire it". So:
 - **A color is a skin** (`palette.ts` `SKINS`): body, leaves, cheeks, the stroke it draws, the listening bars in the bubble.
@@ -101,6 +123,7 @@ Checked merged with `origin/michael/v2-integration` at 77874bec on throwaway bra
 Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build --config vite.web.config.ts --base ./ --outDir <a folder outside the worktree>`.
 - `?buddy=point&clean`: the try-out. One, Tour, Far, Clear, Home; Spotlight (today's pointing: press it on a fresh load, before the others); Hold to talk (hold the button: it hears a canned question, then answers); or click anywhere to point there. The answers are canned in `PointStage.tsx`; the marks go through the bus as real `annotate` events.
 - `?buddy=cast&clean`: the character sheet.
+- `?buddy=grow&clean`: its eight levels, the growth card, and Pass a step / Pass 5 to see it level up (`&steps=2` starts one step short of level 2). `shots/buddy-levels.png`.
 - `?onb=ready` (the setup window) and `?flow=1&step=ready` (the one-window first run): the real color step, then You're ready. `?flow=1&step=engine` walks into it from the last setup step. `?settings=general`: the Buddy color row. Add `&appearance=dark` for the dark window. `shots/buddy-setup.png`.
 - `?buddy=pick&clean`: the first mock of the step. Click swatches, then Continue: the buddy comes out in that color and points at a line.
 - `?buddy=colors&clean`: the color sheet (`&set=cream` for the cream versions beside sand). `&skin=cream` (or any other name on it) on the try-out shows the buddy and its loop in that color.
@@ -110,7 +133,7 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 - `shots/buddy-cast.png` (the sheet), `shots/buddy-colors.png` (the first round of colors), `shots/buddy-setup.png` (the color step and the Settings row), `shots/buddy-moments.png` (close-ups of each moment), `shots/buddy-stage.png` (pass 1). Moving previews are outside the repo, in Adrian's `SanD Hacks/research/buddy-compare/`: `buddy-char-ask.gif`, `buddy-char-tour.gif`, `buddy-char-hop.gif`, `buddy-char-far.gif`.
 
 ## Checked
-- `npm run typecheck` passes. `test/buddyMarks.test.ts` 69 of 69, `test/buddyTalk.test.ts` 11 of 11, `test/buddySkin.test.ts` 12 of 12 (the set of colors, and keeping the pick: saved, read back on the next launch, followed from another window, bad values refused, nothing written in the stage), `test/buddyDraws.test.ts` 13 of 13 (who draws, and the spotlight's boxes). The full suite is 703 tests with one failure, `linkHost.test.ts` (reads only drawer files; untouched here).
+- `npm run typecheck` passes. `test/buddyMarks.test.ts` 69 of 69, `test/buddyTalk.test.ts` 11 of 11, `test/buddySkin.test.ts` 12 of 12 (the set of colors, and keeping the pick: saved, read back on the next launch, followed from another window, bad values refused, nothing written in the stage), `test/buddyDraws.test.ts` 13 of 13 (who draws, and the spotlight's boxes), `test/buddyGrowth.test.ts` 17 of 17 (the levels, what the card says, counting once, saving). The full suite is 720 tests with one failure, `linkHost.test.ts` (reads only drawer files; untouched here).
 - The color, in the built stage (Nov 23): the step shows in the setup window and in the one-window first run, light and dark; a pick changes the buddy at once; Continue goes on to You're ready and Skip goes home; `?flow=1&step=done` still hands off by itself; the Settings row changes the color, and the buddy that then flies out and its loop are in it.
 - Merged with `origin/michael/v2-integration` at 77874bec on a throwaway branch (Nov 23, deleted, not pushed): no conflicts (his reworked Settings keeps the row); typecheck passes; 838 tests with the same one failure; the step and the row work there too. With his layer as it is the buddy stands down there, so the color shows only in the picker; with his layer yielding (above) the buddy and its loop are in the picked color.
 - Built stage in headless Chrome (1600x1000), by DOM state and recorded frames:
@@ -135,5 +158,5 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 4. **A real click.** The overlay is click-through, so in Electron a click inside a mark never reaches this window. Main could broadcast a global left-mouse-down point (screen points); today the pointer resting on the mark stands in for it. Michael asks for the same thing in `agents/app-buddy-draw.md`.
 5. **Longer holds for tours and answers.** The hold is counted from the newest mark's birth, so a three-mark tour sent with the default 6 s is gone before the learner reads the second one. The engine should send `holdMs` near the 30 s limit with a tour or an answer, or the rule should let an open bubble keep its mark. (The try-out sends 30 s for a tour and 12 s for an answer.)
 6. **A BRAND.md section for the character.** BRAND.md does not mention a character. On Michael's integration branch it gains one exception to "no hand-drawn annotations": the buddy stroke (mint, `features/annotate`). A character with a face and pink cheeks is a brand decision; it is Adrian's to write down once he has picked one, and the stroke exception should then name whichever layer draws.
-7. **A Prefs field for the learner's buddy color** (`buddyColor`, one of the names in `palette.ts` `PICKS`). The setup step and the Settings row are wired (in `features/onboarding` and `features/settings`, on Adrian's go-ahead: one new file, a wrapper in `Ready.tsx`, two lines in `General.tsx`), and the choice is kept in localStorage until Prefs has the field. If `features/annotate` keeps drawing, its stroke should read the same color (`useSkin().stroke`), or the loop and the buddy will not match. How far it has grown would need the skills count; nothing stores it.
+7. **A Prefs field for the learner's buddy color** (`buddyColor`, one of the names in `palette.ts` `PICKS`). The setup step and the Settings row are wired (in `features/onboarding` and `features/settings`, on Adrian's go-ahead: one new file, a wrapper in `Ready.tsx`, two lines in `General.tsx`), and the choice is kept in localStorage until Prefs has the field. If `features/annotate` keeps drawing, its stroke should read the same color (`useSkin().stroke`), or the loop and the buddy will not match. How far it has grown (its passed-step count) is kept in localStorage too; it belongs with the learner's progress in the engine, so it survives a new computer.
 8. **Typed questions.** The buddy comes for push to talk. A question typed in the launcher gets its answer card only; a bus event when the learner asks from anywhere would let the buddy come for those too.

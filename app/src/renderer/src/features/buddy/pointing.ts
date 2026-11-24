@@ -87,6 +87,11 @@ export function reached(keys: readonly string[]): void {
   fade(keys)
 }
 
+/** The buddy hops: something good happened that is not a mark (it grew a level). */
+export function cheer(): void {
+  set((s) => ({ cheer: s.cheer + 1 }))
+}
+
 /** Back to blank: nothing drawn, nothing remembered (step.passed, a new lesson, a reset). */
 export function forget(): void {
   stopHold()

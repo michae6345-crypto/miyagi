@@ -40,15 +40,15 @@ function Tile({ name, note, skin }: { name: string; note: string; skin: Skin }):
     <div data-skin={name} style={{ background: '#000', borderRadius: 16, padding: '14px 16px 12px', display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <Character kind={KIND} skin={skin} size={92} />
-          <Character kind={KIND} skin={skin} size={92} mood="happy" />
-          <Character kind={KIND} skin={skin} size={92} point={-1} look={{ x: -1, y: 0.2 }} />
+          <Character kind={KIND} level={2} skin={skin} size={92} />
+          <Character kind={KIND} level={2} skin={skin} size={92} mood="happy" />
+          <Character kind={KIND} level={2} skin={skin} size={92} point={-1} look={{ x: -1, y: 0.2 }} />
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
           {(['dark', 'light'] as const).map((tone) => (
             <div key={tone} style={{ background: tone === 'dark' ? '#1E1E1E' : brand.paper, borderRadius: 10, padding: '5px 10px', display: 'flex', gap: 8 }}>
-              <Character kind={KIND} skin={skin} size={BODY.size} />
-              <Character kind={KIND} skin={skin} size={BODY.size} mood="curious" look={{ x: -0.8, y: 0 }} />
+              <Character kind={KIND} level={2} skin={skin} size={BODY.size} />
+              <Character kind={KIND} level={2} skin={skin} size={BODY.size} mood="curious" look={{ x: -0.8, y: 0 }} />
             </div>
           ))}
         </div>
@@ -76,8 +76,8 @@ export function ColorStage(): ReactNode {
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LEAVES.length}, 1fr)`, gap: 12 }}>
           {LEAVES.map((l) => (
             <div key={l.name} data-leaf={l.name} style={{ background: '#000', borderRadius: 16, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Character kind={KIND} skin={{ ...SKINS[LEAVES_ON], leaf: l.leaf }} size={64} />
-              <Character kind={KIND} skin={{ ...SKINS[LEAVES_ON], leaf: l.leaf }} size={64} mood="listening" />
+              <Character kind={KIND} level={2} skin={{ ...SKINS[LEAVES_ON], leaf: l.leaf }} size={64} />
+              <Character kind={KIND} level={2} skin={{ ...SKINS[LEAVES_ON], leaf: l.leaf }} size={64} mood="listening" />
               <span style={LABEL}>{l.name}</span>
             </div>
           ))}
