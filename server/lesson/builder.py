@@ -140,6 +140,10 @@ async def build_lesson(
             if qs:
                 await qs.finish(g)
             return g
+        except BaseException:
+            if qs:
+                qs.stop(delivery=True)
+            raise
         finally:
             if qs:
                 qs.stop()
@@ -185,7 +189,7 @@ class _QuickStart:
     async def wrapped(self, graph: dict, complete: bool) -> None:
         self.real_sent = True
         self.final_sent = self.final_sent or complete
-        self.timer.cancel()
+        self.stop()
         r = self.on_update(graph, complete)
         if asyncio.iscoroutine(r):
             await r
@@ -216,12 +220,17 @@ class _QuickStart:
 
     async def finish(self, graph: dict) -> None:
         """The app saw a provisional step: make sure it gets the real, complete lesson through on_update too."""
-        self.timer.cancel()
+        self.stop()
         if self.provisional_sent and not self.final_sent:
             await self.wrapped(graph, True)
 
-    def stop(self) -> None:
-        self.timer.cancel()
+    def stop(self, *, delivery: bool = False) -> None:
+        """No placeholder any more. One already on its way (its on_update may be preparing the lesson folder, a
+        Claude call of up to ~25 s, or in the "ready" hold) is left to land, so the real steps that follow it are
+        loaded over it, not into a lesson that never loaded; `delivery` (the build failed or was cancelled) stops it
+        too."""
+        if delivery or not self.provisional_sent:
+            self.timer.cancel()
 
 
 _INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
@@ -515,10 +524,18 @@ def _lock_first_step(graph: dict, lock: dict) -> None:
         keys = sorted(k for k in set(sent) | set(full) if sent.get(k) != full.get(k))
         log.warning("first step early: the full build's step 1 differs in %s; keeping the one the learner has", keys)
     # explanations the full build placed in step 1 (step 2's call reads 15 s before its start) go to step 2, never lost
-    extra = [e for e in full.get("explanations") or [] if e not in (sent.get("explanations") or [])]
+    def key(e: dict) -> tuple:
+        return (e.get("t"), e.get("topic"))
+
+    have = {key(e) for e in sent.get("explanations") or []}
+    extra = [e for e in full.get("explanations") or [] if key(e) not in have]
     if extra and len(graph["steps"]) > 1:
         nxt = graph["steps"][1]
-        nxt["explanations"] = sorted((nxt.get("explanations") or []) + extra, key=lambda e: e.get("t", 0))
+        own = nxt.get("explanations") or []
+        seen = {key(e) for e in own}
+        moved = sorted((e for e in extra if key(e) not in seen), key=lambda e: e.get("t", 0))
+        # step 2's own (inside its clip) stay first, in time order: its "jump to the explanation" is the first one
+        nxt["explanations"] = sorted(own, key=lambda e: e.get("t", 0)) + moved
     graph["steps"][0] = sent
     graph["build"]["firstStep"] = {"seconds": lock.get("seconds"), "same": same, "adaptModel": lock.get("adapt_model")}
 

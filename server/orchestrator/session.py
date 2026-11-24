@@ -590,6 +590,8 @@ def _app_lesson(graph: dict) -> None:
     try:
         from server.lesson import app_lesson
 
+        if (graph.get("build") or {}).get("firstStep"):
+            return  # built step 1 first: the builder chose app or code on the whole lesson and adapted it; never on step 1 alone
         app_lesson.adapt(graph)
     except Exception:  # noqa: BLE001 - wording and check scope are a refinement; the lesson runs without them
         log.exception("app lesson adapt failed")
@@ -2272,7 +2274,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         async def on_update_locked(g: dict, complete: bool) -> None:
             """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
             later parts append steps -> lesson.updated. Quick start: a provisional placeholder is REPLACED."""
-            if not progressive["loaded"]:
+            # a first load, or one that never finished (the placeholder's load was cut short): this one loads
+            if not progressive["loaded"] or self.graph is None:
                 progressive["loaded"] = True
                 done.set()
                 rec.progress("first_steps")  # the first part (or the quick-start placeholder) is the hand-off
