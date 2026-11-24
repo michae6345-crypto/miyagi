@@ -84,9 +84,20 @@ def _short(m: re.Match[str]) -> str:
     return f"{v:.1f}" if v == int(v) else repr(v)
 
 
+# files an app writes its model's numbers into (scene dumps, drawings, meshes, exchange formats, data tables): their
+# long decimals are binary noise. Never source code, where 0.0010004 is a value someone typed.
+DUMP_EXTS = (".json", ".dxf", ".obj", ".stl", ".ply", ".gltf", ".dae", ".step", ".stp", ".iges", ".igs", ".csv",
+             ".tsv", ".xml", ".usda")
+
+
+def is_dump(name: str) -> bool:
+    """Is ``name`` a model / data dump (``rounded`` applies), not code?"""
+    return str(name).lower().endswith(DUMP_EXTS)
+
+
 def rounded(text: str) -> str:
     """``text`` with every long decimal (6+ places: float32 / binary noise) written at 4 places, line structure kept:
-    ``90.00000250447816`` -> ``90.0``, ``119.9999999999999`` -> ``120.0``."""
+    ``90.00000250447816`` -> ``90.0``, ``1.5707963705062866`` -> ``1.5708``."""
     return _LONG_DECIMAL.sub(_short, text)
 
 

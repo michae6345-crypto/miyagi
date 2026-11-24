@@ -164,14 +164,22 @@ def norm(command: str) -> str:
     return " ".join([_program(ws[0]), *ws[1:]]) if ws else ""
 
 
-def program_and_sub(segment: str) -> tuple[str, str]:
-    """(program, its first word that is not a flag): ``git checkout -b x`` -> (git, checkout); ``python3 -m pytest``
-    -> (python, pytest); env assignments and ``sudo`` skipped."""
-    ws = [w for w in words(segment)]
+def _command_words(segment: str) -> list[str]:
+    """A segment's words without env assignments and ``sudo``."""
+    ws = words(segment)
     while ws and ("=" in ws[0] and not ws[0].startswith(("/", ".")) or ws[0] == "sudo"):
         ws = ws[1:]
+    return ws
+
+
+def program_and_sub(segment: str) -> tuple[str, str]:
+    """(program, its first word that is not a flag): ``git checkout -b x`` -> (git, checkout); env assignments and
+    ``sudo`` skipped. ``python3 -m pytest -q`` runs the module: (pytest, ""), as ``pytest -q`` is."""
+    ws = _command_words(segment)
     if not ws:
         return "", ""
+    if _program(ws[0]) == "python" and "-m" in ws[1:-1]:
+        ws = ws[ws.index("-m", 1) + 1:]
     sub = next((w for w in ws[1:] if not w.startswith("-")), "")
     return _program(ws[0]), sub
 
@@ -179,10 +187,52 @@ def program_and_sub(segment: str) -> tuple[str, str]:
 # the same action under another name (git 2.23+: switch / restore split out of checkout)
 _SAME = {("checkout", "switch"), ("switch", "checkout"), ("checkout", "restore"), ("restore", "checkout")}
 
+# JavaScript runners: a package script (npm run dev, yarn dev, pnpm dev, bun run dev, npm start) or a package's binary
+# (npx vite, bunx vite, pnpm exec / dlx vite). A script's name says nothing of the binary it runs ("dev" is "vite"
+# in package.json), so a binary run counts for any script, and two scripts count when they have the same name.
+_JS_SCRIPT_RUNNERS = frozenset({"npm", "yarn", "pnpm", "bun"})
+_JS_BIN_RUNNERS = frozenset({"npx", "bunx"})
+_NPM_LIFECYCLE = frozenset({"start", "test", "t", "tst", "stop", "restart"})
+# package-manager commands that are not "run a script" (yarn / pnpm / bun run a script by its bare name)
+_PM_OWN = frozenset("""add audit bin cache ci config create dedupe dlx exec global help i import info init install
+link list login logout ls outdated pack patch prune publish rebuild remove rm store uninstall unlink up update
+upgrade upgrade-interactive version why x""".split())
+
+
+def js_run(segment: str) -> tuple[str, str] | None:
+    """("script", name) for a package script run, ("bin", name) for a package binary run, else None (``npm install``,
+    ``node app.js``)."""
+    ws = _command_words(segment)
+    if not ws:
+        return None
+    p = _program(ws[0])
+    rest = [w for w in ws[1:] if not w.startswith("-")]
+    if p in _JS_BIN_RUNNERS:
+        return ("bin", rest[0]) if rest else None
+    if p not in _JS_SCRIPT_RUNNERS or not rest:
+        return None
+    first = rest[0]
+    if first in ("run", "run-script") and len(rest) > 1:
+        return "script", rest[1]
+    if p == "npm":
+        return ("script", {"t": "test", "tst": "test"}.get(first, first)) if first in _NPM_LIFECYCLE else None
+    if p in ("pnpm", "yarn") and first in ("exec", "dlx") and len(rest) > 1:
+        return "bin", rest[1]
+    if p == "bun" and first == "x" and len(rest) > 1:
+        return "bin", rest[1]
+    return None if first in _PM_OWN or first == "run" else ("script", first)
+
+
+def _same_js_run(a: tuple[str, str], b: tuple[str, str]) -> bool:
+    return a[0] == "bin" or b[0] == "bin" or a[1] == b[1]
+
 
 def runs(segment: str, target: str) -> bool:
     """Does a command ``segment`` run the step's ``target`` command: same program, same subcommand (a prefix either
-    way: an alias ``git i`` for ``git init``; or git's switch for checkout)?"""
+    way: an alias ``git i`` for ``git init``; or git's switch for checkout)? ``python3 -m pytest`` runs ``pytest``,
+    and a JavaScript runner runs another's script (``yarn dev`` / ``npx vite`` for ``npm run dev``)."""
+    if (js := js_run(segment)) and (tjs := js_run(target)):
+        return _same_js_run(js, tjs)
     p, s = program_and_sub(segment)
     tp, ts = program_and_sub(target)
     if not p or p != tp:
@@ -204,7 +254,9 @@ def is_command(text: str, extra: frozenset[str] | set[str] = frozenset()) -> boo
     """A target's text that is a command to run (a known program first, or one of ``extra``: the programs of the
     step's run_command), not an output line to point at."""
     p, _ = program_and_sub(text)
-    return bool(p) and (p in PROGRAMS or p in extra)
+    ws = _command_words(text)
+    raw = _program(ws[0]) if ws else ""
+    return bool(p) and (p in PROGRAMS or p in extra or raw in PROGRAMS or raw in extra)
 
 
 def programs_of(command: str) -> set[str]:

@@ -82,6 +82,10 @@ class RunContext:
     # the lesson folder when the orchestrator doesn't hand one in. False: none (looked, nothing there). t10:
     # evaluate_step narrows it to the step's own cells (Notebook.only): outputs / errors / ran are those cells' only.
     notebook: Any = None
+    # When the step (else the lesson) began, epoch seconds, when the orchestrator knows: a file whose mtime is older
+    # was there before the step, so it is never the file the step saved under a name of its own (_claim_any_names).
+    step_started_at: float | None = None
+    lesson_started_at: float | None = None
 
     @property
     def after_segment(self) -> bool:
@@ -348,23 +352,84 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
         if why := model_files.empty_mesh(path):  # an export with nothing in it is not the model saved
             return _result(check, "fail", why)
         return _result(check, "pass", f"{rel} exists")
-    if check.get("_any_name") and (other := _same_kind_beside(path)):
+    if isinstance(other := check.get("_any_name"), str) and os.path.isfile(os.path.join(os.path.dirname(path), other)):
         # the step never named the file ("save it as a PNG next to mug.blend"): Blender's untitled.png is that PNG
         return _result(check, "pass", f"{other} saved (any name will do)")
     return _result(check, "fail", f"{rel} not found")
 
 
-def _same_kind_beside(path: str) -> str | None:
-    """A file with ``path``'s extension in ``path``'s folder (the newest), else None."""
-    folder, ext = os.path.dirname(path), os.path.splitext(path)[1].lower()
-    if not ext:
-        return None
+# What an app writes out under a name of its own (a render, an export, a plot saved from a viewer): the only kinds of
+# file a step may leave unnamed. Never code, a notebook, a project or a text file: "a new Python file for the math
+# helpers" is the operations.py the lesson goes on to import, and main.py beside it is not that file.
+EXPORT_EXTS = frozenset(""".png .jpg .jpeg .webp .tif .tiff .bmp .gif .exr .hdr .pdf .mp4 .mov .webm .mkv .avi
+.stl .obj .3mf .ply .fbx .glb .gltf .dae .usd .usdz .abc .step .stp .iges .igs .sat .dwg .dxf .dwf""".split())
+
+
+def _name_words(name: str) -> set[str]:
+    """The words of a file name, lower case (``Box_Base.stl`` / ``BoxBase.stl`` -> {box, base}; ``lid.stl`` ->
+    {lid}); words under 3 letters dropped."""
+    stem = os.path.splitext(os.path.basename(name))[0]
+    parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+", stem)
+    return {w.lower() for w in parts if len(w) >= 3}
+
+
+def _fresh(entry: os.DirEntry, since: float | None) -> bool:
+    if since is None:
+        return True
     try:
-        found = [e for e in os.scandir(folder) if e.is_file() and not e.name.startswith(".")
-                 and e.name.lower().endswith(ext) and not model_files.empty_mesh(e.path)]
+        return entry.stat().st_mtime >= since - 1.0  # 1 s of file-system time granularity
     except OSError:
-        return None
-    return max(found, key=lambda e: e.stat().st_mtime).name if found else None
+        return False
+
+
+def _claim_any_names(checks: list[dict], about: str, ctx: RunContext) -> list[dict]:
+    """The file_exists checks of one list whose file the step never names (not in its title, instructions or the
+    check's label) and whose kind an app writes out under a name of its own (EXPORT_EXTS) may pass on another file of
+    that kind in that folder. Each such check gets ``_any_name``: the file it may take, else False.
+
+    A file counts once per step (two exports, base.stl and lid.stl, are never both one Box_Base.stl), and a check takes
+    a file whose name holds its own word first (Box_Base.stl for base.stl); never a file another check names, one whose
+    name holds another check's word, or (when the context says when the step or lesson began) one that was already
+    there before."""
+    if not about.strip() or not os.path.isabs(str(ctx.workdir or "")):
+        return checks
+    since = ctx.step_started_at if ctx.step_started_at is not None else ctx.lesson_started_at
+    exists = [(i, c) for i, c in enumerate(checks) if c.get("type") == "file_exists" and c.get("file")]
+    named = {os.path.normcase(p) for _, c in exists if (p := _resolve(ctx.workdir, str(c["file"])))}
+    words = {i: _name_words(str(c["file"])) for i, c in exists}
+    want: dict[int, list[os.DirEntry]] = {}
+    for i, c in exists:
+        rel = str(c["file"])
+        base, ext = os.path.basename(rel).lower(), os.path.splitext(rel)[1].lower()
+        path = _resolve(ctx.workdir, rel)
+        if ext not in EXPORT_EXTS or not path or os.path.exists(path) \
+                or base in f"{about} {c.get('label') or ''}".lower():
+            continue
+        try:
+            found = [e for e in os.scandir(os.path.dirname(path)) if e.is_file() and not e.name.startswith(".")
+                     and e.name.lower().endswith(ext) and os.path.normcase(e.path) not in named
+                     and _fresh(e, since) and not model_files.empty_mesh(e.path)]
+            found.sort(key=lambda e: e.stat().st_mtime, reverse=True)  # newest first
+        except OSError:
+            found = []
+        want[i] = found
+    if not want:
+        return checks
+    taken: set[str] = set()
+    got: dict[int, str] = {}
+    for own_word in (True, False):  # a file named for the check first, then any file named for no other check
+        for i, found in want.items():
+            if i in got:
+                continue
+            others = set().union(*(w for j, w in words.items() if j != i)) - words[i]
+            for e in found:
+                ws = _name_words(e.name)
+                if e.path in taken or (ws & others) or (own_word and not ws & words[i]):
+                    continue
+                got[i] = e.name
+                taken.add(e.path)
+                break
+    return [{**c, "_any_name": got.get(i, False)} if i in want else c for i, c in enumerate(checks)]
 
 
 def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
@@ -397,10 +462,12 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         accept = lambda n, s: model_files.dxf_numeric_ok(lines, n, s)  # noqa: E731
     try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
         rx = _compile(pattern)
-        if why := model_files.every_instance(check, model_files.rounded(view), rx):
+        # float noise in a model / data dump (90.00000250447816 is 90.0); never in code, where 0.0010004 is a value
+        dump = model_files.is_dump(rel)
+        if why := model_files.every_instance(check, model_files.rounded(view) if dump else view, rx):
             return _result(check, "fail", f"{why} in {rel}{on}")
         hit = _search_file(rx, view, accept)
-        if hit is None and (r := model_files.rounded(view)) != view:  # float noise: 90.00000250447816 is 90.0
+        if hit is None and dump and (r := model_files.rounded(view)) != view:
             hit = _search_file(rx, r, accept)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
@@ -530,6 +597,37 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
 
 
 _NONFINITE_FIELD = re.compile(r"(?<![\w.])([A-Za-z_][\w]*)\s*[:=]?\s*[-+]?(nan|inf(?:inity)?)\b", re.I)
+_FIRST_EPOCH = re.compile(r"^\s*Epoch\s+1\s*/\s*\d+", re.I)  # Keras's header row of a run's first epoch
+
+
+def _newest_run(text: str, rx: Any, check: dict, ctx: RunContext) -> list[str]:
+    """The rows of the newest run in ``text`` (as _diverged reads only from ``since_step``): in a terminal's history,
+    the output of the newest command that printed a metric row (of the step's run command, when one is known); then,
+    in that, the rows from the last restart on (a run's ``Epoch 1/`` header again, or the pattern's step going back).
+    A finished re-run is never judged on the NaN of the run before it."""
+    rows = text.split("\n")
+    bl = blocks.parse(rows)
+    if blocks.has_commands(bl):
+        printed = [b for b in bl if b.command and any(rx.search(r) for r in b.output)]
+        rc = [s for c in (ctx.command, check.get("_run_command")) if c for s in blocks.segments(str(c))]
+        own = [b for b in printed if any(blocks.runs(s, t) for s in blocks.segments(b.command or "") for t in rc)]
+        if own or printed:
+            rows = (own or printed)[-1].output
+    start, prev = 0, None
+    for i, row in enumerate(rows):
+        if _FIRST_EPOCH.match(row):
+            start, prev = i, None
+            continue
+        if not (m := rx.search(row)) or m.groupdict().get("step") is None:
+            continue
+        try:
+            step = float(m.group("step"))
+        except ValueError:
+            continue
+        if prev is not None and step < prev:
+            start = i
+        prev = step
+    return rows[start:]
 
 
 def _sibling_divergence(ctx: RunContext, check: dict) -> str | None:
@@ -546,7 +644,7 @@ def _sibling_divergence(ctx: RunContext, check: dict) -> str | None:
         rx = _compile(pattern)
     except re.error:
         return None
-    for line in scan_text("\n".join(texts)).splitlines():
+    for line in (ln for t in texts for ln in _newest_run(scan_text(t), rx, check, ctx)):
         if not (m := rx.search(line)):
             continue
         rest = line[:m.start()] + " " + line[m.end():]
@@ -926,7 +1024,8 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     * screen_contains: the step's own terminal command (its Terminal target) must be among the commands that ran,
       when any ran (``git branch x`` is not ``git checkout -b x``; ``touch`` / ``ls`` are not ``git add``); and the
       match counts only in a command's newest run whose output shows no failure (``fatal:``, ``! [rejected]``,
-      ``nothing added to commit``, ``*Cancel*``) unless that failure is what the pattern looks for.
+      ``nothing added to commit``, ``*Cancel*``) unless that failure is what the pattern looks for. Seen only in an
+      earlier run while the newest is still live (``ctx.running``, no prompt back under it): pending, not a fail.
     * screen_absent: a match counts unless its command got past it (pip's resolver notice, then ``Successfully
       installed``), was run again since, or repeats an earlier command that already succeeded (``fatal: No rebase in
       progress?``)."""
@@ -953,18 +1052,27 @@ def _on_blocks(check: dict, ctx: RunContext, absent: bool, text: str, where: str
     hits = [i for i, b in enumerate(bl) if search_wrapped(pattern, b.text)]
     if not hits:
         return None
-    why = ""
+    why, live = "", False
     for i in hits:
         b = bl[i]
         if b.command and blocks.superseded(bl, i):
             why = why or f"that was an earlier `{b.command}`: the newest one didn't print it"
+            me = blocks.norm(b.command)
+            newest = next(n for n in reversed(bl) if n.command and blocks.norm(n.command) == me)
+            # live: the newest run is the terminal's last command row (no prompt came back under it) and hasn't failed
+            last = next(n for n in reversed(bl) if n.command is not None)
+            live = live or (newest is last and newest.failure() is None)
             continue
         bad = b.failure()
         if bad and not search_wrapped(pattern, bad):
             why = why or f"`{b.command or 'the command'}` failed: {bad.strip()[:80]!r}"
             continue
         return _result(check, "pass", f"seen{where}")
-    return _ran_and_made(check, ctx, bl) or _result(check, "fail", why)
+    if made := _ran_and_made(check, ctx, bl):
+        return made
+    if live and ctx.running:  # the newest run is still live (a dev server, a long build): it may print it yet
+        return _result(check, "pending", f"not printed by the newest run{where} yet: still running")
+    return _result(check, "fail", why)
 
 
 def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> CheckResult | None:
@@ -1195,9 +1303,11 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     about = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
     checks = [{**c, "_subject": f"{about} {c.get('label') or ''}"} if c.get("type") == "file_contains"
               and str(c.get("file") or "").lower().endswith(".json") else c for c in checks]
-    checks = [{**c, "_any_name": True} if c.get("type") == "file_exists" and about.strip()
-              and os.path.basename(str(c.get("file") or "")).lower() not in f"{about} {c.get('label') or ''}".lower()
-              else c for c in checks]
+    if which == "all":  # each list on its own: a file counts once in a list, and the lists are alternatives
+        n = len(step.get("checks") or [])
+        checks = [*_claim_any_names(checks[:n], about, ctx), *_claim_any_names(checks[n:], about, ctx)]
+    else:
+        checks = _claim_any_names(checks, about, ctx)
     own = blocks.programs_of(str(step.get("run_command") or ""))
     cmds = [str(t.get("match")).strip() for t in step.get("targets") or [] if t.get("app") in _TERMINAL_APPS
             and blocks.is_command(str(t.get("match") or ""), own)]

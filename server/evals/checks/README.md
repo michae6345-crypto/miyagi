@@ -94,13 +94,14 @@ What changed in `server/checks`:
   `Command:`) split the history into a command and its own output. A `screen_contains` match counts only in a
   command's newest run whose output shows no failure (`fatal:`, `error:`, `! [rejected]`, `nothing added to commit`,
   `*Cancel*`, `cd: no such file`), unless that failure is what the pattern wants; the step's Terminal target command
-  must be among the commands that ran (program + subcommand; `git switch` for `git checkout`); a clean run plus the
+  must be among the commands that ran (program + subcommand; `git switch` for `git checkout`; `python -m <mod>` for
+  `<mod>`; any JS runner's script or `npx` binary for `npm run <script>`); a clean run plus the
   step's `file_exists` proofs passes other wording. A `screen_absent` match is dropped when the command got past it
   (pip's resolver `ERROR:`, then `Successfully installed`), was run again since, or repeats an already-successful
   command with a "nothing to do" refusal. Error forms gained `1 failed`, `FAILED`, `error TS2305:`, `Found 1 error`.
   (git s2-s8, pytest, tsc build, pip, rebase, AutoCAD STLOUT.)
 - **Notebooks and metrics**: "restart and run all" needs the run counts in order from [1]; a `nan` / `inf` beside
-  the checked metric on its own lines fails it as diverged; a value printed inside `tensor(...)` is read.
+  the checked metric on its own lines in the newest run fails it as diverged; a value printed inside `tensor(...)` is read.
 - **Equivalent code** (`code_equiv.py`): import aliases, `import mod` + `mod.f()`, several names per import, a
   renamed default import, `import * as`, `<Fragment>` for `<>`. A JSX tag pattern on a component file is a code
   check. A VS Code line that is on disk in another lesson file (a split editor) doesn't count for the check's file.
@@ -108,7 +109,9 @@ What changed in `server/checks`:
 - **App files** (`model_files.py`): a scene dump is read for the objects the step names (and what is attached to
   them), long decimals are read at 4 places (float32 noise), "every / all / each" labels hold for every instance of
   the key, an STL / OBJ with no geometry fails, a number in a DXF text group (a dimension override) is not a
-  measurement, and a file the step never named may have any name (same extension, same folder). A word seen only as
+  measurement, and an export / render the step never named may have any name (same extension, same folder; image,
+  mesh and CAD export kinds only, never code or notebooks; a file counts for one check, a name holding the check's own
+  word first; never a file older than the step when the context gives its start). A word seen only as
   an item of an open "Add..." menu is not added.
 
 Held-out wrong after the fixes (15): ids in `baseline.json` → `held_out.known_wrong`; not read.

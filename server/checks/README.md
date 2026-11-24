@@ -83,14 +83,18 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
 ### Reading what the learner made (eval round 1, see `server/evals/checks/README.md`)
 - `blocks.py`: a terminal's history (and AutoCAD's `Command:` rows) as command blocks. Terminal screen checks count a
   match only in a command's newest run with no failure in its own output; the step's Terminal target command must
-  have run; `screen_absent` skips errors a command got past, older runs, and "nothing to do" repeats.
+  have run (`python3 -m pytest` runs `pytest`; `yarn dev` / `npx vite` run `npm run dev`), and an older run's
+  match is pending while the newest run is still live; `screen_absent` skips errors a command got past, older runs,
+  and "nothing to do" repeats.
 - `code_equiv.py`: code checks also read the canonical form (import aliases, module-qualified calls, one name per
   import, `<Fragment>` as `<>`); `broken_imports` fails a step whose files import what their own module lacks; a VS
   Code line that is another lesson file's on disk doesn't count for the check's file.
-- `model_files.py`: scene dumps read for the objects the step names, float noise rounded, "every / all" over every
+- `model_files.py`: scene dumps read for the objects the step names, float noise rounded (dumps only, never code),
+  "every / all" over every
   instance of a key, empty STL / OBJ exports, DXF numbers only from numeric group codes.
-- In `evaluator.py`: an "Add..." menu's items are not added things; a file the step never named may have any name;
-  "restart and run all" needs run counts in order from [1]; a `nan` beside the checked metric is divergence; a
+- In `evaluator.py`: an "Add..." menu's items are not added things; an export / render the step never named may have any
+  name (image, mesh, CAD export kinds only; one file per check; never a file older than the step); "restart and run
+  all" needs run counts in order from [1]; a `nan` beside the checked metric in the newest run is divergence; a
   metric inside `tensor(...)` is read (`screen.wrapper_tolerant`).
 
 ### `metric_trend`: thresholds
