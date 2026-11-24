@@ -13,7 +13,7 @@ import { CARD, PageColumn } from '../shell/ui'
 import { Scroller } from '../shell/pages/Column'
 import type { SkillGraph, SkillGraphNode, SkillGraphTrack } from './model'
 import { practicedLine } from './copy'
-import { Glyph } from './SkillNode'
+import { NodeMark } from './flat/parts'
 
 /** The List's column (content px). */
 const LIST_W = 720
@@ -48,7 +48,7 @@ function Chip({ n, dim, onOpen }: { n: SkillGraphNode; dim: boolean; onOpen: (id
       style={{ height: 32, padding: '0 10px 0 8px', marginLeft: -8, borderRadius: radius2.control, opacity: dim ? 0.3 : 1 }}
       onClick={() => onOpen(n.id)}
     >
-      {n.kind === 'capstone' ? <Square locked={locked} /> : <Glyph n={n} size={16} />}
+      {n.kind === 'capstone' ? <Square locked={locked} /> : <NodeMark n={n} />}
       <span style={{ fontSize: type2.md, color: locked ? color.label : color.text, fontWeight: n.isNext ? 600 : 400 }}>{n.label}</span>
       {extra && <span style={{ fontSize: type2.xs, color: color.label, fontVariantNumeric: 'tabular-nums' }}>{extra}</span>}
     </button>
