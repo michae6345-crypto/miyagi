@@ -226,7 +226,15 @@ class Block:
         return "\n".join(self.rows)
 
     def failure(self) -> str | None:
-        """The output row that says the command failed, unless a later row says it got there anyway; else None."""
+        """The output row that says the command failed, unless a later row says it got there anyway; else None. Also
+        a command that never ran (the shell is still waiting for its closing quote: zsh's ``dquote>``, see
+        waiting_row), and a ``git config <key>`` with no value that printed nothing (a read of an unset key: git exits
+        1, nothing was set)."""
+        if self.command is not None and (cont := waiting_row(self.command, self.output)):
+            return f"{cont.strip().split('>')[0]}> (the shell is waiting for the rest of the command: it never ran)"
+        if self.command and not any(r.strip() for r in self.output) and any(
+                config_read(s) for s in segments(self.command)):
+            return "git config printed nothing: that key has no value (put the value after the key to set it)"
         bad = None
         for row in self.output:
             if FAILURE_ROW.search(row):
@@ -239,6 +247,119 @@ class Block:
         """It printed a failure row and then said it got there anyway (pip: ``ERROR: pip's dependency resolver ...``,
         then ``Successfully installed``)."""
         return self.failure() is None and any(FAILURE_ROW.search(r) for r in self.output)
+
+
+# the shell's continuation prompts (zsh: dquote> quote> bquote> cmdsubst> pipe> heredoc>; bash: a bare "> "): the
+# command above is not finished yet (zsh stacks them: "cmdsubst dquote>")
+_CONTINUATION = re.compile(r"^\s*(?:(?:d|b)?quote|cmdsubst|pipe|heredoc|cmdand|cmdor)"
+                           r"(?:\s+(?:(?:d|b)?quote|cmdsubst|pipe|heredoc|cmdand|cmdor))*>\s?")
+_CANCELLED = re.compile(r"\^C\s*$")
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+
+
+def continuation(row: str) -> bool:
+    """Is a terminal row one of the shell's continuation prompts (``dquote> to the menu"``, ``heredoc> EOF``)?"""
+    return bool(_CONTINUATION.match(row))
+
+
+def _unfinished(text: str) -> bool:
+    """Is a command (its continuation rows joined with newlines) still open: a quote, a backtick or a ``$(`` not
+    closed yet, or a last line ending in ``|`` / ``&&`` / ``\\``?"""
+    quote, depth, k = "", 0, 0
+    while k < len(text):
+        ch = text[k]
+        if ch == "\\" and quote != "'":
+            k += 2
+            continue
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"`":
+            quote = ch
+        elif text.startswith("$(", k):
+            depth, k = depth + 1, k + 1
+        elif ch == ")" and depth:
+            depth -= 1
+        k += 1
+    return bool(quote) or depth > 0 or text.rstrip().endswith(("|", "&&", "\\"))
+
+
+def waiting_row(command: str, output: list[str]) -> str | None:
+    """The continuation row (zsh's ``dquote>`` / ``heredoc>`` ...) that says the command above never ran, else None:
+    the shell is still waiting at it (it is the last row printed, and the command typed so far with every continuation
+    row is still open: a quote not closed, a heredoc without its end word), or the learner cancelled it there
+    (``dquote> ^C``, or a ``^C`` row under it). A quote closed on a later row (``dquote> to the menu"``), a heredoc
+    ended by its word (``heredoc> EOF``), and a command that printed something after its last continuation row ran."""
+    rows = [r for r in output if r.strip()]
+    conts = [k for k, r in enumerate(rows) if _CONTINUATION.match(r)]
+    if not conts:
+        return None
+    for k in conts:
+        if _CANCELLED.search(rows[k]) or (k + 1 < len(rows) and rows[k + 1].strip() == "^C"):
+            return rows[k]
+    last = conts[-1]
+    if last != len(rows) - 1:
+        return None
+    bodies = [_CONTINUATION.sub("", r, count=1) for r in rows[conts[0]:]]
+    if ends := [m.group(2) for m in _HEREDOC.finditer(command)]:
+        lines, at = [b.strip() for b in bodies], 0
+        for word in ends:
+            if word not in lines[at:]:
+                return rows[last]
+            at = lines.index(word, at) + 1
+        return None
+    return rows[last] if _unfinished("\n".join([command, *bodies])) else None
+# git config options that are not a key or a value
+_GIT_CONFIG_SCOPE = frozenset({"--global", "--local", "--system", "--worktree", "--type", "--bool", "--int", "--path"})
+
+
+def dry_run(segment: str) -> bool:
+    """A command that only shows what it would do (``git push --dry-run``, ``git push -n``, ``npm publish --dry-run``,
+    ``rsync -n``): it changes nothing."""
+    ws = _command_words(segment)
+    if any(w.split("=", 1)[0] in ("--dry-run", "--dryrun", "--what-if") for w in ws[1:]):
+        return True
+    p, sub = program_and_sub(segment)
+    return p == "git" and sub in ("push", "add", "clean", "rm", "mv") and "-n" in ws[2:]
+
+
+_SKIPPED = re.compile(r"\b(\d+)\s+(?:skipped|pending|todo|deselected)\b", re.I)
+_TEST_SUMMARY = re.compile(r"^\s*Tests?:|\bpassed\b|\bpassing\b|^\s*=+.*\b(?:passed|failed)\b", re.I)
+
+
+def skipped_tests(output: list[str], in_files: bool = False) -> int:
+    """How many tests a test run's summary says it skipped (Jest's ``Tests: 2 skipped, 1 passed, 3 total``, pytest's
+    ``1 passed, 2 skipped``, mocha's ``2 pending``), else 0. ``in_files``: only the ones a test file skipped
+    (skipped / pending), not the ones the command line left out (pytest's ``deselected``) or ``todo`` tests."""
+    n = 0
+    for row in output:
+        if _TEST_SUMMARY.search(row):
+            n = max(n, sum(int(m.group(1)) for m in _SKIPPED.finditer(row)
+                           if not in_files or m.group(0).split()[-1].lower() in ("skipped", "pending")))
+    return n
+
+
+def new_branch(segment: str) -> str | None:
+    """The branch a command makes and moves to: ``git switch -c x`` / ``git checkout -b x`` -> x."""
+    ws = _command_words(segment)
+    if len(ws) < 4 or _program(ws[0]) != "git" or ws[1] not in ("switch", "checkout"):
+        return None
+    for k, w in enumerate(ws[2:-1], start=2):
+        if w in ("-c", "-C", "--create", "-b", "-B"):
+            return ws[k + 1]
+    return None
+
+
+def config_read(segment: str) -> bool:
+    """``git config [--global] user.name``: a key and no value, which reads the key instead of setting it."""
+    ws = _command_words(segment)
+    if len(ws) < 3 or _program(ws[0]) != "git" or ws[1] != "config":
+        return False
+    rest = ws[2:]
+    if any(w.startswith("-") and w.split("=", 1)[0] not in _GIT_CONFIG_SCOPE for w in rest):
+        return False  # --list, --get, --unset, -e, --file x ...
+    args = [w for w in rest if not w.startswith("-")]
+    return len(args) == 1 and "." in args[0]
 
 
 def parse(rows: list[str]) -> list[Block]:
@@ -445,6 +566,47 @@ def superseded(blocks: list[Block], i: int) -> bool:
 # a command's "there was nothing left to do" refusal (git: no rebase in progress, nothing to commit, already exists)
 _NOTHING_TO_DO = re.compile(r"\bno\s+\w+(?:\s+\w+)?\s+in\s+progress\b|\bnothing\s+to\s+(?:commit|do)\b"
                             r"|\balready\s+(?:exists|up[\s-]to[\s-]date|initiali[sz]ed|a\s+git\s+repository)\b", re.I)
+
+
+# a command that failed only because the repository wasn't set up yet, and the later commands that set it up
+_CURED_BY = ((re.compile(r"\bdoes not have any commits yet\b|\bbad default revision 'HEAD'", re.I),
+              {("git", "commit")}),
+             (re.compile(r"\bnot a git repository\b", re.I), {("git", "init"), ("git", "clone")}))
+
+
+# the same result printed another way: a pull that brought commits in prints "Fast-forward" and a diffstat when it
+# fast-forwards, but "Successfully rebased and updated refs/heads/main." with pull.rebase set, and "Merge made by the
+# 'ort' strategy." when it merges
+_SAME_OUTCOME = ((("Fast-forward", " 1 file changed, 1 insertion(+)"), {("git", "pull"), ("git", "merge"), ("git", "rebase")},
+                  re.compile(r"^\s*Successfully rebased and updated refs/heads/|^\s*Merge made by the\b")),)
+
+
+def same_outcome(matches, b: "Block") -> bool:
+    """Does block ``b`` print, in another form, what a check (``matches``: does the check's pattern find a text?) looks
+    for in a command's usual output: a rebasing ``git pull`` for "Fast-forward"?"""
+    if not b.command or b.failure() is not None:
+        return False
+    for samples, cmds, alt in _SAME_OUTCOME:
+        if any(program_and_sub(s) in cmds for s in segments(b.command)) and any(matches(x) for x in samples) \
+                and any(alt.search(r) for r in b.output):
+            return True
+    return False
+
+
+def cured(blocks: list[Block], i: int) -> bool:
+    """Block ``i`` failed only because something wasn't set up yet (``git log`` before the first commit: "your current
+    branch 'main' does not have any commits yet"; ``git status`` before ``git init``), and a later command set it up
+    and succeeded: the failure changed nothing and is history."""
+    bad = blocks[i].failure()
+    if not bad:
+        return False
+    for rx, fixes in _CURED_BY:
+        if not rx.search(bad):
+            continue
+        for b in blocks[i + 1:]:
+            if b.command and b.failure() is None and any(program_and_sub(s) in fixes for s in segments(b.command)):
+                return True
+    return False
 
 
 def redundant(blocks: list[Block], i: int) -> bool:

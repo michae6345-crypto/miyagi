@@ -1,0 +1,119 @@
+{
+ "id": "fusion-lid-body-in-base-component",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Fusion lesson 8 (\"The design has components named Base and Lid, each with one body\"). The learner made the Lid component but never activated it (the radio button beside Lid), so the 3 mm lid extrude landed in Base: Base holds two bodies and Lid holds none. The classic Fusion slip: both names and an 80 x 50 x 3 body are in the design, but the lid is not in its component and cannot be exported or moved on its own.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Extrude the lid",
+  "file": "box.design.json",
+  "instructions": "In the Browser, click the radio button beside the Lid component to activate it. Project the outline of the Base (P), then extrude the profile 3 mm up into a new body. Keep Lid active until the extrude is done.",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Base component",
+    "file": "box.design.json",
+    "pattern": "\"name\":\\s*\"Base\""
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Lid component",
+    "file": "box.design.json",
+    "pattern": "\"name\":\\s*\"Lid\""
+   },
+   {
+    "id": "s6c3",
+    "type": "file_contains",
+    "label": "3 mm lid extruded",
+    "file": "box.design.json",
+    "pattern": "\"bound_box\":\\s*\\[\\s*80(?:\\.0+)?,\\s*50(?:\\.0+)?,\\s*3(?:\\.0+)?\\s*\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Base",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          30.0
+         ],
+         "volume": 28012.4
+        },
+        {
+         "name": "Body2",
+         "bound_box": [
+          80.0,
+          50.0,
+          3.0
+         ],
+         "volume": 11899.1
+        }
+       ]
+      },
+      {
+       "name": "Lid",
+       "bodies": []
+      }
+     ],
+     "timeline": {
+      "marker": 7,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       },
+       {
+        "name": "Hole1",
+        "type": "Hole",
+        "health": "healthy"
+       },
+       {
+        "name": "Sketch2",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude2",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": []
+    }
+   }
+  }
+ }
+}

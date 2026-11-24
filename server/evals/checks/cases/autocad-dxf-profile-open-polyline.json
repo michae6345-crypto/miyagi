@@ -1,0 +1,35 @@
+{
+ "id": "autocad-dxf-profile-open-polyline",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: the AutoCAD toy-car profile step. The learner drew the PLINE all the way round and clicked back on the start point instead of typing C, so the LWPOLYLINE's closed flag (group 70) is 0 and its ninth vertex sits on the first. It looks closed on screen, but AutoCAD treats it as an open polyline: EXTRUDE / PRESSPULL make a surface, not a solid, and the next step fails.",
+ "step": {
+  "id": "s1",
+  "index": 1,
+  "title": "Draw the closed profile",
+  "file": "toy_car.dxf",
+  "instructions": "Type PLINE and draw the side profile of the car from the bottom-left corner, then type C and Enter to close it. Save as toy_car.dxf (SAVEAS > AutoCAD 2018 DXF).",
+  "checks": [
+   {
+    "id": "s1c1",
+    "type": "file_contains",
+    "label": "Profile is a closed polyline",
+    "file": "toy_car.dxf",
+    "pattern": "\\bLWPOLYLINE\\b"
+   },
+   {
+    "id": "s1c2",
+    "type": "file_contains",
+    "label": "Roof is 45 mm high",
+    "file": "toy_car.dxf",
+    "pattern": "\\b45(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n2\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nBODY\n90\n9\n70\n0\n10\n0.0\n20\n0.0\n10\n120.0\n20\n0.0\n10\n120.0\n20\n28.0\n10\n84.0\n20\n28.0\n10\n66.0\n20\n45.0\n10\n30.0\n20\n45.0\n10\n18.0\n20\n28.0\n10\n0.0\n20\n28.0\n10\n0.0\n20\n0.0\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}

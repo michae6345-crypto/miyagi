@@ -1,0 +1,32 @@
+{
+ "id": "vscode-tsshop-t2-edited-pages-cart",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Quick Open picked src/pages/Cart.tsx (the checkout page) instead of src/components/Cart.tsx: the breadcrumb says src > pages > Cart.tsx. The import ('../utils' resolves from pages/ too) and formatPrice(item.price) are in the page's order summary, while the cart list in components/Cart.tsx, the file the step names, still prints raw cents.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "export function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{item.name}: <span>{item.price}</span></li>)}</ul>)\n}\n",
+   "shop/src/pages/Cart.tsx": "import { formatPrice } from '../utils'\nimport { Cart } from '../components/Cart'\n\nexport default function CartPage({ items }: CartProps) {\n  return (\n    <main>\n      <Cart items={items} />\n      {items.map(item => <p key={item.id}>{formatPrice(item.price)}</p>)}\n    </main>\n  )\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "src > pages > Cart.tsx",
+    "import { formatPrice } from '../utils'",
+    "import { Cart } from '../components/Cart'",
+    "export default function CartPage({ items }: CartProps) {",
+    "<Cart items={items} />",
+    "{items.map(item => <p key={item.id}>{formatPrice(item.price)}</p>)}",
+    "⊗ 0 ⚠ 0"
+   ]
+  }
+ }
+}

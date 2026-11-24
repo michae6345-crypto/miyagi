@@ -1,0 +1,91 @@
+{
+ "id": "jupyter-pytorch-sine-val-nan-empty-split",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "PyTorch plan, sine-wave project. The learner cut the data to 800 points (linspace(..., 800), randperm(800)) but kept X_train = x[perm[:800]] and X_val = x[perm[800:]]: the validation set is empty, and MSELoss on an empty tensor is NaN. Every row prints 'val nan' while the training loss falls 0.4983 -> 0.0900, so the cell looks healthy at a glance. There is no validation loss at all, let alone one below a quarter of its first value.",
+ "step": {
+  "id": "ptpj3",
+  "title": "Train the sine model and watch the validation loss",
+  "instructions": "In sine.ipynb, train for 300 epochs from train_loader. After each epoch, compute the loss on the 200 validation points under torch.no_grad() and print every 10th epoch as 'epoch N train T val V'. The validation loss should end below a quarter of its first value.",
+  "file": "sine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "sine.ipynb",
+    "match": "with torch.no_grad():",
+    "caption": "Validation loss, no gradients"
+   }
+  ],
+  "code": "for epoch in range(300):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n    model.eval()\n    with torch.no_grad():\n        val = loss_fn(model(X_val), y_val).item()\n    if epoch % 10 == 0:\n        print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+  "checks": [
+   {
+    "id": "ptpj3c1",
+    "type": "screen_contains",
+    "label": "Validation loss computed without gradients",
+    "app": "Code",
+    "pattern": "torch\\.no_grad\\(\\)"
+   },
+   {
+    "id": "ptpj3c2",
+    "type": "metric_trend",
+    "label": "The validation loss falls",
+    "metric": "val_loss",
+    "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+train\\s+[0-9.eE+-]+\\s+val\\s+(?P<value>[0-9.eE+-]+)",
+    "trend": "decreasing",
+    "window": 300
+   },
+   {
+    "id": "ptpj3c3",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "sine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\nfrom torch.utils.data import TensorDataset, DataLoader\n\ntorch.manual_seed(0)\nx = torch.linspace(-3.14, 3.14, 800).unsqueeze(1)\ny = torch.sin(x) + 0.3 * torch.randn_like(x)\nperm = torch.randperm(800)\nX_train, y_train = x[perm[:800]], y[perm[:800]]\nX_val, y_val = x[perm[800:]], y[perm[800:]]\ntrain_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=32, shuffle=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "model = nn.Sequential(nn.Linear(1, 64), nn.Tanh(), nn.Linear(64, 64), nn.Tanh(), nn.Linear(64, 1))\nloss_fn = nn.MSELoss()\noptimizer = torch.optim.Adam(model.parameters(), lr=0.003, weight_decay=1e-4)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "for epoch in range(300):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n    model.eval()\n    with torch.no_grad():\n        val = loss_fn(model(X_val), y_val).item()\n    if epoch % 10 == 0:\n        print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+       "stdout": "epoch 0 train 0.4983 val nan\nepoch 10 train 0.3712 val nan\nepoch 20 train 0.2655 val nan\nepoch 30 train 0.1902 val nan\nepoch 40 train 0.1376 val nan\nepoch 50 train 0.1180 val nan\nepoch 60 train 0.1062 val nan\nepoch 70 train 0.1003 val nan\nepoch 80 train 0.0971 val nan\nepoch 90 train 0.0952 val nan\nepoch 100 train 0.0940 val nan\nepoch 110 train 0.0931 val nan\nepoch 120 train 0.0925 val nan\nepoch 130 train 0.0921 val nan\nepoch 140 train 0.0917 val nan\nepoch 150 train 0.0914 val nan\nepoch 160 train 0.0912 val nan\nepoch 170 train 0.0910 val nan\nepoch 180 train 0.0908 val nan\nepoch 190 train 0.0907 val nan\nepoch 200 train 0.0906 val nan\nepoch 210 train 0.0905 val nan\nepoch 220 train 0.0904 val nan\nepoch 230 train 0.0903 val nan\nepoch 240 train 0.0902 val nan\nepoch 250 train 0.0902 val nan\nepoch 260 train 0.0901 val nan\nepoch 270 train 0.0901 val nan\nepoch 280 train 0.0900 val nan\nepoch 290 train 0.0900 val nan\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "sine.ipynb",
+    "model.eval()",
+    "with torch.no_grad():",
+    "val = loss_fn(model(X_val), y_val).item()",
+    "if epoch % 10 == 0:",
+    "print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+    "epoch 230 train 0.0903 val nan",
+    "epoch 240 train 0.0902 val nan",
+    "epoch 250 train 0.0902 val nan",
+    "epoch 260 train 0.0901 val nan",
+    "epoch 270 train 0.0901 val nan",
+    "epoch 280 train 0.0900 val nan",
+    "epoch 290 train 0.0900 val nan"
+   ]
+  }
+ }
+}

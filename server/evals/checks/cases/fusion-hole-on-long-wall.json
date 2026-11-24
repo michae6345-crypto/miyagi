@@ -1,0 +1,108 @@
+{
+ "id": "fusion-hole-on-long-wall",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Fusion lesson 7 (\"An 8 mm Hole feature goes through one short wall of the box\"). The box is 80 (X) by 50 (Y). The learner clicked the front face, a long 80 mm wall, so Hole1's axis runs along Y and its centre sits at y = -25 on that wall, not on a short wall at x = +/-40. An 8 mm Hole feature is there, in the wrong wall, where the charging cable cannot reach the board.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Place the cable hole",
+  "file": "box.design.json",
+  "instructions": "Click Hole and pick the outside face of one short wall (a 50 mm wide end of the box). Center it on that wall, set the diameter to 8 mm and the extent to the wall's 2 mm, then OK.",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Hole feature added",
+    "file": "box.design.json",
+    "pattern": "\"type\":\\s*\"Hole\""
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "8 mm across",
+    "file": "box.design.json",
+    "pattern": "\"diameter\":\\s*8(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Base",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          30.0
+         ],
+         "volume": 27911.9
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 5,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       },
+       {
+        "name": "Hole1",
+        "type": "Hole",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Hole1",
+       "type": "Hole",
+       "diameter": 8.0,
+       "extent": "distance",
+       "depth": 2.0,
+       "center": [
+        0.0,
+        -25.0,
+        15.0
+       ],
+       "axis": [
+        0.0,
+        1.0,
+        0.0
+       ],
+       "face": "Body1 face (normal 0, -1, 0)"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

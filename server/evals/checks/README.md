@@ -48,6 +48,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
       "calculator.py": "def add(a, b): ...",          // a text file
       "project1/.git": {"dir": true},                 // a folder
       "mug.scene.json": {"json": {"objects": [...]}},  // a JSON document (indent 1): a headless dump, see below
+      "base.stl": {"base64": "U1RM..."},              // a binary file, byte for byte (a binary STL)
       "mnist.ipynb": {"notebook": {"from": "server/tests/fixtures/t10_mnist.ipynb", "keep_cells": 1,
                                    "unrun": [0], "replace": [[0, "old", "new"]], "append": [cell],
                                    "counts": [16, 17, null]}},   // execution counts in cell order (run order)
@@ -72,6 +73,228 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
+
+The four round-3 case sets merged: 290 cases, 208 train + 82 held out. Every fix is general (no lesson ids, no case
+text); each has a regression test in `server/checks/tests/test_round3_fixes.py` (all 31 fail on the engine before
+these fixes). Fixed against the train cases only; the held-out cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (208), before | 0.851 | 0.802 | 0.880 | 20 | 11 |
+| train (208), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (82), before | 0.427 | 0.311 | 0.467 | 31 | 16 |
+| held-out (82), after | 0.439 | 0.318 | 0.467 | 30 | 16 |
+
+The held-out set barely moved (one case, `terminal-tsshop-t4-failing-test-skipped`, now right): the round-3 traps
+are mostly one of a kind, so a fix for one rarely covers another. Read that as the honest generalisation number.
+
+What changed (server/checks):
+
+- **Notebook kernel state** (`evaluate_gate`): `undone_setup` (a cell that changes a name, `model.fit`, ran, then a
+  cell above it that binds the name afresh ran again before the step's cell); `rerun_self_update` (a cell computing a
+  name from itself with arithmetic, `x = x.astype(...) / 255`, ran more than once since the cell that made it: the
+  counts between are on no cell); Run All fails on any cell's error output, on screen or not; `cell_not_run` trusts a
+  `[N]` run count the editor shows above the cell over an unsaved file.
+- **Metrics** (`_metric_view`, `_as_fraction`): Keras's short names (`acc`, `mse`, `mae`) read as the long ones; when
+  several step cells print the metric, only the newest-run cell counts; a single-argument print of the metric
+  (`print(history.history['accuracy'][-1])`) is its value; an accuracy-like metric against a 0..1 bar reads 1..100 as
+  a percentage and above 100 as a count (fail).
+- **Terminal** (`blocks`): a command at a continuation prompt (`dquote>`) never ran; `git config <key>` with no value
+  and no output set nothing; a `--dry-run` / `git push -n` is not the step's command; a test summary with skipped
+  tests is not "every test passes"; a commit row on another branch than the one the step's command makes, before it
+  was made, fails; a rebasing / merging `git pull` counts where "Fast-forward" is expected; a failure from before the
+  repo was set up (`git log` before the first commit, `not a git repository` before `git init`) is history once the
+  setup succeeded.
+- **Code** (`code_equiv`, `_file_contains`, `editor_problems`): a top-level def / class / assignment below
+  `from mod import name` that rebinds it; a React component whose block body holds JSX and never returns it; a
+  relative import naming the module's extension (`'../utils.ts'`) is the import without it; JSON (tsconfig) is read
+  without its comments; a TypeScript / tsc step fails while VS Code's status bar counts errors (`⊗ 1`).
+- **App files** (`model_files`): DXF claims (a profile the step closes whose polylines are all open; a dimension that
+  should read N whose group 42 measures something else); scene claims from the step's words and file-check labels
+  ("Cube at X 2", "Keys end on frame 97" for every channel, a separate object touching a part that must be one piece,
+  a Hole through a short / long wall, a component the step activates and builds a body in that has none); the last
+  key's interpolation reads as the key before it; Blender 4.x Principled BSDF names read as 3.x ones and back
+  (`transmission_weight` / `transmission`); a timeline feature's health `warning` is not an error for an "every"
+  check; G-code is an export a slicer names itself (`base_0.2mm_PLA_MK4_1h12m.gcode` for `base.gcode`).
+
+`baseline.json`: train 1.000 with no `known_wrong`; held-out 0.439 (46 known wrong, ids only).
+
+## Round 3: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r3-0`)
+
+18 new cases (12 train, 6 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s2
+load, s5 fit, s6 predict, s7 evaluate) and, inline, the step shapes earlier rounds took from Adrian's catalog plans
+(`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to Jupyter ("Run order and what the kernel keeps",
+"Restart and run all"), PyTorch ("Write the training loop", "Hold out data and measure accuracy", "Save and load a
+model", the sine-wave project's validation loss) and the MNIST "plot the training loss" step. One new inline step:
+PyTorch "Restart the kernel and load the saved model" (`pt9s3`).
+
+The traps: a normalise cell run three times (`/ 255` again each time, its own print says max `1.53787e-05`), the
+model cell re-run after training so predict ran on a fresh network (counts `[5]` model, `[4]` fit, `[6]` predict,
+no restart), held-out accuracy printed as a count (`val acc 121.0` of 200), Restart + Run All whose last cell
+raised `NameError: name 'plt'` below the fold. Done-but-odd: a NaN fit left in an old cell above a rebuilt model's
+clean refit, `metrics=['acc']` (`acc: 0.9858`), a fit that finished on screen in a notebook not saved since it was
+typed (no Cmd+S chores), `fit(..., verbose=0)` then `print(history.history['accuracy'][-1])`, an XOR loss with one
+spike that recovers, a noisy sine validation loss that ends below a quarter, goal-cell re-runs that leave count gaps.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171: 159 earlier + 12 new) | 0.953 | 0.948 | 0.948 | 4 | 4 |
+| train, the 12 new | 0.333 | | | 4 | 4 |
+| held-out (61: 55 earlier + 6 new) | 0.508 | 0.406 | 0.542 | 19 | 11 |
+| held-out, the 6 new | 0.167 | | | 3 | 2 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right):
+
+- **FP `jupyter-mnist-s2-normalize-cell-rerun`**: every s2 row is about code on screen or an error; a cell that
+  rewrites its own input (`x = x.astype(...) / 255`) run again without the cell that loads `x` is not weighed, nor
+  its printed max.
+- **FP `jupyter-mnist-s6-predict-after-model-rebuilt`**: `stale_inputs` only blames cells above with a count after
+  the step's cell; a cell that rebinds `model` (count `[5]`) after the cell that trained it (`[4]`) and before the
+  predict (`[6]`) is not seen.
+- **FP `jupyter-pytorch-val-acc-count-not-fraction`**: `metric_threshold > 0.9` takes `121.0` as an accuracy; a
+  value outside 0..1 for an accuracy (a count) is never questioned.
+- **FP `jupyter-restart-run-all-last-cell-error-offscreen`**: "No cell error after Run All" reads the screen only;
+  the notebook's own error output in its last cell is not read.
+- **FN `jupyter-mnist-s5-nan-then-rebuilt-refit`**: `_sibling_divergence` reads every output of the step's cells,
+  so the old cell's `loss: nan` fails the newer cell's clean run.
+- **FN `jupyter-mnist-s5-metrics-acc-alias`**: `accuracy:\s*...` refuses `acc: 0.9858`, so s5c3 waits forever.
+- **FN `jupyter-mnist-s5-trained-notebook-unsaved`**: `cell_not_run` trusts the saved file (no count, no output)
+  over the screen showing `[4]` and all five epochs.
+- **FN `jupyter-mnist-s5-verbose0-history-printed`**: no epoch lines, so the metric waits; the printed
+  `history.history['accuracy'][-1]` value is not read as the accuracy.
+
+Seen right (train): the XOR spike (0.2203 -> 0.4917 -> 0.0061) still reads as falling; the noisy sine validation
+loss passes; an empty validation split's `val nan` rows fail; count gaps from re-runs pass.
+
+Held-out wrong verdicts among the 6 new (ids only, all in `baseline.json` → `held_out.known_wrong`):
+`jupyter-mnist-loss-curve-from-nan-history`, `jupyter-mnist-s5-fit-on-test-set`,
+`jupyter-pytorch-sine-val-loss-not-a-quarter` (FP); `jupyter-mnist-s7-test-acc-printed-as-fraction`,
+`jupyter-pytorch-save-load-after-restart` (FN).
+## Round 3: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r3-1`)
+
+19 new cases (12 train, 7 held out), no engine change. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json`
+(t2, t3, t4) and the React/Vite lesson (s1, s3), plus inline steps in the lesson builder's shape from Adrian's catalog
+plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to TypeScript ("Set up tsconfig with strict
+on", "Read and fix type errors" with invoice.ts importing prices.ts, "Interfaces" with an F2 rename of Animal to Pet),
+Intro to VS Code ("Jump around and rename safely", as an ES module project) and React ("Split a page into
+components").
+
+Traps: an old `def add` left below `from operations import add` (the local copy shadows the import and still prints
+5), `from operator import add` (the standard library, also prints 5), a Find and Replace rename that leaves
+`operations.add(...)` in a module that isn't open, a `formatPrice(item.price)` only inside a JSX comment, the
+checkout page's Cart.tsx edited instead of the component's, a `test.only` / `test.skip` left in the Jest file
+(`2 skipped, 1 passed` / `1 skipped, 2 passed`, exit 0), a Header arrow function with a block body and no `return`,
+`// "strict": true,` commented out in a `tsc --init` tsconfig, a type error left in invoice.ts while tsc still emitted
+dist/invoice.js (the terminal cleared, `⊗ 1` in the status bar), a stale `import type { Animal }`, and an ESM import
+without `.js` (`ERR_MODULE_NOT_FOUND`). Done-but-odd: `3 passed, 1 xfailed`, `pytest -q` for `python3 -m pytest -q`,
+`'../utils.ts'` under `allowImportingTsExtensions`, `npm run preview` running after a finished build, Vitest in watch
+mode, the dev server running in another terminal tab, and three components imported through a `components/index.js`.
+
+Before any fix (the engine is the round-2 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171 = 159 + 12 new) | 0.965 | 0.937 | 0.987 | 5 | 1 |
+| train, the 12 new | 0.500 | | | 5 | 1 |
+| held-out (62 = 55 + 7 new) | 0.516 | 0.406 | 0.542 | 19 | 11 |
+| held-out, the 7 new | 0.286 | | | 3 | 2 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `terminal-tsshop-t4-test-only-left-in`**: `\d+\s+passed` finds `1 passed` and nothing reads
+  `2 skipped` or the `test.only` in the test file: a run that skipped tests is read as the whole suite.
+- **FP `vscode-pymod-m2-old-def-shadows-import`**: both code rows match; nothing notices that main.py defines `add`
+  again after importing it, so the call uses the local copy.
+- **FP `vscode-react-s3-header-body-never-returns`**: `import Header` and `<Header` are on screen; Header.jsx's arrow
+  function has a block body with no `return`, so the component renders nothing.
+- **FP `vscode-ts-invoice-type-error-left`**: dist/invoice.js exists and the total prints; the type error is gone
+  from the terminal (cleared), and invoice.ts on disk (and `⊗ 1` in the status bar) is not compared with the step's
+  code.
+- **FP `vscode-ts-tsconfig-strict-commented-out`**: `"strict"\s*:\s*true` matches inside a `//` comment of a JSONC
+  tsconfig.
+- **FN `vscode-tsshop-t2-ts-extension-import`**: `'../utils.ts'` fails the `'../utils'` pattern although the
+  project's tsconfig allows importing .ts extensions.
+
+Seen right (train): `3 passed, 1 xfailed`, bare `pytest -q`, a preview server after a build, Vitest's watch mode, a
+call only inside a JSX comment, a stale `import type`.
+
+Held-out: ids of the new wrong verdicts in `baseline.json` → `held_out.known_wrong`; not listed here on purpose.
+## Round 3: terminal and git workflows (Nov 24 2026, `claude/eng-evals-r3-2`)
+
+20 new terminal cases (13 train, 7 held out), no engine change. Steps from the Git video lesson
+(`8b6203eb5ec8c6f6`: s1 config, s2 init, s5 commit, s7 branch, s8 push, s9 pull, s10 delete), the coach eval's
+interactive-rebase lesson (s1, s3, s4), `ts-shop.json` t4 (Jest) and `py-modules.json` m5 (pytest), and, inline,
+from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`): Intro to Git and GitHub ("Set
+up Git and make a repository", "Stage and commit", "Work on a branch", "Fix a merge conflict", "Connect to GitHub
+with an SSH key") and Intro to the terminal ("Write a shell script", "Pipes and grep").
+
+The traps (typed vs run, wrong order, a command that looks like the real one): `git config` keys typed without
+values (read, not set), a commit left at zsh's `dquote>` prompt, `git push --dry-run`, a waffles commit made on main
+before `git switch -c`, a remote delete typed but not run under a local "Deleted branch" line, a rebase whose todo
+kept every `pick` (it finishes at once; the debug line stays), `git reset --hard` at an edit stop (the commit is
+dropped, not split), `git switch` without -c, "Already up to date." beside a `git show --stat` diffstat, a merge
+committed with `=======` left in the file, `> rain.txt | sort` (saved unsorted), curly quotes in `git commit -m`.
+Done-but-odd: `git init project1` from ~, a rebasing pull (no Fast-forward, no diffstat), a `git log` fatal before
+the first commit, Jest's watch menu ("Press f to run only failed tests"), PEP 668's `externally-managed-environment`
+before a venv, "permission denied" before `chmod +x`, `git init -b` unknown to an older Git, `ssh -T` exiting 1 on
+success.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (172: 159 earlier + 13 new) | 0.965 | 0.949 | 0.974 | 4 | 2 |
+| train, the 13 new | 0.538 | | | 4 | 2 |
+| held-out (62: 55 earlier + 7 new) | 0.516 | 0.412 | 0.583 | 20 | 10 |
+| held-out, the 7 new | 0.286 | | | 4 | 1 |
+
+Train wrong verdicts (all new; the 159 earlier train cases still score right): FP
+`terminal-git-s1-config-keys-without-values`, `terminal-git-s5-commit-unclosed-quote`, `terminal-git-s8-push-dry-run`,
+`terminal-gitcat-branch-commit-on-main`; FN `terminal-git-s9-pull-rebased-no-diffstat`,
+`terminal-rebase-s1-log-fatal-before-first-commit`. Held-out wrong: ids in `baseline.json` → `held_out.known_wrong`;
+not read while fixing.
+## Round 3: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r3-3`, 19 new cases, 7 held out)
+
+From Adrian's plans on `origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender`, `blender-materials`,
+`blender-animation`, `intro-fusion`, `cad-3d-printing`, each lesson's `passes` line) and
+`docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the STL reader), plus
+the AutoCAD toy-car steps as ASCII DXF. Two shapes are new: the Fusion live add-in's design JSON
+(`box.design.json`: `components` with their `bodies` and bound boxes, one `timeline` with each item's `health`,
+`features` such as a Hole's diameter, centre and axis), and binary files (`{"base64": ...}`, a binary STL as Fusion
+saves one by default). Blender 4.2 dumps read inputs by their 4.x names (`transmission_weight`); a scene with two
+cameras lists them in `cameras` and names the render camera in `scene.camera`.
+
+Traps: a handle that is a separate torus (the mug is one island, unjoined), the cube moved on Y instead of X, only
+the Z curve retimed in the Graph Editor, an open PLINE closed by clicking the start point, a dimension that measures
+102 while the body's 120 is a vertex, a Fusion lid body made in Base (Lid component empty), an 8 mm hole in a long
+wall, Depth of Field on a second camera that never renders. Done-but-odd: Transmission Weight (Blender 4.x name),
+the last key left Bezier (it shapes nothing), PrusaSlicer's default G-code names, a yellow Fusion warning (not an
+error).
+
+Before any fix (no engine change in this step; the runner learned `{"base64": ...}` files):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (171 = 159 + 12 new) | 0.936 | 0.909 | 0.946 | 7 | 4 |
+| train blender (21) | 0.762 | 0.700 | 0.778 | 3 | 2 |
+| train cad (17) | 0.647 | 0.429 | 0.600 | 4 | 2 |
+| held-out (62 = 55 + 7 new) | 0.484 | 0.382 | 0.542 | 21 | 11 |
+
+Train wrong verdicts (11 of the 12 new train cases; the 159 earlier train cases stay right):
+
+- **FP `blender-handle-separate-torus-not-joined`**: the Mug is one island; the handle is a separate Torus.
+- **FP `blender-transform-cube-moved-on-y`**: location (0, 2, 0); "a 2 in the location" is read, not the X axis.
+- **FP `blender-dopesheet-only-z-scaled`**: Z keys end on 97, the X travel keys still end on 49.
+- **FP `autocad-dxf-profile-open-polyline`**: LWPOLYLINE with group 70 = 0 passes "a closed polyline".
+- **FP `autocad-dxf-length-dimension-wrong-points`**: the DIMENSION measures 102 (group 42); 120.0 is a vertex.
+- **FP `fusion-lid-body-in-base-component`**: Base has two bodies, Lid none; both names and an 80 x 50 x 3 body exist.
+- **FP `fusion-hole-on-long-wall`**: Hole1 is 8 mm, its axis along Y (a long wall), not X.
+- **FN `blender-glass-transmission-weight-42`**: `transmission_weight: 1.0` vs a pattern on `"transmission"`.
+- **FN `blender-clock-last-key-bezier`**: CONSTANT x4 then BEZIER on the last key, which shapes no segment.
+- **FN `freecad-slicer-gcode-default-names`**: base_0.2mm_PLA_MK4_1h12m.gcode is the base's G-code.
+- **FN `fusion-timeline-fillet-warning-done`**: "every feature rebuilds" fails on a `warning` health.
+
+Held out: 7 new cases, 7 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
 ## Round 2 fixes (Nov 24 2026, `claude/eng-check-fixes-r2`)
 

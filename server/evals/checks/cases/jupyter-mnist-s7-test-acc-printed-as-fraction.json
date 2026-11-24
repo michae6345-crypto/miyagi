@@ -1,0 +1,44 @@
+{
+ "id": "jupyter-mnist-s7-test-acc-printed-as-fraction",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "MNIST s7 (evaluate on the test set; test accuracy at least 95). The learner printed the accuracy with a comma instead of the f-string: 'Accuracy of the neural network on the 10000 test images: 0.9758999943733215'. That is 97.59 percent as a fraction, from model.evaluate on test_images after a full fit, with no error. The lesson's percent formatting is cosmetic. Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 6,
+     "replace": [
+      [
+       5,
+       "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "print('Accuracy of the neural network on the 10000 test images:', test_accuracy)"
+      ],
+      [
+       5,
+       "97.59%",
+       "0.9758999943733215"
+      ]
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[21]",
+    "test_loss, test_accuracy = model.evaluate(test_images, test_labels)",
+    "print('Accuracy of the neural network on the 10000 test images:', test_accuracy)",
+    "313/313 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 324us/step - accuracy: 0.9759 - loss: 0.0811",
+    "Accuracy of the neural network on the 10000 test images: 0.9758999943733215"
+   ]
+  }
+ }
+}

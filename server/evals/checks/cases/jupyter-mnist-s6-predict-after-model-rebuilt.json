@@ -1,0 +1,53 @@
+{
+ "id": "jupyter-mnist-s6-predict-after-model-rebuilt",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "MNIST s6 (predict one digit and draw its class probabilities). After training ([4], 0.9858) the learner clicked back into the model cell and ran it again ([5]) to look at it, which builds a NEW Sequential with random weights and rebinds `model`. The predict cell then ran at [6] on that untrained network: no error, a 1/1 progress line and a Class Probability chart, but all ten bars sit near 0.1. Nothing was restarted and every count is in the kernel's history; the order says the model that predicted was never trained. Re-run the training cell, then predict.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "counts": [
+      1,
+      2,
+      5,
+      4,
+      6
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[6]",
+    "def view_classify(image, probabilities):",
+    "fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)",
+    "image, label = test_images[0], test_labels[0]",
+    "probabilities = model.predict(image.reshape(1, 28, 28, 1))",
+    "view_classify(image, probabilities[0])",
+    "1/1 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 38ms/step",
+    "Class Probability",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0.0 0.2 0.4 0.6 0.8 1.0"
+   ]
+  }
+ }
+}

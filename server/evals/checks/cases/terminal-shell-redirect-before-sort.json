@@ -1,0 +1,57 @@
+{
+ "id": "terminal-shell-redirect-before-sort",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to the terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Pipes and grep' (passes: rain.txt holds every line that mentions rain, in sorted order). The learner typed `grep -i rain notes/*.txt > rain.txt | sort`: the redirect sends grep's lines straight into rain.txt and sort gets nothing. `cat rain.txt` shows the rain lines in grep's order ('Woke to rain' before 'Afternoon rain'), not sorted. Every rain line is there, but the file isn't sorted.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Save the sorted rain lines",
+  "instructions": "In trail-log, run grep -i rain notes/*.txt | sort > rain.txt to save every line that mentions rain, sorted, into rain.txt. Then run cat rain.txt to check it.",
+  "run_command": "grep -i rain notes/*.txt | sort > rain.txt",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "| sort > rain.txt",
+    "caption": "Sort first, then save"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "rain.txt holds the rain lines",
+    "file": "trail-log/rain.txt",
+    "pattern": "rain"
+   },
+   {
+    "id": "s6c2",
+    "type": "screen_contains",
+    "label": "cat rain.txt shows the matches",
+    "app": "Terminal",
+    "pattern": "notes/\\S+\\.txt:.*rain"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Woke to rain on the tent\nAfternoon rain, trail muddy\nCamp by the river\n",
+   "trail-log/notes/day2.txt": "Light rain\nSun by noon\nSaw a heron\n",
+   "trail-log/notes/summit.txt": "Reached the summit\nRain cloud below us\nCold wind\n",
+   "trail-log/rain.txt": "notes/day1.txt:Woke to rain on the tent\nnotes/day1.txt:Afternoon rain, trail muddy\nnotes/day2.txt:Light rain\nnotes/summit.txt:Rain cloud below us\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % grep -i rain notes/*.txt > rain.txt | sort",
+    "tripi@mac trail-log % cat rain.txt",
+    "notes/day1.txt:Woke to rain on the tent",
+    "notes/day1.txt:Afternoon rain, trail muddy",
+    "notes/day2.txt:Light rain",
+    "notes/summit.txt:Rain cloud below us",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

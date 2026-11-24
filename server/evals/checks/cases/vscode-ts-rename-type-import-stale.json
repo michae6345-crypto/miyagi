@@ -1,0 +1,75 @@
+{
+ "id": "vscode-ts-rename-type-import-stale",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The interface was renamed by hand: types.ts declares Pet and roster.ts's annotation says Pet[], but roster.ts's first line is still 'import type { Animal } from './types''. tsc: TS2305 (no exported member 'Animal') and TS2304 (cannot find name 'Pet'). The type-only import is as stale as a value import would be.",
+ "step": {
+  "id": "ts7s2",
+  "title": "Rename Animal to Pet",
+  "kind": "code",
+  "instructions": "In src/types.ts, put the cursor on Animal, press F2, type Pet and press Enter. VS Code renames the interface and every use of it, in src/roster.ts too. Then run npx tsc.",
+  "file": "src/types.ts",
+  "code": "export interface Pet {\n  name: string\n  species: string\n  adopted: boolean\n}",
+  "run_command": "npx tsc",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/types.ts",
+    "match": "interface Animal",
+    "caption": "Press F2 on Animal"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts7s2c1",
+    "type": "screen_contains",
+    "label": "types.ts declares the Pet interface",
+    "app": "Code",
+    "pattern": "interface\\s+Pet\\b"
+   },
+   {
+    "id": "ts7s2c2",
+    "type": "screen_contains",
+    "label": "roster.ts types the roster as Pet[]",
+    "app": "Code",
+    "pattern": "roster\\s*:\\s*Pet\\[\\]"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "ts7s2p1",
+    "type": "file_contains",
+    "label": "roster.ts uses Pet",
+    "file": "src/roster.ts",
+    "pattern": "Pet\\[\\]"
+   }
+  ],
+  "hints": [
+   "F2 renames a symbol in every file that uses it, import lines included."
+  ],
+  "common_mistakes": [
+   "Renaming the interface by hand and leaving the old name in an import line."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "src/types.ts": "export interface Pet {\n  name: string\n  species: string\n  adopted: boolean\n}\n",
+   "src/roster.ts": "import type { Animal } from './types'\n\nconst roster: Pet[] = [\n  { name: 'Biscuit', species: 'dog', adopted: false },\n  { name: 'Mochi', species: 'cat', adopted: true },\n]\n\nfor (const pet of roster.filter(p => !p.adopted)) {\n  console.log(pet.name)\n}\n",
+   "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "types.ts",
+    "roster.ts",
+    "export interface Pet {",
+    "name: string",
+    "species: string",
+    "adopted: boolean",
+    "import type { Animal } from './types'",
+    "const roster: Pet[] = ["
+   ]
+  }
+ }
+}

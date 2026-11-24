@@ -198,9 +198,26 @@ def _mesh_size(doc: dict) -> bool:
     return changed
 
 
+def _last_key_mode(doc: dict) -> bool:
+    """A keyframe's interpolation sets the curve from that key to the next one, so the last key's mode changes nothing
+    (box-selecting all but the last key before T > Constant still makes the whole clip tick): it reads as the mode of
+    the key before it."""
+    changed = False
+    for obj in doc.get("objects") or []:
+        anim = obj.get("animation") if isinstance(obj, dict) else None
+        for fc in (anim.get("fcurves") or []) if isinstance(anim, dict) else []:
+            modes = fc.get("interpolation") if isinstance(fc, dict) else None
+            if isinstance(modes, list) and len(modes) >= 2 and len(modes) == len(fc.get("keyframes") or []) \
+                    and modes[-1] != modes[-2]:
+                modes[-1] = modes[-2]
+                changed = True
+    return changed
+
+
 def scene_view(text: str, subject_text: str = "") -> str | None:
-    """A JSON scene dump as the app evaluates it (animated channels at the current frame, materials only where faces
-    use them, a body's abandoned sketches left out, an Edit-mode step's objects at their mesh size), re-written, or
+    """A JSON scene dump as the app evaluates it (animated channels at the current frame, a curve's last key read as
+    the key before it, materials only where faces use them, a body's abandoned sketches left out, an Edit-mode step's
+    objects at their mesh size), re-written, or
     None when nothing changes (or it isn't JSON)."""
     try:
         doc = json.loads(text)
@@ -209,6 +226,7 @@ def scene_view(text: str, subject_text: str = "") -> str | None:
     if not isinstance(doc, dict):
         return None
     changed = _animated(doc)
+    changed = _last_key_mode(doc) or changed
     changed = _unused_slots(doc) or changed
     changed = _orphan_sketches(doc) or changed
     if _EDIT_MODE.search(subject_text or ""):
@@ -256,11 +274,36 @@ def _radius_diameter(node: object) -> bool:
     return changed
 
 
+# the Principled BSDF inputs Blender 4.0 renamed (3.x name: 4.x name): a lesson written for one reads a dump of the other
+_BSDF_RENAMED = {"transmission": "transmission_weight", "subsurface": "subsurface_weight", "clearcoat": "coat_weight",
+                 "clearcoat_roughness": "coat_roughness", "sheen": "sheen_weight", "specular": "specular_ior_level",
+                 "emission": "emission_color"}
+
+
+def _bsdf_names(node: object) -> bool:
+    """Each renamed Principled BSDF input under its other name too (``transmission_weight`` is ``transmission``)."""
+    changed = False
+    if isinstance(node, list):
+        for x in node:
+            changed = _bsdf_names(x) or changed
+    elif isinstance(node, dict):
+        for old, new in _BSDF_RENAMED.items():
+            for a, b in ((old, new), (new, old)):
+                if a in node and b not in node:
+                    node[b] = node[a]
+                    changed = True
+        for x in list(node.values()):
+            if isinstance(x, (list, dict)):
+                changed = _bsdf_names(x) or changed
+    return changed
+
+
 def alt_views(text: str) -> list[str]:
     """The same JSON scene written the other ways a step's numbers may be read (a second chance for a pattern): an
-    applied scale as the primitive's scale (a 1 m sphere is a 2 m UV sphere at scale 0.5), a Radius as its Diameter."""
+    applied scale as the primitive's scale (a 1 m sphere is a 2 m UV sphere at scale 0.5), a Radius as its Diameter,
+    a Principled BSDF input under its Blender 3.x / 4.x name."""
     out = []
-    for f in (_applied_scale, _radius_diameter):
+    for f in (_applied_scale, _radius_diameter, _bsdf_names):
         try:
             doc = json.loads(text)
         except ValueError:
@@ -288,9 +331,12 @@ def _factor(word: str) -> float | None:
 
 
 def claims(text: str, doc: dict) -> list[str]:
-    """What the step's own words compare between two named entries of a dump ("the Key at least twice the Fill's
-    power") that the dump contradicts: ["Key's energy 400 is not at least 2 times Fill's 300"]."""
-    out: list[str] = []
+    """What the step's own words say about the scene that the dump contradicts: a comparison between two named entries
+    ("the Key at least twice the Fill's power": ["Key's energy 400 is not at least 2 times Fill's 300"]), an object's
+    place on one axis ("Cube at X 2"), where every key of a curve ends ("Keys end on frame 97"), a part that must be
+    one piece with what it touches, which wall a hole goes through, and a component the step builds a body in."""
+    out: list[str] = [*_axis_claims(text, doc), *_key_end_claims(text, doc), *_one_piece_claims(text, doc),
+                      *_wall_claims(text, doc), *_component_claims(text, doc)]
     for entries in _named_lists(doc).values():
         by_name = {e["name"]: e for e in entries}
         for a, ea in by_name.items():
@@ -311,6 +357,213 @@ def claims(text: str, doc: dict) -> list[str]:
                     ok = va >= n * vb - 1e-9 if m.group(1).lower() == "least" else va <= n * vb + 1e-9
                     if not ok:
                         out.append(f"{a}'s {key} {va:g} is not at {m.group(1).lower()} {n:g} times {b}'s {vb:g}")
+    return out
+
+
+_AXES = "XYZ"
+
+
+def _objects(doc: dict) -> list[dict]:
+    return [o for o in doc.get("objects") or [] if isinstance(o, dict) and isinstance(o.get("name"), str)]
+
+
+def _axis_claims(text: str, doc: dict) -> list[str]:
+    """"Cube at X 2": the named object's location on that axis is 2 (G Y 2 put the 2 on the wrong axis)."""
+    out = []
+    for o in _objects(doc):
+        loc = o.get("location")
+        if not (isinstance(loc, list) and len(loc) == 3 and all(_num(v) for v in loc)):
+            continue
+        rx = re.compile(rf"(?<!\w){re.escape(o['name'])}(?!\w)\s+(?:is\s+|sits\s+|now\s+)?at\s+([XYZ])\s*=?\s*"
+                        rf"(-?\d+(?:\.\d+)?)(?!\.?\d)", re.I)
+        for m in rx.finditer(text):
+            k, want = _AXES.index(m.group(1).upper()), float(m.group(2))
+            if abs(float(loc[k]) - want) > 1e-3:
+                out.append(f"{o['name']} is at {m.group(1).upper()} {float(loc[k]):g}, not {want:g} "
+                           f"(location {', '.join(f'{v:g}' for v in loc)})")
+    return out
+
+
+_KEYS_END = re.compile(r"\bkey(?:s|frames?)\b[^.;]{0,30}?\bend\w*\s+(?:on|at)\s+frame\s+(\d+)", re.I)
+
+
+def _key_end_claims(text: str, doc: dict) -> list[str]:
+    """"Keys end on frame 97": every animated channel of the step's objects ends there (scaling only the Z channel in
+    the Graph Editor leaves the X travel ending on frame 49)."""
+    out = []
+    for m in _KEYS_END.finditer(text):
+        end = float(m.group(1))
+        animated = [o for o in _objects(doc) if isinstance(o.get("animation"), dict)]
+        named = [o for o in animated if _word_in(o["name"], text)] or animated
+        for o in named:
+            for fc in o["animation"].get("fcurves") or []:
+                frames = [float(k[0]) for k in (fc.get("keyframes") or []) if isinstance(fc, dict)
+                          and isinstance(k, (list, tuple)) and k and _num(k[0])]
+                if frames and abs(max(frames) - end) > 1e-3:
+                    ch = f"{fc.get('data_path')}[{fc.get('index')}]" if fc.get("index") is not None \
+                        else str(fc.get("data_path"))
+                    out.append(f"{o['name']}'s {ch} keys end on frame {max(frames):g}, not {end:g}: select all of its "
+                               f"keys before scaling")
+                    break
+    return out
+
+
+_ONE_PIECE = re.compile(r"\bone\s+(?:piece|mesh|object)\b|\bjoin(?:s|ed)?\b", re.I)
+
+
+def _box(o: dict, widest: bool) -> list[tuple[float, float]] | None:
+    loc, dims = o.get("location"), o.get("dimensions")
+    if not (isinstance(loc, list) and isinstance(dims, list) and len(loc) == 3 == len(dims)
+            and all(_num(v) for v in loc + dims)):
+        return None
+    half = [max(dims) / 2] * 3 if widest else [d / 2 for d in dims]
+    return [(c - h * 1.1, c + h * 1.1) for c, h in zip(loc, half)]
+
+
+def _one_piece_claims(text: str, doc: dict) -> list[str]:
+    """A step whose part must be one piece with the object it is about ("the handle joins the mug", "Mug is one
+    piece"), where another mesh object the step never names touches that object: it is a separate object pushed
+    against it (a Torus for a handle), not part of its mesh. A flat object (a floor plane) is never such a part."""
+    if not _ONE_PIECE.search(text):
+        return []
+    meshes = [o for o in _objects(doc) if str(o.get("type") or "MESH") == "MESH"]
+    subjects = [o for o in meshes if _word_in(o["name"], text)]
+    out = []
+    for o in meshes:
+        dims = o.get("dimensions")
+        if o in subjects or not isinstance(dims, list) or not all(_num(d) and d > 0 for d in dims):
+            continue
+        ob = _box(o, widest=True)
+        for subj in subjects:
+            sb = _box(subj, widest=False)
+            if ob and sb and all(a0 <= b1 and b0 <= a1 for (a0, a1), (b0, b1) in zip(ob, sb)):
+                out.append(f"{o['name']} is a separate object against {subj['name']}, not part of its mesh: build it "
+                           f"from {subj['name']}'s own faces in Edit mode (or join it, Ctrl+J)")
+                break
+    return out
+
+
+_WALL = re.compile(r"\b(short|long)(?:er)?\s+(?:wall|side|end|face)s?\b", re.I)
+
+
+def _walk(node: object):
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from _walk(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _walk(v)
+
+
+def _wall_claims(text: str, doc: dict) -> list[str]:
+    """"Pick the outside face of one short wall": a Hole's axis runs along the body's long side through a short wall
+    (and across it through a long wall). The body is the largest bounding box in the design."""
+    m = _WALL.search(text)
+    if not m:
+        return []
+    boxes = [n["bound_box"] for n in _walk(doc) if isinstance(n.get("bound_box"), list) and len(n["bound_box"]) >= 2
+             and all(_num(v) for v in n["bound_box"][:2])]
+    if not boxes:
+        return []
+    bx = max(boxes, key=lambda b: b[0] * b[1])
+    if abs(bx[0] - bx[1]) < 1e-6:
+        return []
+    long_axis = 0 if bx[0] > bx[1] else 1
+    want = long_axis if m.group(1).lower() == "short" else 1 - long_axis
+    out = []
+    for n in _walk(doc):
+        axis = n.get("axis")
+        if str(n.get("type") or "").lower() != "hole" or not (isinstance(axis, list) and len(axis) >= 2
+                                                             and all(_num(v) for v in axis[:2])):
+            continue
+        k = 0 if abs(axis[0]) >= abs(axis[1]) else 1
+        if abs(axis[k]) > 1e-6 and k != want:
+            side = "long" if m.group(1).lower() == "short" else "short"
+            out.append(f"{n.get('name') or 'the hole'} goes through a {side} wall (its axis runs along "
+                       f"{_AXES[k]}, across the {bx[1 - k]:g} mm side), not a {m.group(1).lower()} one")
+    return out
+
+
+_BUILDS_BODY = re.compile(r"\bactivat\w*\b|\bnew\s+body\b|\bextrud\w*\b", re.I)
+
+
+def _component_claims(text: str, doc: dict) -> list[str]:
+    """A component the step names and builds a body in ("activate the Lid component ... extrude ... into a new body")
+    that has no body: the extrude went into another component (the one still active)."""
+    if not _BUILDS_BODY.search(text):
+        return []
+    out = []
+    for c in doc.get("components") or []:
+        if isinstance(c, dict) and isinstance(c.get("name"), str) and isinstance(c.get("bodies"), list) \
+                and not c["bodies"] and _word_in(c["name"], text) \
+                and re.search(rf"\bactivat\w*\b[^.]{{0,60}}(?<!\w){re.escape(c['name'])}(?!\w)|"
+                              rf"(?<!\w){re.escape(c['name'])}(?!\w)[^.]{{0,40}}\bactiv", text, re.I):
+            out.append(f"{c['name']} has no body: the new body went into another component (activate {c['name']} "
+                       f"first, then extrude)")
+    return out
+
+
+# ---------------------------------------------------------------- ASCII DXF: what the drawing is
+
+def _dxf_entities(raw: str) -> list[tuple[str, list[tuple[int, str]]]]:
+    """The ENTITIES section of an ASCII DXF: (type, [(group code, value), ...]) per entity."""
+    lines = raw.splitlines()
+    pairs = []
+    for k in range(0, len(lines) - 1, 2):
+        try:
+            pairs.append((int(lines[k].strip()), lines[k + 1].strip()))
+        except ValueError:
+            return []
+    out: list[tuple[str, list[tuple[int, str]]]] = []
+    inside = False
+    for k, (code, val) in enumerate(pairs):
+        if code == 2 and k and pairs[k - 1] == (0, "SECTION"):
+            inside = val == "ENTITIES"
+            continue
+        if not inside:
+            continue
+        if code == 0:
+            if val in ("ENDSEC", "EOF"):
+                inside = False
+                continue
+            out.append((val, []))
+        elif out:
+            out[-1][1].append((code, val))
+    return out
+
+
+def _dxf_float(groups: list[tuple[int, str]], code: int) -> float | None:
+    for c, v in groups:
+        if c == code:
+            try:
+                return float(v)
+            except ValueError:
+                return None
+    return None
+
+
+_CLOSE_WORDS = re.compile(r"\bclosed?\b", re.I)
+_READS = re.compile(r"\b(?:reads?|measures?|shows?)\s+(\d+(?:\.\d+)?)\b", re.I)
+
+
+def dxf_claims(text: str, raw: str) -> list[str]:
+    """What the step's own words say about an ASCII DXF drawing that the drawing contradicts: a profile it closes
+    ("type C to close it") whose polylines are all open (group 70's closed bit is 0: clicking back on the start point
+    is not closing it), and a dimension that should read a length (group 42, what it measures) when every dimension
+    measures something else."""
+    ents = _dxf_entities(raw)
+    out = []
+    polys = [g for t, g in ents if t in ("LWPOLYLINE", "POLYLINE")]
+    if polys and _CLOSE_WORDS.search(text) and not any(int(_dxf_float(g, 70) or 0) & 1 for g in polys):
+        out.append("the polyline is open (its closed flag is off): clicking back on the first point doesn't close it; "
+                   "finish PLINE with C")
+    dims = [g for t, g in ents if t == "DIMENSION"]
+    if dims and re.search(r"\bdimension", text, re.I) and (m := _READS.search(text)):
+        want = float(m.group(1))
+        got = [v for g in dims if (v := _dxf_float(g, 42)) is not None]
+        if got and not any(abs(v - want) <= max(0.01, want * 1e-4) for v in got):
+            out.append(f"the dimension measures {got[-1]:g}, not {want:g}: pick the two corners it should span")
     return out
 
 
@@ -358,12 +611,19 @@ def every_instance(check: dict, text: str, rx: re.Pattern[str]) -> str | None:
     if not m:
         return None
     key = re.compile(rf'"{re.escape(m.group(1))}"\s*:')
+    # a feature's health "warning" (Fusion turns it yellow: computed, with a note) is not an error, unless the check is
+    # about warnings
+    warn_ok = m.group(1).lower() in _HEALTH_KEYS and not re.search(r"warn", f"{check.get('label')} {check.get('pattern')}",
+                                                                 re.I)
     for k in key.finditer(text):
         end = text.find("\n", k.start())
         item = text[k.start():len(text) if end < 0 else end]
-        if not rx.match(item):
+        if not rx.match(item) and not (warn_ok and re.search(r':\s*"warning"', item, re.I)):
             return f"{item.strip().rstrip(',')} at line {text.count(chr(10), 0, k.start()) + 1}"
     return None
+
+
+_HEALTH_KEYS = frozenset({"health", "status", "state"})
 
 
 # ---------------------------------------------------------------- exports with nothing in them

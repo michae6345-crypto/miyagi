@@ -1,0 +1,260 @@
+{
+ "id": "blender-dopesheet-only-z-scaled",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 7 (\"The ball's keyframes span 96 frames, twice the 48 they spanned before\"). The learner scaled in the Graph Editor with only the Z Location channel selected, so the bounce keys now run from frame 1 to 97 but the X travel keys still end on frame 49. The ball slides to its end spot by frame 49 and bounces in place for the second half. A key on frame 97 is there and End is 97; the whole animation was not retimed.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Scale the timing",
+  "file": "bounce.blend",
+  "instructions": "In the Dope Sheet, put the playhead on frame 1, select all of the ball's keyframes (A) and press S 2 Enter so the bounce takes twice as long. Set End to 97, play it back and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Keys end on frame 97 (96 frames)",
+    "file": "bounce.scene.json",
+    "pattern": "\\[\\s*97(?:\\.0+)?,"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "End frame 97",
+    "file": "bounce.scene.json",
+    "pattern": "\"frame_end\":\\s*97\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "bounce.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see bounce.scene.json)\n",
+   "bounce.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "bounce.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 97,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1
+     },
+     "objects": [
+      {
+       "name": "Ball",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        3.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "BallAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 0,
+          "keyframes": [
+           [
+            1.0,
+            0.0
+           ],
+           [
+            49.0,
+            6.0
+           ]
+          ],
+          "interpolation": [
+           "LINEAR",
+           "LINEAR"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            3.0
+           ],
+           [
+            17.0,
+            0.5
+           ],
+           [
+            41.0,
+            2.0
+           ],
+           [
+            65.0,
+            0.5
+           ],
+           [
+            81.0,
+            1.2
+           ],
+           [
+            97.0,
+            0.5
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Floor",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        20.0,
+        20.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 4,
+        "edges": 4,
+        "faces": 1,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

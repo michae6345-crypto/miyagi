@@ -19,6 +19,7 @@ No model call, no network, no screen: pure functions on files written to a temp 
 """
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import math
@@ -181,7 +182,8 @@ def _cell(c: dict, n: int) -> dict:
 def build_workdir(files: dict[str, Any], root: Path) -> None:
     """Write the case's lesson folder: a str is a text file, {"notebook": {...}} an .ipynb, {"dir": true} a folder,
     {"json": <value>} a JSON document (indent 1, as a headless dump script prints it: the bpy / FreeCAD facts of a
-    saved .blend / .FCStd, recorded as a fixture)."""
+    saved .blend / .FCStd, recorded as a fixture), {"base64": str} a binary file written byte for byte (a binary
+    STL, as CAD apps export one by default)."""
     for rel, spec in (files or {}).items():
         p = root / rel
         if os.path.isabs(rel) or ".." in Path(rel).parts:
@@ -194,10 +196,13 @@ def build_workdir(files: dict[str, Any], root: Path) -> None:
             p.write_text(json.dumps(_notebook(spec["notebook"])), encoding="utf-8")
         elif isinstance(spec, dict) and "json" in spec:
             p.write_text(json.dumps(spec["json"], indent=1) + "\n", encoding="utf-8")
+        elif isinstance(spec, dict) and isinstance(spec.get("base64"), str):
+            p.write_bytes(base64.b64decode(spec["base64"], validate=True))
         elif isinstance(spec, str):
             p.write_text(spec, encoding="utf-8")
         else:
-            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}}, {{'json': ...}} or {{'dir': true}}")
+            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}}, {{'json': ...}}, {{'base64': ...}} "
+                             f"or {{'dir': true}}")
 
 
 def _num(v: Any) -> float:

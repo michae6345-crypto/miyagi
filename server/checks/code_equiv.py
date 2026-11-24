@@ -121,6 +121,12 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
                 extra.append(f"import {{ {name} }} from {q}{path}{q}")
                 if local != name:
                     body = _rename(body, local, name)
+        bare = _without_script_ext(path)
+        if bare is not None:  # '../utils.ts' / './Header.jsx' is the module '../utils' / './Header'
+            if default and default != "type":
+                extra.append(f"import {default} from {q}{bare}{q}")
+            for name, _ in _names(named or ""):
+                extra.append(f"import {{ {name} }} from {q}{bare}{q}")
         if star:
             for f in sorted(set(re.findall(rf"(?<![\w.$]){re.escape(star)}\.(\w+)", text))):
                 extra.append(f"import {{ {f} }} from {q}{path}{q}")
@@ -140,6 +146,16 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
             for name, _ in _names(m.group(2) or ""):
                 extra.append(f"import {{ {name} }} from {q}{rel}{q}")
     return body + ("\n" + "\n".join(extra) if extra else "")
+
+
+_SCRIPT_EXT = re.compile(r"\.(?:[cm]?[jt]sx?)$")
+
+
+def _without_script_ext(spec: str) -> str | None:
+    """A relative import spec without its script extension (``../utils.ts`` -> ``../utils``), else None."""
+    if not spec.startswith(".") or not _SCRIPT_EXT.search(spec):
+        return None
+    return _SCRIPT_EXT.sub("", spec)
 
 
 _JS_BOUND_FN = re.compile(r"^[ \t]*(?:export[ \t]+)?(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*(?::[^=\n]+)?=[ \t]*"
@@ -324,7 +340,37 @@ def _py_broken(path: Path, root: Path, text: str) -> list[str]:
             if (mod.parent / name).is_dir() or (mod.parent / f"{name}.py").is_file():
                 continue  # a submodule of a package
             out.append(f"{path.name} imports {name} from {mod.name}, which doesn't define it")
+    out += _py_shadowed(path, root, text)
     out += _py_not_imported(path, root, text)
+    return out
+
+
+def _py_shadowed(path: Path, root: Path, text: str) -> list[str]:
+    """A name the file imports from one of the lesson's own modules and then binds again itself further down (the old
+    ``def add(a, b)`` left below ``from operations import add``): every use after that is the file's own copy, not the
+    module's."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError):
+        return []
+    out = []
+    for k, stmt in enumerate(tree.body):
+        if not isinstance(stmt, ast.ImportFrom) or not stmt.module and not stmt.level:
+            continue
+        mod = _py_module(path, root, "." * (stmt.level or 0) + (stmt.module or ""))
+        if mod is None or mod == path:
+            continue
+        for alias in stmt.names:
+            local = alias.asname or alias.name
+            for later in tree.body[k + 1:]:
+                bound = [later.name] if isinstance(later, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else \
+                    [t.id for t in later.targets if isinstance(t, ast.Name)] if isinstance(later, ast.Assign) else []
+                if local in bound:
+                    what = "def" if isinstance(later, (ast.FunctionDef, ast.AsyncFunctionDef)) else \
+                        "class" if isinstance(later, ast.ClassDef) else "assignment"
+                    out.append(f"{path.name}'s own {what} of {local} (line {later.lineno}) replaces the {local} it "
+                               f"imports from {mod.name}: delete it so the import is used")
+                    break
     return out
 
 
@@ -439,8 +485,55 @@ def _cjs_exports(text: str) -> set[str] | None:
     return names if names or objs else None
 
 
+_JS_COMPONENT = re.compile(r"^[ \t]*(?:export[ \t]+(?:default[ \t]+)?)?(?:(?:const|let|var)[ \t]+([A-Z][\w$]*)[ \t]*"
+                           r"(?::[^=\n]+)?=[ \t]*(?:async[ \t]+)?(?:\([^()]*\)|[A-Za-z_$][\w$]*)[ \t]*(?::[^=\n]+)?=>"
+                           r"|function[ \t]+([A-Z][\w$]*)[ \t]*\([^()]*\)[ \t]*(?::[^{\n]+)?)\s*\{", re.M)
+_JSX_START = re.compile(r"<[A-Za-z>]")
+
+
+def _block_at(text: str, start: int) -> str | None:
+    """The text inside the braces that open at ``start`` (braces in a string aside), or None when they don't close."""
+    depth, i, quote = 0, start, ""
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                quote = ""
+        elif c in "\"'`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:i]
+        i += 1
+    return None
+
+
+def silent_components(text: str) -> list[str]:
+    """React components (a capitalised function) whose body is a block that holds JSX but never returns it
+    (``const Header = () => { <header>...</header> }``): the JSX is a statement, the component returns undefined and
+    renders nothing."""
+    out = []
+    for m in _JS_COMPONENT.finditer(text):
+        body = _block_at(text, m.end() - 1)
+        if body is None or re.search(r"\breturn\b", body):
+            continue
+        if _JSX_START.match(body.lstrip()):
+            out.append(m.group(1) or m.group(2))
+    return out
+
+
 def _js_broken(path: Path, text: str) -> list[str]:
     out = []
+    if path.suffix.lower() in (".jsx", ".tsx", ".js"):
+        for name in silent_components(text):
+            out.append(f"{name} in {path.name} never returns its JSX (its body is in {{ }} with no return), so it "
+                       f"renders nothing: return the JSX, or wrap it in ( ) instead of {{ }}")
     for m in _JS_REQUIRE.finditer(text):  # const { scale } = require('./recipe-utils')
         spec = m.group(3)
         if not spec.startswith("."):
@@ -470,6 +563,10 @@ def _js_broken(path: Path, text: str) -> list[str]:
         if exp is None:
             continue
         has_default, names = exp
+        if mod.suffix.lower() in (".jsx", ".tsx", ".js"):
+            for name in silent_components(src or ""):
+                out.append(f"{path.name} renders {name} from {mod.name}, which never returns its JSX (its body is in "
+                           f"{{ }} with no return): return the JSX, or wrap it in ( ) instead of {{ }}")
         if default and default != "type" and not has_default:
             out.append(f"{path.name} imports a default export from {mod.name}, which has none")
         for name, _ in _names(named or ""):

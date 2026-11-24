@@ -1,0 +1,36 @@
+{
+ "id": "autocad-dxf-r12-polyline-done",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done, but odd-looking: the profile is one closed polyline (flag 70 = 1, the eight profile corners) and both wheels are on WHEELS. Save As kept the file type from the learner's last laser-cutter job, AutoCAD R12/LT2 DXF ($ACADVER AC1009), and R12 has no LWPOLYLINE: the same closed polyline is written as POLYLINE + VERTEX + SEQEND. The step asks for toy_car.dxf, not a DXF version.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Profile and wheel layer",
+  "file": "toy_car.dxf",
+  "instructions": "Draw the side profile as one closed polyline (PLINE, finish with C), make a layer WHEELS and put both wheel circles on it. Save the drawing as toy_car.dxf.",
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_contains",
+    "label": "Profile is one closed polyline",
+    "file": "toy_car.dxf",
+    "pattern": "\\bLWPOLYLINE\\b"
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "Wheels on the WHEELS layer",
+    "file": "toy_car.dxf",
+    "pattern": "\\bWHEELS\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n3\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nLAYER\n2\nWHEELS\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nPOLYLINE\n8\nBODY\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n1\n0\nVERTEX\n8\nBODY\n10\n0.0\n20\n0.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n120.0\n20\n0.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n120.0\n20\n28.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n84.0\n20\n28.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n66.0\n20\n45.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n30.0\n20\n45.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n18.0\n20\n28.0\n30\n0.0\n0\nVERTEX\n8\nBODY\n10\n0.0\n20\n28.0\n30\n0.0\n0\nSEQEND\n8\nBODY\n0\nCIRCLE\n8\nWHEELS\n10\n25.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nCIRCLE\n8\nWHEELS\n10\n95.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}

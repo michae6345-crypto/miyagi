@@ -1,0 +1,79 @@
+{
+ "id": "jupyter-order-goal-rerun-twice",
+ "kind": "jupyter",
+ "trap": "none",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "Intro to Jupyter, 'Run order and what the kernel keeps' (the last output compares the steps against the new goal of 8000). The learner changed the goal, ran the goal cell, mistyped 80000, fixed it and ran it again, then ran the compare cell: counts [1], [5], [6] (2-4 went on earlier runs of these cells). The goal cell's last run set 8000 before the compare cell's [6], and its output reads '4 of 7 days reached the goal of 8000'. Gaps in the counts are normal re-runs. Done.",
+ "step": {
+  "id": "jup3s4",
+  "title": "Change the goal and see what the kernel keeps",
+  "instructions": "In steps.ipynb, change goal to 8000 in the second cell, then re-run it and the cell below so the last output compares the steps against the new goal.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "goal = 8000",
+    "caption": "Set the new goal, then re-run"
+   }
+  ],
+  "code": "goal = 8000",
+  "checks": [
+   {
+    "id": "jup3s4c1",
+    "type": "screen_contains",
+    "label": "Goal changed to 8000",
+    "app": "Code",
+    "pattern": "goal\\s*=\\s*8000"
+   },
+   {
+    "id": "jup3s4c2",
+    "type": "screen_contains",
+    "label": "Comparison with the new goal printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "goal\\s+of\\s+8000"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000\ndays_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 5
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 6
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[5]",
+    "goal = 8000",
+    "days_met = sum(s >= goal for s in steps)",
+    "[6]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000"
+   ]
+  }
+ }
+}

@@ -1,0 +1,59 @@
+{
+ "id": "terminal-gitcat-ssh-test-exit-1",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Connect to GitHub with an SSH key' (passes: ssh -T git@github.com greets the learner by their GitHub user name). First connection: the learner typed yes at the fingerprint question, and GitHub answered 'Hi ada-learner! You've successfully authenticated, but GitHub does not provide shell access.' ssh -T to GitHub always exits 1 (no shell), so the run reports exit code 1 on success. Done.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Test the connection",
+  "instructions": "Run ssh -T git@github.com. Type yes if it asks about github.com's fingerprint. GitHub should greet you by your user name.",
+  "run_command": "ssh -T git@github.com",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "ssh -T git@github.com",
+    "caption": "Test the key with GitHub"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "screen_contains",
+    "label": "GitHub greets you by name",
+    "app": "Terminal",
+    "pattern": "Hi\\s+\\S+!\\s+You've\\s+successfully\\s+authenticated"
+   },
+   {
+    "id": "s6c2",
+    "type": "screen_absent",
+    "label": "No permission errors",
+    "app": "Terminal",
+    "pattern": "Permission\\s+denied"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % ssh -T git@github.com",
+    "The authenticity of host 'github.com (140.82.116.3)' can't be established.",
+    "ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU.",
+    "This key is not known by any other names.",
+    "Are you sure you want to continue connecting (yes/no/[fingerprint])? yes",
+    "Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.",
+    "Hi ada-learner! You've successfully authenticated, but GitHub does not provide shell access.",
+    "tripi@mac ~ % "
+   ]
+  },
+  "run": {
+   "command": "ssh -T git@github.com",
+   "exit_code": 1,
+   "output_tail": [
+    "Hi ada-learner! You've successfully authenticated, but GitHub does not provide shell access."
+   ]
+  }
+ }
+}

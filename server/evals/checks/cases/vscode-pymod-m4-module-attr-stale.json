@@ -1,0 +1,42 @@
+{
+ "id": "vscode-pymod-m4-module-attr-stale",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "The rename was done with Find and Replace in the two open files: operations.py defines add_numbers and main.py imports and calls it (prints 5). report.py, not open, does 'import operations' and calls operations.add(10, 5): AttributeError: module 'operations' has no attribute 'add' when it runs. The step wants add renamed everywhere.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m4"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers\n\nprint(add_numbers(2, 3))\n",
+   "report.py": "import operations\n\ntotal = operations.add(10, 5)\nprint(f\"Total: {total}\")\n",
+   "test_operations.py": "from operations import add_numbers, subtract, divide\n\n\ndef test_add():\n    assert add_numbers(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "main.py",
+    "operations.py",
+    "report.py",
+    "test_operations.py",
+    "operations.py",
+    "main.py",
+    "def add_numbers(a, b):",
+    "return a + b",
+    "from operations import add_numbers",
+    "print(add_numbers(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}
