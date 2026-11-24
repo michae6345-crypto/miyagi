@@ -1089,8 +1089,8 @@ class Engine:
         if self._cloud_off is not None:
             self._cloud_off()
             self._cloud_off = None
-        if self._notice_off is not None:
-            self._notice_off()
+        if (notice_off := getattr(self, "_notice_off", None)) is not None:  # an Engine made bare in a test has none
+            notice_off()
             self._notice_off = None
         self.save_progress()
         await self.watcher.stop()
