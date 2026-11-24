@@ -1100,6 +1100,15 @@ class CloudTokenInvalid(_Model):
     reason: Literal["unknown_token"] | None = None
 
 
+class CloudNotice(_Model):
+    """cloud.notice: the cloud would not take a shared lesson build claim (401 signin_required, 429 a cap). The lesson is
+    built locally either way. Never carries the token or a user id."""
+
+    reason: str  # the cloud's error or cap name: "signin_required", "lesson_builds", "anon_daily_cap", ...
+    status: int  # its HTTP status: 401, 403 or 429
+    resets_at: str | None = None  # ISO time the cap resets, when the cloud says
+
+
 # ---------- ui-v4 (Nov 24): Adrian's v4 pages, skill tree round 3, bon. All additive; see events.ts and UI-V4.md ----------
 # Times are ISO 8601 text with the learner's UTC offset; days are the learner's local date ("2026-11-24").
 ACTIVITY_DAYS = 84  # Activity.days covers 12 weeks, ending today
@@ -1539,6 +1548,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "status": Status,
     "error": Error,
     "cloud.token_invalid": CloudTokenInvalid,
+    "cloud.notice": CloudNotice,
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
@@ -1565,7 +1575,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 EngineEventType = Literal[
     "annotate",
     "answer.delta", "answer.done",
-    "cloud.token_invalid",
+    "cloud.token_invalid", "cloud.notice",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",

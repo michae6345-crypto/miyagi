@@ -1,0 +1,187 @@
+{
+  "name": "signincard",
+  "on": {
+    "connect": "sc_connect",
+    "dev.signincard.signin": "sc_signin",
+    "dev.signincard.signin-error": "sc_signin_error",
+    "dev.signincard.anon": "sc_anon",
+    "dev.signincard.user": "sc_user",
+    "dev.signincard.daily": "sc_daily",
+    "dev.signincard.global": "sc_global",
+    "dev.signincard.builds": "sc_builds",
+    "dev.signincard.rate": "sc_rate",
+    "dev.signincard.full": "sc_full",
+    "dev.signincard.token": "sc_token"
+  },
+  "segments": {
+    "sc_connect": [
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      }
+    ],
+    "sc_building": [
+      {
+        "wait": 0,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Watching the tutorial",
+          "progress": 0.35
+        }
+      }
+    ],
+    "sc_signin": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "signin_required",
+          "status": 401
+        }
+      }
+    ],
+    "sc_signin_error": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "error",
+        "payload": {
+          "message": "Sign in to build new lessons.",
+          "notice": {
+            "reason": "signin_required",
+            "status": 401
+          }
+        }
+      }
+    ],
+    "sc_anon": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "anon_daily_cap",
+          "status": 429,
+          "resets_at": "2026-11-25T00:00:00Z"
+        }
+      }
+    ],
+    "sc_user": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "user_daily_cap",
+          "status": 429,
+          "resets_at": "2026-11-25T00:00:00Z"
+        }
+      }
+    ],
+    "sc_daily": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "daily_requests",
+          "status": 429,
+          "resets_at": "2026-11-25T00:00:00Z"
+        }
+      }
+    ],
+    "sc_global": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "daily_usd",
+          "status": 429,
+          "resets_at": "2026-11-25T00:00:00Z"
+        }
+      }
+    ],
+    "sc_builds": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "lesson_builds",
+          "status": 429,
+          "resets_at": "2026-12-01T00:00:00Z"
+        }
+      }
+    ],
+    "sc_rate": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "ip_hourly",
+          "status": 429,
+          "resets_at": "2026-11-24T22:05:00Z"
+        }
+      }
+    ],
+    "sc_full": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "new_installs",
+          "status": 429,
+          "resets_at": "2026-11-25T00:00:00Z"
+        }
+      }
+    ],
+    "sc_token": [
+      {
+        "wait": 0,
+        "goto": "sc_building"
+      },
+      {
+        "wait": 600,
+        "type": "cloud.notice",
+        "payload": {
+          "reason": "401",
+          "status": 401
+        }
+      }
+    ]
+  }
+}
