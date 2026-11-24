@@ -81,7 +81,17 @@ def reset() -> None:
 
 
 def _usable() -> bool:
-    return enabled() and time.monotonic() >= _down_until
+    return enabled() and time.monotonic() >= _down_until and not config.region_blocked(None)
+
+
+def _region(r: httpx.Response) -> bool:
+    """451 region_unavailable (the cloud's region block): tell config (no more cloud calls this run, AI calls included)
+    and the notice listeners. Never retried, never a token verdict."""
+    if r.status_code != 451:
+        return False
+    config.note_region_unavailable()
+    _announce(r)
+    return True
 
 
 def _note(what: str) -> None:
@@ -99,7 +109,7 @@ last_notice: dict | None = None
 
 def on_notice(fn: Callable[[dict], Any]) -> Callable[[], None]:
     """Hear why the cloud would not take a build claim: {"reason": "signin_required" | "lesson_builds" |
-    "anon_daily_cap" | ..., "status": 401|403|429, "resets_at"?: ISO time}. For the app to surface a sign-in prompt
+    "anon_daily_cap" | "region_unavailable" | ..., "status": 401|403|429|451, "resets_at"?: ISO time}. For the app to surface a sign-in prompt
     or a cap card. The lesson itself is built locally either way. Returns the remover."""
     _listeners.append(fn)
     return lambda: _listeners.remove(fn) if fn in _listeners else None
@@ -154,6 +164,8 @@ def _why(r: httpx.Response) -> str:
         return "sign-in required" if kind == "signin_required" else "install token not accepted"
     if r.status_code == 429:
         return "caps reached"
+    if r.status_code == 451:
+        return "not available in this region"
     return f"HTTP {r.status_code}" + (f" {kind}" if kind else "")
 
 
@@ -474,6 +486,7 @@ async def _get(vid: str) -> dict | None:
     if r.status_code == 404 and _err_kind(r) in ("lesson_not_cached", ""):
         return None
     if r.status_code != 200:
+        _region(r)
         if r.status_code >= 500 or r.status_code in (401, 403):
             _cool_down()  # a server in trouble, or a token it does not accept: nothing else would work either
         _note(_why(r))
@@ -527,6 +540,11 @@ async def claim(vid: str) -> str:
     if r.status_code == 200:
         _claimed[vid] = True
         return "ok"
+    if r.status_code == 451:
+        _claimed[vid] = False
+        _note(_why(r))
+        _region(r)
+        return "denied"
     if r.status_code in (401, 403, 429):
         _claimed[vid] = False
         _note(_why(r))
@@ -594,6 +612,7 @@ async def share(graph: dict, vid: str) -> str:
         return "stored"
     if r.status_code >= 500:
         _cool_down()
+    _region(r)
     if r.status_code in (400, 413):
         _shared.add(vid)  # the cloud will refuse it again: do not retry
     log.info("shared lesson cache: upload refused (%s); the lesson stays on this Mac", _why(r))

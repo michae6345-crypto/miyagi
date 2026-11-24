@@ -521,6 +521,10 @@ async def pick_with_outcome(frame, ocr_boxes, intent: str, *, app: str | None = 
         except Exception:  # noqa: BLE001
             return None, "error", 0.0
         return (dict(res, cached=True) if res else None), outcome, conf
+    if client is None and not api_key:
+        from server import config as server_config
+        if server_config.region_blocked("anthropic"):  # 451 region_unavailable this run: the locate path, no call
+            return None, "error", 0.0
     fut = asyncio.get_running_loop().create_future()
     _INFLIGHT[qkey] = fut
     out: tuple[dict | None, str, float] = (None, "error", 0.0)

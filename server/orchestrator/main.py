@@ -634,6 +634,7 @@ class Engine:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._cloud_off: Any = None  # removes the cloud verdict listener (watch_cloud)
         self._notice_off: Any = None  # removes the shared lesson cache notice listener (watch_cloud)
+        self._region_noticed = False  # cloud.notice region_unavailable goes out once per engine run
         self._cloud_tasks: set[asyncio.Task] = set()
         self._screen_boot: asyncio.Task | None = None
         self.hub.on_progress_event = self.forget_reads
@@ -726,9 +727,21 @@ class Engine:
             return
         if isinstance(notice.get("resets_at"), str) and notice["resets_at"]:
             payload["resets_at"] = notice["resets_at"][:40]
-        self._on_loop(lambda: self.hub.emit("cloud.notice", payload))
+        self._on_loop(lambda: self._send_notice(payload))
+
+    async def _send_notice(self, payload: dict) -> None:
+        """cloud.notice to the app. region_unavailable (451, from an AI call or the shared lesson cache): once per engine
+        run, however many calls the cloud turned away."""
+        if payload.get("reason") == "region_unavailable":
+            if getattr(self, "_region_noticed", False):
+                return
+            self._region_noticed = True
+        await self.hub.emit("cloud.notice", payload)
 
     async def _announce_cloud(self, event: dict) -> None:
+        if event.get("region"):  # 451 region_unavailable: a notice, never a token verdict (no token_invalid, no status)
+            await self._send_notice({"reason": "region_unavailable", "status": 451})
+            return
         if event.get("token_invalid"):
             await self.hub.emit("cloud.token_invalid", {"reason": "unknown_token"})  # never the token or its hash
         await self.hub.emit("config.status", key_status())

@@ -209,6 +209,8 @@ async def _call_once(mid: str, system: "str | tuple[str, ...]", prompt: "str | l
         fb = {"betas": [server_config.FALLBACK_BETA], "fallbacks": "default"}
     kwargs.update(fb)
     fast = _use_fast() and mid.startswith("claude-opus-5-5")
+    if not _override_key and server_config.region_blocked("anthropic"):  # 451 this run: the same answer, no call
+        raise RuntimeError(f"miyagi_region: {server_config.CLOUD_ERRORS['miyagi_region']}")
     api = client().beta.messages if "betas" in kwargs else client().messages
     try:
         try:
