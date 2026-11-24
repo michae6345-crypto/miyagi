@@ -69,7 +69,9 @@ const KNOWN = new Set<string>([
   'plan.proposal',
   'link.preview',
   'proof',
-  'data'
+  'data',
+  // shared lesson cache (Nov 24, contract cloud.notice): features/signincard shows the sign-in card (401) or cap line (429)
+  'cloud.notice'
 ] satisfies (keyof EngineEvents | 'config.status')[])
 
 /**
