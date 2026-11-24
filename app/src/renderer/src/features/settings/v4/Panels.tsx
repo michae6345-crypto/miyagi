@@ -7,7 +7,7 @@
  * Brand over the mock: "Connected" is a white tick and the word, never green (green only means passed); buttons are
  * the quiet outline; nothing pastel. The trim pass is kept: no Language (one option), no "Export my progress" twice.
  */
-import { ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { setPrefs, usePrefs } from '../../../core/prefs'
 import { openOnboarding } from '../../../core/surfaces'
@@ -17,7 +17,6 @@ import { keyLabel } from '../../../core/ui/Keycap'
 import { splitKeys } from './facts'
 import { planLabel } from '../../account/model'
 import { useAccount } from '../../account/store'
-import { useAuth } from '../../auth/store'
 import { BuddyPreview, BuddySwatches } from '../../buddy/ColorPicker'
 import { words as buddyWords } from '../../buddy/name'
 import { PushToTalk } from '../../ptt/SettingsRows'
@@ -25,10 +24,12 @@ import { startTour } from '../../tips/tourStore'
 import { useUpdates } from '../../updates/store'
 import { setPagePanel } from '../nav'
 import { useHealth } from '../permissions'
-import { FACTS } from '../privacy/facts'
+import { FACTS, KEYS_NO_KEYCHAIN, POLICY_LINE, ROUTE, type Fact, type FactId } from '../privacy/facts'
+import { here } from '../here'
+import { openLegal, useAuth } from '../../auth/store'
 import { SettingRowById } from '../rows'
 import { IslandRow } from '../sections/General'
-import { Group, OnWord, Plain, Row } from '../ui'
+import { Group, Note, OnWord, Plain, Row } from '../ui'
 import type { KeysView } from '../keys'
 import { DeleteAccount } from '../sections/Privacy'
 import { APP_GROUPS, APPS, appCaption, clearCache, clearHistory, size, tryInvoke, useYourData, type AppRow } from './data'
@@ -293,6 +294,55 @@ export function Data4({ live, onDeleted }: { live: boolean; onDeleted?: (v: Keys
             <Row label="Signed in as" caption={email ?? 'Not signed in'} right={account ? <Plain>{planLabel(account.plan)}</Plain> : undefined} />
             {/* The two-step confirm opens right here (it used to jump to the old Privacy page, confirm below the fold). */}
             <DeleteAccount onDeleted={onDeleted} label="Delete my account" row={`Your account, and everything ${copy.name} keeps on this Mac.`} button="Delete account" />
+          </Group>
+        </>
+      }
+    />
+  )
+}
+
+// ---- Your data › Everything miyagi sees --------------------------------------------------------------------------------
+
+/** The heading the list opens on: Content's BigHeader moves focus here, and Your data's "See the list" lands on it. */
+export const SEES_TITLE = `Everything ${copy.name} sees`
+const DURING: ReadonlyArray<FactId> = ['screen', 'code', 'editor', 'searches', 'videos']
+
+/** "‹ Your data": the way back from the list ("See the list" opens it from Your data). */
+export function BackToData(): ReactNode {
+  return (
+    <button
+      type="button"
+      data-v4-back="data"
+      className="mg-press flex w-fit cursor-pointer items-center gap-[4px] whitespace-nowrap"
+      style={{ fontSize: type2.sm, color: color.label, background: 'none', border: 0, padding: 0, minHeight: 24, marginBottom: 6 }}
+      onClick={() => setPagePanel('data')}
+    >
+      <ChevronLeft size={14} strokeWidth={1.8} aria-hidden />
+      Your data
+    </button>
+  )
+}
+
+/** Every source from privacy/facts.ts in the v4 page's two columns: what a lesson reads, then the account and this Mac. */
+export function Sees4({ secure }: { secure?: boolean }): ReactNode {
+  const row = (f: Fact): ReactNode => (
+    <Row key={f.id} label={f.label} caption={here(f.id === 'keys' && secure === false ? KEYS_NO_KEYCHAIN : f.line)} right={<Plain>{here(f.where)}</Plain>} />
+  )
+  return (
+    <Cols
+      left={
+        <>
+          <Group label="During a lesson">{FACTS.filter((f) => DURING.includes(f.id)).map(row)}</Group>
+          <div style={{ marginTop: 12 }}>
+            <Note>{here(ROUTE)}</Note>
+          </div>
+        </>
+      }
+      right={
+        <>
+          <Group label="Your account and this Mac">{FACTS.filter((f) => !DURING.includes(f.id)).map(row)}</Group>
+          <Group label="In full">
+            <Row label="Privacy policy" caption={POLICY_LINE} right={<QuietButton label="Open" onClick={() => openLegal('privacy')} />} />
           </Group>
         </>
       }

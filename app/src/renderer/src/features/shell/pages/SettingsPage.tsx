@@ -15,6 +15,7 @@ import { Content } from '../../settings/Content'
 import { setPagePanel, setQuery, useNav } from '../../settings/nav'
 import type { PanelId } from '../../settings/panels'
 import { FOOT4, NAV4, navLabel, navRowOf } from '../../settings/v4/PageNav'
+import { SEES_TITLE } from '../../settings/v4/Panels'
 import { openPage, setPage, useShell } from '../store'
 import { PageFrame, setCrumbs, setSidebarList, type SidebarList } from '../ui'
 
@@ -49,9 +50,10 @@ export function SettingsPage({ active }: { active: boolean }): ReactNode {
   }, [active, on])
   useEffect(() => {
     if (!active) return
-    setCrumbs('settings', [navLabel(on)])
+    // Your data's "See the list" (the privacy panel) sits one level under Your data, and its title says so.
+    setCrumbs('settings', panel === 'privacy' ? [navLabel(on), SEES_TITLE] : [navLabel(on)])
     return () => setCrumbs('settings', null)
-  }, [active, on])
+  }, [active, on, panel])
   return (
     <PageFrame data={{ 'data-shell-settings': panel }}>
       <div id="settings-panel" role="region" aria-label={navLabel(on)} className="min-w-0">

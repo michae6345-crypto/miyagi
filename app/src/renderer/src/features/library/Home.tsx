@@ -183,7 +183,7 @@ export function Home(): ReactNode {
   ) : undefined
   const first = sample === 'first' || (!demo && dash.load !== 'loading' && isFirstRun(data, items, extra) && !view)
   if (first) return <FirstRunPage now={now} greeting={name ? `Welcome, ${name.trim().split(/\s+/)[0]}` : 'Welcome'} ask={ask} setup={rows} notice={notice} starters={sample ? FIRST_RUN.starters : starters(new Set((v4.plans ?? []).map((p) => p.catalogId ?? p.id)))} lessons={FIRST_RUN.shortLessons} goals={FIRST_RUN.goals} />
-  const m = buildHome({ data, items, extra, now, skip, done: finishedIds(data) })
+  const m = buildHome({ data, items, extra, now, skip, done: finishedIds(data), plans: demo ? undefined : v4.plans })
   // Keep fresh: the progress's review list, else the skill graph's keepFresh (progress.graph, read-only).
   if (!demo && !m.fresh.length && graph?.keepFresh.length)
     m.fresh = graph.keepFresh.flatMap((id) => {

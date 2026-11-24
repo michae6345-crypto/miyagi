@@ -11,6 +11,7 @@ import type { Activity, LessonTool, LibraryItem, PlanState } from '../../../../.
 import { DAY_MS, dayKey, mondayOf } from '../../dashboard/model'
 import type { DashData } from '../../dashboard/types'
 import type { SkillGraph } from '../../skills/model'
+import { skillLabel } from '../../plans/catalog'
 
 // ---- the view model ------------------------------------------------------------------------------------------------
 
@@ -181,13 +182,26 @@ export function freshRows(data: DashData | undefined, now: number): FreshRow[] {
     .sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
 }
 
-/** Saved lessons ready to start, never one that's on Continue or already finished. Its tag is the first skill it teaches. */
-export function nextRows(items: LibraryItem[], data: DashData | undefined, skip: Set<string>, done: Set<string>, max = 4): NextRow[] {
+/**
+ * Saved lessons ready to start, never one that's on Continue or already finished. Its tag is the first skill it teaches:
+ * its own `teaches`, else the skillIds of the plan lesson that built it (PlanLesson.libraryId / lessonId), named by the
+ * progress graph or the catalog, the same rule as the Library's Grows column (QA R4-05).
+ */
+export function nextRows(items: LibraryItem[], data: DashData | undefined, skip: Set<string>, done: Set<string>, max = 4, plans?: PlanState[]): NextRow[] {
   const names = new Map((data?.tracks ?? []).flatMap((t) => t.skills.map((s) => [s.id, s.label] as const)))
+  const planSkills = new Map<string, string[]>()
+  for (const p of plans ?? [])
+    for (const l of p.lessons) {
+      if (!l.skillIds?.length) continue
+      if (l.libraryId) planSkills.set(l.libraryId, l.skillIds)
+      if (l.lessonId && !planSkills.has(l.lessonId)) planSkills.set(l.lessonId, l.skillIds)
+    }
+  const skillOf = (i: LibraryItem): string | undefined =>
+    (i.teaches?.length ? i.teaches : (planSkills.get(i.id) ?? [])).map((t) => names.get(t) ?? skillLabel(t)).find(Boolean)
   return items
     .filter((i) => i.ready && !i.progress && !skip.has(i.id) && !done.has(i.id))
     .slice(0, max)
-    .map((i) => ({ id: i.id, title: i.title, skill: i.teaches?.map((t) => names.get(t)).find(Boolean), meta: lessonMeta(i), cover: coverFor(i.tools) }))
+    .map((i) => ({ id: i.id, title: i.title, skill: skillOf(i), meta: lessonMeta(i), cover: coverFor(i.tools) }))
 }
 
 /** Step passes from activity.recent; with an engine before ui-v4 the finished lessons, newest first. */
@@ -276,11 +290,11 @@ export function planGoalFor(g: SkillGraph | undefined, goal: GoalView | undefine
 /** "Ends with a desk lamp, modeled and rendered" (a catalog plan's project, for Start here). */
 export const endsWith = (project: string): string => `Ends with ${lowerFirst(project)}`
 
-export function buildHome(i: { data?: DashData; items: LibraryItem[]; extra: V4Parts; now: number; skip: Set<string>; done: Set<string> }): HomeModel {
+export function buildHome(i: { data?: DashData; items: LibraryItem[]; extra: V4Parts; now: number; skip: Set<string>; done: Set<string>; plans?: PlanState[] }): HomeModel {
   const sk = skillBars(i.data)
   return {
     plans: (i.extra.plans ?? []).filter((p) => p.done < p.total),
-    next: [...nextRows(i.items, i.data, i.skip, i.done), ...(i.extra.next ?? [])].filter((r, k, all) => all.findIndex((o) => o.title === r.title) === k).slice(0, 4),
+    next: [...nextRows(i.items, i.data, i.skip, i.done, 4, i.plans),...(i.extra.next ?? [])].filter((r, k, all) => all.findIndex((o) => o.title === r.title) === k).slice(0, 4),
     passes: passRows(i.data, i.extra),
     week: weekBars(i.data, i.extra, i.now),
     stats: weekStats(i.data, i.extra, i.now),

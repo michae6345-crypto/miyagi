@@ -18,7 +18,6 @@ import { closeWindow } from '../../../core/surfaces'
 import { PrimaryButton } from '../../../core/ui/atoms'
 import { color, fill, type2 } from '../../../core/theme'
 import { Character } from '../../buddy/Character'
-import { nextLine } from '../../buddy/GrowthCard'
 import { LEVELS, progressOf, useGrowth } from '../../buddy/growth'
 import { NAME } from '../../buddy/name'
 import { continueList } from '../../dashboard/continue'
@@ -397,6 +396,13 @@ const trackLast = (t: DashTrack, passed: Map<string, number>): number | undefine
 
 // ---- the rail ---------------------------------------------------------------------------------------------------
 
+/** "24 steps grew bon. 1 more to Budding." */
+function bonLine(passed: number, name: string): string {
+  const p = progressOf(passed)
+  const grew = `${p.steps} ${p.steps === 1 ? 'step' : 'steps'} grew ${name}.`
+  return p.next ? `${grew} ${p.next.left} more to ${p.next.name}.` : `${grew} Fully grown.`
+}
+
 function Bon({ passed }: { passed: number }): ReactNode {
   const p = progressOf(passed)
   return (
@@ -412,7 +418,8 @@ function Bon({ passed }: { passed: number }): ReactNode {
       >
         {NAME ?? 'bon'} · Level {p.level}, {p.name}
       </div>
-      <div style={{ fontSize: 12.5, color: color.label, marginTop: 2 }}>{nextLine(passed)}</div>
+      {/* bon's own count (since it started growing) is not the stats' "steps passed" in all: it gets its own words (QA R4-04). */}
+      <div style={{ fontSize: 12.5, color: color.label, marginTop: 2 }}>{bonLine(passed, NAME ?? 'bon')}</div>
       {p.next && (
         <div className="flex w-full items-center justify-center gap-[8px]" style={{ marginTop: 8 }}>
           <Meter done={p.fraction * 100} total={100} width={140} />

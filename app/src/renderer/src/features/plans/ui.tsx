@@ -168,9 +168,8 @@ export function PlanCard({ plan }: { plan: CatalogPlan }): ReactNode {
       <span className="truncate" style={{ marginTop: 10, fontSize: type2.md, lineHeight: '20px', fontWeight: 600 }}>
         {plan.title}
       </span>
-      <span className="truncate" style={meta}>
-        {plan.tool.label} · {plan.lessons.length} lessons · {aboutHours(planMinutes(plan))}
-      </span>
+      {/* Wraps between its parts rather than clipping, so a narrow card keeps the plan's length (QA R4-02). */}
+      <span style={meta}>{[plan.tool.label, `${plan.lessons.length} lessons`, aboutHours(planMinutes(plan))].map((part) => part.replace(/ /g, ' ')).join(' · ')}</span>
       <span style={{ ...meta, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{endsWith(plan)}</span>
     </button>
   )
