@@ -1,0 +1,87 @@
+{
+ "id": "jupyter-pip-resolver-notice-installed",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "Intro to Jupyter plan (docs/ui-next/catalog/plans/intro-jupyter.json), 'Install a package and draw a chart' (the install half): %pip install matplotlib ran in the notebook. pip printed its resolver notice ('ERROR: pip's dependency resolver does not currently take into account ...' about jupyterlab and jupyter-lsp, a package this lesson never uses), then 'Successfully installed ... matplotlib-3.9.2'. The next cell, import matplotlib.pyplot as plt, ran with no error ([3]). matplotlib is installed in the kernel.",
+ "step": {
+  "id": "jup6s3",
+  "title": "Install matplotlib from the notebook",
+  "instructions": "In a new cell in steps.ipynb, run %pip install matplotlib and wait for 'Successfully installed'. Then run import matplotlib.pyplot as plt in the cell below.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "%pip install matplotlib",
+    "caption": "Install into the notebook's kernel"
+   }
+  ],
+  "code": "%pip install matplotlib",
+  "checks": [
+   {
+    "id": "jup6s3c1",
+    "type": "screen_contains",
+    "label": "%pip install typed",
+    "app": "Code",
+    "pattern": "%pip\\s+install\\s+matplotlib"
+   },
+   {
+    "id": "jup6s3c2",
+    "type": "screen_contains",
+    "label": "Install finished (output shown)",
+    "app": "Code",
+    "output": true,
+    "pattern": "Successfully\\s+installed|Requirement\\s+already\\s+satisfied"
+   },
+   {
+    "id": "jup6s3c3",
+    "type": "screen_absent",
+    "label": "No install errors",
+    "app": "Code",
+    "pattern": "ERROR:|Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "%pip install matplotlib",
+       "count": 2,
+       "stdout": "Collecting matplotlib\n  Downloading matplotlib-3.9.2-cp312-cp312-macosx_11_0_arm64.whl.metadata (11 kB)\nCollecting contourpy>=1.0.1 (from matplotlib)\n  Using cached contourpy-1.3.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (5.4 kB)\nCollecting cycler>=0.10 (from matplotlib)\n  Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)\nDownloading matplotlib-3.9.2-cp312-cp312-macosx_11_0_arm64.whl (7.8 MB)\nInstalling collected packages: pyparsing, pillow, kiwisolver, fonttools, cycler, contourpy, matplotlib\nERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.\njupyterlab 4.2.5 requires jupyter-lsp>=2.0.0, which is not installed.\nSuccessfully installed contourpy-1.3.1 cycler-0.12.1 fonttools-4.55.0 kiwisolver-1.4.7 matplotlib-3.9.2 pillow-11.0.0 pyparsing-3.2.0\nNote: you may need to restart the kernel to use updated packages.\n"
+      },
+      {
+       "source": "import matplotlib.pyplot as plt",
+       "run": true,
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[2]",
+    "%pip install matplotlib",
+    "Installing collected packages: pyparsing, pillow, kiwisolver, fonttools, cycler, contourpy, matplotlib",
+    "ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.",
+    "jupyterlab 4.2.5 requires jupyter-lsp>=2.0.0, which is not installed.",
+    "Successfully installed contourpy-1.3.1 cycler-0.12.1 fonttools-4.55.0 kiwisolver-1.4.7 matplotlib-3.9.2 pillow-11.0.0 pyparsing-3.2.0",
+    "Note: you may need to restart the kernel to use updated packages.",
+    "[3]",
+    "import matplotlib.pyplot as plt"
+   ]
+  }
+ }
+}

@@ -1,0 +1,92 @@
+{
+ "id": "jupyter-pytorch-sine-val-loss-overfit",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "PyTorch plan (docs/ui-next/catalog/plans/pytorch.json), project 'A model that fits a noisy sine wave' (validation loss ends below a quarter of its first value): a 3x256 network with no regularisation overfits the 800 noisy points. Validation loss falls 0.512 -> 0.091 by epoch 90, then climbs every print to 0.187 at epoch 290, while the training loss keeps falling to 0.012. 0.187 is not below 0.128 (a quarter of 0.512), and the last 200 epochs made it worse: the run overfit. Overall the column is lower than it started, but it ends rising.",
+ "step": {
+  "id": "ptpj3",
+  "title": "Train the sine model and watch the validation loss",
+  "instructions": "In sine.ipynb, train for 300 epochs from train_loader. After each epoch, compute the loss on the 200 validation points under torch.no_grad() and print every 10th epoch as 'epoch N train T val V'. The validation loss should end below a quarter of its first value.",
+  "file": "sine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "sine.ipynb",
+    "match": "with torch.no_grad():",
+    "caption": "Validation loss, no gradients"
+   }
+  ],
+  "code": "for epoch in range(300):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n    model.eval()\n    with torch.no_grad():\n        val = loss_fn(model(X_val), y_val).item()\n    if epoch % 10 == 0:\n        print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+  "checks": [
+   {
+    "id": "ptpj3c1",
+    "type": "screen_contains",
+    "label": "Validation loss computed without gradients",
+    "app": "Code",
+    "pattern": "torch\\.no_grad\\(\\)"
+   },
+   {
+    "id": "ptpj3c2",
+    "type": "metric_trend",
+    "label": "The validation loss falls",
+    "metric": "val_loss",
+    "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+train\\s+[0-9.eE+-]+\\s+val\\s+(?P<value>[0-9.eE+-]+)",
+    "trend": "decreasing",
+    "window": 300
+   },
+   {
+    "id": "ptpj3c3",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "sine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\nfrom torch.utils.data import TensorDataset, DataLoader\n\ntorch.manual_seed(0)\nx = torch.linspace(-3.14, 3.14, 1000).unsqueeze(1)\ny = torch.sin(x) + 0.3 * torch.randn_like(x)\nperm = torch.randperm(1000)\nX_train, y_train = x[perm[:800]], y[perm[:800]]\nX_val, y_val = x[perm[800:]], y[perm[800:]]\ntrain_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=32, shuffle=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "model = nn.Sequential(nn.Linear(1, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU(),\n                      nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, 1))\nloss_fn = nn.MSELoss()\noptimizer = torch.optim.Adam(model.parameters(), lr=0.003)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "for epoch in range(300):\n    model.train()\n    for xb, yb in train_loader:\n        optimizer.zero_grad()\n        loss = loss_fn(model(xb), yb)\n        loss.backward()\n        optimizer.step()\n    model.eval()\n    with torch.no_grad():\n        val = loss_fn(model(X_val), y_val).item()\n    if epoch % 10 == 0:\n        print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+       "count": 3,
+       "stdout": "epoch 0 train 0.4983 val 0.5120\nepoch 10 train 0.3712 val 0.3980\nepoch 20 train 0.2655 val 0.3010\nepoch 30 train 0.1902 val 0.2280\nepoch 40 train 0.1376 val 0.1760\nepoch 50 train 0.1011 val 0.1410\nepoch 60 train 0.0782 val 0.1180\nepoch 70 train 0.0633 val 0.1030\nepoch 80 train 0.0531 val 0.0950\nepoch 90 train 0.0462 val 0.0910\nepoch 100 train 0.0410 val 0.0930\nepoch 110 train 0.0371 val 0.0970\nepoch 120 train 0.0338 val 0.1020\nepoch 130 train 0.0311 val 0.1080\nepoch 140 train 0.0288 val 0.1130\nepoch 150 train 0.0268 val 0.1190\nepoch 160 train 0.0251 val 0.1240\nepoch 170 train 0.0236 val 0.1290\nepoch 180 train 0.0222 val 0.1350\nepoch 190 train 0.0210 val 0.1400\nepoch 200 train 0.0199 val 0.1460\nepoch 210 train 0.0189 val 0.1510\nepoch 220 train 0.0180 val 0.1560\nepoch 230 train 0.0171 val 0.1610\nepoch 240 train 0.0163 val 0.1650\nepoch 250 train 0.0155 val 0.1700\nepoch 260 train 0.0148 val 0.1740\nepoch 270 train 0.0141 val 0.1780\nepoch 280 train 0.0134 val 0.1830\nepoch 290 train 0.0121 val 0.1870\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "sine.ipynb",
+    "model.eval()",
+    "with torch.no_grad():",
+    "val = loss_fn(model(X_val), y_val).item()",
+    "if epoch % 10 == 0:",
+    "print(f'epoch {epoch} train {loss.item():.4f} val {val:.4f}')",
+    "epoch 220 train 0.0180 val 0.1560",
+    "epoch 230 train 0.0171 val 0.1610",
+    "epoch 240 train 0.0163 val 0.1650",
+    "epoch 250 train 0.0155 val 0.1700",
+    "epoch 260 train 0.0148 val 0.1740",
+    "epoch 270 train 0.0141 val 0.1780",
+    "epoch 280 train 0.0134 val 0.1830",
+    "epoch 290 train 0.0121 val 0.1870"
+   ]
+  }
+ }
+}

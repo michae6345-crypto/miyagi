@@ -37,9 +37,7 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
   "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
-  "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
-  "heldOut": false,                         // optional: true = scored apart, never used to tune the checks
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
   "step": {"lesson": "demo/cache/lessons/5c0ea8a49f419487.json", "id": "s2"},  // or an inline step with "checks"
                                             // optional "patch": {...}, "drop_checks": [ids], "adapt": true
@@ -74,6 +72,58 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 2: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r2-0`)
+
+19 new cases (12 train, 7 held out), no engine change. Steps from the MNIST video lesson (`5c0ea8a49f419487`: s5
+fit, s6 predict) and, inline, from Adrian's catalog plans (`origin/adrian/ui-next`,
+`docs/ui-next/catalog/plans/`): Intro to Jupyter ("Write notes in Markdown cells", "Help, tab completion and
+magics", "Install a package and draw a chart", "Restart and run all", "Export and share the notebook"), PyTorch
+("Write the training loop", "Hold out data and measure accuracy", "Save and load a model", the sine-wave project's
+validation loss) and scikit-learn ("Score a classifier", "Cross-validation"), plus a "plot the training loss" step
+in the MNIST lesson's shape. Cell sources in the Markdown cases are saved as VS Code saves them (a list of lines).
+
+The traps: a fit the kernel crashed in (epoch 3's 0.9771 on screen, the model gone), a fit interrupted in epoch 2,
+accuracy that peaks above the bar then collapses (no NaN), a kernel restart that skipped the training cell before
+predict (its stale `[19]` beside `[1]`-`[4]`), headings typed as `#` comments in a code cell, a second `%timeit`
+cell never run, an HTML export with no outputs whose chart title is only in the code, validation loss that falls
+then climbs (overfitting). Done-but-odd: Run All with an empty trailing cell, `###` headings and `*` bullets, a loss
+printed with `print(epoch, loss.item())`, a confusion matrix drawn with `ConfusionMatrixDisplay`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (120: 108 earlier + 12 new) | 0.925 | 0.895 | 0.944 | 6 | 3 |
+| train, the 12 new | 0.250 | | | 6 | 3 |
+| held-out (34: 27 earlier + 7 new) | 0.382 | 0.318 | 0.538 | 15 | 6 |
+| held-out, the 7 new | 0.143 | | | 3 | 3 |
+
+Train wrong verdicts (all new; the 108 earlier train cases still score right):
+
+- **FP `jupyter-mnist-s5-kernel-crashed-epoch3`**: the metric is read from the notebook's last saved epoch line;
+  "The Kernel crashed while executing code" on screen and a fit that stops at `Epoch 4/5` are never weighed.
+- **FP `jupyter-mnist-s5-keyboard-interrupt-epoch2`**: the running accuracy of a half-done epoch passes; the cell's
+  `KeyboardInterrupt` error output is not read (s5 has no error check of its own).
+- **FP `jupyter-mnist-s6-restart-skipped-fit`**: nothing compares run counts across the cells the step depends on:
+  the predict cell's `[4]` after a training cell still at `[19]` means the model that predicted was never trained.
+- **FP `jupyter-markdown-headings-in-code-cell`**: `file_contains` over the raw .ipynb finds `"# ...` / `"## ...` in a
+  code cell's source; nothing ties a Markdown pattern to a Markdown cell.
+- **FP `jupyter-timeit-second-cell-not-run`**: the step's cells are found by its target (the first `%timeit` cell);
+  the second cell of the step's own code, typed but never run, is not one of them.
+- **FP `jupyter-export-html-chart-not-run`**: "Chart in the export" matches the chart's title in the exported code;
+  an export whose cells have no outputs (`jp-mod-noOutputs`, no `<img`) passes.
+- **FN `jupyter-markdown-level3-headings`**: `##\s` refuses `### The data`; heading level is not what the step asks.
+- **FN `jupyter-pytorch-xor-loss-printed-bare`**: the loss rows `0 0.2614...` don't fit `epoch N loss V`, so the
+  trend waits forever on a finished run.
+- **FN `jupyter-sklearn-confusion-matrix-plotted`**: an output check for numpy's `[[..]]` text can't see the same
+  3 by 3 counts drawn by `ConfusionMatrixDisplay` (an image output, OCR'd as rows of numbers).
+
+Seen right (train): the collapse to 0.1062 fails on the last epoch; the overfit sine run fails its trend (0.1585 ->
+0.1675); the empty trailing cell doesn't break "Restart and run all".
+
+Held-out wrong verdicts (ids only, in `baseline.json` → `held_out.known_wrong`):
+`jupyter-pytorch-save-untrained-after-restart`, `jupyter-pytorch-val-acc-on-train-loader`,
+`jupyter-timeit-second-uses-time` (FP); `jupyter-mnist-loss-curve-pandas-plot`,
+`jupyter-pip-resolver-notice-installed`, `jupyter-sklearn-cv-kfold-object` (FN).
 
 ## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
 
