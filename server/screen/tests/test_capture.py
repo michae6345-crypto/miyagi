@@ -3,7 +3,8 @@
 On macOS 26, replayd (the daemon behind ScreenCaptureKit) can drop our connection in a loop: no
 SCK completion handler fires, and CGDisplayCreateImage (built on SCK) blocks 5 s and returns nil,
 while Apple's `screencapture` keeps working. The reader must keep producing frames through that.
-Offline unless marked `live_display` (local capture only, no network, no model calls).
+Offline and hermetic (fake frames; neither the ScreenCaptureKit binding nor Screen Recording is needed) unless marked
+`live_display`: those capture the real screen and run only with SCREEN_ALLOW_LIVE=1 (local only, no network, no models).
 """
 import logging
 import os
@@ -44,6 +45,7 @@ def no_windows(monkeypatch):
     from server.screen import macos
     monkeypatch.setattr(macos, "list_windows", lambda *a, **k: [])
     monkeypatch.setattr(macos, "has_permission", lambda: True)
+    monkeypatch.setattr(macos, "target_display_id", lambda: None)   # not this Mac's window layout
 
 
 def test_sck_stall_falls_back_to_screencapture_in_the_same_frame(monkeypatch, no_windows):
@@ -197,7 +199,59 @@ def test_screencapture_backend_live(live_display):
     assert not leftovers                 # the screenshot temp file never outlives the call
 
 
-def test_reader_produces_live_frames_whatever_sck_does(live_display):
+class _SCKOutcome:
+    """A stand-in SCKCapturer that does one of the things the real one does."""
+    excluded_apps = ("Electron",)
+    overlay_apps = ("Electron",)
+
+    def __init__(self, outcome):
+        self.outcome = outcome
+
+    def capture(self, display_id=None):
+        from server.screen import sck
+        if self.outcome == "works":
+            f = _fake_frame()
+            return f.image, f.screen, f.scale
+        raise {"stalled": sck.SCKStalled("SCShareableContent gave no answer in 1.5 s"),
+               "declined": sck.SCKDeclined("The user declined TCCs (-3801)"),
+               "failed": RuntimeError("ScreenCaptureKit capture failed: window list changed")}[self.outcome]
+
+
+@pytest.mark.parametrize("outcome", ["works", "stalled", "declined", "failed", "no_binding"])
+def test_reader_produces_live_frames_whatever_sck_does(monkeypatch, no_windows, outcome):
+    from server.screen import macos, sck
+    monkeypatch.setattr(macos, "capture_main_display_cli", _fake_frame)
+    monkeypatch.setattr(macos, "capture_main_display", lambda *a, **k: pytest.fail("screencapture works: no CG"))
+    if outcome == "no_binding":                      # a venv without pyobjc-framework-ScreenCaptureKit
+        monkeypatch.setattr(sck, "SCK", None)
+    r = _reader()
+    if outcome != "no_binding":
+        r._sck = _SCKOutcome(outcome)
+    obs = r.observe_now(force=True)
+    assert obs is not None and obs.source == "live" and r.status == "ok"
+    assert obs.capture == ("sck" if outcome == "works" else "cli")
+    assert any("def" in b.text for b in obs.blocks)
+    assert r.use_sck is (outcome != "no_binding")  # a stall, decline or failure is temporary; only no binding is final
+
+
+def test_missing_sck_binding_falls_back_for_good_and_says_so_once(monkeypatch, no_windows, caplog):
+    """No ScreenCaptureKit binding is permanent: no 10 s / 20 s ... retries, one clear warning, frames keep coming."""
+    from server.screen import macos, sck
+    monkeypatch.setattr(sck, "SCK", None)
+    with pytest.raises(sck.SCKUnavailable):
+        sck.SCKCapturer()
+    monkeypatch.setattr(macos, "capture_main_display_cli", _fake_frame)
+    r = _reader()
+    with caplog.at_level(logging.WARNING, logger="server.screen"):
+        for _ in range(3):
+            img, *_rest, source, _excluded = r._grab()
+            assert img is not None and source == "live" and r.backend == "cli"
+    assert r.use_sck is False and r._sck is None and r._sck_streak == 0 and r._sck_retry_at == 0.0
+    assert sum("ScreenCaptureKit unavailable" in m for m in caplog.messages) == 1
+    assert not any("ScreenCaptureKit failed" in m for m in caplog.messages)
+
+
+def test_reader_produces_live_frames_live(live_display):
     r = _reader()
     obs = r.observe_now(force=True)
     assert obs is not None and obs.source == "live" and obs.capture in ("sck", "cli")

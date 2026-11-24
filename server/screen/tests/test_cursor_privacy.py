@@ -58,25 +58,111 @@ def test_editor_state_line_geometry():
     assert off.rect_for_line(1) is None and off.line_at_y(10) is None
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS capture")
-def test_triggers_are_debounced(tmp_path):
+class _FakeClock:
+    """Virtual time for the reader loop: `time.time()`, the wake event and the stop event all run on it, and pokes
+    are scheduled at virtual times. No threads, no sleeping, no wall clock."""
+
+    def __init__(self, reader, pokes, until):
+        self.t, self.reader, self.until = 1000.0, reader, until
+        self.pokes = sorted(pokes)  # (virtual time, reason)
+        self.flag = self.stopped = False
+        outer = self
+
+        class _Wake:
+            def wait(self, timeout=None):
+                return outer._advance(timeout, stop_on_poke=True)
+
+            def set(self):
+                outer.flag = True
+
+            def clear(self):
+                outer.flag = False
+
+        class _Stop:
+            def wait(self, timeout=None):
+                outer._advance(timeout, stop_on_poke=False)
+                return outer.stopped
+
+            def is_set(self):
+                return outer.stopped
+
+            def set(self):
+                outer.stopped = True
+
+        self.wake, self.stop = _Wake(), _Stop()
+
+    def time(self):
+        return self.t
+
+    def _fire_due(self, end):
+        while self.pokes and self.pokes[0][0] <= end:
+            at, why = self.pokes.pop(0)
+            self.t = max(self.t, at)
+            self.reader.poke(why, force=True)  # sets self.flag through the fake wake event
+
+    def _advance(self, timeout, *, stop_on_poke):
+        if self.flag:
+            return True
+        end = self.t + (timeout or 0)
+        if stop_on_poke and self.pokes and self.pokes[0][0] <= end:
+            self._fire_due(self.pokes[0][0])
+            return True
+        self._fire_due(end)
+        self.t = end
+        if self.t >= self.until and not self.pokes:
+            self.stopped = True
+        return self.flag
+
+
+def test_triggers_are_debounced(monkeypatch):
+    """A burst of clicks right after the start capture gives one leading capture and at most one coalesced trailing
+    capture, and capture starts are >= `debounce` apart. Runs the real reader loop on a virtual clock."""
+    from server.screen import reader as reader_mod
     from server.screen.reader import ScreenReader
-    fx = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "fixtures" / "vscode_terminal_flat.png")
-    r = ScreenReader(fixture=fx, debounce=0.6, interval=30)
+
+    r = ScreenReader(fixture="unused.png", debounce=0.6, interval=30, use_ax=False, use_events=False)
+    t0 = 1000.0
+    clicks = [(t0 + 0.4 + 0.05 * k, "click") for k in range(5)]  # a burst while the start capture's OCR runs
+    clock = _FakeClock(r, clicks, until=t0 + 5)
+    monkeypatch.setattr(reader_mod, "time", clock)
+    r._wake, r._stop = clock.wake, clock.stop
     seen = []
-    # (when the capture STARTED, trigger): the debounce spaces capture starts; the first OCR is
-    # slower (Vision warm-up), so completion times can be closer together than the debounce
-    r.subscribe(lambda o: seen.append((time.time() - o.ocr_ms / 1000, o.trigger)))
-    r.start()
-    deadline = time.time() + 10   # let the start capture finish first (slow OCR under load)
-    while not seen and time.time() < deadline:
-        time.sleep(0.05)
-    time.sleep(0.1)
-    for _ in range(5):            # a burst of 5 clicks -> leading capture + one coalesced trailing capture
-        r.poke("click", force=True)
-        time.sleep(0.05)
-    time.sleep(1.2)
-    r.stop()
+
+    def observe_now(force=True, trigger="manual"):  # the capture: records its start, then "OCR" takes 0.5 s
+        r._last_capture = clock.t
+        seen.append((clock.t, trigger))
+        clock.t += 0.5
+
+    monkeypatch.setattr(r, "observe_now", observe_now)
+    r._last_tick = clock.t
+    r.poke("start", force=True)
+    r._last_capture = 0.0
+    r._run()
+
     triggers = [t for _, t in seen]
-    assert triggers[0] == "start" and 1 <= triggers.count("click") <= 2
-    assert all(b - a >= 0.55 for (a, _), (b, _) in itertools.pairwise(seen))
+    assert triggers == ["start", "click"], seen  # 5 clicks coalesced into one capture, nothing left over after it
+    assert all(b - a >= 0.6 - 1e-9 for (a, _), (b, _) in itertools.pairwise(seen)), seen
+    assert seen[1][0] == pytest.approx(t0 + 0.6)  # the trailing capture waits out the debounce, no longer
+
+
+def test_a_lone_poke_after_the_debounce_window_captures_at_once(monkeypatch):
+    from server.screen import reader as reader_mod
+    from server.screen.reader import ScreenReader
+
+    r = ScreenReader(fixture="unused.png", debounce=0.6, interval=30, use_ax=False, use_events=False)
+    t0 = 1000.0
+    clock = _FakeClock(r, [(t0 + 3.0, "click")], until=t0 + 5)
+    monkeypatch.setattr(reader_mod, "time", clock)
+    r._wake, r._stop = clock.wake, clock.stop
+    seen = []
+
+    def observe_now(force=True, trigger="manual"):
+        r._last_capture = clock.t
+        seen.append((clock.t, trigger))
+
+    monkeypatch.setattr(r, "observe_now", observe_now)
+    r._last_tick = clock.t
+    r.poke("start", force=True)
+    r._last_capture = 0.0
+    r._run()
+    assert seen == [(t0, "start"), (t0 + 3.0, "click")]

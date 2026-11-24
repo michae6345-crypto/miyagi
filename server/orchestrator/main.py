@@ -629,6 +629,7 @@ class Engine:
         self.status: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._cloud_off: Any = None  # removes the cloud verdict listener (watch_cloud)
+        self._notice_off: Any = None  # removes the shared lesson cache notice listener (watch_cloud)
         self._cloud_tasks: set[asyncio.Task] = set()
         self._screen_boot: asyncio.Task | None = None
         self.hub.on_progress_event = self.forget_reads
@@ -678,12 +679,19 @@ class Engine:
     def watch_cloud(self) -> None:
         """Install token self-heal: hear the proxy's verdicts (server_config.cloud_error, from any thread) and tell the
         apps: `cloud.token_invalid` the first time the proxy does not know the token (a 401; the app mints a new one),
-        and a fresh `config.status` (cloud: unauthorized / paused / quota) on each new verdict. Call on the loop."""
+        and a fresh `config.status` (cloud: unauthorized / paused / quota) on each new verdict. Also the shared lesson
+        cache's notices (lesson/cloud_cache.py on_notice: a build claim refused with 401 signin_required or a 429 cap):
+        `cloud.notice` for the app's sign-in card / cap line. Call on the loop."""
         self._loop = asyncio.get_running_loop()
         if self._cloud_off is None:
             self._cloud_off = server_config.on_cloud_verdict(self._on_cloud_verdict)
+        if self._notice_off is None:
+            from server.lesson import cloud_cache
 
-    def _on_cloud_verdict(self, event: dict) -> None:
+            self._notice_off = cloud_cache.on_notice(self._on_cloud_notice)
+
+    def _on_loop(self, make: Any) -> None:
+        """Run the coroutine `make()` on the engine's loop, from the loop or from any thread (sync clients, to_thread)."""
         loop = self._loop
         if loop is None or loop.is_closed():
             return
@@ -692,9 +700,23 @@ class Engine:
         except RuntimeError:
             here = False
         if here:
-            self._cloud_task(self._announce_cloud(event))
-        else:  # a worker thread (sync clients, to_thread): hop onto the engine's loop
-            asyncio.run_coroutine_threadsafe(self._announce_cloud(event), loop).add_done_callback(_log_cloud_failure)
+            self._cloud_task(make())
+        else:  # a worker thread: hop onto the engine's loop
+            asyncio.run_coroutine_threadsafe(make(), loop).add_done_callback(_log_cloud_failure)
+
+    def _on_cloud_verdict(self, event: dict) -> None:
+        self._on_loop(lambda: self._announce_cloud(event))
+
+    def _on_cloud_notice(self, notice: dict) -> None:
+        """A build claim the cloud refused: only reason, status and resets_at go to the app (never a token or a user id).
+        The lesson builds here either way, so this is the only event it makes: no `error`, no config.status."""
+        try:
+            payload: dict[str, Any] = {"reason": str(notice["reason"])[:60], "status": int(notice["status"])}
+        except (KeyError, TypeError, ValueError):
+            return
+        if isinstance(notice.get("resets_at"), str) and notice["resets_at"]:
+            payload["resets_at"] = notice["resets_at"][:40]
+        self._on_loop(lambda: self.hub.emit("cloud.notice", payload))
 
     async def _announce_cloud(self, event: dict) -> None:
         if event.get("token_invalid"):
@@ -1122,6 +1144,9 @@ class Engine:
         if self._cloud_off is not None:
             self._cloud_off()
             self._cloud_off = None
+        if (notice_off := getattr(self, "_notice_off", None)) is not None:  # an Engine made bare in a test has none
+            notice_off()
+            self._notice_off = None
         self.save_progress()
         await self.watcher.stop()
         if self._screen_boot is not None:
