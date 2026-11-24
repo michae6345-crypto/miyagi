@@ -24,7 +24,7 @@ export function SidebarBrand({ compact }: { compact: boolean }): ReactNode {
       <FlowMark size={compact ? 22 : 20} />
       {!compact && (
         <motion.span data-shell-wordmark className="flex" initial={landing ? { opacity: 0, x: -6 } : false} animate={{ opacity: 1, x: 0 }} transition={wordIn}>
-          <MiyagiWordmark height={16} className="h-[16px] w-auto" />
+          <MiyagiWordmark height={14} className="h-[14px] w-auto" />
         </motion.span>
       )}
     </>

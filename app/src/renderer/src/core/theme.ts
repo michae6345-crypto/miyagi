@@ -142,6 +142,24 @@ const palette: Record<string, readonly [string, string]> = {
   'l-border': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
   // The fine dot grid on the content pane (PR #242). Neutral and quiet; PANEL fades it out away from the top.
   'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.06)`],
+  // ---- v4 frame (Adrian's ui-next mock, Nov 23: docs/ui-next/mock/app.css, its paper-cream variant) ----
+  // The sidebar and the page share one tone (cream in light, the pane gray in dark) with a hairline between them; the
+  // hairline, hover, selected-row, fill and track steps are the mock's warm-ink alphas. Read through `v4c` below.
+  // Dark: the sidebar sits one step above the page like the mock's (rgb 32,31,29 over 25,24,22), held at #1D1D1B so the
+  // faint ink (#858480: "3 of 8", the section labels) keeps 4.5:1 on it (test/v4Shell.test.ts). Light: one cream for both.
+  'v4-side': ['#1D1D1B', brand.paper],
+  'v4-page': ['#1B1B1A', brand.paper],
+  'v4-card': ['#242422', '#FFFFFF'],
+  'v4-hair': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.09)'],
+  'v4-hair2': ['rgba(255,255,255,.13)', 'rgba(40,38,33,.14)'],
+  'v4-hover': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.045)'],
+  'v4-active': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-fill': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.04)'],
+  'v4-fill2': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-track': ['rgba(255,255,255,.16)', 'rgba(40,38,33,.13)'],
+  'v4-ghost': ['rgba(255,255,255,.22)', 'rgba(40,38,33,.22)'],
+  'v4-e1': ['0 0 0 1px rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.3)', '0 0 0 1px rgba(15,15,15,.045), 0 1px 2px rgba(15,15,15,.05)'],
+  'v4-e2': ['0 0 0 1px rgba(255,255,255,.07), 0 2px 6px rgba(0,0,0,.3), 0 10px 24px rgba(0,0,0,.28)', '0 0 0 1px rgba(15,15,15,.05), 0 2px 5px rgba(15,15,15,.06), 0 8px 20px rgba(15,15,15,.06)'],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -620,6 +638,66 @@ export const layout = {
     bottom: 64
   },
   radius: { card: 12, hero: 16 }
+} as const
+
+/**
+ * The v4 frame (Adrian's ui-next mock, Nov 23-24: docs/ui-next/README.md "the rules behind the pages"). The pages use
+ * the whole window: a Notion-style 240 sidebar, a 44 px top bar with the breadcrumb, and wide row-and-table pages.
+ * features/shell ui.tsx turns these into PageFrame / PageHeader / Section / TwoCol / Rows / Table.
+ *
+ *   sidebar  240 wide (216 under a 1100 window, icons only under 860), 8 px side padding, 30 px rows, quiet section
+ *            labels (Plans, Recent) 18 above their rows, the account row 40 tall at the foot
+ *   top      the top bar over every page: 44 tall, the breadcrumb at 13.5 px
+ *   page     content 1040 wide, centered in the main area, 44 under the top bar, 40 px gutters (24 under a 760 main).
+ *            Home and Progress: a 684 main column and a 316 rail, 40 apart, one hairline (the rail's left edge, 32 in);
+ *            under a 900 main the rail drops below. Settings: two columns of groups 56 apart. Library, Plans: full width.
+ *   row      a list row 44 tall (50 with a cover), a rail row 33 (48 with two lines); hairlines between rows
+ *   table    head 32, rows 46, hairlines under each; the first column has no left padding
+ *   sec      a section label 12.5 / 550 muted, 30 above and 10 under, with an optional quiet link on the right
+ */
+export const v4 = {
+  sidebar: { w: 240, narrowW: 216, compactW: 64, padX: 8, padY: 10, row: 30, brand: 34, labelTop: 18, labelBottom: 4, account: 40, icon: 16 },
+  top: 44,
+  page: { w: 1040, main: 684, rail: 316, colGap: 40, railPad: 32, settingsGap: 56, top: 44, bottom: 72, gutter: 40, gutterTight: 24, twoColBelow: 900 },
+  row: { h: 44, cover: 50, rail: 33, railTall: 48, padX: 8 },
+  table: { head: 32, row: 46, padX: 8 },
+  sec: { top: 30, bottom: 10, first: 26 },
+  radius: { row: 6, control: 8, card: 12, tag: 4 }
+} as const
+
+/** The v4 frame's colors (palette `v4-*`): use these, never the mock's hex. Text stays `color.text` / `label` / `faint`. */
+export const v4c = {
+  side: 'var(--v4-side)',
+  page: 'var(--v4-page)',
+  card: 'var(--v4-card)',
+  hair: 'var(--v4-hair)',
+  hair2: 'var(--v4-hair2)',
+  hover: 'var(--v4-hover)',
+  active: 'var(--v4-active)',
+  fill: 'var(--v4-fill)',
+  fill2: 'var(--v4-fill2)',
+  track: 'var(--v4-track)',
+  ghost: 'var(--v4-ghost)',
+  e1: 'var(--v4-e1)',
+  e2: 'var(--v4-e2)'
+} as const
+
+/** The v4 type ramp (system font, the mock's sizes). Spread one into a style with its color. */
+export const v4type = {
+  title: { fontSize: 32, lineHeight: '38px', fontWeight: 700, letterSpacing: '-0.022em' },
+  lede: { fontSize: 14.5, lineHeight: '20px', fontWeight: 400 },
+  h2: { fontSize: 20, lineHeight: '26px', fontWeight: 650, letterSpacing: '-0.012em' },
+  sec: { fontSize: 12.5, lineHeight: '18px', fontWeight: 550 },
+  row: { fontSize: 14, lineHeight: '20px', fontWeight: 550 },
+  body: { fontSize: 14, lineHeight: '20px', fontWeight: 400 },
+  meta: { fontSize: 13, lineHeight: '18px', fontWeight: 400, fontVariantNumeric: 'tabular-nums' },
+  th: { fontSize: 12.5, lineHeight: '16px', fontWeight: 450 },
+  nav: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
+  navLabel: { fontSize: 12, lineHeight: '16px', fontWeight: 550 },
+  crumb: { fontSize: 13.5, lineHeight: '18px', fontWeight: 400 },
+  stat: { fontSize: 22, lineHeight: '26px', fontWeight: 650, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  statSm: { fontSize: 17, lineHeight: '22px', fontWeight: 650, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  tag: { fontSize: 12.5, lineHeight: '20px', fontWeight: 400 }
 } as const
 
 /**

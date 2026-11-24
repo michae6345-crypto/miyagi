@@ -1,7 +1,8 @@
 {
   "name": "buddy",
   "on": {
-    "connect": "buddy_point"
+    "connect": "buddy_point",
+    "bon.get": "buddy_bon"
   },
   "segments": {
     "buddy_point": [
@@ -32,7 +33,13 @@
           "holdMs": 6000
         }
       },
-      { "wait": 7000, "type": "annotate", "payload": { "clear": true } }
+      { "wait": 7000, "type": "annotate", "payload": { "clear": true } },
+      { "wait": 1500, "type": "step.passed", "payload": { "stepId": "b-s1", "key": "lesson-buddy:b-s1", "counted": true } },
+      { "wait": 50, "type": "bon", "payload": { "steps": 15, "level": 4, "name": "Sapling", "next": { "level": 5, "name": "Budding", "at": 25, "left": 10 }, "fraction": 0, "grew": true, "lastKey": "lesson-buddy:b-s1" } },
+      { "wait": 4000, "type": "step.passed", "payload": { "stepId": "b-s1", "key": "lesson-buddy:b-s1" } }
+    ],
+    "buddy_bon": [
+      { "wait": 60, "type": "bon", "payload": { "steps": 14, "level": 3, "name": "Shoot", "next": { "level": 4, "name": "Sapling", "at": 15, "left": 1 }, "fraction": 0.8571 } }
     ]
   }
 }

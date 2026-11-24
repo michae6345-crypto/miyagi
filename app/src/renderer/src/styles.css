@@ -128,6 +128,50 @@ html[data-fullscreen] .mg-detail-bar { height: var(--bar-full); }
   .mg-page-frame > * { --page-gutter: 24px; }
 }
 /*
+ * v4 frame (features/shell ui.tsx PageFrame and friends; core/theme.ts v4 / v4c / v4type). The frame is the size
+ * container: its gutter is 40, 24 under 760; Home's rail drops under the main column under 900; Settings' two columns
+ * become one under 760. Hairlines between list rows and table rows; the hovered row loses its hairlines (Notion).
+ */
+.mg-v4-frame { container-type: inline-size; }
+@container (max-width: 759.98px) {
+  .mg-v4-frame > * { --v4-gutter: 24px; }
+}
+.mg-v4-two { display: grid; grid-template-columns: minmax(0, 1fr) 316px; column-gap: 40px; align-items: start; }
+.mg-v4-rail { border-left: 1px solid var(--v4-hair); padding: 0 0 48px 32px; }
+@container (max-width: 899.98px) {
+  .mg-v4-two { grid-template-columns: minmax(0, 1fr); }
+  .mg-v4-rail { border-left: 0; padding: 0; margin-top: 30px; border-top: 1px solid var(--v4-hair); }
+}
+.mg-v4-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 56px; align-items: start; }
+@container (max-width: 759.98px) {
+  .mg-v4-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.mg-v4-rows > .mg-v4-row + .mg-v4-row { box-shadow: 0 -1px 0 var(--v4-hair); }
+.mg-v4-row-btn { transition: background-color 120ms ease; }
+.mg-v4-row-btn:hover, .mg-v4-row-on { background: var(--v4-hover); }
+.mg-v4-rows > .mg-v4-row-btn:hover, .mg-v4-rows > .mg-v4-row-btn:hover + .mg-v4-row,
+.mg-v4-rows > .mg-v4-row-on, .mg-v4-rows > .mg-v4-row-on + .mg-v4-row { box-shadow: none; }
+.mg-v4-row-btn:active { background: var(--v4-active); }
+.mg-v4-chev { transition: transform 160ms ease, color 120ms ease; }
+.mg-v4-row-btn:hover .mg-v4-chev { color: var(--c-label); transform: translateX(2px); }
+.mg-v4-link:hover { color: var(--c-text); }
+.mg-v4-tbl { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 20px; color: var(--c-text); }
+.mg-v4-tbl th { font-size: 12.5px; font-weight: 450; color: var(--c-label); height: 32px; padding: 0 8px; border-bottom: 1px solid var(--v4-hair); white-space: nowrap; }
+.mg-v4-tbl td { height: 46px; padding: 0 8px; border-bottom: 1px solid var(--v4-hair); vertical-align: middle; }
+.mg-v4-tbl td:first-child, .mg-v4-tbl th:first-child { padding-left: 0; }
+.mg-v4-tbl td:last-child, .mg-v4-tbl th:last-child { padding-right: 0; }
+.mg-v4-tbl-fx { table-layout: fixed; }
+.mg-v4-tbl-fx td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-v4-tr-btn { cursor: pointer; outline: none; }
+.mg-v4-tr-btn:hover td, .mg-v4-tr-on td { background: var(--v4-hover); }
+.mg-v4-tr-btn:focus-visible td { box-shadow: inset 0 2px 0 var(--c-focus), inset 0 -2px 0 var(--c-focus); }
+/* The shell's own (legacy) title hides on a page that renders its own v4 PageFrame (it owns its title then). */
+.mg-page-frame:has([data-v4-frame]) > [data-legacy-header] { display: none; }
+/* The v4 sidebar's rows and the top bar's buttons: a wash on hover, a deeper one pressed. */
+.mg-v4-side-row { transition: background-color 120ms ease, color 120ms ease; }
+.mg-v4-side-row:hover { background: var(--v4-hover); }
+.mg-v4-side-row:active { background: var(--v4-active); }
+/*
  * The sidebar's ready line (features/library Status.tsx, rendered in features/shell Sidebar.tsx): "Ready" is the
  * engine's state, not a check that passed, and green only means passed (BRAND.md). In the sidebar the filled green
  * tick becomes the neutral gray status dot (--sidebar-ready-dot, status.watching, set by the sidebar).
