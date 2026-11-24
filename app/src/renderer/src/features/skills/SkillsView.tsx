@@ -9,7 +9,7 @@
  *               List (one card per track)
  *   peek        a skill's page over the right of the view (Esc or × closes it)
  * No goal yet: the goal picker fills the page. Change opens the same picker. Esc closes the peek, then the picker,
- * then clears the search (never the window). The older canvas (TreeCanvas, Dock, Panel) stays in the folder for now.
+ * then clears the search (never the window).
  */
 import { Play } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'

@@ -35,7 +35,7 @@ export function minutesLeft(g: SkillGraph, minutesOf: (n: SkillGraphNode) => num
 export function statusCell(n: SkillGraphNode, g: SkillGraph): string {
   if (n.state === 'practicing') return n.evidence ? `${n.evidence.done} of ${n.evidence.total} steps` : 'Practicing'
   if (n.state === 'ready') return 'Ready'
-  if (n.state === 'locked') return n.needs.length ? `Needs ${names(n.needs, g)}` : 'Locked'
+  if (n.state === 'locked') return n.needs.length > 2 ? `Needs ${n.needs.length} skills` : n.needs.length ? `Needs ${names(n.needs, g)}` : 'Locked'
   return n.review ? 'Review due' : 'Mastered'
 }
 

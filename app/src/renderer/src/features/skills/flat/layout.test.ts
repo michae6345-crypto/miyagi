@@ -20,6 +20,29 @@ function noOverlaps(boxes: Box[]): void {
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlap(boxes[i], boxes[j]), `${boxes[i].id} overlaps ${boxes[j].id}`)
 }
 
+/** Does a path's straight H / V legs run through a box (2 px inside its edges)? */
+function crosses(d: string, b: Box): boolean {
+  const t = d.match(/[MHVQ]|-?\d+(?:\.\d+)?/g)!
+  let x = 0
+  let y = 0
+  const inside = (x1: number, y1: number, x2: number, y2: number): boolean =>
+    Math.max(x1, x2) > b.x + 2 && Math.min(x1, x2) < b.x + b.w - 2 && Math.max(y1, y2) > b.y + 2 && Math.min(y1, y2) < b.y + b.h - 2
+  for (let i = 0; i < t.length; ) {
+    const c = t[i++]
+    if (c === 'M') (x = +t[i++]), (y = +t[i++])
+    else if (c === 'H') {
+      const nx = +t[i++]
+      if (inside(x, y, nx, y)) return true
+      x = nx
+    } else if (c === 'V') {
+      const ny = +t[i++]
+      if (inside(x, y, x, ny)) return true
+      y = ny
+    } else if (c === 'Q') (i += 2), (x = +t[i++]), (y = +t[i++])
+  }
+  return false
+}
+
 describe('edges', () => {
   it('draws square turns with a small round corner', () => {
     assert.equal(elbowH(0, 10, 100, 10), 'M0 10H100')
@@ -74,8 +97,23 @@ describe('mapLayout', () => {
       for (const b of l.boxes) assert.ok(!overlap(box, b), `${t.track} label over ${b.id}`)
     }
   })
+  it('routes every edge around the cards it does not join', () => {
+    for (const lay of [l, tracksLayout(g)]) for (const e of lay.edges) for (const b of lay.boxes) if (b.id !== e.from && b.id !== e.to) assert.ok(!crosses(e.d, b), `${e.from} > ${e.to} crosses ${b.id}`)
+  })
+  it('stands each track in one column, its project over it', () => {
+    for (const t of g.tracks) {
+      const xs = l.boxes.filter((b) => g.byId[b.id]?.track === t.id && g.byId[b.id].kind === 'skill' && t.id !== 'python').map((b) => b.x + b.w / 2)
+      // one column: every card's center within the column's widest row
+      if (xs.length) assert.ok(Math.max(...xs) - Math.min(...xs) < 200, `${t.id} spreads ${Math.max(...xs) - Math.min(...xs)}`)
+    }
+    const at = Object.fromEntries(l.boxes.map((b) => [b.id, b]))
+    const goal = at[g.goal!.id]
+    const under = g.byId[g.goal!.id].requires.map((r) => at[r])
+    const mid = under.reduce((s, b) => s + b.x + b.w / 2, 0) / under.length
+    assert.ok(Math.abs(goal.x + goal.w / 2 - mid) < 1, 'the goal centered over what it needs')
+  })
   it('zooms out to one card per track and in to the path with steps', () => {
-    const tl = tracksLayout(g, l)
+    const tl = tracksLayout(g)
     assert.equal(tl.boxes.filter((b) => b.id.startsWith('track:')).length, g.tracks.filter((t) => t.total > 0).length)
     noOverlaps(tl.boxes)
     const sl = stepsLayout(g, (id) => g.byId[id].evidence?.total ?? 1)

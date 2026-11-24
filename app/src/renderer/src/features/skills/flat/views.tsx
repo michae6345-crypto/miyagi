@@ -17,6 +17,7 @@ import { names } from '../copy'
 import { setQuery, setView, setZoom, startSkill, useSkills, VIEWS, ZOOMS, type MapZoom, type SkillsView } from '../store'
 import { goalBits, ruleLine, shortDate, statusCell, stillToGo } from './copy'
 import { estimate, FOLD_ID, mapLayout, pathLayout, stepsLayout, STEPS, tracksLayout, type FlatLayout, type Measure } from './layout'
+import { everyHasMinutes, skillExtras } from './contract'
 import { FoldCard, NodeMark, ProjectCard, Refresh, SkillCard, Stage, StateMark, T, TrackCard } from './parts'
 
 export function useWidth<E extends HTMLElement>(initial = 960): [React.RefObject<E | null>, number, number] {
@@ -263,6 +264,7 @@ function StillToGo({ g, dim, onOpen }: { g: SkillGraph; dim: boolean; onOpen: (i
   const track = (n: SkillGraphNode): string => g.tracks.find((t) => t.id === n.track)?.label ?? n.track
   const th = { textAlign: 'left', fontSize: 12.5, fontWeight: 450, color: T.muted, height: 32, padding: '0 8px', borderBottom: `1px solid ${T.hair}` } as const
   if (!rows.length) return null
+  const timed = everyHasMinutes(rows, g)
   return (
     <section data-skills-togo style={{ opacity: dim ? 0.3 : 1, transition: 'opacity .2s' }}>
       <h2 className="m-0" style={{ fontSize: 12.5, fontWeight: 550, color: T.muted, margin: '36px 0 10px' }}>
@@ -270,11 +272,11 @@ function StillToGo({ g, dim, onOpen }: { g: SkillGraph; dim: boolean; onOpen: (i
       </h2>
       <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
         <colgroup>
-          <col style={{ width: '20%' }} />
-          <col style={{ width: '16%' }} />
-          <col style={{ width: '30%' }} />
+          <col style={{ width: '25%' }} />
+          <col style={{ width: 144 }} />
+          <col style={{ width: '25%' }} />
           <col />
-          <col style={{ width: 72 }} />
+          {timed && <col style={{ width: 72 }} />}
         </colgroup>
         <thead>
           <tr>
@@ -282,7 +284,7 @@ function StillToGo({ g, dim, onOpen }: { g: SkillGraph; dim: boolean; onOpen: (i
             <th style={th}>Track</th>
             <th style={th}>Status</th>
             <th style={th}>Lesson</th>
-            <th style={{ ...th, textAlign: 'right' }}>Time</th>
+            {timed && <th style={{ ...th, textAlign: 'right' }}>Time</th>}
           </tr>
         </thead>
         <tbody>
@@ -307,15 +309,17 @@ function StillToGo({ g, dim, onOpen }: { g: SkillGraph; dim: boolean; onOpen: (i
                     {track(n)}
                   </span>
                 </td>
-                <td className="truncate" style={td}>
+                <td style={{ ...td, lineHeight: '18px', paddingBlock: 6 }}>
                   {statusCell(n, g)}
                 </td>
                 <td className="truncate" style={td}>
                   {lesson}
                 </td>
-                <td className="tabular-nums" style={{ ...td, textAlign: 'right' }}>
-                  {pick?.estMinutes ? `${pick.estMinutes} min` : ''}
-                </td>
+                {timed && (
+                  <td className="tabular-nums" style={{ ...td, textAlign: 'right' }}>
+                    {`${skillExtras(n, g).estMinutes} min`}
+                  </td>
+                )}
               </tr>
             )
           })}
@@ -366,10 +370,11 @@ export function PathView({ g, query, selected, onOpen }: { g: SkillGraph; query:
 
 // ---- Map ---------------------------------------------------------------------------------------------------------
 
-function StepCard({ n, x, y, w, h, onOpen }: { n: SkillGraphNode; x: number; y: number; w: number; h: number; onOpen: (id: string) => void }): ReactNode {
+function StepCard({ g, n, x, y, w, h, onOpen }: { g: SkillGraph; n: SkillGraphNode; x: number; y: number; w: number; h: number; onOpen: (id: string) => void }): ReactNode {
   const locked = n.state === 'locked'
   const total = n.evidence?.total ?? n.lessons.reduce((s, l) => s + l.stepIds.length, 0)
   const done = n.state === 'mastered' ? total : (n.evidence?.done ?? 0)
+  const steps = skillExtras(n, g).steps
   const title = useTitleOf()(n)
   const note = n.review ? 'review due' : n.state === 'practicing' ? `${done} of ${total}` : n.state === 'ready' ? 'ready' : ''
   return (
@@ -399,7 +404,7 @@ function StepCard({ n, x, y, w, h, onOpen }: { n: SkillGraphNode; x: number; y: 
         return (
           <div key={i} className="flex items-center" style={{ gap: 9, height: 28, fontSize: 13.5, fontWeight: cur ? 600 : 400, color: locked ? T.faint : i < done || cur ? T.ink : T.muted }}>
             <StateMark state={i < done ? 'mastered' : cur ? 'practicing' : locked ? 'locked' : 'ready'} f={0.5} size={14} />
-            Step {i + 1}
+            <span className="truncate">{steps[i]?.title ?? `Step ${i + 1}`}</span>
           </div>
         )
       })}
@@ -409,21 +414,29 @@ function StepCard({ n, x, y, w, h, onOpen }: { n: SkillGraphNode; x: number; y: 
 
 export function MapView({ g, query, selected, onOpen }: { g: SkillGraph; query: string; selected?: string; onOpen: (id: string) => void }): ReactNode {
   const zoom = useSkills((s) => s.zoom)
-  const [ref, width, height] = useWidth<HTMLDivElement>()
+  const [ref, width] = useWidth<HTMLDivElement>()
   const map = useMemo(() => mapLayout(g, measure), [g])
   const lines = (id: string): number => {
     const n = g.byId[id]
     return n?.evidence?.total ?? n?.lessons.reduce((s, l) => s + l.stepIds.length, 0) ?? 0
   }
-  const l = useMemo(() => (zoom === 'tracks' ? tracksLayout(g, map) : zoom === 'steps' ? stepsLayout(g, lines) : map), [g, map, zoom]) // eslint-disable-line react-hooks/exhaustive-deps
+  const l = useMemo(() => (zoom === 'tracks' ? tracksLayout(g) : zoom === 'steps' ? stepsLayout(g, lines) : map), [g, map, zoom]) // eslint-disable-line react-hooks/exhaustive-deps
   const hot = hotSet(g, selected)
   const found = matches(g, query)
   const pad = 24
-  // Fit the width; fit the height too unless that would make the cards too small to read (then it scrolls).
-  const scale = Math.max(0.5, Math.min(1, (width - 2) / Math.max(1, l.w), Math.max(0.86, (height - pad * 2) / Math.max(1, l.h))))
+  // Skills: cards at the Path's size; the stage scrolls, opened at the bottom (the root) and centered on it.
+  // Tracks and Steps: fit the width.
+  const scale = zoom === 'skills' ? 1 : Math.max(0.5, Math.min(1, (width - 2) / Math.max(1, l.w)))
+  const root = zoom === 'skills' ? l.boxes.reduce<FlatLayout['boxes'][number] | undefined>((a, b) => (!a || b.y > a.y ? b : a), undefined) : undefined
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    if (root) el.scrollLeft = Math.max(0, (root.x + root.w / 2) * scale - el.clientWidth / 2 + Math.max(0, (el.clientWidth - l.w * scale) / 2))
+  }, [zoom, l.w, l.h]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={ref} data-skills-view="map" data-skills-zoom={zoom} className="relative min-h-0 flex-1 overflow-auto" style={{ paddingBlock: pad }}>
-      <div className="flex min-h-full items-center justify-center">
+      <div className="flex min-h-full w-max min-w-full items-center justify-center">
       <Stage l={l} scale={scale} dimEdge={hot ? (a, b) => !(hot.has(a) && hot.has(b)) : undefined}>
         {zoom === 'tracks' ? (
           <>
@@ -437,7 +450,7 @@ export function MapView({ g, query, selected, onOpen }: { g: SkillGraph; query: 
           <>
             {l.boxes.map((b) => {
               const n = g.byId[b.id]
-              return n ? <StepCard key={b.id} n={n} x={b.x} y={b.y} w={STEPS.w} h={b.h} onOpen={onOpen} /> : null
+              return n ? <StepCard key={b.id} g={g} n={n} x={b.x} y={b.y} w={STEPS.w} h={b.h} onOpen={onOpen} /> : null
             })}
           </>
         ) : (
@@ -470,6 +483,7 @@ export function Peek({ g, id, now, onClose, onOpen }: { g: SkillGraph; id: strin
   const needs = n.requires.map((x) => g.byId[x]).filter((x): x is SkillGraphNode => !!x)
   const total = n.evidence?.total ?? 0
   const done = n.state === 'mastered' ? total : (n.evidence?.done ?? 0)
+  const steps = skillExtras(n, g).steps
   const lesson = titleOf(n)
   const cap = n.kind === 'capstone' ? g.capstones.find((c) => c.id === n.id) : undefined
   const state = n.state === 'mastered' ? (n.review ? 'Review due' : 'Mastered') : n.state === 'practicing' ? 'Practicing' : n.state === 'ready' ? 'Ready' : 'Locked'
@@ -521,7 +535,7 @@ export function Peek({ g, id, now, onClose, onOpen }: { g: SkillGraph; id: strin
           {Array.from({ length: total }, (_, i) => (
             <div key={i} className="flex items-center" style={{ gap: 12, minHeight: 36, fontSize: 14, color: i < done ? T.text : T.muted, boxShadow: i ? `0 -1px 0 ${T.hair}` : undefined }}>
               <StateMark state={i < done ? 'mastered' : n.state === 'practicing' && i === done ? 'practicing' : 'ready'} />
-              Step {i + 1}
+              {steps[i]?.title ?? `Step ${i + 1}`}
               {lesson && i === 0 && (
                 <span className="ml-auto truncate" style={{ fontSize: 13, color: T.muted }}>
                   {lesson}

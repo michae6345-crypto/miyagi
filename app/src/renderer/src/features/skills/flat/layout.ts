@@ -189,268 +189,305 @@ export function pathLayout(g: SkillGraph, width: number, measure: Measure = esti
 
 // ---- Map -------------------------------------------------------------------------------------------------------
 
-export const MAP = { rowPitch: 74, gap: 30, laneGap: 24, minCard: 120, projW: 150, projH: 48, goalW: 260, goalH: 76, labelGap: 10, top: 22 } as const
+export const MAP = { rowPitch: 74, gap: 24, colGap: 36, minCard: 92, projW: 150, projH: 48, goalW: 260, goalH: 76, labelGap: 10, top: 22 } as const
 
-type Lane = { track: string; x: number; rows: Map<number, string[]> }
-
-/** Connected parts of the skill graph (requires links), the goal's first, then by size. */
-function components(g: SkillGraph, ids: string[]): string[][] {
-  const adj = new Map<string, Set<string>>(ids.map((id) => [id, new Set()]))
-  for (const id of ids)
-    for (const r of g.byId[id].requires)
-      if (adj.has(r)) {
-        adj.get(id)!.add(r)
-        adj.get(r)!.add(id)
-      }
-  const seen = new Set<string>()
-  const parts: string[][] = []
-  for (const id of ids) {
-    if (seen.has(id)) continue
-    const part: string[] = []
-    const stack = [id]
-    seen.add(id)
-    while (stack.length) {
-      const cur = stack.pop()!
-      part.push(cur)
-      for (const n of adj.get(cur)!) if (!seen.has(n)) (seen.add(n), stack.push(n))
+/** A rounded square-turn polyline through `pts` (each turn an 8 px corner, smaller when a leg is short). */
+export function orthoPath(pts: Array<[number, number]>): string {
+  const p = pts.filter((q, i) => i === 0 || Math.abs(q[0] - pts[i - 1][0]) > 0.5 || Math.abs(q[1] - pts[i - 1][1]) > 0.5)
+  if (p.length < 2) return ''
+  let d = `M${r1(p[0][0])} ${r1(p[0][1])}`
+  for (let i = 1; i < p.length; i++) {
+    const [x, y] = p[i]
+    if (i === p.length - 1) {
+      d += x === p[i - 1][0] ? `V${r1(y)}` : `H${r1(x)}`
+      break
     }
-    parts.push(ids.filter((x) => part.includes(x)))
+    const [px, py] = p[i - 1]
+    const [nx, ny] = p[i + 1]
+    const r = Math.min(8, Math.hypot(x - px, y - py) / 2, Math.hypot(nx - x, ny - y) / 2)
+    const ax = x - Math.sign(x - px) * r
+    const ay = y - Math.sign(y - py) * r
+    const bx = x + Math.sign(nx - x) * r
+    const by = y + Math.sign(ny - y) * r
+    d += Math.abs(x - px) < 0.5 ? `V${r1(ay)}` : `H${r1(ax)}`
+    d += `Q${r1(x)} ${r1(y)} ${r1(bx)} ${r1(by)}`
   }
-  const goalPath = new Set(g.goal?.pathIds ?? [])
-  return parts.sort((a, b) => Number(b.some((id) => goalPath.has(id))) - Number(a.some((id) => goalPath.has(id))) || b.length - a.length)
+  return d
 }
 
-type Part = { boxes: Box[]; minX: number; maxX: number; rows: number; lanes: Lane[]; labels: TrackLabel[] }
-
-/** One connected tree, centered on x = 0, row 0 at the bottom. Boxes' y is the row (converted later). */
-function placePart(g: SkillGraph, ids: string[], width: (id: string) => number): Part {
-  const req = (id: string): string[] => g.byId[id].requires.filter((r) => ids.includes(r))
-  const depth = longestDepth(ids, req)
-  const trackOf = (id: string): string => g.byId[id].track
-  const trackIds = [...new Set(ids.map(trackOf))]
-  // The base: the track holding the lowest skills (the most of them on a tie).
-  const minD = (t: string): number => Math.min(...ids.filter((id) => trackOf(id) === t).map((id) => depth[id]))
-  const base = [...trackIds].sort((a, b) => minD(a) - minD(b) || ids.filter((id) => trackOf(id) === b).length - ids.filter((id) => trackOf(id) === a).length)[0]
-  const x: Record<string, number> = {}
-  // A track's name sits left of its lowest card: its lane keeps that room.
-  const labelW = (t: string): number => Math.ceil((g.tracks.find((k) => k.id === t)?.label ?? t).length * 6.6) + MAP.labelGap
-  // Per row occupied intervals, to keep lanes apart.
-  const occ = new Map<number, Array<[number, number]>>()
-  const take = (r: number, a: number, b: number): void => void occ.set(r, [...(occ.get(r) ?? []), [a, b]])
-  const free = (r: number, a: number, b: number): boolean => (occ.get(r) ?? []).every(([p, q]) => b + MAP.laneGap <= p || a >= q + MAP.laneGap)
-  const spread = (r: number, list: string[], cx: number): void => {
-    const total = list.reduce((s, id) => s + width(id), 0) + MAP.gap * (list.length - 1)
-    let left = cx - total / 2
-    for (const id of list) {
-      x[id] = left + width(id) / 2
-      left += width(id) + MAP.gap
-    }
-  }
-  const want = (id: string): number | undefined => {
-    const ps = req(id).filter((p) => x[p] !== undefined)
-    return ps.length ? ps.reduce((s, p) => s + x[p], 0) / ps.length : undefined
-  }
-  const order = (list: string[]): string[] => [...list].sort((a, b) => (want(a) ?? 0) - (want(b) ?? 0) || ids.indexOf(a) - ids.indexOf(b))
-  // The base track: each row spread around the center, in prerequisite order.
-  const baseRows = new Map<number, string[]>()
-  for (const id of ids) if (trackOf(id) === base) baseRows.set(depth[id], [...(baseRows.get(depth[id]) ?? []), id])
-  const lanes: Lane[] = []
-  for (const r of [...baseRows.keys()].sort((a, b) => a - b)) {
-    const list = order(baseRows.get(r)!)
-    const span = list.reduce((s, id) => s + width(id), 0) + MAP.gap * (list.length - 1)
-    // Wide base rows keep an even pitch, so the lanes above them line up with their cards.
-    spread(r, list, 0)
-    take(r, -span / 2 - (r === Math.min(...baseRows.keys()) ? labelW(base) : 0), span / 2)
-  }
-  lanes.push({ track: base, x: 0, rows: baseRows })
-  // Every other track: one lane each, as near what it builds on as it fits. Goal-path tracks first, then low ones.
-  const goalPath = new Set(g.goal?.pathIds ?? [])
-  const goalTrack = g.goal ? g.byId[g.goal.id]?.track : undefined
-  const others = trackIds
-    .filter((t) => t !== base)
-    .sort((a, b) => {
-      const pa = ids.some((id) => trackOf(id) === a && goalPath.has(id)) ? 0 : 1
-      const pb = ids.some((id) => trackOf(id) === b && goalPath.has(id)) ? 0 : 1
-      const ga = a === goalTrack ? 1 : 0
-      const gb = b === goalTrack ? 1 : 0
-      return ga - gb || minD(a) - minD(b) || pa - pb || g.tracks.findIndex((t) => t.id === a) - g.tracks.findIndex((t) => t.id === b)
-    })
-  for (const t of others) {
-    const mine = ids.filter((id) => trackOf(id) === t)
-    const rows = new Map<number, string[]>()
-    for (const id of mine) rows.set(depth[id], [...(rows.get(depth[id]) ?? []), id])
-    const pulls = mine.map(want).filter((v): v is number => v !== undefined)
-    const desired = pulls.length ? pulls.reduce((s, v) => s + v, 0) / pulls.length : 0
-    const half = (r: number): number => (rows.get(r)!.reduce((s, id) => s + width(id), 0) + MAP.gap * (rows.get(r)!.length - 1)) / 2
-    const low = Math.min(...rows.keys())
-    const lab = (r: number): number => (r === low ? labelW(t) : 0)
-    const fits = (cx: number): boolean => [...rows.keys()].every((r) => free(r, cx - half(r) - lab(r), cx + half(r)))
-    // Step out from the wanted spot, away from the center first.
-    const dir = desired < 0 ? -1 : 1
-    let cx = desired
-    for (let k = 0; k < 400; k++) {
-      const off = Math.ceil(k / 2) * 8 * (k % 2 ? dir : -dir)
-      if (fits(desired + off)) {
-        cx = desired + off
-        break
-      }
-    }
-    for (const r of rows.keys()) {
-      spread(r, order(rows.get(r)!), cx)
-      take(r, cx - half(r) - lab(r), cx + half(r))
-    }
-    lanes.push({ track: t, x: cx, rows })
-  }
-  const boxes: Box[] = ids.map((id) => ({ id, x: x[id] - width(id) / 2, y: depth[id], w: width(id), h: CARD_H }))
-  const minX = Math.min(...boxes.map((b) => b.x))
-  const maxX = Math.max(...boxes.map((b) => b.x + b.w))
-  const rowsN = Math.max(...ids.map((id) => depth[id])) + 1
-  // A track's name to the left of its lowest card.
-  const labels: TrackLabel[] = lanes.map((l) => {
-    const r = Math.min(...l.rows.keys())
-    const first = l.rows.get(r)!.reduce((a, b) => (x[a] < x[b] ? a : b))
-    const tr = g.tracks.find((t) => t.id === l.track)
-    return { track: l.track, text: tr?.label ?? l.track, x: x[first] - width(first) / 2 - MAP.labelGap, y: r, align: 'right' as const }
-  })
-  return { boxes, minX, maxX, rows: rowsN, lanes, labels }
+/** Does a vertical segment at x from y1 to y2 run through a card (other than `skip`)? */
+function hitsV(x: number, y1: number, y2: number, boxes: Box[], skip: Set<string>): boolean {
+  const lo = Math.min(y1, y2)
+  const hi = Math.max(y1, y2)
+  return boxes.some((b) => !skip.has(b.id) && x > b.x - 4 && x < b.x + b.w + 4 && hi > b.y && lo < b.y + b.h)
 }
 
-/** The Map (Skills zoom). Coordinates start at 0,0; the view scales the whole to fit. */
-export function mapLayout(g: SkillGraph, measure: Measure = estimate): FlatLayout {
+/**
+ * A bottom-up edge from `a` (lower) to `b` (higher): up from a's top center, along the shared bus in the gap under b's
+ * row, up into b's bottom center. When the straight climb would run through a card, it leaves on the bus over a's own
+ * row, climbs in the nearest free gutter between columns, then takes b's bus.
+ */
+export function routeUp(a: Box, b: Box, boxes: Box[], gutters: number[], halfGap: number): string {
+  const xa = a.x + a.w / 2
+  const xb = b.x + b.w / 2
+  const busB = b.y + b.h + halfGap
+  const skip = new Set([a.id, b.id])
+  if (!hitsV(xa, a.y, busB, boxes, skip)) return orthoPath([[xa, a.y], [xa, busB], [xb, busB], [xb, b.y + b.h]])
+  const busA = a.y - halfGap
+  const free = gutters
+    .filter((gx) => !hitsV(gx, busA, busB, boxes, skip))
+    .sort((p, q) => Math.abs(p - xa) + Math.abs(p - xb) - (Math.abs(q - xa) + Math.abs(q - xb)))
+  const gx = free[0] ?? Math.min(...boxes.map((x) => x.x)) - 16
+  return orthoPath([[xa, a.y], [xa, busA], [gx, busA], [gx, busB], [xb, busB], [xb, b.y + b.h]])
+}
+
+/**
+ * The Map's columns: one per track, left to right. The goal's track stands in the middle (over the base track), the
+ * tracks it needs flank it, the rest go outward on the side of what they build on.
+ */
+export type MapPlan = {
+  base: string
+  order: string[]
+  center: string
+  row: Record<string, number>
+  local: Record<string, number>
+  tReq: Map<string, Set<string>>
+  level: Record<string, number>
+}
+
+export function mapPlan(g: SkillGraph): MapPlan | undefined {
   const skills = g.nodes.filter((n) => n.kind === 'skill').map((n) => n.id)
-  if (!skills.length) return { w: 0, h: 0, boxes: [], edges: [], labels: [] }
+  if (!skills.length) return undefined
+  const trackOf = (id: string): string => g.byId[id].track
+  const known = new Set(g.tracks.map((t) => t.id))
+  const trackIds = [...new Set([...g.tracks.map((t) => t.id).filter((t) => skills.some((id) => trackOf(id) === t)), ...skills.map(trackOf).filter((t) => !known.has(t))])]
+  const tReq = new Map<string, Set<string>>(trackIds.map((t) => [t, new Set()]))
+  for (const id of skills)
+    for (const r of g.byId[id].requires) {
+      const rt = g.byId[r]?.kind === 'skill' ? trackOf(r) : undefined
+      if (rt && rt !== trackOf(id)) tReq.get(trackOf(id))!.add(rt)
+    }
+  const level = longestDepth(trackIds, (t) => [...tReq.get(t)!])
+  const count = (t: string): number => skills.filter((id) => trackOf(id) === t).length
+  const base = [...trackIds].sort((a, b) => level[a] - level[b] || count(b) - count(a))[0]
+  // Rows: a track's cards stack by their depth inside the track, the track starting one row over what it needs.
+  const local: Record<string, number> = {}
+  for (const t of trackIds) {
+    const mine = skills.filter((id) => trackOf(id) === t)
+    const d = longestDepth(mine, (id) => g.byId[id].requires.filter((r) => mine.includes(r)))
+    for (const id of mine) local[id] = d[id]
+  }
+  const row: Record<string, number> = {}
+  for (const t of [...trackIds].sort((a, b) => level[a] - level[b])) {
+    const mine = skills.filter((id) => trackOf(id) === t)
+    let s = 0
+    for (const id of mine)
+      for (const r of g.byId[id].requires) if (row[r] !== undefined && trackOf(r) !== t) s = Math.max(s, row[r] + 1 - local[id])
+    for (const id of mine) row[id] = s + local[id]
+  }
+  // Column order.
+  const goalTrack = g.goal && g.byId[g.goal.id] ? g.byId[g.goal.id].requires.map((r) => g.byId[r]).find((n) => n?.kind === 'skill')?.track ?? g.byId[g.goal.id].track : undefined
+  const center = goalTrack && goalTrack !== base && tReq.has(goalTrack) ? goalTrack : base
+  const left: string[] = []
+  const right: string[] = []
+  const side: Record<string, number> = { [center]: 0, [base]: 0 }
+  const put = (t: string, s: number): void => {
+    side[t] = s
+    if (s < 0) left.push(t)
+    else right.push(t)
+  }
+  const flank = [...(tReq.get(center) ?? [])].filter((t) => t !== base).sort((a, b) => count(b) - count(a))
+  flank.forEach((t, i) => put(t, i % 2 ? 1 : -1))
+  const rest = trackIds.filter((t) => side[t] === undefined).sort((a, b) => level[a] - level[b] || trackIds.indexOf(a) - trackIds.indexOf(b))
+  for (const t of rest) {
+    const sides = [...tReq.get(t)!].map((r) => side[r]).filter((v): v is number => v !== undefined && v !== 0)
+    const lean = sides.reduce((s, v) => s + v, 0)
+    put(t, lean < 0 ? -1 : lean > 0 ? 1 : left.length <= right.length ? -1 : 1)
+  }
+  const order = [...[...left].reverse(), ...(center !== base ? [center] : []), ...right]
+  // The base sits in the middle; with no goal track over it, it is the middle column itself.
+  if (center === base) order.splice(left.length, 0, base)
+  return { base, order, center, row, local, tReq, level }
+}
+
+/** The Map (Skills zoom): one column per track, bottom up, projects over their column. Coordinates start at 0,0. */
+export function mapLayout(g: SkillGraph, measure: Measure = estimate): FlatLayout {
+  const plan = mapPlan(g)
+  if (!plan) return { w: 0, h: 0, boxes: [], edges: [], labels: [] }
+  const { base, order, row } = plan
   const width = (id: string): number => cardWidth(g.byId[id].label, measure, g.byId[id].review ? 12 : 0, MAP.minCard)
-  const parts = components(g, skills).map((ids) => placePart(g, ids, width))
-  const rows = Math.max(...parts.map((p) => p.rows))
-  // Projects: a row above the top skill they need.
+  const trackLabel = (t: string): string => g.tracks.find((k) => k.id === t)?.label ?? t
+  const labelW = (t: string): number => Math.ceil(trackLabel(t).length * 6.6) + MAP.labelGap
+  const skills = g.nodes.filter((n) => n.kind === 'skill').map((n) => n.id)
+  const rowsOf = (t: string): Map<number, string[]> => {
+    const m = new Map<number, string[]>()
+    for (const id of skills) if (g.byId[id].track === t) m.set(row[id], [...(m.get(row[id]) ?? []), id])
+    return m
+  }
+  const span = (list: string[]): number => list.reduce((s, id) => s + width(id), 0) + MAP.gap * (list.length - 1)
+  // Each column's extent around its center: the widest row, and the track name left of its bottom card.
+  type Col = { t: string; rows: Map<number, string[]>; l: number; r: number; cx: number }
+  const col = (t: string): Col => {
+    const rows = rowsOf(t)
+    const low = Math.min(...rows.keys())
+    let l = 0
+    let r = 0
+    for (const [k, list] of rows) {
+      const h = span(list) / 2
+      l = Math.max(l, h + (k === low ? labelW(t) : 0))
+      r = Math.max(r, h)
+    }
+    return { t, rows, l, r, cx: 0 }
+  }
+  const cols = order.map(col)
+  let x = 0
+  cols.forEach((c, i) => {
+    c.cx = i === 0 ? 0 : x + c.l
+    x = c.cx + c.r + MAP.colGap
+  })
+  // The middle column (the goal's track, or the base) at x = 0; the base under it.
+  const mid = cols.find((c) => c.t === plan.center)!
+  const shift = mid.cx
+  for (const c of cols) c.cx -= shift
+  const baseCol = cols.find((c) => c.t === base) ?? col(base)
+  baseCol.cx = 0
+  // The base's wide rows (two cards side by side) push the columns beside them outward.
+  const baseLow = Math.min(...baseCol.rows.keys())
+  for (const c of [...cols].sort((a, b) => Math.abs(a.cx) - Math.abs(b.cx))) {
+    if (c === baseCol || c.t === plan.center) continue
+    const s = c.cx < 0 ? -1 : 1
+    const low = Math.min(...c.rows.keys())
+    let need = 0
+    for (const [k, list] of c.rows) {
+      const bl = baseCol.rows.get(k)
+      if (!bl) continue
+      // The gap between the base row's edge and this column's row, on this column's side (labels sit to the left).
+      const bh = span(bl) / 2 + (s > 0 ? 0 : k === baseLow ? labelW(base) : 0)
+      const ch = span(list) / 2 + (s > 0 && k === low ? labelW(c.t) : 0)
+      need = Math.max(need, bh + MAP.colGap + ch - Math.abs(c.cx))
+    }
+    if (need > 0) for (const o of cols) if (o !== baseCol && o.t !== plan.center && Math.sign(o.cx) === s && Math.abs(o.cx) >= Math.abs(c.cx)) o.cx += s * need
+  }
+  const all = order.includes(base) ? cols : [...cols, baseCol]
+  const x0: Record<string, number> = {}
+  for (const c of all)
+    for (const list of c.rows.values()) {
+      let left = c.cx - span(list) / 2
+      for (const id of list) {
+        x0[id] = left
+        left += width(id) + MAP.gap
+      }
+    }
+  // Projects: the row over the top skill they need, centered over those skills.
   const caps = g.nodes.filter((n) => n.kind === 'capstone')
   const capRow: Record<string, number> = {}
-  const rowOf: Record<string, number> = {}
-  for (const p of parts) for (const b of p.boxes) rowOf[b.id] = b.y
   for (const c of caps) {
-    const rs = c.requires.filter((r) => rowOf[r] !== undefined).map((r) => rowOf[r])
-    capRow[c.id] = rs.length ? Math.max(...rs) + 1 : rows
+    const rs = c.requires.filter((r) => row[r] !== undefined).map((r) => row[r])
+    capRow[c.id] = rs.length ? Math.max(...rs) + 1 : 0
   }
-  const top = Math.max(rows, ...Object.values(capRow).map((r) => r + 1))
   const goalId = g.goal?.id
-  const extraTop = goalId && caps.some((c) => c.id === goalId) ? (MAP.goalH - CARD_H) / 2 + 8 : 0
-  const Y = (r: number): number => MAP.top + extraTop + (top - 1 - r) * MAP.rowPitch + CARD_H / 2
-  // Parts side by side, 80 apart.
-  const boxes: Box[] = []
-  const labels: TrackLabel[] = []
-  let off = 0
-  const shift: number[] = []
-  parts.forEach((p, i) => {
-    const dx = i === 0 ? 0 : off - p.minX + 80
-    shift.push(dx)
-    off = (i === 0 ? p.maxX : off + 80 + (p.maxX - p.minX))
-    for (const b of p.boxes) boxes.push({ ...b, x: b.x + dx, y: Y(b.y) - CARD_H / 2 })
-    for (const l of p.labels) labels.push({ ...l, x: l.x + dx, y: Y(l.y) - 8 })
-  })
+  const maxRow = Math.max(...skills.map((id) => row[id]), ...Object.values(capRow))
+  const goalRow = goalId && capRow[goalId] !== undefined ? capRow[goalId] : undefined
+  const extra = goalRow !== undefined ? MAP.goalH - CARD_H : 0
+  // Row centers, top down; rows over the goal's give it room (it stands on its row's baseline).
+  const Y = (r: number): number => MAP.top + (maxRow - r) * MAP.rowPitch + CARD_H / 2 + (goalRow !== undefined && r <= goalRow ? extra : 0)
+  const boxes: Box[] = skills.map((id) => ({ id, x: x0[id], y: Y(row[id]) - CARD_H / 2, w: width(id), h: CARD_H }))
   const at: Record<string, Box> = Object.fromEntries(boxes.map((b) => [b.id, b]))
-  // Place each project over its prerequisites' middle, clear of other projects on its row.
-  const capBoxes: Box[] = []
   for (const c of caps) {
     const goal = c.id === goalId
     const w = goal ? MAP.goalW : MAP.projW
     const h = goal ? MAP.goalH : MAP.projH
     const xs = c.requires.filter((r) => at[r]).map((r) => at[r].x + at[r].w / 2)
     let cx = xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0
-    const cy = Y(capRow[c.id])
-    const hit = (x: number): boolean =>
-      [...capBoxes, ...boxes].some((b) => x - w / 2 < b.x + b.w + MAP.laneGap && x + w / 2 > b.x - MAP.laneGap && cy - h / 2 < b.y + b.h && cy + h / 2 > b.y)
+    const bottom = Y(capRow[c.id]) + CARD_H / 2
+    const hit = (x: number): boolean => boxes.some((b) => x - w / 2 < b.x + b.w + MAP.gap && x + w / 2 > b.x - MAP.gap && bottom - h < b.y + b.h && bottom > b.y)
     for (let k = 0; k < 200 && hit(cx); k++) cx += (k % 2 ? -1 : 1) * Math.ceil(k / 2 + 0.5) * 16
-    capBoxes.push({ id: c.id, x: cx - w / 2, y: cy - h / 2, w, h })
+    const b = { id: c.id, x: cx - w / 2, y: bottom - h, w, h }
+    boxes.push(b)
+    at[c.id] = b
   }
-  const all = [...boxes, ...capBoxes]
-  const minX = Math.min(...all.map((b) => b.x), ...labels.map((l) => l.x - 110))
-  const maxX = Math.max(...all.map((b) => b.x + b.w))
-  const minY = Math.min(...all.map((b) => b.y))
-  const dx = -minX
+  // Track names left of each column's bottom card.
+  const labels: TrackLabel[] = all.map((c) => {
+    const low = Math.min(...c.rows.keys())
+    const first = c.rows.get(low)![0]
+    return { track: c.t, text: trackLabel(c.t), x: at[first].x - MAP.labelGap, y: Y(low) - 8, align: 'right' as const }
+  })
+  // Everything from x = 0.
+  const minX = Math.min(...boxes.map((b) => b.x), ...labels.map((l) => l.x - labelW(l.track)))
+  const minY = Math.min(...boxes.map((b) => b.y))
+  const dx = 8 - minX
   const dy = MAP.top - minY
-  for (const b of all) {
-    b.x += dx
-    b.y += dy
-  }
-  for (const l of labels) {
-    l.x += dx
-    l.y += dy
-  }
-  const byId: Record<string, Box> = Object.fromEntries(all.map((b) => [b.id, b]))
-  const edges: FlatEdge[] = []
+  for (const b of boxes) (b.x += dx), (b.y += dy)
+  for (const l of labels) (l.x += dx), (l.y += dy)
+  // Gutters: halfway between neighbouring columns, and outside the outer ones.
+  const sorted = [...all].sort((a, b) => a.cx - b.cx)
+  const gutters = [sorted[0].cx - sorted[0].l - MAP.colGap / 2, ...sorted.slice(1).map((c, i) => (sorted[i].cx + sorted[i].r + c.cx - c.l) / 2), sorted[sorted.length - 1].cx + sorted[sorted.length - 1].r + MAP.colGap / 2].map((v) => v + dx)
   const halfGap = (MAP.rowPitch - CARD_H) / 2
+  const edges: FlatEdge[] = []
   for (const n of g.nodes) {
-    const b = byId[n.id]
+    const b = at[n.id]
     if (!b) continue
     for (const r of n.requires) {
-      const a = byId[r]
+      const a = at[r]
       if (!a) continue
-      const x1 = a.x + a.w / 2
-      const x2 = b.x + b.w / 2
-      edges.push({ from: r, to: n.id, kind: edgeKind(g.byId[r], n), d: elbowV(x1, a.y, x2, b.y + b.h, b.y + b.h + halfGap) })
+      edges.push({ from: r, to: n.id, kind: edgeKind(g.byId[r], n), d: routeUp(a, b, boxes, gutters, halfGap) })
     }
   }
   edges.sort((a, b) => EDGE_ORDER[a.kind] - EDGE_ORDER[b.kind])
-  return { w: maxX + dx, h: Math.max(...all.map((b) => b.y + b.h)) + 8, boxes: all, edges, labels }
+  return { w: Math.max(...boxes.map((b) => b.x + b.w)) + 8, h: Math.max(...boxes.map((b) => b.y + b.h)) + 8, boxes, edges, labels }
 }
 
 // ---- Tracks (the Map zoomed out) -------------------------------------------------------------------------------
 
-export const TRACKS = { w: 164, h: 54, rowPitch: 132 } as const
+export const TRACKS = { w: 164, h: 54, rowPitch: 116, gap: 36 } as const
 
-export function tracksLayout(g: SkillGraph, map: FlatLayout): FlatLayout {
-  const skillBoxes = map.boxes.filter((b) => g.byId[b.id]?.kind === 'skill')
-  const center = (t: string): number => {
-    const bs = skillBoxes.filter((b) => g.byId[b.id].track === t)
-    return bs.length ? bs.reduce((s, b) => s + b.x + b.w / 2, 0) / bs.length : 0
-  }
-  // Track links: a skill in one track needing a skill in another.
-  const tReq = new Map<string, Set<string>>(g.tracks.map((t) => [t.id, new Set()]))
-  for (const n of g.nodes)
-    if (n.kind === 'skill')
-      for (const r of n.requires) {
-        const rt = g.byId[r]?.track
-        if (rt && rt !== n.track) tReq.get(n.track)?.add(rt)
-      }
-  const ids = g.tracks.filter((t) => t.total > 0).map((t) => t.id)
-  const depth = longestDepth(ids, (t) => [...(tReq.get(t) ?? [])])
-  const rows = Math.max(0, ...ids.map((t) => depth[t])) + 1
-  const goalId = g.goal?.id
-  const goal = goalId ? map.boxes.find((b) => b.id === goalId) : undefined
-  const top = goal ? MAP.top + MAP.goalH + 48 : MAP.top
-  const Y = (r: number): number => top + (rows - 1 - r) * TRACKS.rowPitch
+/** One card per track, in the Map's column order: the base at the bottom center, each track a row over what it needs. */
+export function tracksLayout(g: SkillGraph): FlatLayout {
+  const plan = mapPlan(g)
+  if (!plan) return { w: 0, h: 0, boxes: [], edges: [], labels: [] }
+  const { order, level, tReq, base, center } = plan
+  const ids = [...new Set([base, ...order])].filter((t) => g.tracks.some((k) => k.id === t && k.total > 0))
   const tw = (t: string): number => Math.max(TRACKS.w, Math.ceil((g.tracks.find((k) => k.id === t)?.label ?? t).length * 8 + 80))
-  const boxes: Box[] = ids.map((t) => ({ id: `track:${t}`, x: center(t) - tw(t) / 2, y: Y(depth[t]), w: tw(t), h: TRACKS.h }))
-  // Same-row cards that collide: push apart left to right.
-  for (let r = 0; r < rows; r++) {
-    const row = boxes.filter((b) => b.y === Y(r)).sort((a, b) => a.x - b.x)
-    for (let i = 1; i < row.length; i++) row[i].x = Math.max(row[i].x, row[i - 1].x + row[i - 1].w + MAP.laneGap)
+  const pitch = Math.max(...ids.map(tw)) + TRACKS.gap
+  const mid = order.indexOf(center)
+  const cx = (t: string): number => (t === base ? 0 : (order.indexOf(t) - mid) * pitch)
+  const rows = Math.max(0, ...ids.map((t) => level[t])) + 1
+  const goalId = g.goal?.id
+  const hasGoal = !!goalId && !!g.byId[goalId]
+  const top = MAP.top + (hasGoal ? MAP.goalH + TRACKS.rowPitch - TRACKS.h : 0)
+  const Y = (r: number): number => top + (rows - 1 - r) * TRACKS.rowPitch
+  const boxes: Box[] = ids.map((t) => ({ id: `track:${t}`, x: cx(t) - tw(t) / 2, y: Y(level[t]), w: tw(t), h: TRACKS.h }))
+  if (hasGoal) {
+    const gt = g.byId[goalId!].track
+    const x = ids.includes(gt) ? cx(gt) : cx(center)
+    boxes.push({ id: goalId!, x: x - MAP.goalW / 2, y: MAP.top, w: MAP.goalW, h: MAP.goalH })
   }
-  const all: Box[] = [...boxes]
-  const tops = boxes.filter((b) => b.y === Math.min(...boxes.map((x) => x.y)))
-  const gb: Box | undefined =
-    goal && goalId ? { id: goalId, x: tops.reduce((s, b) => s + b.x + b.w / 2, 0) / Math.max(1, tops.length) - MAP.goalW / 2, y: MAP.top, w: MAP.goalW, h: MAP.goalH } : undefined
-  if (gb) all.push(gb)
-  const minX = Math.min(...all.map((b) => b.x))
-  for (const b of all) b.x -= minX
+  const minX = Math.min(...boxes.map((b) => b.x)) - 8
+  for (const b of boxes) b.x -= minX
   const at = Object.fromEntries(boxes.map((b) => [b.id, b]))
-  const edges: FlatEdge[] = []
+  const lo = Math.min(...ids.map(cx))
+  const hi = Math.max(...ids.map(cx))
+  const gutters: number[] = []
+  for (let v = lo - pitch / 2; v <= hi + pitch / 2 + 1; v += pitch / 2) gutters.push(v - minX)
+  const halfGap = (TRACKS.rowPitch - TRACKS.h) / 2
   const tr = (t: string): SkillGraph['tracks'][number] | undefined => g.tracks.find((x) => x.id === t)
+  const edges: FlatEdge[] = []
   for (const t of ids)
     for (const r of tReq.get(t) ?? []) {
       const a = at[`track:${r}`]
       const b = at[`track:${t}`]
       if (!a || !b) continue
       const done = (tr(r)?.mastered ?? 0) >= (tr(r)?.total ?? 1)
-      edges.push({ from: a.id, to: b.id, kind: done ? 'done' : 'locked', d: elbowV(a.x + a.w / 2, a.y, b.x + b.w / 2, b.y + b.h) })
+      edges.push({ from: a.id, to: b.id, kind: done ? 'done' : 'locked', d: routeUp(a, b, boxes, gutters, halfGap) })
     }
-  if (gb && goalId) {
-    const gt = g.byId[goalId]?.track
-    const from = (gt && at[`track:${gt}`]) || tops[0]
-    if (from) edges.push({ from: from.id, to: goalId, kind: 'locked', d: elbowV(from.x + from.w / 2, from.y, gb.x + gb.w / 2, gb.y + gb.h) })
+  if (hasGoal) {
+    const gb = at[goalId!]
+    const gt = g.byId[goalId!].track
+    const from = at[`track:${gt}`] ?? at[`track:${center}`]
+    if (from) edges.push({ from: from.id, to: goalId!, kind: 'locked', d: routeUp(from, gb, boxes, gutters, (from.y - gb.y - gb.h) / 2) })
   }
   edges.sort((a, b) => EDGE_ORDER[a.kind] - EDGE_ORDER[b.kind])
-  return { w: Math.max(...all.map((b) => b.x + b.w)), h: Math.max(...all.map((b) => b.y + b.h)) + 8, boxes: all, edges, labels: [] }
+  return { w: Math.max(...boxes.map((b) => b.x + b.w)) + 8, h: Math.max(...boxes.map((b) => b.y + b.h)) + 8, boxes, edges, labels: [] }
 }
 
 // ---- Steps (the Map zoomed in) ---------------------------------------------------------------------------------
