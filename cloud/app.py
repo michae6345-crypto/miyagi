@@ -166,8 +166,19 @@ GEMINI_MAX_CONTENTS = 500
 GEMINI_MAX_PARTS = 2000  # in every content and the system instruction together
 GEMINI_MAX_FUNCTIONS = 256  # functionDeclarations, every tool together
 GEMINI_MAX_SAFETY = 32
-PROXY_HOPS = _env_int("TRUSTED_PROXY_HOPS", 1)  # Render's load balancer appends the client IP
-CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip().lower()  # e.g. cf-connecting-ip; used only when set
+# The client IP (client_ip_scope, README "Client IP"): every limit, cap and block that keys on a network reads it.
+# TRUSTED_PROXY_HOPS: how many proxies append to X-Forwarded-For in front of us (Render: 1, to confirm on staging with
+# the first-request log line); the entry that far from the right is the client, everything left of it is the client's
+# own text and never used. CLIENT_IP_HEADER: a header the edge overwrites on every request (Render's Cloudflare edge
+# writes cf-connecting-ip), used instead when set and valid. Unset by default until the staging check confirms it.
+PROXY_HOPS = max(_env_int("TRUSTED_PROXY_HOPS", 1), 0)
+CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip().lower()
+# Shown by the first-request diagnostic line (presence, kind, agreement with the hop: never a value)
+EDGE_IP_HEADERS = ("cf-connecting-ip", "true-client-ip", "x-real-ip")
+if os.environ.get("FORWARDED_ALLOW_IPS", "").strip() not in ("", "127.0.0.1", "127.0.0.1,::1"):
+    log.warning("FORWARDED_ALLOW_IPS is set: uvicorn may rewrite the socket peer from X-Forwarded-For (with * from the "
+                "leftmost, client-written entry); the client-IP fallback reads that peer. Start uvicorn with "
+                "--no-proxy-headers")
 
 # Rate limits (Michael's ask): per process and per instance, in memory. See class RateLimit.
 RATE_LIMIT_ENABLED = _env_bool("RATE_LIMIT_ENABLED", True)
@@ -425,6 +436,19 @@ CLOUDFLARE_NETS = tuple(ipaddress.ip_network(n) for n in (
     "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32"))
 
 
+def _norm(ip):
+    """IPv4-mapped IPv6 (::ffff:a.b.c.d) as the IPv4 address it is, so every bucket sees one form."""
+    return ip.ipv4_mapped if ip is not None and ip.version == 6 and ip.ipv4_mapped else ip
+
+
+def _kind(ip) -> str:
+    if ip is None:
+        return "not a valid address"
+    if any(ip.version == n.version and ip in n for n in CLOUDFLARE_NETS):
+        return "a Cloudflare address"
+    return "a global address" if ip.is_global else "a private or reserved address"
+
+
 def _ip_kind(ip) -> str:
     """What kind of address the chosen entry is, for the staging check: never the address itself."""
     if ip is None:
@@ -436,9 +460,11 @@ def _ip_kind(ip) -> str:
     return "a private or reserved address (likely a proxy: wrong hop count)"
 
 
-def _log_xff(entries: list[str], chosen) -> None:
+def _log_xff(entries: list[str], chosen, edge: dict[str, str] | None = None) -> None:
     """At INFO, once per process (plus once more when the first request had no entries): the NUMBER of
-    X-Forwarded-For entries and what kind of address the chosen one is. Never the values."""
+    X-Forwarded-For entries and what kind of address the chosen one is, then the edge's client-IP headers: present
+    or not, their kind, whether they agree with the chosen entry, and whether one equals an entry the client wrote
+    itself (then the edge does not overwrite it and it must never be CLIENT_IP_HEADER). Never the values."""
     key = "entries" if entries else "any"
     if key in _xff_logged or (not entries and _xff_logged):
         return
@@ -446,6 +472,19 @@ def _log_xff(entries: list[str], chosen) -> None:
     kind = _ip_kind(chosen) if entries and PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS else "none (the socket peer is used)"
     log.info("first request: %d X-Forwarded-For entr%s (TRUSTED_PROXY_HOPS=%d); the chosen entry is %s", len(entries),
              "y" if len(entries) == 1 else "ies", PROXY_HOPS, kind)
+    edge = edge or {}
+    written = {_norm(_parse_ip(e)) for e in (entries[:-PROXY_HOPS] if PROXY_HOPS > 0 else entries)} - {None}
+    parts = []
+    for name in dict.fromkeys((*EDGE_IP_HEADERS, *((CLIENT_IP_HEADER,) if CLIENT_IP_HEADER else ()))):
+        if name not in edge:
+            parts.append(f"{name} absent")
+            continue
+        ip = _norm(_parse_ip(edge[name]))
+        note = "same as the chosen entry" if ip is not None and ip == _norm(chosen) else "differs from the chosen entry"
+        if ip is not None and ip in written:
+            note += ", EQUALS AN ENTRY THE CLIENT WROTE (not overwritten by the edge: never trust it)"
+        parts.append(f"{name} {_kind(ip)}, {note}")
+    log.info("edge client-IP headers: %s; CLIENT_IP_HEADER=%s", "; ".join(parts), CLIENT_IP_HEADER or "unset")
 
 
 def _parse_ip(raw: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
@@ -471,25 +510,30 @@ def client_ip_scope(scope) -> str:
 
     CLIENT_IP_HEADER (when set and valid) wins. Else the X-Forwarded-For entry at position -TRUSTED_PROXY_HOPS:
     each trusted proxy appends the address it saw, so entries further left are whatever the client wrote and are
-    never trusted. Fewer entries than hops, an invalid entry or hops 0: the socket peer."""
+    never trusted. Fewer entries than hops, an invalid entry or hops 0: the socket peer.
+
+    This is the ONE place the proxy reads a client address: the rate limiter and the admin lockout (ip_bucket),
+    install minting and the anonymous network spend pool (mint_bucket), body bytes per network, lesson uploads
+    (ip_net) and the region block all call it. The leftmost entry is never used. Values are stripped, validated
+    (ports and brackets removed, IPv6 zone ids dropped) and normalised (IPv4-mapped IPv6 as IPv4)."""
     headers = scope.get("headers") or []
-    if CLIENT_IP_HEADER:
-        for k, v in headers:
-            if k.decode("latin-1").lower() == CLIENT_IP_HEADER:
-                if ip := _parse_ip(v.decode("latin-1")):
-                    return str(ip)
-                break
     entries: list[str] = []
+    edge: dict[str, str] = {}
     for k, v in headers:
-        if k.lower() == b"x-forwarded-for":
+        name = k.decode("latin-1").lower()
+        if name == "x-forwarded-for":
             entries += [e for e in v.decode("latin-1").split(",") if e.strip()]
-    chosen = _parse_ip(entries[-PROXY_HOPS]) if PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS else None
+        elif name == CLIENT_IP_HEADER or name in EDGE_IP_HEADERS:
+            edge.setdefault(name, v.decode("latin-1"))  # the first one: what the edge wrote
+    chosen = _norm(_parse_ip(entries[-PROXY_HOPS])) if PROXY_HOPS > 0 and len(entries) >= PROXY_HOPS else None
     if len(_xff_logged) < 2:
-        _log_xff(entries, chosen)  # the count and kind only, never the addresses: the staging check
+        _log_xff(entries, chosen, edge)  # counts and kinds only, never the addresses: the staging check
+    if CLIENT_IP_HEADER and (ip := _norm(_parse_ip(edge.get(CLIENT_IP_HEADER, "")))):
+        return str(ip)
     if chosen is not None:
         return str(chosen)
     peer = str((scope.get("client") or ("", 0))[0] or "")
-    ip = _parse_ip(peer)
+    ip = _norm(_parse_ip(peer))
     return str(ip) if ip else (peer[:64] or "unknown")
 
 

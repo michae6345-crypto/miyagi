@@ -5,7 +5,7 @@ services:
     rootDir: cloud
     plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --no-proxy-headers  # the client IP is ours (README, Client IP)
     healthCheckPath: /healthz
     disk:
       name: miyagi-data
@@ -87,8 +87,8 @@ services:
         value: "20000"
       - key: TRUSTED_PROXY_HOPS    # check the "X-Forwarded-For entries" log line on staging (README, Rate limits)
         value: "1"
-      # CLIENT_IP_HEADER: unset (X-Forwarded-For). Set it, e.g. to cf-connecting-ip, only behind such a proxy, and
-      # only once the onrender.com origin cannot be reached directly: anyone who reaches it can forge that header.
+      # CLIENT_IP_HEADER: unset (the X-Forwarded-For hop). cf-connecting-ip only once the live hop check (README, Client
+      # IP) shows Cloudflare overwrote a spoofed value: a header the edge passes through lets a client pick its address.
       # Install minting (SQLite, survives deploys)
       - key: REGISTER_LIMIT_PER_HOUR
         value: "20"
