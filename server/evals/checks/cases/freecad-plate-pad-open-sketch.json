@@ -1,0 +1,106 @@
+{
+ "id": "freecad-plate-pad-open-sketch",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to CAD lesson 4 (\"A pad 5 mm long makes a 60 by 40 by 5 mm solid\"). The rectangle has one corner not closed (open wire), so the Pad with Length 5 is in the tree but failed to recompute (\"Wire is not closed\"): there is no solid at all.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Pad it into a plate",
+  "file": "plate.FCStd",
+  "instructions": "Select the 60 by 40 mm sketch, click Pad and set Length to 5 mm. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Pad feature added",
+    "file": "plate.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Pad\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Pad is 5 mm",
+    "file": "plate.scene.json",
+    "pattern": "\"Length\":\\s*5(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Pad",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          }
+         ],
+         "dof": 2,
+         "closed_wires": 0,
+         "open_wires": 1,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": false,
+         "error": "Pad: Wire is not closed"
+        }
+       ],
+       "shape": {
+        "valid": false,
+        "solids": 0,
+        "volume": 0.0,
+        "bound_box": null
+       }
+      }
+     ],
+     "recompute_errors": [
+      "Pad: Wire is not closed"
+     ]
+    }
+   }
+  }
+ }
+}

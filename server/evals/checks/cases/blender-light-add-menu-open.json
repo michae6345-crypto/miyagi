@@ -1,0 +1,47 @@
+{
+ "id": "blender-light-add-menu-open",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: the learner opened Shift+A > Light and is hovering the list (Point, Sun, Spot, Area). No light was added: the outliner still shows only Camera, Light (the default point light) and Mug. The word Area is on screen only as a menu item.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Light it and aim the camera",
+  "instructions": "Add an area light (Shift+A > Light > Area), raise its power to 500 W and aim it at the mug.",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "screen_contains",
+    "label": "Area light added",
+    "app": "Blender",
+    "pattern": "Area"
+   }
+  ]
+ },
+ "workspace": {
+  "screen": {
+   "Blender": [
+    "File Edit Render Window Help",
+    "Layout Modeling Sculpting UV Editing Shading",
+    "Object Mode View Select Add Object",
+    "Add",
+    "Mesh",
+    "Curve",
+    "Surface",
+    "Light",
+    "Light Probe",
+    "Camera",
+    "Point",
+    "Sun",
+    "Spot",
+    "Area",
+    "Scene Collection",
+    "Collection",
+    "Camera",
+    "Light",
+    "Mug"
+   ]
+  }
+ }
+}

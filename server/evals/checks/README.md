@@ -13,7 +13,7 @@ python -m server.evals.checks -k jupyter # only ids containing "jupyter"
 python -m server.evals.checks --json
 python -m server.evals.checks --held-out # also the held-out wrong verdicts' rows (reviewing the set, not fixing)
 python -m server.evals.checks --write-baseline   # after the checks improve or cases are added
-python -m pytest server/evals/checks -q  # fails below baseline.json or on a new wrong verdict
+python -m pytest server/evals/checks -q  # fails below baseline.json or on a new wrong verdict (training cases)
 ```
 
 **Held-out cases** (`"heldOut": true`, about a third of each new batch) are scored and reported on their own and are
@@ -33,19 +33,23 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
 ```jsonc
 {
   "id": "jupyter-mnist-s2-typed-not-run",   // = file name
-  "kind": "jupyter",                        // jupyter | vscode | terminal | metric
+  "kind": "jupyter",                        // jupyter | vscode | terminal | metric | blender | cad
   "trap": "false_pass",                     // none | false_pass (a near miss that looks done) | false_fail (done, but looks odd)
   "heldOut": true,                          // optional: a held-out case (see below); default false = train
   "expected": "not_yet",                    // pass | not_yet
   "heldOut": false,                         // optional: true = held-out (scored apart, never tuned on)
   "why": "T10-CP7: the cell is typed but never run ...",
+  "heldOut": false,                         // optional: true = scored apart, never used to tune the checks
   "precision_mode": false,                  // optional: evaluate_gate(precision_mode=...)
   "step": {"lesson": "demo/cache/lessons/5c0ea8a49f419487.json", "id": "s2"},  // or an inline step with "checks"
-                                            // optional "patch": {...}, "drop_checks": [ids]
+                                            // optional "patch": {...}, "drop_checks": [ids], "adapt": true
+                                            // (adapt: run the lesson through app_lesson.adapt, as the engine
+                                            // runs an app lesson: file/command checks dropped, app pinned)
   "workspace": {
     "files": {
       "calculator.py": "def add(a, b): ...",          // a text file
       "project1/.git": {"dir": true},                 // a folder
+      "mug.scene.json": {"json": {"objects": [...]}},  // a JSON document (indent 1): a headless dump, see below
       "mnist.ipynb": {"notebook": {"from": "server/tests/fixtures/t10_mnist.ipynb", "keep_cells": 1,
                                    "unrun": [0], "replace": [[0, "old", "new"]], "append": [cell],
                                    "counts": [16, 17, null]}},   // execution counts in cell order (run order)
@@ -151,36 +155,63 @@ Held-out wrong verdicts (ids only): `terminal-calc-s2-hidden-exit-1-after-5`,
 `terminal-git-s7-fish-typed-not-run`, `terminal-git-s7-pathspec-error`, `terminal-mnist-s1-forgot-activate`,
 `terminal-react-s1-npm10-error` (FP); `terminal-git-s8-push-ligature-arrow` (FN).
 
-## Baseline (56 cases, Nov 22 2026, origin/integration/live; historical, since fixed)
+## Round 1: Blender and CAD (Nov 24 2026, 20 new cases, 7 held out)
 
-| | acc | prec | rec | FP | FN |
+From Adrian's plans on `origin/adrian/ui-next` (`docs/ui-next/catalog/plans/intro-blender`, `intro-cad`,
+`intro-fusion`: each lesson's `passes` line) and `docs/ui-next/INTEGRATIONS.md`, plus the app-lesson fixtures in
+`server/workspace/tests/fixtures` (`blender_donut.json`, `autocad_toy_car.json`, run through `app_lesson.adapt`).
+Two levels, both graded by today's check types:
+
+- **Screen** (what app lessons do today): `screen_contains` pinned to `Blender` / `AutoCAD` on a fixed OCR reading
+  of the app window (menus open, the command line's history).
+- **File** (INTEGRATIONS.md "file level"): the facts a headless run reads from the saved model, recorded as fixtures.
+  `Blender --background mug.blend --python dump_scene.py` prints objects (location, `rotation_deg`, scale,
+  dimensions, hidden), mesh counts / smooth / `islands`, modifiers (type, levels, render_levels), materials
+  (users, Principled roughness / metallic) and lights; `FreeCADCmd` prints bodies, features in order (type,
+  Length, `valid`, error), sketches (constraints, `dof`, closed / open wires), the final shape and
+  `recompute_errors`. The dump sits next to the model as `<name>.scene.json` and the steps grade it with
+  `file_contains`. AutoCAD cases read the ASCII DXF the learner saves (layer table, entity layers in group 8,
+  DIMENSION measurement in group 42, text override in group 1); exports are STL files (ASCII, `solid` /
+  `facet normal`).
+
+The traps are the ones a regex over a whole scene or drawing can't see: the right fact on the wrong object (the
+default Cube kept the modifier or the material), a menu item read as the thing added, a command typed then
+cancelled, a feature present in the tree but failed to recompute, a dimension's text typed over the real length,
+an export with no triangles, and the done-but-odd side: float32 noise (`90.00000250447816` degrees,
+`119.9999999999999` mm), another command for the same result, a file named differently from the one the step
+guessed.
+
+Before any fix: The 56 cases before Nov 24 all score right (their Nov 22 wrong verdicts were fixed). The new Blender and CAD
+training cases (13) score:
+
+| training | acc | prec | rec | FP | FN |
 |---|---|---|---|---|---|
-| overall | 0.857 | 0.833 | 0.893 | 5 | 3 |
-| jupyter (19) | 1.000 | 1.000 | 1.000 | 0 | 0 |
-| terminal (16) | 0.875 | 0.800 | 1.000 | 2 | 0 |
-| vscode (12) | 0.750 | 0.714 | 0.833 | 2 | 1 |
-| metric (9) | 0.667 | 0.750 | 0.600 | 1 | 2 |
+| overall (69) | 0.855 | 0.795 | 0.939 | 8 | 2 |
+| blender (8) | 0.250 | 0.333 | 0.500 | 4 | 2 |
+| cad (5) | 0.200 | 0.200 | 1.000 | 4 | 0 |
+| jupyter, metric, terminal, vscode (56) | 1.000 | 1.000 | 1.000 | 0 | 0 |
 
-Known wrong verdicts (`baseline.json` → `known_wrong`), worst first:
+Held-out (7): acc 0.000 (4 FP, 3 FN). Not listed here on purpose (`--held-out`).
 
-- **FP `metric-nn4-diverged-nan`**: the NN lesson's `metric_pattern` value class `[0-9Oo.eE+-]+` can't read `nan`,
-  so `epoch 13000 loss nan` is skipped and the stale 0.0032 passes "Loss falls below 0.01". The divergence guard
-  never sees the NaN.
-- **FP `terminal-calc-s2-hidden-other-script`**: with the terminal hidden, a Terminal `screen_contains` is graded on
-  the last run's output (`_on_run_output`) without checking the run was the step's command; `python3 scratch.py`
-  printing 5 passes "The program prints 5".
-- **FP `terminal-git-s7-typed-not-run`**: `update-name` matches the command typed at the prompt, before Enter.
-  Any Terminal check whose pattern is a word of the command itself passes on the typed line.
-- **FP `vscode-calc-s1-commented-out`**: code checks match commented-out lines (`# def add(a, b):`).
-- **FP `vscode-calc-s4-guard-in-wrong-function`**: regex checks can't see where the code is; the zero guard in
-  `multiply()` passes "divide() raises a ValueError".
-- **FN `metric-pinn-s4-prints-l2-error`**: the generated `screen_absent` pattern `Traceback|Error` fails on a
-  result line, `Relative L2 Error: 3.1e-02`.
-- **FN `metric-pinn-s7-decreasing`**: the lesson's `metric_trend` has `window: 5` (steps) with loss logged every 100
-  steps, so the window never holds 8 points: it can never pass. (`metric-pinn-s7-flat` is a TN for the same wrong
-  reason.)
-- **FN `vscode-calc-s1-other-param-names`**: `def add(x, y): return x + y` fails patterns that hard-code `a, b`.
+Known wrong verdicts in the training cases (`baseline.json` → `known_wrong`), worst first:
 
-Not verdict errors, but seen in the rows: a finished notebook cell below a metric bar
-(`jupyter-mnist-s5-low-accuracy`, `-s7-below-95`) stays `pending`, never `fail`, so stuck-help can't fire; and
-details name the video's `Untitled.ipynb` where the learner's notebook is `mnist.ipynb`.
+- **FP `blender-mug-subsurf-on-default-cube`, `blender-material-glossy-on-cube`**: `file_contains` over the whole
+  scene dump can't tie a fact to the object the step is about; the Subdivision modifier / the glossy material is on
+  the default Cube, not the Mug.
+- **FP `freecad-plate-80mm-pocket-broken`**: `"valid": true` finds the valid Sketch and Pad; the Pocket and
+  Sketch001 failed to recompute (`recompute_errors` is not empty).
+- **FP `freecad-hook-stl-empty-export`**: `file_exists` + `^solid` pass an STL with no facets.
+- **FP `autocad-dxf-dimension-text-overridden`**: `120` is the dimension's typed text override; the measured length
+  (group 42) and the geometry say 118.5.
+- **FP `blender-donut-s3-add-modifier-menu`, `blender-light-add-menu-open`**: the word is on screen only as an item
+  of an open menu (Add Modifier > Generate, Shift+A > Light).
+- **FP `autocad-toy-car-s3-stlout-cancelled`**: `STLOUT` on the command line, followed by `*Cancel*`.
+- **FN `blender-transform-cone-rotation-float`**: R X 90 is stored as float32 radians; the dump reads
+  90.00000250447816 degrees, which `90(?:\.0+)?\s*[,\]]` refuses.
+- **FN `blender-render-saved-as-untitled-png`**: the render is saved as Blender's default `untitled.png`; the check
+  guessed `mug.png`.
+
+## First baseline (56 cases, Nov 22 2026)
+
+All eight wrong verdicts fixed in 2b86a0db. Not verdict errors, but seen in the rows (Nov 22): a finished notebook cell below a metric bar
+(`jupyter-mnist-s5-low-accuracy`, `-s7-below-95`) stays `pending`, never `fail`, so stuck-help can't fire.

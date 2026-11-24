@@ -1,0 +1,35 @@
+{
+ "id": "freecad-hook-stl-empty-export",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 10 (\"A watertight STL of the hook is saved\"). The learner had the sketch selected, not the Body, when choosing File > Export > STL, so hook.stl holds no triangles at all (solid Mesh / endsolid Mesh). The file exists and starts like an STL; a slicer would show nothing.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Export an STL to print",
+  "file": "hook.FCStd",
+  "instructions": "Select the Body in the tree, choose File > Export, pick STL Mesh (*.stl) and save it as hook.stl next to hook.FCStd.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "hook.stl saved",
+    "file": "hook.stl"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_contains",
+    "label": "STL mesh inside",
+    "file": "hook.stl",
+    "pattern": "^solid\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hook.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "hook.stl": "solid Mesh\nendsolid Mesh\n"
+  }
+ }
+}

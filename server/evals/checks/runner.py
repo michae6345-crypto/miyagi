@@ -36,7 +36,7 @@ CASES_DIR = HERE / "cases"
 BASELINE = HERE / "baseline.json"
 
 VERDICTS = ("pass", "not_yet")
-KINDS = ("jupyter", "vscode", "terminal", "metric")
+KINDS = ("jupyter", "vscode", "terminal", "metric", "blender", "cad")
 TRAPS = ("none", "false_pass", "false_fail")
 
 
@@ -80,25 +80,38 @@ def is_held_out(case: dict) -> bool:
     return case.get("heldOut") is True
 
 
-_LESSONS: dict[str, dict] = {}
+_LESSONS: dict[tuple[str, bool], dict] = {}
+
+
+def _lesson(path: str, adapt: bool) -> dict:
+    """A lesson JSON from the repo; with ``adapt``, as the engine runs an app lesson (Blender, AutoCAD...):
+    server.lesson.app_lesson.adapt drops its file / command checks and pins its screen checks to the app's window."""
+    key = (path, adapt)
+    if key not in _LESSONS:
+        graph = json.loads((ROOT / path).read_text(encoding="utf-8"))
+        if adapt:
+            from server.lesson import app_lesson
+
+            app_lesson.adapt(graph)
+        _LESSONS[key] = graph
+    return _LESSONS[key]
 
 
 def resolve_step(case: dict) -> dict:
-    """The case's step: {"lesson": <repo path>, "id": <step id>} (+ optional "patch": shallow overrides, and
-    "drop_checks": check ids to remove), or an inline step with its own "checks"."""
+    """The case's step: {"lesson": <repo path>, "id": <step id>} (+ optional "adapt": true to run the lesson through
+    app_lesson.adapt first, "patch": shallow overrides, and "drop_checks": check ids to remove), or an inline step
+    with its own "checks"."""
     spec = case["step"]
     if "lesson" in spec:
         path = spec["lesson"]
-        if path not in _LESSONS:
-            _LESSONS[path] = json.loads((ROOT / path).read_text(encoding="utf-8"))
-        lesson = _LESSONS[path]
+        lesson = _lesson(path, bool(spec.get("adapt")))
         steps = lesson.get("steps") or (lesson.get("lesson") or {}).get("steps") or []
         try:
             step = copy.deepcopy(next(s for s in steps if s.get("id") == spec["id"]))
         except StopIteration:
             raise ValueError(f"{case['id']}: no step {spec['id']!r} in {path}") from None
     else:
-        step = {k: copy.deepcopy(v) for k, v in spec.items() if k not in ("patch", "drop_checks")}
+        step = {k: copy.deepcopy(v) for k, v in spec.items() if k not in ("patch", "drop_checks", "adapt")}
     step.update(copy.deepcopy(spec.get("patch") or {}))
     drop = set(spec.get("drop_checks") or [])
     if drop:
@@ -166,7 +179,9 @@ def _cell(c: dict, n: int) -> dict:
 
 
 def build_workdir(files: dict[str, Any], root: Path) -> None:
-    """Write the case's lesson folder: a str is a text file, {"notebook": {...}} an .ipynb, {"dir": true} a folder."""
+    """Write the case's lesson folder: a str is a text file, {"notebook": {...}} an .ipynb, {"dir": true} a folder,
+    {"json": <value>} a JSON document (indent 1, as a headless dump script prints it: the bpy / FreeCAD facts of a
+    saved .blend / .FCStd, recorded as a fixture)."""
     for rel, spec in (files or {}).items():
         p = root / rel
         if os.path.isabs(rel) or ".." in Path(rel).parts:
@@ -177,10 +192,12 @@ def build_workdir(files: dict[str, Any], root: Path) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(spec, dict) and "notebook" in spec:
             p.write_text(json.dumps(_notebook(spec["notebook"])), encoding="utf-8")
+        elif isinstance(spec, dict) and "json" in spec:
+            p.write_text(json.dumps(spec["json"], indent=1) + "\n", encoding="utf-8")
         elif isinstance(spec, str):
             p.write_text(spec, encoding="utf-8")
         else:
-            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}} or {{'dir': true}}")
+            raise ValueError(f"case file {rel!r}: a string, {{'notebook': ...}}, {{'json': ...}} or {{'dir': true}}")
 
 
 def _num(v: Any) -> float:
@@ -351,15 +368,9 @@ def report(outcomes: list[Outcome], verbose: bool = False, wall_s: float | None 
         lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
     for k, v in s["by_trap"].items():
         lines.append(f"{'trap ' + k:<18}" + _fmt_score(v))
-    held = s["held_out"]
-    if held["overall"]["cases"]:
-        lines.append("")
-        lines.append("held-out cases (scored on their own, never used to tune a fix):")
-        lines.append(f"{'held-out':<18}" + _fmt_score(held["overall"]))
-        for k, v in held["by_kind"].items():
-            lines.append(f"{'kind ' + k:<18}" + _fmt_score(v))
     if wall_s is not None:
         lines.append(f"\n{len(outcomes)} cases in {wall_s:.2f}s")
+    fails = s["failures"]
     lines.append("")
     lines.append(f"{len(fails)} wrong verdict(s), worst first:" if fails else "no wrong verdicts")
     for f in fails:

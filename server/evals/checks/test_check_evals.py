@@ -1,5 +1,6 @@
 """The step-check eval set (server/evals/checks/cases) must not get worse: accuracy, precision and recall stay at or
-above baseline.json (train and held-out apart), and no train case outside known_wrong gets a wrong verdict. Offline: no model, no network.
+above baseline.json (train and held-out apart), and no train case outside known_wrong gets a wrong verdict.
+Offline: no model, no network.
 
     python -m pytest server/evals/checks -q
     python -m server.evals.checks -v            # the scores and the wrong verdicts, worst first
@@ -51,6 +52,10 @@ def test_the_set_covers_every_lesson_kind_and_both_kinds_of_trap():
 def test_every_case_builds_and_runs_without_error(outcomes):
     broken = {o.case["id"]: o.error for o in outcomes if o.error}
     assert not broken, broken
+
+
+def train(outcomes: list[runner.Outcome]) -> list[runner.Outcome]:
+    return runner.split(outcomes)[0]
 
 
 def test_scores_hold_the_baseline(outcomes):

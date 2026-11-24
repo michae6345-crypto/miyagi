@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
  "cases": 69,
  "accuracy": 0.8551,
@@ -31,5 +32,33 @@
    "vscode-pymod-m2-module-in-subfolder": "FP",
    "vscode-tsshop-t2-renamed-export": "FP"
   }
+=======
+ "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a training score drops below these or a training case outside known_wrong gets a wrong verdict. Raise it when the checks get better. held_out is the held-out cases' score, for the record only: never a target to tune on, and no case ids.",
+ "cases": 69,
+ "accuracy": 0.8551,
+ "precision": 0.7949,
+ "recall": 0.9394,
+ "fp": 8,
+ "fn": 2,
+ "known_wrong": {
+  "autocad-dxf-dimension-text-overridden": "FP",
+  "autocad-toy-car-s3-stlout-cancelled": "FP",
+  "blender-donut-s3-add-modifier-menu": "FP",
+  "blender-light-add-menu-open": "FP",
+  "blender-material-glossy-on-cube": "FP",
+  "blender-mug-subsurf-on-default-cube": "FP",
+  "freecad-hook-stl-empty-export": "FP",
+  "freecad-plate-80mm-pocket-broken": "FP",
+  "blender-render-saved-as-untitled-png": "FN",
+  "blender-transform-cone-rotation-float": "FN"
+ },
+ "held_out": {
+  "cases": 7,
+  "accuracy": 0.0,
+  "precision": 0.0,
+  "recall": 0.0,
+  "fp": 4,
+  "fn": 3
+>>>>>>> origin/claude/eng-evals-r1-3
  }
 }
