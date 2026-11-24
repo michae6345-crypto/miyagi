@@ -103,7 +103,7 @@ export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): 
     <section
       aria-label="Learn something new"
       data-home-ask
-      style={{ borderRadius: 12, background: layer.overlay.background, boxShadow: `inset 0 0 0 ${focused ? 1.5 : 1}px ${focused ? color.faint : fill.chipBorder}`, transition: 'box-shadow 140ms ease' }}
+      style={{ borderRadius: 12, background: layer.overlay.background, boxShadow: `inset 0 0 0 ${focused ? 2 : 1}px ${focused ? color.label : fill.chipBorder}`, transition: 'box-shadow 140ms ease' }}
     >
       <form
         className="flex cursor-text items-center gap-[10px]"

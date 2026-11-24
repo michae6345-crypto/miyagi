@@ -85,7 +85,7 @@ function SideRow({ icon, label, right, on = false, compact, onClick, data, title
       </span>
       {!compact && <span className="min-w-0 flex-1 truncate">{label}</span>}
       {!compact && right != null && (
-        <span className="shrink-0 whitespace-nowrap" style={{ fontSize: 12, lineHeight: '16px', fontWeight: 450, color: color.faint, fontVariantNumeric: 'tabular-nums' }}>
+        <span className="shrink-0 whitespace-nowrap" style={{ fontSize: 12, lineHeight: '16px', fontWeight: 450, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
           {right}
         </span>
       )}
@@ -272,7 +272,7 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
               {name}
             </span>
             {right && (
-              <span className="shrink-0" style={{ fontSize: 12, lineHeight: '16px', color: color.faint }}>
+              <span className="shrink-0" style={{ fontSize: 12, lineHeight: '16px', color: color.label }}>
                 {right}
               </span>
             )}

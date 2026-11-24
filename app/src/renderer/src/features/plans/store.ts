@@ -17,6 +17,8 @@ import type { PlanLessonRef, PlanProposal, PlanState } from '../../../../../../s
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
 import { onMessage } from '../../core/bus'
+import { setPage } from '../shell/store'
+import { setSidebarFeed } from '../shell/ui'
 import { planById, planStateFromCatalog, planStateFromProposal, type CatalogPlan } from './catalog'
 
 export type View = { kind: 'library' } | { kind: 'plans' } | { kind: 'plan'; id: string } | { kind: 'custom'; id: string }
@@ -159,3 +161,30 @@ export function removePlan(id: string): void {
   set((s) => ({ mine: s.mine.filter((m) => m.id !== id), view: s.view.kind !== 'library' && 'id' in s.view && s.view.id === id ? { kind: 'library' } : s.view }))
   bridge.send(cmd('plan.remove', { id }))
 }
+
+// ---- the sidebar's Plans ----------------------------------------------------------------------------------------
+
+/**
+ * The app sidebar lists the learner's plans ("Neural networks… 3 of 8", Adrian's v4 mock); a row opens that plan's
+ * page on Library. Fed from `mine`, so it follows every `plans` answer and push (and the local fallback).
+ */
+function feedSidebar(mine: MyPlan[]): void {
+  setSidebarFeed({
+    plans: mine.length
+      ? mine.map((p) => ({
+          id: p.id,
+          title: p.title,
+          done: p.done,
+          total: p.total,
+          onOpen: () => {
+            setPage('lessons')
+            showPlan(p.catalogId && planById(p.catalogId) ? p.catalogId : p.id)
+          }
+        }))
+      : null
+  })
+}
+feedSidebar(get().mine)
+usePlans.subscribe((s, prev) => {
+  if (s.mine !== prev.mine) feedSidebar(s.mine)
+})

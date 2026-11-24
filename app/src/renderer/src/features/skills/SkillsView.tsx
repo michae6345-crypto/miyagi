@@ -84,7 +84,8 @@ export function SkillsView({ g, now }: { g: SkillGraph | undefined; now: number 
     return () => showTools(false)
   }, [tools])
 
-  if (!g || !g.nodes.length) return <div>{g ? <NoSkills /> : null}</div>
+  // No graph, or one with no skills yet (the page waits on the first `progress` itself): one empty state, one way on.
+  if (!g || !g.nodes.length) return <NoSkills />
 
   const noGoal = !g.goal
   const canChange = g.source === 'graph' && g.capstones.length > 1

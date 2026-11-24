@@ -19,6 +19,8 @@ import { pickSkin, useSkinName, useSkinPicks } from './skin'
 
 /** How long it beams after a pick (ms). */
 const BEAM_MS = 900
+/** The smallest a swatch's hit area may be (WCAG 2.5.8): a smaller dot keeps this much button around it. */
+const MIN_TARGET = 24
 
 export const skinTitle = (name: SkinName): string => name.charAt(0).toUpperCase() + name.slice(1)
 
@@ -94,21 +96,28 @@ export function BuddySwatches({ size = 30, gap = 14, name: showName = true }: { 
               data-swatch={p}
               data-on={on || undefined}
               onClick={() => pickSkin(p)}
-              className="shrink-0 cursor-pointer p-0"
+              className="flex shrink-0 cursor-pointer items-center justify-center p-0"
               style={{
-                width: size,
-                height: size,
-                borderRadius: size / 2,
-                background: SKINS[p].body,
+                // The button is the hit area (at least MIN_TARGET); the dot inside is drawn at `size`.
+                width: Math.max(size, MIN_TARGET),
+                height: Math.max(size, MIN_TARGET),
+                borderRadius: '50%',
+                background: 'transparent',
                 border: 'none',
-                // A hairline, so a pale one shows on a light window. The picked one wears a ring in the text color, a
-                // gap out from it (an outline, so the gap is whatever it sits on: a window, a settings card).
-                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)',
+                // The picked one wears a ring in the text color, a gap out from the dot (an outline, so the gap is
+                // whatever it sits on: a window, a settings card).
                 outline: on ? `2px solid ${color.text}` : '2px solid transparent',
-                outlineOffset: size > 24 ? 3 : 2,
+                outlineOffset: (size > 24 ? 3 : 2) - (Math.max(size, MIN_TARGET) - size) / 2,
                 transition: 'outline-color 140ms ease-out'
               }}
-            />
+            >
+              <span
+                aria-hidden
+                className="block shrink-0"
+                // A hairline, so a pale one shows on a light window.
+                style={{ width: size, height: size, borderRadius: size / 2, background: SKINS[p].body, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)' }}
+              />
+            </button>
           )
         })}
       </div>
