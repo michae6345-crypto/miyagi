@@ -145,7 +145,9 @@ class _Lanes:
     a PRIORITY caller is served before every other waiter, and while a step-1 build holds reserve(), one lane is kept
     for priority calls (one already running uses it), so the step's next call (its adapt pass, right after its detail)
     starts at once instead of waiting for a lane the rest of the fan-out took. Never more than `limit` in flight.
-    Releasing never awaits, so a cancelled call always gives its lane back."""
+    Releasing never awaits, so a cancelled call always gives its lane back.
+    Process-wide (one per event loop, _sem()): every build in the engine shares the 4 lanes (a lesson, a prebuild,
+    "Just teach me", the goal match), and a reserve() held by one build's step 1 holds a lane back from all of them."""
 
     def __init__(self, limit: int) -> None:
         self.limit = max(1, limit)

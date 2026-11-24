@@ -412,7 +412,7 @@ async def _build_lesson_impl(
         known_text, checked = await _known_text(vid), (first.checked if first is not None else {})
         bad_urls = await _bad_urls(draft["steps"], known_text, checked)
         # step 1, when it was built early, is final: its adapt result is reused and it is never re-sent (locked)
-        locked = first.adapted() if first is not None and first.building() else None
+        locked = first.lock() if first is not None and first.building() else None
         graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info, bad_urls, locked=locked)
         # the adapt pass may write new links: verify the final text too, and strip what is still dead
         final_bad = await _bad_urls(graph["steps"], known_text, checked)
@@ -450,7 +450,8 @@ async def _build_lesson_impl(
         if lock is not None and lock.get("notebook"):
             graph["lesson"]["notebook"] = lock["notebook"]  # the notebook step 1 already named (and the workspace made)
         use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
-        use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
+        if lock is None or lock.get("notebook"):  # step 1 went out as a non-notebook lesson: the lesson stays one
+            use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
         if lock is not None:
             _lock_first_step(graph, lock)
         errs = schema_errors(graph)
@@ -470,7 +471,7 @@ async def _build_lesson_impl(
         return graph
 
     except Exception:
-        if first is not None:
+        if first is not None and first.sending:
             await first.delivered()  # step 1 is with the learner (or on its way): it lands before the error does
         raise
     finally:
@@ -508,10 +509,16 @@ def _lock_first_step(graph: dict, lock: dict) -> None:
     """The finished graph's step 1 is the one the learner already has (first_step.py), byte for byte. Logs when the full
     build would have made it differently (a lesson-wide decision the early step could not see yet)."""
     sent = copy.deepcopy(lock["step"])
-    same = graph["steps"][0] == sent
+    full = graph["steps"][0]
+    same = full == sent
     if not same:
-        keys = sorted(k for k in set(sent) | set(graph["steps"][0]) if sent.get(k) != graph["steps"][0].get(k))
+        keys = sorted(k for k in set(sent) | set(full) if sent.get(k) != full.get(k))
         log.warning("first step early: the full build's step 1 differs in %s; keeping the one the learner has", keys)
+    # explanations the full build placed in step 1 (step 2's call reads 15 s before its start) go to step 2, never lost
+    extra = [e for e in full.get("explanations") or [] if e not in (sent.get("explanations") or [])]
+    if extra and len(graph["steps"]) > 1:
+        nxt = graph["steps"][1]
+        nxt["explanations"] = sorted((nxt.get("explanations") or []) + extra, key=lambda e: e.get("t", 0))
     graph["steps"][0] = sent
     graph["build"]["firstStep"] = {"seconds": lock.get("seconds"), "same": same, "adaptModel": lock.get("adapt_model")}
 
@@ -1094,8 +1101,8 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
     just their feedback), and the loop stops as soon as a round doesn't reduce the problem count,
     keeping the best graph seen; repair cleans up whatever is left.
 
-    Step 1 first (first_step.py): `locked` is an awaitable of step 1's lock ({1: its adapt result}, or None when it was
-    not built early). Round 1 adapts the other steps while it is awaited; a locked step is final: never sent again,
+    Step 1 first (first_step.py): `locked` is an awaitable of step 1's lock (first_step.FirstStep.result: its adapt
+    result and the lesson-wide choices it was built with; None when it was not built early). Round 1 adapts the other steps while it is awaited; a locked step is final: never sent again,
     its problems never retried. `partial`: `draft` is step 1 alone (the early build), so lesson-wide lint problems ("no
     metric check" in a lesson whose training step is not built yet) are not its to fix. `context`: the lesson's other
     steps as known so far, for lesson-wide decisions (normalize_checks). `keep` receives the adapt results by step."""
@@ -1107,9 +1114,10 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
     targets = list(draft["steps"])
     feedback: list[str] | None = None
     summary = info.summary_for_prompt()
+    app = ...  # decided here (normalize_checks), unless step 1 went out with its own choice
 
     def build(steps: list[dict]) -> dict:
-        return normalize_checks(assemble(draft, goal, {"steps": steps}), info.metrics, context)
+        return normalize_checks(assemble(draft, goal, {"steps": steps}), info.metrics, context, app=app)
 
     def done(*result):
         if keep is not None:
@@ -1121,8 +1129,9 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] |
             if attempt == 0 and locked is not None:
                 out, used, lock = await _adapt_with_lock(goal, targets, summary, locked)
                 if lock:
-                    frozen = set(lock)
-                    adapted.update(lock)
+                    frozen = set(lock["adapted"])
+                    adapted.update(lock["adapted"])
+                    app = lock.get("app")  # the lesson-wide app / code choice step 1 went out with
             else:
                 out, used = await _adapt_call(goal, {"steps": targets}, summary, feedback)
         except RuntimeError as e:
@@ -1163,41 +1172,67 @@ def _leftover(graph: dict, info: WorkdirInfo, known_files: set[str], partial: bo
 
 
 async def _adapt_with_lock(goal: str, targets: list[dict], summary: str, locked) -> tuple[dict, str | None, dict | None]:
-    """Round 1 when step 1 may be locked: the other steps are adapted while step 1's lock is awaited (it is usually
-    ready long before). No lock (step 1 was not built early): step 1 is adapted here too, as before.
-    -> (adapt output, model, lock or None). Raises RuntimeError like _adapt_call when nothing could be adapted."""
+    """Round 1 when step 1 may be locked. -> (adapt output, model, lock or None); raises RuntimeError like _adapt_call
+    when nothing could be adapted.
+    - The lock is already known (the usual case: step 1 was built while the other details ran): a lock -> the other
+      steps are adapted; no lock -> exactly the old round 1 (every step, the old batches).
+    - Still building: the other steps are adapted while it is awaited; if it then fails, step 1 is adapted at once,
+      alongside whatever is still running.
+    A cancelled build stops waiting for step 1 at once (first_step.close() then stops step 1's build too)."""
     lock_task = asyncio.ensure_future(locked)
-    rest = [st for st in targets if st["index"] != 1]
-    out: dict = {"steps": []}
-    used: str | None = None
-    err: RuntimeError | None = None
-    try:
-        if rest:
-            out, used = await _adapt_call(goal, {"steps": rest}, summary, None)
-    except RuntimeError as e:
-        err = e
-    finally:
-        try:
-            lock = await lock_task
-        except Exception:  # noqa: BLE001  a failed early step 1 just means it is adapted here
-            lock = None
-    if lock:
-        if err is not None:
-            raise err
+    await asyncio.sleep(0)  # a lock that is already there resolves now
+    if lock_task.done():
+        lock = _lock_result(lock_task)
+        if lock is None:
+            out, used = await _adapt_call(goal, {"steps": targets}, summary, None)
+            return out, used, None
+        rest = [st for st in targets if st["index"] != 1]
+        out, used = await _adapt_call(goal, {"steps": rest}, summary, None) if rest else ({"steps": []}, None)
         return out, used, lock
+    rest = [st for st in targets if st["index"] != 1]
     first = [st for st in targets if st["index"] == 1]
-    if first:
+
+    async def adapt(steps: list[dict]):
         try:
-            out1, used1 = await _adapt_call(goal, {"steps": first}, summary, None)
-            out = {"steps": list(out.get("steps") or []) + list(out1.get("steps") or [])}
-            used = used or used1
+            return await _adapt_call(goal, {"steps": steps}, summary, None)
         except RuntimeError as e:
-            if err is not None or not rest:
-                raise err or e
-            log.warning("adapt batch failed: %s", str(e)[:200])  # like a failed batch: step 1 keeps the draft's checks
-    if err is not None and not (out.get("steps")):
-        raise err
-    return out, used, None
+            return e
+
+    rest_task = asyncio.ensure_future(adapt(rest)) if rest else None
+    first_task = None
+    try:
+        await asyncio.wait({lock_task})  # never raises for the lock's own failure; a cancel of this build does
+        lock = _lock_result(lock_task)
+        if lock is None and first:
+            first_task = asyncio.ensure_future(adapt(first))
+        res = await rest_task if rest_task is not None else ({"steps": []}, None)
+        res1 = await first_task if first_task is not None else None
+    except BaseException:
+        for t in (lock_task, rest_task, first_task):
+            if t is not None and not t.done():
+                t.cancel()
+        raise
+    if lock:
+        if isinstance(res, RuntimeError):
+            raise res
+        return res[0], res[1], lock
+    parts = [r for r in (res, res1) if r is not None]
+    ok = [r for r in parts if not isinstance(r, RuntimeError)]
+    if not ok:
+        raise next(r for r in parts if isinstance(r, RuntimeError))
+    for r in parts:
+        if isinstance(r, RuntimeError):
+            log.warning("adapt batch failed: %s", str(r)[:200])  # like a failed batch: those steps keep the draft's checks
+    return {"steps": [st for r in ok for st in r[0].get("steps") or []]}, next((r[1] for r in ok if r[1]), None), None
+
+
+def _lock_result(t) -> dict | None:
+    """The value of step 1's lock (a done task, or a plain value); a failed lock is no lock."""
+    if isinstance(t, asyncio.Future):
+        if t.cancelled() or t.exception() is not None:
+            return None
+        return t.result() or None
+    return t or None
 
 
 def assemble(draft: dict, goal: str, adapted: dict) -> dict:
@@ -1274,12 +1309,16 @@ def tag_setup_steps(graph: dict) -> None:
             step["setup"], step["requires"] = True, tools
 
 
-def normalize_checks(graph: dict, known_metrics: set[str], context: list[dict] | None = None) -> dict:
+def normalize_checks(graph: dict, known_metrics: set[str], context: list[dict] | None = None, *, app=...) -> dict:
     """Deterministic fixes applied before lint (no model call). `context`: the lesson's other steps when `graph` holds
-    only some of them (step 1 built early): a lesson where any of them writes code is a code lesson, never an app one."""
+    only some of them (step 1 built early): a lesson where any of them writes code is a code lesson, never an app one.
+    `app`: the app-or-code choice already made for this lesson (step 1 went out with it): lesson["app"] or None."""
     tag_setup_steps(graph)
-    if not (context and app_lesson.has_code({"steps": context})):
-        app_lesson.adapt(graph)  # Nov 22: an AutoCAD / Blender lesson talks about the app and checks the app, never files
+    if app is ...:
+        if not (context and app_lesson.has_code({"steps": context})):
+            app_lesson.adapt(graph)  # Nov 22: an AutoCAD / Blender lesson talks about the app and checks the app, never files
+    elif app:
+        app_lesson.adapt(graph, force=True)
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal

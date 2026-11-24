@@ -24,6 +24,14 @@ again, its lint problems are not retried (it is final), and the finished graph's
 byte for byte, so the cached / shared lesson is what the learner saw. If step 1 can't be built early (its adapt pass
 failed, the contract rejected it, anything raised), nothing is sent and the full build adapts step 1 as before.
 
+Lesson-wide choices the full build would make from every step are pinned to what step 1 shipped with: for a video
+whose title names an app (AutoCAD, Excel) step 1 waits for every step's detail before "app lesson or code lesson" is
+decided, and the full build keeps that choice and step 1's notebook choice (builder._adapt / _lock_first_step). The
+session's first graph carries the other steps as known so far in build.upcomingSteps (server.workspace.paths.
+lesson_steps), so the starter files never hold what a later step has the learner write; no event to the app carries it.
+Once the build ends (close(): returned, failed or cancelled) step 1 is never sent, and a build that fails before step
+1's on_update started fails the normal way.
+
 Off with LESSON_FAST_FIRST_STEP=0 (also turns off builder's transcript prefetch): the build is then the old serial one.
 """
 
@@ -63,6 +71,10 @@ class FirstStep:
         self._lock: asyncio.Future = asyncio.get_running_loop().create_future()
         self._reserve = None
         self._hooked = False  # segment() ran: the draft this build uses is the one we watch
+        self.stale = False  # a second watch_transcript attempt started: its details are not the steps we watch
+        self.closed = False  # the build ended (or was cancelled): nothing is sent any more
+        self.sending = False  # on_update(step 1) has started: the learner has step 1, or is getting it
+        self.app_wait = False  # an app-titled video: is it an app lesson or a code lesson? wait for every step's detail
 
     # ------------------------------------------------------------------ claude.watch_transcript hooks
     def segment(self, seg: dict) -> set[int]:
@@ -70,6 +82,10 @@ class FirstStep:
         from .builder import normalize_draft
 
         if self._hooked:  # a second watch_transcript in the same build (an unusable step list was asked again)
+            self.stale = True
+            if self.task is None:
+                self._settle(None)
+                self._unreserve()
             return set()
         self._hooked = True
         steps = seg.get("steps") or []
@@ -82,6 +98,12 @@ class FirstStep:
             return set()
         self.seg = seg
         self.need = {int(k[2:]) for k in first if isinstance(k, str) and k.startswith("_o") and k[2:].isdigit()}
+        # app lesson or code lesson is decided on the whole lesson: for a video whose title names an app (AutoCAD,
+        # Excel), step 1 waits until every step's detail is in, unless a step already shows code
+        from . import app_lesson
+
+        titles = {"lesson": {"title": seg.get("title") or ""}, "sources": [{"title": (self.video_info or {}).get("title") or ""}]}
+        self.app_wait = app_lesson.work_app(titles) is not None
         try:
             self._reserve = claude._sem().reserve()
             self._reserve.__enter__()
@@ -91,18 +113,25 @@ class FirstStep:
 
     def detail(self, i: int, step: dict) -> None:
         """Segment step i is filled (the per-step call returned). Step 1 starts building once all its pieces are in."""
-        if self.seg is None or self.task is not None or self._lock.done():
+        if self.seg is None or self.stale or self.closed:
             return
-        self.filled[i] = step
-        if self.need and self.need <= set(self.filled):
-            self.task = asyncio.ensure_future(self._from_details())
-            self.task.add_done_callback(_retrieve)
+        self.filled[i] = step  # also after step 1 started: the workspace's view of the other steps (upcoming())
+        if self.task is not None or self._lock.done() or not self.need or not self.need <= set(self.filled):
+            return
+        if self.app_wait and len(self.filled) < len(self.seg.get("steps") or []):
+            from . import app_lesson
+
+            if not app_lesson.has_code({"steps": list(self.filled.values())}):
+                return  # not known yet whether this is an app lesson: wait for the other steps
+        self.task = asyncio.ensure_future(self._from_details())
+        self.task.add_done_callback(_retrieve)
 
     # ------------------------------------------------------------------ the raw-draft path
     def start_from_draft(self, draft: dict) -> None:
         """A cached video draft (no model call to watch): build step 1 from it while the rest is adapted."""
         if self.task is not None or self._lock.done() or not draft.get("steps"):
             return
+        self._draft_rest = copy.deepcopy(draft["steps"][1:])
         self.task = asyncio.ensure_future(self._run(copy.deepcopy(draft)))
         self.task.add_done_callback(_retrieve)
 
@@ -117,11 +146,6 @@ class FirstStep:
             return None
         return await asyncio.shield(self._lock)
 
-    async def adapted(self) -> dict[int, dict] | None:
-        """builder._adapt's `locked`: {1: step 1's adapt result} once step 1 is built, else None."""
-        lock = await self.lock()
-        return lock["adapted"] if lock else None
-
     async def delivered(self) -> None:
         """Wait until step 1's on_update has returned, so the full lesson never reaches the app before it."""
         if self.task is not None and not self.task.done():
@@ -131,10 +155,23 @@ class FirstStep:
                 log.debug("first step task ended with %s", type(e).__name__)
 
     def close(self) -> None:
+        """The build ended (returned, failed or was cancelled): step 1 is never sent after this."""
+        self.closed = True
         if self.task is not None and not self.task.done():
             self.task.cancel()
         self._settle(None)
         self._unreserve()
+
+    def upcoming(self, sent_steps: list[dict] | None = None) -> list[dict]:
+        """The lesson's other steps as known right now (segment fields, plus file / checks / targets for those whose
+        detail is in), for the workspace's starter files: they must not hold what a later step has the learner write.
+        Rides in graph["build"]["upcomingSteps"], which no event to the app carries."""
+        keep = ("title", "instructions", "file", "checks", "precision_checks", "targets", "common_mistakes")
+        if self.seg is not None:
+            rows = [(i, self.filled.get(i) or s) for i, s in enumerate(self.seg.get("steps") or [], 1) if i not in self.need]
+        else:
+            rows = [(k, s) for k, s in enumerate(sent_steps or [], 2)]
+        return [{"index": n, **{k: copy.deepcopy(st[k]) for k in keep if st.get(k)}} for n, (_i, st) in enumerate(rows, 2)]
 
     # ------------------------------------------------------------------ building step 1
     def _settle(self, value: dict | None) -> None:
@@ -218,13 +255,19 @@ class FirstStep:
             return
         finally:
             self._unreserve()
+        # lesson-wide choices step 1 was built with: the full build makes the same ones (builder._lock_first_step)
         self.result = {"adapted": {1: adapted[1]}, "step": copy.deepcopy(graph["steps"][0]),
-                       "notebook": lesson.get("notebook"), "seconds": seconds, "adapt_model": adapt_model}
+                       "notebook": lesson.get("notebook"), "app": copy.deepcopy(lesson.get("app")),
+                       "seconds": seconds, "adapt_model": adapt_model}
         self._settle(self.result)
+        if self.closed:  # the build ended while step 1 was being built: it is never sent
+            return
         log.info("first step ready in %.1fs (%s; %d more step(s) building)", seconds, graph["steps"][0].get("title"), len(context))
         builder._emit("first_steps", "1 step")
         if self.on_update is None:
             return
+        graph["build"]["upcomingSteps"] = self.upcoming(getattr(self, "_draft_rest", None))  # for the starter files
+        self.sending = True
         try:
             r = self.on_update(graph, False)
             if asyncio.iscoroutine(r):

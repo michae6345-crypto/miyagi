@@ -75,10 +75,11 @@ def app_words(text: str, label: str) -> str:
     return _TYPE_ALONG.sub(lambda m: "Follow along" if m.group(0)[0].isupper() else "follow along", out)
 
 
-def adapt(graph: dict) -> dict:
-    """In place for an app lesson (see the module doc); any other lesson is returned untouched."""
+def adapt(graph: dict, *, force: bool = False) -> dict:
+    """In place for an app lesson (see the module doc); any other lesson is returned untouched. force: the lesson was
+    already judged an app lesson (its step 1 went out as one, builder first-step path): its code check is not redone."""
     app = work_app(graph)
-    if not app or has_code(graph):
+    if not app or (has_code(graph) and not force):
         return graph
     apps = _apps()
     label = apps.label(app)
