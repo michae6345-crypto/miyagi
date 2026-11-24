@@ -1,0 +1,84 @@
+{
+ "id": "jupyter-mnist-loss-curve-pandas-plot",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "A 'plot the training loss' step written in the MNIST lesson's shape: the learner plotted the history with pandas, pd.DataFrame(history.history).plot(title='Training loss and accuracy', xlabel='epoch'), not plt.plot(history.history['loss']). The figure under the cell has the loss curve falling over the five epochs (with accuracy beside it in the legend), axes labelled. The loss per epoch is plotted.",
+ "step": {
+  "id": "mn5s6",
+  "title": "Plot the training loss per epoch",
+  "instructions": "In mnist.ipynb, plot history.history['loss'] with plt.plot, label the axes epoch and loss, title it 'Training loss' and run the cell so the curve shows under it.",
+  "file": "mnist.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "mnist.ipynb",
+    "match": "plt.plot(history.history['loss'])",
+    "caption": "Plot the loss each epoch"
+   }
+  ],
+  "code": "plt.plot(history.history['loss'])\nplt.xlabel('epoch')\nplt.ylabel('loss')\nplt.title('Training loss')\nplt.show()",
+  "checks": [
+   {
+    "id": "mn5s6c1",
+    "type": "screen_contains",
+    "label": "Loss history plotted",
+    "app": "Code",
+    "pattern": "plt\\.plot\\(\\s*history\\.history\\[['\"]loss['\"]\\]"
+   },
+   {
+    "id": "mn5s6c2",
+    "type": "screen_contains",
+    "label": "Loss curve shown under the cell",
+    "app": "Code",
+    "output": true,
+    "pattern": "Training\\s+loss"
+   },
+   {
+    "id": "mn5s6c3",
+    "type": "screen_absent",
+    "label": "No cell error",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 4,
+     "append": [
+      {
+       "source": "import pandas as pd\n\npd.DataFrame(history.history).plot(title='Training loss and accuracy', xlabel='epoch')\nplt.show()",
+       "count": 20,
+       "image": true
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[20]",
+    "import pandas as pd",
+    "pd.DataFrame(history.history).plot(title='Training loss and accuracy', xlabel='epoch')",
+    "plt.show()",
+    "Training loss and accuracy",
+    "accuracy",
+    "loss",
+    "1.0",
+    "0.8",
+    "0.6",
+    "0.4",
+    "0.2",
+    "0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0",
+    "epoch"
+   ]
+  }
+ }
+}

@@ -1,0 +1,93 @@
+{
+ "id": "jupyter-restart-run-all-empty-last-cell",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "Intro to Jupyter plan (docs/ui-next/catalog/plans/intro-jupyter.json), 'Restart and run all' (every code cell ran with no error and the run counts go up in order from 1): the learner restarted and ran all. The three code cells read [1], [2], [3], the output is right, and the Markdown title above them never gets a count. The empty code cell VS Code keeps at the bottom has no count either: Run All skips an empty cell, there is nothing in it to run.",
+ "step": {
+  "id": "jup7s3",
+  "title": "Restart the kernel and run every cell",
+  "instructions": "In steps.ipynb, click Restart, then Run All. Every cell should run top to bottom, numbered from [1], with no error.",
+  "file": "steps.ipynb",
+  "run_command": "Restart the kernel, then run all cells",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "Restart, then Run All"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup7s3c1",
+    "type": "screen_contains",
+    "label": "Cells numbered from [1]",
+    "app": "Code",
+    "pattern": "\\[\\s*1\\s*\\]"
+   },
+   {
+    "id": "jup7s3c2",
+    "type": "screen_absent",
+    "label": "No cell error after Run All",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "markdown": true,
+       "source": [
+        "# Step tracker\n",
+        "\n",
+        "One week of steps against a daily goal."
+       ]
+      },
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000\ndays_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 3
+      },
+      {
+       "source": "",
+       "run": false
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "Restart",
+    "Run All",
+    "Step tracker",
+    "One week of steps against a daily goal.",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[2]",
+    "goal = 8000",
+    "days_met = sum(s >= goal for s in steps)",
+    "[3]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000",
+    "[ ]"
+   ]
+  }
+ }
+}

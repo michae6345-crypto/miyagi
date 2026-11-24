@@ -1,0 +1,85 @@
+{
+ "id": "jupyter-export-html-chart-not-run",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan (docs/ui-next/catalog/plans/intro-jupyter.json), 'Export and share the notebook' (steps.html is saved and holds the chart and the Markdown notes): the learner restarted the kernel and cleared all outputs, then exported without running the cells. steps.html has the notes (h1, h2, list) and the code, but every cell is 'In [ ]' with no output: there is no chart image in the page. 'Steps per day' is in it only as the string in plt.title(...).",
+ "step": {
+  "id": "jup8s2",
+  "title": "Export the notebook as HTML",
+  "instructions": "In steps.ipynb, open the ... menu at the top of the notebook, choose Export, pick HTML and save it as steps.html next to the notebook. The page should show your notes and the chart.",
+  "file": "steps.ipynb",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "... menu > Export > HTML"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup8s2c1",
+    "type": "file_exists",
+    "label": "steps.html saved",
+    "file": "steps.html"
+   },
+   {
+    "id": "jup8s2c2",
+    "type": "file_contains",
+    "label": "Chart in the export",
+    "file": "steps.html",
+    "pattern": "Steps\\s+per\\s+day|data:image/png"
+   },
+   {
+    "id": "jup8s2c3",
+    "type": "file_contains",
+    "label": "Markdown notes in the export",
+    "file": "steps.html",
+    "pattern": "<h1[^>]*>\\s*Step tracker"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "markdown": true,
+       "source": [
+        "# Step tracker\n",
+        "## The data\n",
+        "- steps for each day of one week\n",
+        "- a daily goal of 8000"
+       ]
+      },
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": false
+      },
+      {
+       "source": "import matplotlib.pyplot as plt\n\ndays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.show()",
+       "run": false
+      }
+     ]
+    }
+   },
+   "steps.html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" />\n<title>steps</title>\n</head>\n<body class=\"jp-Notebook\" data-jp-theme-light=\"true\" data-jp-theme-name=\"JupyterLab Light\">\n<main>\n<div class=\"jp-Cell jp-MarkdownCell jp-Notebook-cell\" id=\"cell-id-m0\">\n<div class=\"jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput\" data-mime-type=\"text/markdown\">\n<h1 id=\"Step-tracker\">Step tracker<a class=\"anchor-link\" href=\"#Step-tracker\">\u00b6</a></h1><h2 id=\"The-data\">The data<a class=\"anchor-link\" href=\"#The-data\">\u00b6</a></h2>\n<ul>\n<li>steps for each day of one week</li>\n<li>a daily goal of 8000</li>\n</ul>\n</div>\n</div>\n<div class=\"jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs\" id=\"cell-id-c0\">\n<div class=\"jp-InputPrompt jp-InputArea-prompt\">In\u00a0[\u00a0]:</div>\n<div class=\"highlight hl-ipython3\"><pre><span></span><span class=\"n\">steps</span> <span class=\"o\">=</span> <span class=\"p\">[</span><span class=\"mi\">6200</span><span class=\"p\">,</span> <span class=\"mi\">8400</span><span class=\"p\">,</span> <span class=\"mi\">10300</span><span class=\"p\">,</span> <span class=\"mi\">7900</span><span class=\"p\">,</span> <span class=\"mi\">12000</span><span class=\"p\">,</span> <span class=\"mi\">9100</span><span class=\"p\">,</span> <span class=\"mi\">5600</span><span class=\"p\">]</span>\n</pre></div>\n</div>\n<div class=\"jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs\" id=\"cell-id-c1\">\n<div class=\"jp-InputPrompt jp-InputArea-prompt\">In\u00a0[\u00a0]:</div>\n<div class=\"highlight hl-ipython3\"><pre><span></span><span class=\"kn\">import</span> <span class=\"nn\">matplotlib.pyplot</span> <span class=\"k\">as</span> <span class=\"nn\">plt</span>\n\n<span class=\"n\">days</span> <span class=\"o\">=</span> <span class=\"p\">[</span><span class=\"s1\">&#39;Mon&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Tue&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Wed&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Thu&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Fri&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Sat&#39;</span><span class=\"p\">,</span> <span class=\"s1\">&#39;Sun&#39;</span><span class=\"p\">]</span>\n<span class=\"n\">plt</span><span class=\"o\">.</span><span class=\"n\">bar</span><span class=\"p\">(</span><span class=\"n\">days</span><span class=\"p\">,</span> <span class=\"n\">steps</span><span class=\"p\">)</span>\n<span class=\"n\">plt</span><span class=\"o\">.</span><span class=\"n\">title</span><span class=\"p\">(</span><span class=\"s1\">&#39;Steps per day&#39;</span><span class=\"p\">)</span>\n<span class=\"n\">plt</span><span class=\"o\">.</span><span class=\"n\">show</span><span class=\"p\">()</span>\n</pre></div>\n</div>\n</main>\n</body>\n</html>\n"
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "Step tracker",
+    "The data",
+    "[ ]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[ ]",
+    "import matplotlib.pyplot as plt",
+    "plt.bar(days, steps)",
+    "plt.title('Steps per day')",
+    "plt.show()"
+   ]
+  }
+ }
+}
