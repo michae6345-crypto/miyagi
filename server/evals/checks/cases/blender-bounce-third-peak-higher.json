@@ -1,0 +1,249 @@
+{
+ "id": "blender-bounce-third-peak-higher",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 6 (\"The ball's Z curve touches the floor three times and each peak is lower than the last\"). Z keys: 3.0 at frame 1, floor at 12, 2.0 at 22, floor at 32, 2.2 at 40, floor at 48. The ball touches the floor three times, but the learner typed 2.2 for the last peak (meant 1.2), so the last bounce goes higher than the one before it.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "A bouncing ball",
+  "file": "bounce.blend",
+  "instructions": "Key the ball's Z location: high at frame 1, on the floor (Z 0.5, the ball's radius) at 12, a lower peak at 22, the floor at 32, a lower peak again at 40 and the floor at 48. Each peak should be lower than the last. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Z location keyed",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"data_path\\\":\\s*\\\"location\\\",\\s*\\\"index\\\":\\s*2,\\s*\\\"keyframes\\\""
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Touches the floor three times",
+    "file": "bounce.scene.json",
+    "pattern": "\\[\\s*\\d+(?:\\.\\d+)?,\\s*0\\.5\\s*\\][\\s\\S]*?\\[\\s*\\d+(?:\\.\\d+)?,\\s*0\\.5\\s*\\][\\s\\S]*?\\[\\s*\\d+(?:\\.\\d+)?,\\s*0\\.5\\s*\\]"
+   },
+   {
+    "id": "s6c3",
+    "type": "file_contains",
+    "label": "Each peak lower than the last",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"index\\\":\\s*2,\\s*\\\"keyframes\\\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "bounce.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see bounce.scene.json)\n",
+   "bounce.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "bounce.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 48,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1
+     },
+     "objects": [
+      {
+       "name": "Ball",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        3.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [],
+       "animation": {
+        "action": "BallAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            3.0
+           ],
+           [
+            12.0,
+            0.5
+           ],
+           [
+            22.0,
+            2.0
+           ],
+           [
+            32.0,
+            0.5
+           ],
+           [
+            40.0,
+            2.2
+           ],
+           [
+            48.0,
+            0.5
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Floor",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        10.0,
+        10.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 4,
+        "edges": 4,
+        "faces": 1,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

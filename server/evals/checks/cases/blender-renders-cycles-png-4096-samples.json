@@ -1,0 +1,194 @@
+{
+ "id": "blender-renders-cycles-png-4096-samples",
+ "kind": "blender",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials lesson 9 (\"Two PNG renders are saved, one from Cycles at 128 samples and one from Eevee\"). The learner switched to Cycles and rendered right away (Blender 4.2's default 4096 samples, 6 minutes), saved it as cycles.png, then lowered Render Max Samples to 128 and saved the .blend without rendering again. The scene now says Cycles at 128 and both PNGs exist, but the Cycles image's own metadata says 4096 samples.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Cycles and Eevee",
+  "file": "crate.blend",
+  "instructions": "Render with Eevee (F12) and save the image as eevee.png (Image > Save As). Switch the Render Engine to Cycles, set Render Max Samples to 128, render again and save it as cycles.png. Save the .blend (Cmd+S).",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "file_exists",
+    "label": "Eevee render saved",
+    "file": "eevee.png"
+   },
+   {
+    "id": "s9c2",
+    "type": "file_exists",
+    "label": "Cycles render saved",
+    "file": "cycles.png"
+   },
+   {
+    "id": "s9c3",
+    "type": "file_contains",
+    "label": "Cycles at 128 samples",
+    "file": "crate.scene.json",
+    "pattern": "\\\"samples\\\":\\s*128\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "CYCLES",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG",
+       "cycles": {
+        "samples": 128,
+        "use_denoising": true
+       }
+      }
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.6,
+         0.4,
+         0.2,
+         1.0
+        ],
+        "roughness": 0.7,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   },
+   "eevee.png": "\u0089PNG (1920x1080 RGBA; tEXt Date 2026/11/24 14:02:11, RenderTime 00:01.84, Scene Scene, Camera Camera, Frame 001)\n",
+   "cycles.png": "\u0089PNG (1920x1080 RGBA; tEXt Date 2026/11/24 14:09:47, RenderTime 06:12.30, Scene Scene, Camera Camera, Frame 001, cycles.ViewLayer.samples 4096, cycles.ViewLayer.total_time 06:12.30)\n"
+  }
+ }
+}

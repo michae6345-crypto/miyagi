@@ -190,6 +190,63 @@ Wrong verdicts. Train: `terminal-gitcat-merge-wrong-way-force-delete` (FP), `ter
 `baseline.json`). `baseline.json` rewritten: train 220 cases (acc 0.982, the 4 in `known_wrong`), held out 88 (acc
 0.432).
 
+## Round 4: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r4-3`, 19 new cases, 7 held out)
+
+No engine change and no runner change (the held-out split already exists). Steps from Adrian's plans on
+`origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender` 2 and 7, `blender-materials` 2, 4 and 9,
+`blender-animation` 4, 6, 8 and 9, `intro-fusion` 4, 5 and 6, `cad-3d-printing` 5, 6 and 9, each lesson's `passes`
+line) and `docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the Fusion
+add-in's design JSON), plus the AutoCAD toy car as ASCII DXF. Dump fields new this round, read by name: a modifier's
+`show_viewport` / `show_render`, an object's `constraints` (type, target, `is_valid`), a mesh's `seams` / `uv_layers` /
+`uv` (islands, `overlapping_islands`), an fcurve's `handle_types` / `handles` / `evaluated_range`, a Fusion feature's
+`extent` / `edge_directions` / `faces_removed`, a body's `open_faces`, a FreeCAD chamfer's `edges`, a hole pattern's
+`centres`, and a Cycles render's PNG metadata (`cycles.ViewLayer.samples`).
+
+Traps: a Subdivision modifier at level 2 switched off in viewport and render, IOR 1.52 typed on the glow material
+instead of the glass one, U > Reset (all UV islands stacked), a Cycles PNG rendered at 4096 samples before the scene
+was set to 128, a bounce whose last peak is higher, a Track To with no target, Graph Editor handles edited but no
+overshoot, a stale `0001-0048.mp4` after the range became 96, a symmetric 30 mm extrude (60 tall), a fillet on the four
+top edges instead of the vertical ones, a Shell with no face removed, a chamfer on an outer edge not the pocket rim,
+lid holes on a 50 x 30 pattern over posts on 52 x 32, a dimension on layer 0 while DIMS sits empty. Done-but-odd:
+R X -90 for "turned 90 degrees", `bounce0001-0096.mp4`, an 80 x 50 x 30 body with the long side on Y, a 1.7 mm arm in
+a 2.0 mm slot where the instructions' example says 2 / 2.3, wheels as a block inserted twice on WHEELS.
+
+Before any fix (the engine is the round-3 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (220 = 208 + 12 new) | 0.955 | 0.930 | 0.969 | 7 | 3 |
+| train, the 12 new | 0.167 | 0.125 | 0.250 | 7 | 3 |
+| train blender (28) | 0.821 | 0.714 | 0.909 | 4 | 1 |
+| train cad (22) | 0.773 | 0.625 | 0.714 | 3 | 2 |
+| held-out (89 = 82 + 7 new) | 0.416 | 0.286 | 0.452 | 35 | 17 |
+| held-out, the 7 new | 0.143 | | | 5 | 1 |
+
+Train wrong verdicts (10 of the 12 new; the 208 earlier train cases stay right):
+
+- **FP `blender-subsurf-modifier-toggled-off`**: `SUBSURF` and `levels: 2` match; `show_viewport` / `show_render`
+  false is not read, so a modifier that does nothing passes.
+- **FP `blender-crate-uv-reset-overlap`**: seams and `UVMap` match; `overlapping_islands: 6` against "do not overlap"
+  in the step is not read.
+- **FP `blender-graph-handles-no-overshoot`**: an `ALIGNED` handle matches; the curve never rises above its last key
+  (`evaluated_range` max 5.0 = the final value).
+- **FP `blender-anim-mp4-stale-48-frames`**: `0001-0048.mp4` counts as `bounce.mp4` ("any name will do") though
+  Blender's own range name says 48 frames against the scene's 96.
+- **FP `fusion-extrude-symmetric-60-tall`**: `distance: 30` matches; `extent: symmetric` makes the body 60 tall
+  (bound box 80 x 50 x 60).
+- **FP `fusion-shell-no-face-removed`**: the Shell with thickness 2 matches; `faces_removed: 0` (closed on top) is
+  not weighed against "open on top".
+- **FP `autocad-dxf-dimension-on-layer-0`**: `DIMS` matches the layer table row; the DIMENSION's own group 8 is `0`.
+- **FN `blender-cone-turned-minus-90`**: `rotation_deg` -90 fails a pattern for 90.
+- **FN `freecad-snapfit-arm-1p7-slot-2p0`**: the example numbers (2, 2.3) are wanted; the 0.3 mm difference the
+  step is about (1.7 / 2.0) is not computed, and only the first body (Hook) is read.
+- **FN `fusion-block-bound-box-50-by-80`**: a bound box `[50, 80, 30]` fails a pattern for `[80, 50, 30]`.
+
+Seen right (train): the bounce with a higher last peak fails "Each peak lower than the last"; `bounce0001-0096.mp4`
+passes as the MP4.
+
+Held out: 7 new cases, 6 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
+
 ## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
 
 The four round-3 case sets merged: 290 cases, 208 train + 82 held out. Every fix is general (no lesson ids, no case

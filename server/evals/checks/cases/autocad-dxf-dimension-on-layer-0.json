@@ -1,0 +1,42 @@
+{
+ "id": "autocad-dxf-dimension-on-layer-0",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: the toy car's dimension step (\"Make a layer DIMS and set it current ... it should read 120\"). The learner made the DIMS layer but never set it current, so the DIMLINEAR from (0, 0) to (120, 0) measuring 120 sits on layer 0 (group 8 is 0, its block too). DIMS exists only as an empty row in the layer table; freezing DIMS to hide the dimensions for a plot would hide nothing.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Dimension the length",
+  "file": "toy_car.dxf",
+  "instructions": "Make a layer DIMS and set it current. Add a DIMLINEAR from the bottom-left corner of the body to the bottom-right corner and place it under the car: it should read 120. Save as toy_car.dxf.",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Length dimension placed",
+    "file": "toy_car.dxf",
+    "pattern": "\\bDIMENSION\\b"
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "Dimension reads 120",
+    "file": "toy_car.dxf",
+    "pattern": "\\b120(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s3c3",
+    "type": "file_contains",
+    "label": "On layer DIMS",
+    "file": "toy_car.dxf",
+    "pattern": "\\bDIMS\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "toy_car.dxf": "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1032\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n4\n0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nBODY\n70\n0\n62\n5\n6\nCONTINUOUS\n0\nLAYER\n2\nWHEELS\n70\n0\n62\n1\n6\nCONTINUOUS\n0\nLAYER\n2\nDIMS\n70\n0\n62\n3\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n8\n0\n2\n*D1\n70\n1\n10\n0.0\n20\n0.0\n30\n0.0\n0\nLINE\n8\n0\n10\n0.0\n20\n-15.0\n11\n120.0\n21\n-15.0\n0\nMTEXT\n8\n0\n10\n60.0\n20\n-13.5\n40\n2.5\n1\n120\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n8\nBODY\n90\n8\n70\n1\n10\n0.0\n20\n0.0\n10\n120.0\n20\n0.0\n10\n120.0\n20\n28.0\n10\n84.0\n20\n28.0\n10\n66.0\n20\n45.0\n10\n30.0\n20\n45.0\n10\n18.0\n20\n28.0\n10\n0.0\n20\n28.0\n0\nCIRCLE\n8\nWHEELS\n10\n25.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nCIRCLE\n8\nWHEELS\n10\n95.0\n20\n0.0\n30\n0.0\n40\n9.0\n0\nDIMENSION\n8\n0\n2\n*D1\n10\n120.0\n20\n-15.0\n30\n0.0\n11\n60.0\n21\n-15.0\n31\n0.0\n70\n32\n42\n120.0\n13\n0.0\n23\n0.0\n33\n0.0\n14\n120.0\n24\n0.0\n34\n0.0\n50\n0.0\n0\nENDSEC\n0\nEOF\n"
+  }
+ }
+}

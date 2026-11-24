@@ -1,0 +1,198 @@
+{
+ "id": "blender-subsurf-modifier-toggled-off",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Blender lesson 7 (\"The mug has a Subdivision modifier at level 2 and smooth shading\"). The learner added the Subdivision Surface modifier, set Levels Viewport to 2 and shaded smooth, then clicked the monitor and camera icons in the modifier header while looking for the apply menu: show_viewport and show_render are both false. The modifier is in the stack at level 2 but does nothing in the viewport or the render, so the mug is still the blocky 128-face cage, only smooth shaded.",
+ "step": {
+  "id": "s7",
+  "index": 7,
+  "title": "Subdivision and smooth shading",
+  "file": "mug.blend",
+  "instructions": "Select the mug. In the Modifier Properties (wrench) choose Add Modifier > Generate > Subdivision Surface and set Levels Viewport to 2. Then right-click the mug > Shade Smooth. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s7c1",
+    "type": "file_contains",
+    "label": "Subdivision modifier",
+    "file": "mug.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"SUBSURF\\\""
+   },
+   {
+    "id": "s7c2",
+    "type": "file_contains",
+    "label": "Level 2",
+    "file": "mug.scene.json",
+    "pattern": "\\\"levels\\\":\\s*2\\b"
+   },
+   {
+    "id": "s7c3",
+    "type": "file_contains",
+    "label": "Smooth shading",
+    "file": "mug.scene.json",
+    "pattern": "\\\"smooth\\\":\\s*true"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "mug.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "mug.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Mug",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.6,
+        1.6,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 130,
+        "edges": 260,
+        "faces": 128,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [
+        {
+         "name": "Subdivision",
+         "type": "SUBSURF",
+         "levels": 2,
+         "render_levels": 2,
+         "show_viewport": false,
+         "show_render": false
+        }
+       ],
+       "materials": [
+        "Material"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Material",
+       "users": [
+        "Mug"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

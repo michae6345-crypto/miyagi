@@ -1,0 +1,132 @@
+{
+ "id": "freecad-magnet-chamfer-on-outer-edge",
+ "kind": "cad",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: 3D printing lesson 5 (\"The clip has a round pocket 5.9 to 6.2 mm across with a chamfered rim\"). The pocket is 6.0 mm across and a 0.5 mm Chamfer exists, but the learner picked the clip's top outer edge (Edge3, a 20 mm straight line), not the pocket's circular rim: the magnet's entry is still a sharp edge that the first layer's elephant's foot will narrow.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "A press fit for a magnet",
+  "file": "clip.FCStd",
+  "instructions": "Sketch a 6.0 mm circle on the clip's top face and Pocket it 3 mm deep. Then select the pocket's round rim edge and add a 0.5 mm Chamfer so the magnet starts straight. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Pocket 5.9 to 6.2 mm",
+    "file": "clip.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Diameter\\\",\\s*\\\"value\\\":\\s*(?:5\\.9|6\\.[0-2])\\d*"
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "Chamfered rim",
+    "file": "clip.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"PartDesign::Chamfer\\\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "clip.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "clip.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "clip.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Chamfer",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 20.0
+          },
+          {
+           "name": "",
+           "type": "DistanceY",
+           "value": 12.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 6.0,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 6.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Length": 3.0,
+         "valid": true
+        },
+        {
+         "name": "Chamfer",
+         "type": "PartDesign::Chamfer",
+         "Size": 0.5,
+         "base": [
+          "Pocket",
+          [
+           "Edge3"
+          ]
+         ],
+         "edges": [
+          {
+           "name": "Edge3",
+           "kind": "line",
+           "length": 20.0
+          }
+         ],
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 1347.9,
+        "bound_box": [
+         20.0,
+         12.0,
+         6.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}
