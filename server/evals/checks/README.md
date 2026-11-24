@@ -76,6 +76,42 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 5: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r5-1`)
+
+20 new cases (13 train, 7 held out), no engine change. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json`
+(t2, t4), the React/Vite lesson (s7, s8) and the earlier inline TypeScript step `ts4s3`, plus new inline steps in
+the lesson builder's shape from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`):
+Intro to TypeScript "Compile your first TypeScript file" (`ts1s4`) and "Set up tsconfig with strict on" (`ts2s1`,
+rootDir / outDir), React "Render a list" (`re7s3`), "Forms and controlled inputs" (`re8s4`), "Share state between
+components" (`re9s4`), "Effects" (`re10s3`) and "Write JSX" (`re2s4`, dev server running), and Intro to VS Code
+"Settings and format on save" (`vs8s3`).
+
+Traps: the module file named `Operations.py` (macOS ignores case, Python's import does not:
+`ModuleNotFoundError`), a JSX expression typed without braces (`&copy; new Date().getFullYear()` and
+`<span>formatPrice(item.price)</span>` render as text), `return clearInterval(id)` (called at once, not a cleanup),
+`key="todo"` on every item, the key inside the child component instead of on the mapped element, a SearchBox that
+keeps its own `useState` copy of the lifted query, a form handler with no `e.preventDefault()` (the page reloads), a
+run-time `TypeError` in the browser while Vite's terminal is clean, `settings.json` at the folder root instead of
+`.vscode/`, a type error silenced with `qty: any`, `// "outDir": "./dist"` left commented, tsc's `Found 1 error`
+with greet.js emitted anyway, and `4 passed` from another project's folder. Done-but-odd: `total = add(2, 3)` then
+`print(total)`, a `"add:"` label string after an F2 rename, a test function still named `test_add`, a star import
+after the rename, `export default function Food()`, and Jest's "worker process has failed to exit gracefully"
+notice under `5 passed`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (270: 257 earlier + 13 new) | 0.967 | 0.942 | 0.983 | 7 | 2 |
+| train, the 13 new | 0.308 | | | 7 | 2 |
+| held-out (115: 108 earlier + 7 new) | 0.435 | 0.292 | 0.500 | 46 | 19 |
+| held-out, the 7 new | 0.429 | | | 4 | 0 |
+
+Train wrong verdicts (all new; the 257 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+FP `vscode-pymod-m2-module-file-capitalised`, `vscode-react-card-runtime-error-blank-page`,
+`vscode-react-effect-cleanup-called-at-once`, `vscode-react-list-same-key-every-item`,
+`vscode-react-s7-year-without-braces`, `vscode-settings-json-in-project-root`, `vscode-ts-invoice-silenced-with-any`;
+FN `vscode-pymod-m2-result-in-variable` (m2c2 wants `print(add(2, 3))` literally),
+`vscode-react-s8-export-default-function` (s8c4 wants a separate `export default Food`).
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is

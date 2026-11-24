@@ -1,0 +1,86 @@
+{
+ "id": "vscode-ts-invoice-silenced-with-any",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Instead of passing 3, the learner loosened lineTotal's parameter in src/prices.ts to qty: any. npx tsc now prints nothing and node dist/invoice.js prints 'Invoice total: $30.50' (JavaScript turns '3' * 4.5 into 13.5), but invoice.ts still passes the string '3' and the type check that caught it is switched off. The lesson's goal is fixing the errors with no value typed any; this hides the error rather than fixing it.",
+ "step": {
+  "id": "ts4s3",
+  "title": "Fix the last type error and print the total",
+  "kind": "run",
+  "instructions": "In src/invoice.ts, pass the quantity to lineTotal as a number (3, not '3'). Run npx tsc, then node dist/invoice.js. tsc should print nothing and the script prints the invoice total.",
+  "file": "src/invoice.ts",
+  "code": "import { lineTotal } from './prices'\n\nconst total = lineTotal(3, 4.5) + lineTotal(2, 8.5)\nconsole.log(`Invoice total: $${total.toFixed(2)}`)",
+  "run_command": "npx tsc && node dist/invoice.js",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/invoice.ts",
+    "match": "lineTotal('3', 4.5)",
+    "caption": "The quantity is a string here"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts4s3c1",
+    "type": "file_exists",
+    "label": "npx tsc wrote dist/invoice.js",
+    "file": "dist/invoice.js"
+   },
+   {
+    "id": "ts4s3c2",
+    "type": "screen_contains",
+    "label": "invoice.js prints the total",
+    "app": "Terminal",
+    "pattern": "Invoice\\s+total:\\s*\\$\\d+\\.\\d{2}"
+   },
+   {
+    "id": "ts4s3c3",
+    "type": "screen_absent",
+    "label": "tsc reports no errors",
+    "app": "Terminal",
+    "pattern": "error\\s+TS\\d+"
+   }
+  ],
+  "hints": [
+   "tsc still writes the .js file when there are type errors, unless noEmitOnError is on."
+  ],
+  "common_mistakes": [
+   "Running the old dist/invoice.js without fixing every error tsc listed."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "src/prices.ts": "export function lineTotal(qty: any, unitPrice: number): number {\n  return qty * unitPrice\n}\n",
+   "src/invoice.ts": "import { lineTotal } from './prices'\n\nconst total = lineTotal('3', 4.5) + lineTotal(2, 8.5)\nconsole.log(`Invoice total: $${total.toFixed(2)}`)\n",
+   "dist/prices.js": "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nexports.lineTotal = lineTotal;\nfunction lineTotal(qty, unitPrice) {\n    return qty * unitPrice;\n}\n",
+   "dist/invoice.js": "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nconst prices_1 = require(\"./prices\");\nconst total = (0, prices_1.lineTotal)('3', 4.5) + (0, prices_1.lineTotal)(2, 8.5);\nconsole.log(`Invoice total: $${total.toFixed(2)}`);\n",
+   "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"commonjs\",\n    \"rootDir\": \"src\",\n    \"outDir\": \"dist\",\n    \"strict\": true\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "prices.ts",
+    "invoice.ts",
+    "export function lineTotal(qty: any, unitPrice: number): number {",
+    "return qty * unitPrice",
+    "}",
+    "⊗ 0 ⚠ 0"
+   ],
+   "Terminal": [
+    "tripi@mac invoice % npx tsc",
+    "tripi@mac invoice % node dist/invoice.js",
+    "Invoice total: $30.50",
+    "tripi@mac invoice %"
+   ]
+  },
+  "run": {
+   "command": "node dist/invoice.js",
+   "exit_code": 0,
+   "output_tail": [
+    "Invoice total: $30.50"
+   ],
+   "running": false
+  }
+ }
+}

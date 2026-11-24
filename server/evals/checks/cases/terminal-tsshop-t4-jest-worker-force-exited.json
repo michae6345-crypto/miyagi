@@ -1,0 +1,44 @@
+{
+ "id": "terminal-tsshop-t4-jest-worker-force-exited",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "npm test ran both suites and every test passed ('Test Suites: 2 passed, 2 total', 'Tests: 5 passed, 5 total', exit 0). The last line is Jest's teardown notice, 'A worker process has failed to exit gracefully and has been force exited', caused by the debounce test's timer: it is a warning about a leaked handle, printed after the results, not a failing test. The step (every test passes) is done.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"jest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function debounce<T extends unknown[]>(fn: (...args: T) => void, ms: number) {\n  let t: ReturnType<typeof setTimeout>\n  return (...args: T) => {\n    clearTimeout(t)\n    t = setTimeout(() => fn(...args), ms)\n  }\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "PASS  src/components/Cart.test.tsx",
+    "PASS  src/utils.test.ts",
+    "Test Suites: 2 passed, 2 total",
+    "Tests:       5 passed, 5 total",
+    "Snapshots:   0 total",
+    "Time:        1.684 s",
+    "Ran all test suites.",
+    "A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "exit_code": 0,
+   "output_tail": [
+    "Tests:       5 passed, 5 total",
+    "Ran all test suites.",
+    "A worker process has failed to exit gracefully and has been force exited."
+   ],
+   "running": false
+  }
+ }
+}

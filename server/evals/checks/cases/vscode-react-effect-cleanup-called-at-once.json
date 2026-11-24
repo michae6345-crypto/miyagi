@@ -1,0 +1,85 @@
+{
+ "id": "vscode-react-effect-cleanup-called-at-once",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The effect starts the interval and then says return clearInterval(id): that calls clearInterval right away, while the effect runs, and returns its result (undefined) instead of a cleanup function. The interval is stopped before its first tick, so the clock shows the load time and never changes. useEffect, setInterval and clearInterval are all on screen, but the cleanup has to be () => clearInterval(id).",
+ "step": {
+  "id": "re10s3",
+  "title": "Tick the clock with an effect",
+  "kind": "code",
+  "instructions": "In src/Clock.jsx, add a useEffect with an empty dependency array that starts setInterval to update now every second, and return a cleanup function that calls clearInterval.",
+  "file": "src/Clock.jsx",
+  "code": "import { useEffect, useState } from 'react'\n\nfunction Clock() {\n  const [now, setNow] = useState(new Date())\n\n  useEffect(() => {\n    const id = setInterval(() => setNow(new Date()), 1000)\n    return () => clearInterval(id)\n  }, [])\n\n  return <p className=\"clock\">{now.toLocaleTimeString()}</p>\n}\n\nexport default Clock",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/Clock.jsx",
+    "match": "useEffect(",
+    "caption": "Start and stop the interval"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re10s3c1",
+    "type": "screen_contains",
+    "label": "Clock uses an effect",
+    "app": "Code",
+    "pattern": "useEffect\\("
+   },
+   {
+    "id": "re10s3c2",
+    "type": "screen_contains",
+    "label": "The effect starts an interval",
+    "app": "Code",
+    "pattern": "setInterval\\("
+   },
+   {
+    "id": "re10s3c3",
+    "type": "screen_contains",
+    "label": "The cleanup clears the interval",
+    "app": "Code",
+    "pattern": "clearInterval\\(\\s*id\\s*\\)"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re10s3p1",
+    "type": "file_contains",
+    "label": "The effect is in Clock.jsx",
+    "file": "clock/src/Clock.jsx",
+    "pattern": "useEffect\\("
+   }
+  ],
+  "hints": [
+   "useEffect's cleanup is the function you return from the effect."
+  ],
+  "common_mistakes": [
+   "Forgetting the cleanup, so every re-mount adds another interval."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "clock/package.json": "{\n  \"name\": \"clock\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "clock/src/Clock.jsx": "import { useEffect, useState } from 'react'\n\nfunction Clock() {\n  const [now, setNow] = useState(new Date())\n\n  useEffect(() => {\n    const id = setInterval(() => setNow(new Date()), 1000)\n    return clearInterval(id)\n  }, [])\n\n  return <p className=\"clock\">{now.toLocaleTimeString()}</p>\n}\n\nexport default Clock\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Clock.jsx",
+    "function Clock() {",
+    "const [now, setNow] = useState(new Date())",
+    "useEffect(() => {",
+    "const id = setInterval(() => setNow(new Date()), 1000)",
+    "return clearInterval(id)",
+    "}, [])",
+    "return <p className=\"clock\">{now.toLocaleTimeString()}</p>"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 301 ms",
+    "➜  Local:   http://localhost:5173/",
+    "6:14:03 PM [vite] hmr update /src/Clock.jsx"
+   ]
+  }
+ }
+}

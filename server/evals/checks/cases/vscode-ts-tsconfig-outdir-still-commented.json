@@ -1,0 +1,87 @@
+{
+ "id": "vscode-ts-tsconfig-outdir-still-commented",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "In the npx tsc --init file the learner uncommented rootDir and set it to ./src, and typed ./dist into outDir, but left outDir's line commented out ('// \"outDir\": \"./dist\",'). tsc ignores it, so npx tsc wrote index.js next to index.ts in src/ (ls src shows both) and there is no dist/ folder. outDir is not set.",
+ "step": {
+  "id": "ts2s1",
+  "title": "Point tsc at src and dist",
+  "kind": "run",
+  "instructions": "In tsconfig.json, uncomment \"rootDir\" and set it to \"./src\", and uncomment \"outDir\" and set it to \"./dist\". Then run npx tsc: it compiles src/index.ts to dist/index.js.",
+  "file": "tsconfig.json",
+  "run_command": "npx tsc",
+  "code": "\"rootDir\": \"./src\",\n\"outDir\": \"./dist\",",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "tsconfig.json",
+    "match": "\"rootDir\"",
+    "caption": "Uncomment rootDir and outDir"
+   }
+  ],
+  "checks": [
+   {
+    "id": "ts2s1c1",
+    "type": "screen_contains",
+    "label": "rootDir is ./src",
+    "app": "Code",
+    "pattern": "\"rootDir\"\\s*:\\s*\"\\./src\""
+   },
+   {
+    "id": "ts2s1c2",
+    "type": "screen_contains",
+    "label": "outDir is ./dist",
+    "app": "Code",
+    "pattern": "\"outDir\"\\s*:\\s*\"\\./dist\""
+   },
+   {
+    "id": "ts2s1c3",
+    "type": "screen_absent",
+    "label": "tsc reports no errors",
+    "app": "Terminal",
+    "pattern": "error\\s+TS\\d+"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "ts2s1p1",
+    "type": "file_exists",
+    "label": "npx tsc wrote dist/index.js",
+    "file": "dist/index.js"
+   }
+  ],
+  "hints": [
+   "Lines that start with // in tsconfig.json are comments; tsc skips them."
+  ],
+  "common_mistakes": [
+   "Editing the value but leaving the // in front of the line."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "tsconfig.json": "{\n  \"compilerOptions\": {\n    /* Language and Environment */\n    \"target\": \"es2016\",\n    /* Modules */\n    \"module\": \"commonjs\",\n    \"rootDir\": \"./src\",\n    /* Emit */\n    // \"outDir\": \"./dist\",                                   /* Specify an output folder for all emitted files. */\n    \"esModuleInterop\": true,\n    \"strict\": true,\n    \"skipLibCheck\": true\n  }\n}\n",
+   "src/index.ts": "const greeting: string = 'Hello from TypeScript'\nconsole.log(greeting)\n",
+   "src/index.js": "\"use strict\";\nconst greeting = 'Hello from TypeScript';\nconsole.log(greeting);\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "tsconfig.json",
+    "\"module\": \"commonjs\",",
+    "\"rootDir\": \"./src\",",
+    "/* Emit */",
+    "// \"outDir\": \"./dist\",  /* Specify an output folder for all emitted files. */",
+    "\"esModuleInterop\": true,",
+    "\"strict\": true,"
+   ],
+   "Terminal": [
+    "tripi@mac starter-ts % npx tsc",
+    "tripi@mac starter-ts % ls src",
+    "index.js  index.ts",
+    "tripi@mac starter-ts %"
+   ]
+  }
+ }
+}

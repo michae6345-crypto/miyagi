@@ -1,0 +1,43 @@
+{
+ "id": "vscode-react-s8-export-default-function",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Food.jsx declares and exports the component in one line, export default function Food() { ... }, with food1, food2, Apple, {food1} and {food2.toUpperCase()} as asked, and App.jsx imports Food and renders <Food/> between <Header/> and <Footer/>. 'export default function Food' is the same default export as a separate 'export default Food' line (the form React's own docs use); App's import Food from './Food.jsx' gets the component.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "function Footer() {\n  return (<footer><p>&copy; {new Date().getFullYear()} Your website name</p></footer>)\n}\nexport default Footer\n",
+   "my-react-app/src/Food.jsx": "export default function Food() {\n  const food1 = \"Orange\"\n  const food2 = \"Banana\"\n\n  return (\n    <ul>\n      <li>Apple</li>\n      <li>{food1}</li>\n      <li>{food2.toUpperCase()}</li>\n    </ul>\n  )\n}\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\nimport Food from './Food.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n      <Food/>\n      <Footer/>\n    </>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Food.jsx",
+    "App.jsx",
+    "export default function Food() {",
+    "const food1 = \"Orange\"",
+    "const food2 = \"Banana\"",
+    "return (",
+    "<ul>",
+    "<li>Apple</li>",
+    "<li>{food1}</li>",
+    "<li>{food2.toUpperCase()}</li>",
+    "</ul>",
+    ")",
+    "}"
+   ],
+   "Terminal": [
+    "VITE v5.4.10  ready in 288 ms",
+    "➜  Local:   http://localhost:5173/",
+    "5:09:40 PM [vite] hmr update /src/App.jsx, /src/Food.jsx"
+   ]
+  }
+ }
+}
