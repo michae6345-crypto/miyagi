@@ -2,7 +2,7 @@
 
 In order, the first that answers:
 1. playlists.json shipped with the engine (the 50 playlists picked for the catalog): instant, no network.
-2. The cache on this Mac (<state dir>/plans/playlists/<id>.json), when younger than CACHE_TTL_S.
+2. The cache on this Mac (<state dir>/plans/playlists/<id>.json), when 0 <= its age < CACHE_TTL_S.
 3. YouTube's public playlist page (ytInitialData: the first ~100 videos with titles and lengths). One GET, PAGE_TIMEOUT_S.
 4. The playlist's public Atom feed (feeds/videos.xml?playlist_id=): the first 15 videos, no lengths. FEED_TIMEOUT_S.
 5. An older cached copy (stale beats nothing).
@@ -170,6 +170,13 @@ def _cached(plid: str) -> tuple[dict, float] | None:
     return None
 
 
+def fresh(fetched_at: float, now: float | None = None) -> bool:
+    """A cached copy younger than CACHE_TTL_S. A copy stamped in the future (the clock moved backwards since) is not
+    fresh: a negative age must never keep a stale list forever."""
+    age = (time.time() if now is None else now) - fetched_at
+    return 0 <= age < CACHE_TTL_S
+
+
 def _save(pl: dict) -> None:
     try:
         _write_atomic(_cache_path(pl["playlistId"]), {"fetchedAt": time.time(), "playlist": pl})
@@ -226,7 +233,7 @@ async def list_videos(url_or_id: str, *, refresh: bool = False) -> dict:
     if shipped and not refresh:
         return _out(dict(shipped, source="catalog", truncated=False))
     cached = _cached(plid)
-    if cached and not refresh and time.time() - cached[1] < CACHE_TTL_S:
+    if cached and not refresh and fresh(cached[1]):
         return _out(dict(cached[0], source="cache"))
     if plid in _inflight:
         return await asyncio.shield(_inflight[plid])

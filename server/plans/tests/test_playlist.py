@@ -158,3 +158,23 @@ def test_lessons_from_a_playlist():
     assert les[0] == {"title": "One", "videoId": "aaaaaaaaaa1", "url": "https://www.youtube.com/watch?v=aaaaaaaaaa1",
                       "seconds": 61, "minutes": 2}
     assert les[1]["minutes"] is None
+
+
+def test_cache_freshness_needs_a_non_negative_age():
+    now = 1_800_000_000.0
+    assert playlist.fresh(now - 60, now) and playlist.fresh(now, now)
+    assert not playlist.fresh(now - playlist.CACHE_TTL_S, now)  # stale
+    assert not playlist.fresh(now + 3600, now)  # stamped in the future: the clock moved backwards since
+
+
+@pytest.mark.asyncio
+async def test_a_cache_from_the_future_is_refetched(monkeypatch, plans_state):
+    calls: list[str] = []
+    monkeypatch.setattr(playlist, "TRANSPORT", youtube_transport({"/playlist": (200, fixture("playlist_page.html"))}, calls))
+    await playlist.list_videos(PLID)
+    path = plans_state / "plans" / "playlists" / f"{PLID}.json"
+    data = json.loads(path.read_text())
+    data["fetchedAt"] = time.time() + 7 * 24 * 3600  # written before the clock was set back a week
+    path.write_text(json.dumps(data))
+    out = await playlist.list_videos(PLID)
+    assert out["source"] == "page" and len(calls) == 2

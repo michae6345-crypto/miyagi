@@ -1,4 +1,4 @@
-"""ui-v4 plans over the engine's real WebSocket (FastAPI TestClient): every plans command and its reply, offline.
+"""ui-v4 plans over the engine's real WebSocket (FastAPI TestClient): the contract's plans commands and replies, offline.
 
 Stub modules, a recording workspace, a fake screen reader (test_launch_contract's rig); YouTube is a recorded page
 behind plans.playlist.TRANSPORT; the goal model is a fake; a plan lesson's build is a recorded call, never a model."""
@@ -14,8 +14,10 @@ from server.orchestrator.tests.test_launch_contract import _engine, _until, quie
 from server.plans import catalog, playlist
 from server.plans.tests.helpers import fixture, youtube_transport
 from server.sessions.store import state_dir
+from shared.contracts.events import ENGINE_EVENTS, PlaylistInfo, PlanProposalEvent, Plans
 
 PLID = "PLtestTESTtest0123456789"
+PL_URL = f"https://www.youtube.com/playlist?list={PLID}"
 
 
 @pytest.fixture
@@ -36,44 +38,71 @@ def _ask(ws, type_: str, payload: dict, want: str) -> dict:
     return got[-1]["payload"]
 
 
+def _plans(ws, type_: str, payload: dict) -> dict:
+    out = _ask(ws, type_, payload, "plans")
+    Plans.model_validate(out)
+    return out
+
+
+def test_hello_lists_the_plans_commands(plans_env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    main, _eng, _, _ = _engine(monkeypatch)
+    with TestClient(main.app) as client, client.websocket_connect("/") as ws:
+        hello = ws.receive_json()
+        assert hello["type"] == "engine.hello"
+        caps = hello["payload"]["capabilities"]
+        assert {"plans.list", "plan.start", "plan.remove", "playlist.get", "plan.propose"} <= set(caps)
+        assert "plan.lesson.start" not in caps
+    assert "plans" in ENGINE_EVENTS and "playlist" in ENGINE_EVENTS
+
+
 def test_plans_round_trips(plans_env, monkeypatch):
     from fastapi.testclient import TestClient
 
     main, _eng, _, calls = _engine(monkeypatch)
     with TestClient(main.app) as client, client.websocket_connect("/") as ws:
         assert ws.receive_json()["type"] == "engine.hello"
-        plans = _ask(ws, "plans.list", {}, "plans")
-        assert len(plans["plans"]) == 40 and plans["playlists"] == []
-        assert all("lessons" not in r and "progress" not in r for r in plans["plans"])
+        assert _plans(ws, "plans.list", {"reqId": "r-0"}) == {"items": [], "reqId": "r-0"}
 
-        plan = _ask(ws, "plan.get", {"id": "intro-python"}, "plan")
-        assert plan["kind"] == "catalog" and plan["progress"] is None and len(plan["playlists"]) == 2
-        assert plan["plan"]["lessons"][0]["index"] == 0 and plan["plan"]["lessons"][0]["goal"].startswith("Teach")
+        out = _plans(ws, "plan.start", {"catalogId": "intro-python", "reqId": "r-1"})
+        assert out["reqId"] == "r-1" and [p["id"] for p in out["items"]] == ["intro-python"]
+        p = out["items"][0]
+        assert p["source"] == "preset" and p["catalogId"] == "intro-python" and p["nextIndex"] == 0
+        assert p["lessons"][0]["state"] == "next" and isinstance(p["startedAt"], str)
+        again = _plans(ws, "plan.start", {"catalogId": "intro-python", "reqId": "r-2"})
+        assert len(again["items"]) == 1 and again["items"][0]["startedAt"] == p["startedAt"]
 
-        v = _ask(ws, "plan.start", {"id": "intro-python"}, "plan.progress")
-        assert v["key"] == "intro-python" and v["active"] and v["next"]["index"] == 0
+        ws.send_json({"type": "playlist.get", "payload": {"url": PL_URL, "reqId": "r-pl"}})
+        first = _until(ws, "playlist")[-1]["payload"]
+        second = _until(ws, "playlist")[-1]["payload"]
+        for x in (first, second):
+            PlaylistInfo.model_validate(x)
+            assert x["reqId"] == "r-pl" and x["url"] == PL_URL and x["playlistId"] == PLID and x["videoCount"] == 3
+        assert first["proposing"] is True and "proposal" not in first
+        assert second["proposing"] is False and second["proposal"]["source"] == "playlist"
+        prop = second["proposal"]
+        prop["lessons"][0]["skip"] = True
+        out = _plans(ws, "plan.start", {"playlistId": PLID, "url": PL_URL, "proposal": prop, "reqId": "r-3"})
+        pl = next(x for x in out["items"] if x["id"] == "pl-" + PLID)
+        assert pl["source"] == "playlist" and pl["playlistId"] == PLID and pl["total"] == 2
+        assert [le["state"] for le in pl["lessons"]] == ["skipped", "next", "todo"]
+        assert len(plans_env) == 1  # one fetch: the page; the proposal and the start needed no other
 
-        v = _ask(ws, "plan.lesson.done", {"id": "intro-python", "index": 0}, "plan.progress")
-        assert v["done"] == 1 and v["next"]["index"] == 1
+        ws.send_json({"type": "plan.propose", "payload": {"goal": "I want to learn pandas", "reqId": "r-g"}})
+        first = _until(ws, "plan.proposal")[-1]["payload"]
+        second = _until(ws, "plan.proposal")[-1]["payload"]
+        for x in (first, second):
+            PlanProposalEvent.model_validate(x)
+            assert x["reqId"] == "r-g" and x["goal"] == "I want to learn pandas"
+        assert first["proposing"] is True and second["proposing"] is False
+        assert second["proposal"]["fromPlans"] == ["intro-python", "pandas"]
+        out = _plans(ws, "plan.start", {"goal": "I want to learn pandas", "proposal": second["proposal"], "reqId": "r-4"})
+        goal = next(x for x in out["items"] if x["source"] == "goal")
+        assert goal["id"].startswith("goal-") and goal["lessons"][0]["goal"]
 
-        prog = _ask(ws, "plans.progress.get", {}, "plans.progress")
-        assert [p["key"] for p in prog["plans"]] == ["intro-python"] and prog["resume"]["key"] == "intro-python"
-        row = next(r for r in _ask(ws, "plans.list", {}, "plans")["plans"] if r["id"] == "intro-python")
-        assert row["progress"] == {"done": 1, "total": 10, "active": True, "complete": False}
-
-        m = _ask(ws, "plan.goal", {"text": "I want to learn pandas"}, "plan.matches")
-        assert m["confident"] and m["matches"][0] == {"planId": "pandas", "title": "pandas", "score": m["matches"][0]["score"],
-                                                     "line": catalog.get("pandas")["line"], "first": "intro-python"}
-
-        pl = _ask(ws, "plan.playlist", {"url": f"https://www.youtube.com/playlist?list={PLID}"}, "plan.playlist")
-        assert pl["id"] == "yt-" + PLID and pl["videoCount"] == 3 and pl["source"] == "page"
-        v = _ask(ws, "plan.start", {"id": "yt-" + PLID}, "plan.progress")  # from the cache: no second fetch
-        assert v["kind"] == "playlist" and v["total"] == 3 and len(plans_env) == 1
-        plan = _ask(ws, "plan.get", {"id": "yt-" + PLID}, "plan")
-        assert plan["kind"] == "playlist" and plan["progress"]["title"] == "Python for beginners"
-
-        prog = _ask(ws, "plan.remove", {"id": "intro-python"}, "plans.progress")
-        assert [p["key"] for p in prog["plans"]] == ["yt-" + PLID]
+        out = _plans(ws, "plan.remove", {"id": "intro-python"})
+        assert "intro-python" not in [x["id"] for x in out["items"]] and len(out["items"]) == 2
     assert calls == []  # no lesson was built
 
 
@@ -83,17 +112,21 @@ def test_plans_errors_are_said_not_dropped(plans_env, monkeypatch):
     main, _eng, _, _ = _engine(monkeypatch)
     with TestClient(main.app) as client, client.websocket_connect("/") as ws:
         assert ws.receive_json()["type"] == "engine.hello"
-        assert "not on this Mac" in _ask(ws, "plan.get", {"id": "no-such-plan"}, "error")["message"]
-        assert "not on this Mac" in _ask(ws, "plan.start", {"id": "no-such-plan"}, "error")["message"]
-        assert _ask(ws, "plan.get", {"id": "../../etc"}, "error")["message"]  # a bad id never reaches the disk
-        assert _ask(ws, "plan.lesson.done", {"id": "intro-c", "index": "x"}, "error")["message"]
-        assert _ask(ws, "plan.goal", {"text": "   "}, "error")["message"]
-        assert "playlist" in _ask(ws, "plan.playlist", {"url": "https://example.com/list"}, "error")["message"]
+        err = _ask(ws, "plan.start", {"catalogId": "no-such-plan", "reqId": "r-x"}, "error")
+        assert "catalog" in err["message"] and err["reqId"] == "r-x"
+        assert _ask(ws, "plan.start", {}, "error")["message"]
         assert _ask(ws, "plan.start", {"url": "https://example.com/x"}, "error")["message"]
-        assert _ask(ws, "plan.lesson.start", {"id": "intro-c"}, "error")["message"]  # not started: no lesson
+        assert _plans(ws, "plan.remove", {"id": "../../etc"})["items"] == []  # a bad id never reaches the disk
+        got = _ask(ws, "playlist.get", {"url": "https://example.com/list", "reqId": "r-u"}, "playlist")
+        assert got["error"] == "unsupported" and got["reqId"] == "r-u" and got["proposing"] is False and not got["videos"]
+        ws.send_json({"type": "plan.propose", "payload": {"goal": "qqq zzz xxyy"}})
+        _until(ws, "plan.proposal")
+        none = _until(ws, "plan.proposal")[-1]["payload"]
+        assert none["error"] == "not_found" and none["proposing"] is False
+        assert _ask(ws, "plan.propose", {"goal": ""}, "error")["message"]  # the contract's min_length
 
 
-def test_plan_goal_falls_back_to_the_mocked_model(plans_env, monkeypatch):
+def test_plan_propose_falls_back_to_the_mocked_model(plans_env, monkeypatch):
     from fastapi.testclient import TestClient
 
     from server.coach import llm
@@ -112,14 +145,17 @@ def test_plan_goal_falls_back_to_the_mocked_model(plans_env, monkeypatch):
     main, _eng, _, _ = _engine(monkeypatch)
     with TestClient(main.app) as client, client.websocket_connect("/") as ws:
         assert ws.receive_json()["type"] == "engine.hello"
-        m = _ask(ws, "plan.goal", {"text": "how does my car engine work"}, "plan.matches")
-        assert m["source"] == "model" and [x["planId"] for x in m["matches"]] == ["intro-arduino"]
-        m = _ask(ws, "plan.goal", {"text": "learn swift"}, "plan.matches")
-        assert m["source"] == "catalog"
+        ws.send_json({"type": "plan.propose", "payload": {"goal": "how does my car engine work"}})
+        _until(ws, "plan.proposal")
+        m = _until(ws, "plan.proposal")[-1]["payload"]
+        assert m["proposal"]["fromPlans"][-1] == "intro-arduino"
+        ws.send_json({"type": "plan.propose", "payload": {"goal": "learn swift"}})
+        _until(ws, "plan.proposal")
+        assert _until(ws, "plan.proposal")[-1]["payload"]["proposal"]["source"] == "goal"
     assert len(asked) == 1
 
 
-def test_plan_lesson_start_builds_the_next_lesson_and_links_it(plans_env, monkeypatch):
+def test_a_plan_lesson_starts_through_learn_and_is_linked(plans_env, monkeypatch):
     from fastapi.testclient import TestClient
 
     main, eng, _, _ = _engine(monkeypatch)
@@ -127,41 +163,46 @@ def test_plan_lesson_start_builds_the_next_lesson_and_links_it(plans_env, monkey
 
     async def learn(query, mode=None):
         started.append(("learn", query, mode))
-        eng.session.graph = {"lesson": {"id": "les-plan-1", "title": "t"}, "steps": []}
+        await eng._emit("lesson.ready", {"lesson": {"id": "les-plan-1", "title": "t"}, "steps": []})
 
     async def learn_url(url, transcript_only=False):
         started.append(("learn_url", url))
 
     monkeypatch.setattr(eng.session, "learn", learn)
     monkeypatch.setattr(eng.session, "learn_url", learn_url)
+    goal1 = catalog.get("intro-blender")["lessons"][1]["goal"]
     with TestClient(main.app) as client, client.websocket_connect("/") as ws:
         assert ws.receive_json()["type"] == "engine.hello"
-        _ask(ws, "plan.start", {"id": "intro-blender"}, "plan.progress")
-        _ask(ws, "plan.lesson.done", {"id": "intro-blender", "index": 0}, "plan.progress")
-        v = _ask(ws, "plan.lesson.start", {"id": "intro-blender"}, "plan.progress")
-        assert v["next"]["index"] == 1 and v["lessons"][1]["state"] == "current"
-        _ask(ws, "plans.progress.get", {}, "plans.progress")  # the queued start has run by the time a later read
-        goal1 = catalog.get("intro-blender")["lessons"][1]["goal"]
+        _plans(ws, "plan.start", {"catalogId": "intro-blender"})
+        pushed = _plans(ws, "learn", {"query": goal1, "mode": "lesson", "plan": {"id": "intro-blender", "index": 1}})
+        les = pushed["items"][0]["lessons"][1]
+        assert les["state"] == "in_progress" and pushed["items"][0]["nextIndex"] == 1 and les["openedAt"]
+        _until(ws, "lesson.ready")
         assert started == [("learn", goal1, "lesson")]
 
-        _ask(ws, "plan.playlist", {"url": PLID}, "plan.playlist")
-        _ask(ws, "plan.start", {"id": "yt-" + PLID}, "plan.progress")
-        _ask(ws, "plan.lesson.start", {"id": "yt-" + PLID, "index": 2}, "plan.progress")
-        _ask(ws, "plans.progress.get", {}, "plans.progress")
-        assert started[-1] == ("learn_url", "https://www.youtube.com/watch?v=aaaaaaaaaa4")
+        ws.send_json({"type": "playlist.get", "payload": {"url": PLID}})
+        _until(ws, "playlist")
+        _until(ws, "playlist")
+        _plans(ws, "plan.start", {"playlistId": PLID})  # no proposal: the playlist's own videos (cached)
+        url = "https://www.youtube.com/watch?v=aaaaaaaaaa3"
+        pushed = _plans(ws, "learn_url", {"url": url, "plan": {"id": "pl-" + PLID, "index": 2}})
+        pl = next(x for x in pushed["items"] if x["id"] == "pl-" + PLID)
+        assert pl["lessons"][2]["state"] == "in_progress"
+        _plans(ws, "plans.list", {})
+        assert started[-1] == ("learn_url", url)
     saved = json.loads((state_dir() / "plans.json").read_text())
     assert saved["plans"]["intro-blender"]["started"]["1"]["lessonId"] == "les-plan-1"
     assert eng.session.app_v2 is True
 
 
-def test_parse_command_checks_plans_payloads():
+def test_parse_command_uses_the_contract_for_plans():
     from server.orchestrator.main import parse_command
 
-    assert parse_command({"type": "plan.get", "payload": {"id": "intro-c"}}).payload.id == "intro-c"
-    assert parse_command({"type": "plan.lesson.start", "payload": {"id": "yt-" + PLID}}).payload.index is None
-    for bad in ({"type": "plan.get", "payload": {"id": 3}}, {"type": "plan.lesson.done", "payload": {"id": "a", "index": -1}},
-                {"type": "plan.lesson.done", "payload": {"id": "a", "index": True}},
-                {"type": "plan.playlist", "payload": {}}, {"type": "plan.start", "payload": {"id": "Bad Id"}}):
+    assert parse_command({"type": "plan.start", "payload": {"catalogId": "intro-c"}}).payload.catalogId == "intro-c"
+    assert parse_command({"type": "learn", "payload": {"query": "q", "plan": {"id": "intro-c", "index": 2}}}).payload.plan.index == 2
+    for bad in ({"type": "plan.remove", "payload": {"id": 3}}, {"type": "plan.propose", "payload": {"goal": ""}},
+                {"type": "learn", "payload": {"query": "q", "plan": {"id": "a", "index": -1}}},
+                {"type": "plan.get", "payload": {"id": "intro-c"}}, {"type": "plan.lesson.start", "payload": {"id": "a"}}):
         with pytest.raises(ValueError):
             parse_command(bad)
 
@@ -174,4 +215,5 @@ def test_unreachable_youtube_is_one_clear_error(plans_env, monkeypatch):
     main, _eng, _, _ = _engine(monkeypatch)
     with TestClient(main.app) as client, client.websocket_connect("/") as ws:
         assert ws.receive_json()["type"] == "engine.hello"
-        assert "reach YouTube" in _ask(ws, "plan.playlist", {"url": PLID}, "error")["message"]
+        got = _ask(ws, "playlist.get", {"url": PLID, "reqId": "r-o"}, "playlist")
+        assert got["error"] == "offline" and got["reqId"] == "r-o"

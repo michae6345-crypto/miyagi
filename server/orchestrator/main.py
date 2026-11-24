@@ -127,11 +127,12 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 # answered at once, beside the command queue (reads, a layout note); library.start / review.start change the lesson, so
 # they queue
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start", "review.start"}
-# ui-v4 plans (server/plans/service.py): reads and edits answered beside the queue; plan.lesson.start queues (a lesson)
-PLAN_INSTANT = frozenset(plans_service.READS)
+# ui-v4 plans (server/plans/service.py): answered beside the queue. A plan lesson starts through learn / learn_url /
+# library.start carrying plan {id, index}.
+PLAN_INSTANT = frozenset(plans_service.COMMANDS)
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
-LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start", "plan.lesson.start"})  # each replaces a running build
+LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
 # Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
 LEARNER_ASKS = LESSON_STARTS
 LEARNER_ASK_ACTIONS = frozenset({"start", "resume", "build"})  # Start, Continue, the preflight card's Build (a pick)
@@ -148,7 +149,6 @@ KEYS_FAILED = "Couldn't read those keys. Check them and try again."
 V2_FAILED = "Couldn't answer that just now. Try again."
 LIBRARY_GONE = "That lesson isn't on this Mac any more."
 REVIEW_GONE = "That review isn't ready. Try again after your next lesson."
-PLAN_LESSON_GONE = "That plan has no lesson to start. Open the plan again."
 LIBRARY_FAILED = "Couldn't start this lesson. Try again."
 
 
@@ -368,8 +368,6 @@ def parse_command(raw: dict) -> Any:
     type_ = raw.get("type")
     if type_ in V2_COMMANDS and type_ not in _CONTRACT_COMMANDS:
         return SimpleNamespace(type=type_, payload=_parse_v2(type_, raw.get("payload")))
-    if type_ in plans_service.COMMANDS and type_ not in _CONTRACT_COMMANDS:  # until the ui-v4 contract lands
-        return SimpleNamespace(type=type_, payload=plans_service.parse(type_, raw.get("payload")))
     return parse_app_message(raw)
 
 
@@ -637,6 +635,7 @@ class Engine:
         self._reads: dict[str, tuple[float, Any]] = {}  # coalesced app reads: key -> (when, result)
         self._reads_inflight: dict[str, asyncio.Future] = {}
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
+        self._plan_ref: tuple[str, int] | None = None  # the plan lesson running now (ui-v4 plans): (plan id, index)
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -666,6 +665,11 @@ class Engine:
         if (note := getattr(self.screen, "note_ui", None)) is not None:
             note(type_, payload)  # the targeter never boxes Miyagi's own text (cards, captions) seen on screen
         await self.hub.emit(type_, self.session._tagged(type_, payload or {}))  # epoch / gen: which lesson and step
+        if getattr(self, "_plan_ref", None) is not None and type_ in ("lesson.ready", "lesson.complete", "lesson.ended"):
+            try:
+                await self._plan_lesson_event(type_, payload)
+            except Exception:  # noqa: BLE001
+                log.exception("plan lesson link failed")
 
     async def ingest(self, ev: dict) -> None:
         self.recorder.record(ev)
@@ -799,6 +803,7 @@ class Engine:
             caps.append("panel.state")
         caps.append("data.delete")  # Delete my data, engine part (the lesson notes); app follow-up: settings:delete
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
+        caps += list(plans_service.COMMANDS)  # ui-v4 plans (server/plans); learn / learn_url / library.start take plan
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -984,29 +989,48 @@ class Engine:
         log.info("library.start: %s (lesson %s)", lid, lesson.get("id"))
         await s._run_build("", title, factory=lambda: self._load_library(graph, title))
 
-    async def plan_lesson_start(self, key: str, index: int | None, reply: Any) -> None:
-        """plan.lesson.start {id, index?}: a plan's lesson (index None: its next one). A catalog lesson is built from its
-        goal like "Just teach me" (learn {query: goal, mode: lesson}); a playlist lesson from its video (learn_url).
-        The plan's progress goes out first (the lesson is now current); the lesson's id is linked once it loads, so
-        its completion marks the plan lesson done (plans/progress.py)."""
-        s = self.session
-        s.note_app_v2()
-        spec = await asyncio.to_thread(plans_progress.lesson_spec, key, index)
-        if spec is None:
-            log.info("plan.lesson.start: no lesson %r in plan %s", index, key)
-            await reply("error", {"message": PLAN_LESSON_GONE})
+    async def plan_lesson(self, ref: Any, library_id: str | None = None) -> None:
+        """A learn / learn_url / library.start carrying plan {id, index}: that plan lesson is now in progress (every app
+        gets `plans`); the engine lesson it becomes is linked when it loads (lesson.ready), so its completion marks
+        the plan lesson done. Any other lesson start clears the link target."""
+        self._plan_ref = None
+        if ref is None:
             return
-        view = await asyncio.to_thread(plans_progress.lesson_starting, key, spec["index"])
-        if view is not None:
-            await reply("plan.progress", view)
-        log.info("plan.lesson.start: %s lesson %d", key, spec["index"])
-        if "url" in spec:
-            await s.learn_url(spec["url"])
-        else:
-            await s.learn(spec["query"], "lesson")
-        lid = ((s.graph or {}).get("lesson") or {}).get("id") if isinstance(s.graph, dict) else None
-        if isinstance(lid, str) and lid:
-            await asyncio.to_thread(plans_progress.link_lesson, key, spec["index"], lid)
+        key, index = getattr(ref, "id", None), getattr(ref, "index", None)
+        if not isinstance(key, str) or not plans_progress.KEY_RE.fullmatch(key) or not isinstance(index, int):
+            return
+        try:
+            v = await asyncio.to_thread(plans_progress.lesson_starting, key, index, library_id=library_id)
+        except Exception:  # noqa: BLE001 - the lesson itself still starts
+            log.exception("plan lesson %s/%s: could not note the start", key, index)
+            return
+        if v is None:
+            log.info("plan lesson: no lesson %s in plan %s", index, key)
+            return
+        self._plan_ref = (key, index)
+        await self.push_plans()
+
+    async def push_plans(self) -> None:
+        """`plans` to every app (a plan lesson started or finished)."""
+        try:
+            await self.hub.emit("plans", await asyncio.to_thread(plans_service.plans_payload))
+        except Exception:  # noqa: BLE001 - a plans push never costs the lesson
+            log.exception("plans push failed")
+
+    async def _plan_lesson_event(self, type_: str, payload: dict | None) -> None:
+        """lesson.ready links the running plan lesson to its engine lesson; lesson.complete / lesson.ended push
+        `plans` (the plan lesson is done once history.json has its lesson)."""
+        ref = self._plan_ref
+        if ref is None:
+            return
+        if type_ == "lesson.ready":
+            lid = ((payload or {}).get("lesson") or {}).get("id")
+            if isinstance(lid, str) and lid:
+                await asyncio.to_thread(plans_progress.link_lesson, ref[0], ref[1], lid)
+        elif type_ in ("lesson.complete", "lesson.ended"):
+            if type_ == "lesson.ended":
+                self._plan_ref = None
+            await self.push_plans()
 
     async def review_start(self, skill_id: str, label: str) -> None:
         """review.start {skillId?, label?}: a quick spaced review of one mastered skill, with no build and no model call.
@@ -1172,17 +1196,20 @@ class Engine:
         elif msg.type in PLAN_INSTANT:
             s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
             await plans_service.handle(msg.type, p, reply)
-        elif msg.type == "plan.lesson.start":
-            await self.plan_lesson_start(p.id, p.index, reply)
         elif msg.type == "library.start":
+            await self.plan_lesson(getattr(p, "plan", None), library_id=p.id)
             await self.library_start(p.id)
         elif msg.type == "review.start":
+            self._plan_ref = None
             await self.review_start(p.skillId, p.label)
         elif msg.type == "learn":
+            await self.plan_lesson(getattr(p, "plan", None))
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
+            await self.plan_lesson(getattr(p, "plan", None))
             await s.learn_url(p.url, transcript_only=getattr(p, "transcriptOnly", None) is True)
         elif msg.type == "build_lesson":
+            self._plan_ref = None
             await s.build_lesson(p.resultIds)
         elif msg.type == "action":
             circle = {}  # circle to ask (Nov 22): only when the app sent them, so older callers are unchanged
