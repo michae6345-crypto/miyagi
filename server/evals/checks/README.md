@@ -54,7 +54,9 @@ that were done, the share the checks passed (a miss is a *false not-yet*: the le
                                    "counts": [16, 17, null]}},   // execution counts in cell order (run order)
       "Untitled.ipynb": {"notebook": {"cells": [{"source": "...", "stdout": "...", "error": "NameError: ...",
                                                  "image": true, "run": false, "count": 4}],
-                                      "kernel": ".venv (3.12.16)", "kernel_version": "3.12.16"}}
+                                      "kernel": ".venv (3.12.16)", "kernel_version": "3.12.16"}},
+      // more cell outputs: "stderr": "...UserWarning..." (a warning stream), "result": "np.float64(3.4e-11)"
+      // (Out[n], the last expression's repr), "image": "<Figure size 640x480 with 1 Axes>" (a figure with that text)
     },
     "screen": {"Code": ["line", ...], "Terminal": [...]},   // or a ScreenObservation {windows, blocks}; null = no frame
     "run": {"command": "python3 calculator.py", "exit_code": 0, "output_tail": ["5"], "running": false},
@@ -73,6 +75,39 @@ and the coach eval's git interactive-rebase lesson (`evals/coach/lessons/git-int
 Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/plans`, commit 213c9238): Intro to
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
+
+## Round 4: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r4-0`)
+
+18 new cases (12 train, 6 held out), no engine change. The runner's notebook cells gained `stderr`, `result`
+(Out[n]) and a text `image` so a case can show a bare expression's repr (`np.float64(...)`, `[<Line2D ...>]`,
+`<BarContainer object of 10 artists>`) the way Jupyter saves it. Steps: the MNIST video lesson (s5 fit, s7
+evaluate) and, inline, lessons from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`)
+in the lesson builder's shape: Neural networks ("Gradients by hand", "Gradient descent" on AND), PyTorch
+("Autograd", "Loss functions and optimizers"), scikit-learn ("Fit and predict", "Cross-validation", "Compare two
+models") and Plotting ("Your first line plot", "Histograms", "Save a figure").
+
+The traps: `val_accuracy: 0.95..` beside a training accuracy of 0.9431 (sgd, `validation_split`); fit on
+`train_images[:1000]` run twice (0.995 on 1000 images); the model cell re-run after fit; predictions printed in an
+older cell than the training run that changed the weights; `loss.backward()` run twice so `w.grad` reads 12 beside
+a hand value of 6; an "after" loss that re-prints the tensor from before the step; `predict(X_train)` while the 45 on
+screen is the split cell's `(45, 13)`; `cv=3` where five folds are asked; a flipped comparison that names the lower
+model; `ax.hist(sums)` with 10 default bins; `ax.plot` in a later cell than `plt.subplots` (no image); `plt.savefig`
+in a new cell after `plt.show()` (a blank 1280 px PNG). Done-but-odd: `validation_split` columns, `{acc:.0%}` ->
+`98%`, a `(4, 1)` column of rounded predictions, `np.float64(3.44e-11)` as Out[3], `bins=range(2, 14)`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (220: 208 earlier + 12 new) | 0.959 | 0.931 | 0.979 | 7 | 2 |
+| train, the 12 new | 0.250 | | | 7 | 2 |
+| held-out (88: 82 earlier + 6 new) | 0.420 | 0.306 | 0.469 | 34 | 17 |
+| held-out, the 6 new | 0.167 | | | 4 | 1 |
+
+Train wrong verdicts (all new; the 208 earlier train cases still score right): FP
+`jupyter-mnist-s5-fit-on-1000-image-slice`, `jupyter-nn-gd-and-stale-predictions`, `jupyter-plot-hist-ten-bins`,
+`jupyter-plot-line-later-cell-no-image`, `jupyter-pytorch-autograd-backward-rerun-accumulated`,
+`jupyter-pytorch-optim-step-loss-unchanged`, `jupyter-sklearn-predict-on-train-45-elsewhere`; FN
+`jupyter-mnist-s7-whole-percent` (the metric pattern wants `NN.NN%`; s7c4 stays pending), `jupyter-nn-gd-and-column-array`
+(the `[0, 0, 0, 1]` pattern never sees NumPy's column print). `baseline.json` records them in `known_wrong`.
 
 ## Round 3 fixes (Nov 24 2026, `claude/eng-check-fixes-r3`)
 

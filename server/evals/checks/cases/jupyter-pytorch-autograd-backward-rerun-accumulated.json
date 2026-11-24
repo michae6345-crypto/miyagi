@@ -1,0 +1,103 @@
+{
+ "id": "jupyter-pytorch-autograd-backward-rerun-accumulated",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "PyTorch plan, 'Autograd' (w.grad matches the hand-worked gradient to within 1e-5). w was made with requires_grad=True in cell [2]; the backward cell then ran twice ([3], then [4] after a typo fix) without zeroing w.grad, and PyTorch adds each backward into .grad. The output reads 'autograd: tensor(12.)' next to 'by hand: 6.0': both lines the step asks for are printed, and they disagree by a factor of two. Not done: re-run the cell that makes w (or w.grad.zero_()) and backward once.",
+ "step": {
+  "id": "pt2s4",
+  "title": "Compare w.grad with your hand-worked gradient",
+  "instructions": "In autograd.ipynb, with x = 3.0, y = 2.0 and w = torch.tensor(1.0, requires_grad=True), compute loss = (w * x - y) ** 2, call loss.backward() and print w.grad next to your hand-worked gradient 2 * (w * x - y) * x.",
+  "file": "autograd.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "autograd.ipynb",
+    "match": "loss.backward()",
+    "caption": "Backpropagate and compare"
+   }
+  ],
+  "code": "loss = (w * x - y) ** 2\nloss.backward()\nprint('autograd:', w.grad)\nprint('by hand:', 2 * (w.item() * x - y) * x)",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "w requires grad",
+    "app": "Code",
+    "pattern": "requires_grad\\s*=\\s*True",
+    "id": "pt2s4c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "loss.backward() called",
+    "app": "Code",
+    "pattern": "loss\\.backward\\(\\)",
+    "id": "pt2s4c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "w.grad printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "autograd:\\s*tensor\\(",
+    "id": "pt2s4c3"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Hand-worked gradient printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "by\\s+hand:\\s*-?\\d",
+    "id": "pt2s4c4"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "pt2s4c5"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "autograd.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "x, y = 3.0, 2.0\nw = torch.tensor(1.0, requires_grad=True)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "loss = (w * x - y) ** 2\nloss.backward()\nprint('autograd:', w.grad)\nprint('by hand:', 2 * (w.item() * x - y) * x)",
+       "stdout": "autograd: tensor(12.)\nby hand: 6.0\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "autograd.ipynb",
+    "[2]",
+    "x, y = 3.0, 2.0",
+    "w = torch.tensor(1.0, requires_grad=True)",
+    "[4]",
+    "loss = (w * x - y) ** 2",
+    "loss.backward()",
+    "print('autograd:', w.grad)",
+    "print('by hand:', 2 * (w.item() * x - y) * x)",
+    "autograd: tensor(12.)",
+    "by hand: 6.0"
+   ]
+  }
+ }
+}

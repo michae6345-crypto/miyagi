@@ -125,8 +125,9 @@ def resolve_step(case: dict) -> dict:
 def _notebook(spec: dict) -> dict:
     """An .ipynb from {"from": <repo path>, "keep_cells": n, "unrun": [i], "replace": [[i, old, new]],
     "append": [cell], "counts": [n | null, ...], "kernel": str, "kernel_version": str} or {"cells": [cell, ...]}.
-    A cell: {"source": str, "run": bool, "count": int, "stdout": str, "error": "Name: msg", "image": bool,
-    "markdown": bool}. "count" is the cell's execution count (default: its position); "counts" sets the counts of
+    A cell: {"source": str, "run": bool, "count": int, "stdout": str, "stderr": str (a warning stream),
+    "result": str (the last expression's text/plain repr, Out[n]), "error": "Name: msg",
+    "image": bool | str (a figure; a str is its text/plain, "<Figure size 640x480 with 1 Axes>"), "markdown": bool}. "count" is the cell's execution count (default: its position); "counts" sets the counts of
     the whole notebook's cells in order (run order, a kernel restart), null leaving one as it is."""
     if "from" in spec:
         nb = json.loads((ROOT / spec["from"]).read_text(encoding="utf-8"))
@@ -164,11 +165,17 @@ def _cell(c: dict, n: int) -> dict:
     if c.get("markdown"):
         return {"cell_type": "markdown", "id": f"m{n}", "metadata": {}, "source": c.get("source", "")}
     outputs: list[dict] = []
+    if c.get("stderr"):
+        outputs.append({"output_type": "stream", "name": "stderr", "text": c["stderr"]})
     if c.get("stdout"):
         outputs.append({"output_type": "stream", "name": "stdout", "text": c["stdout"]})
+    if c.get("result") is not None:
+        outputs.append({"output_type": "execute_result", "execution_count": c.get("count"), "metadata": {},
+                        "data": {"text/plain": str(c["result"])}})
     if c.get("image"):
+        plain = c["image"] if isinstance(c["image"], str) else "<Figure size 600x900 with 2 Axes>"
         outputs.append({"output_type": "display_data", "metadata": {},
-                        "data": {"image/png": "iVBORw0KGgo=", "text/plain": "<Figure size 600x900 with 2 Axes>"}})
+                        "data": {"image/png": "iVBORw0KGgo=", "text/plain": plain}})
     if c.get("error"):
         name, _, msg = str(c["error"]).partition(":")
         outputs.append({"output_type": "error", "ename": name.strip(), "evalue": msg.strip(),

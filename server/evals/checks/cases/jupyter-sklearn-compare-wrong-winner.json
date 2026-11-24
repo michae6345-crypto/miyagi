@@ -1,0 +1,101 @@
+{
+ "id": "jupyter-sklearn-compare-wrong-winner",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "scikit-learn plan, 'Compare two models' (mean cross-validation scores print for both models and the higher one is named). Both means print, 'knn 0.972  logreg 0.983', but the learner flipped the comparison (knn_mean < lr_mean) and the last line says 'better: knn', the LOWER of the two. Every line the step asks for is there; the conclusion is wrong. Not done.",
+ "step": {
+  "id": "sk9s4",
+  "title": "Name the better model",
+  "instructions": "In wine.ipynb, score knn_pipe and logreg_pipe with cross_val_score(..., cv=5), print both mean scores, then print the name of the model with the higher mean.",
+  "file": "wine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "wine.ipynb",
+    "match": "better:",
+    "caption": "Compare the two means"
+   }
+  ],
+  "code": "knn_mean = cross_val_score(knn_pipe, X, y, cv=5).mean()\nlr_mean = cross_val_score(logreg_pipe, X, y, cv=5).mean()\nprint(f'knn {knn_mean:.3f}  logreg {lr_mean:.3f}')\nprint('better:', 'knn' if knn_mean > lr_mean else 'logreg')",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "Both models cross-validated",
+    "app": "Code",
+    "pattern": "cross_val_score\\(\\s*logreg_pipe",
+    "id": "sk9s4c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "KNN mean printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "knn\\s+0\\.\\d+",
+    "id": "sk9s4c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Logistic regression mean printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "logreg\\s+0\\.\\d+",
+    "id": "sk9s4c3"
+   },
+   {
+    "type": "screen_contains",
+    "label": "The better model is named",
+    "app": "Code",
+    "output": true,
+    "pattern": "better:\\s*(knn|logreg)",
+    "id": "sk9s4c4"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "sk9s4c5"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\nfrom sklearn.datasets import load_wine\nfrom sklearn.model_selection import train_test_split, cross_val_score\n\nX, y = load_wine(return_X_y=True, as_frame=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "from sklearn.pipeline import make_pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.neighbors import KNeighborsClassifier\nfrom sklearn.linear_model import LogisticRegression\n\nknn_pipe = make_pipeline(StandardScaler(), KNeighborsClassifier())\nlogreg_pipe = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "knn_mean = cross_val_score(knn_pipe, X, y, cv=5).mean()\nlr_mean = cross_val_score(logreg_pipe, X, y, cv=5).mean()\nprint(f'knn {knn_mean:.3f}  logreg {lr_mean:.3f}')\nprint('better:', 'knn' if knn_mean < lr_mean else 'logreg')",
+       "stdout": "knn 0.972  logreg 0.983\nbetter: knn\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "wine.ipynb",
+    "[3]",
+    "knn_mean = cross_val_score(knn_pipe, X, y, cv=5).mean()",
+    "lr_mean = cross_val_score(logreg_pipe, X, y, cv=5).mean()",
+    "print(f'knn {knn_mean:.3f}  logreg {lr_mean:.3f}')",
+    "print('better:', 'knn' if knn_mean < lr_mean else 'logreg')",
+    "knn 0.972  logreg 0.983",
+    "better: knn"
+   ]
+  }
+ }
+}

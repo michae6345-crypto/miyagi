@@ -1,0 +1,102 @@
+{
+ "id": "jupyter-pytorch-optim-step-loss-unchanged",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "PyTorch plan, 'Loss functions and optimizers' (the loss on the XOR points is lower after the optimizer step than before it). The learner wrote print(f'after {loss.item():.4f}'): it re-prints the loss tensor computed before the step instead of computing the loss again, so both lines read 0.7134. The step ran, but nothing shows the loss going down, and 'after' is not the loss after the step. Not done: recompute loss_fn(model(X), y) after optimizer.step().",
+ "step": {
+  "id": "pt4s4",
+  "title": "Take one optimizer step",
+  "instructions": "In xor.ipynb, compute the loss on the four XOR points and print it, then zero the gradients, call loss.backward() and optimizer.step(), and print the loss on the same points again.",
+  "file": "xor.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "xor.ipynb",
+    "match": "optimizer.step()",
+    "caption": "Step, then measure again"
+   }
+  ],
+  "code": "loss = loss_fn(model(X), y)\nprint(f'before {loss.item():.4f}')\noptimizer.zero_grad()\nloss.backward()\noptimizer.step()\nprint(f'after {loss_fn(model(X), y).item():.4f}')",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "Gradients zeroed",
+    "app": "Code",
+    "pattern": "optimizer\\.zero_grad\\(\\)",
+    "id": "pt4s4c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Optimizer stepped",
+    "app": "Code",
+    "pattern": "optimizer\\.step\\(\\)",
+    "id": "pt4s4c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Loss before the step printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "before\\s+\\d+\\.\\d+",
+    "id": "pt4s4c3"
+   },
+   {
+    "type": "screen_contains",
+    "label": "Loss after the step printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "after\\s+\\d+\\.\\d+",
+    "id": "pt4s4c4"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "pt4s4c5"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "xor.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\n\nX = torch.tensor([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])\ny = torch.tensor([[0.], [1.], [1.], [0.]])",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "torch.manual_seed(0)\nmodel = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1))\nloss_fn = nn.BCEWithLogitsLoss()\noptimizer = torch.optim.SGD(model.parameters(), lr=0.1)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "loss = loss_fn(model(X), y)\nprint(f'before {loss.item():.4f}')\noptimizer.zero_grad()\nloss.backward()\noptimizer.step()\nprint(f'after {loss.item():.4f}')",
+       "stdout": "before 0.7134\nafter 0.7134\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "xor.ipynb",
+    "[3]",
+    "loss = loss_fn(model(X), y)",
+    "print(f'before {loss.item():.4f}')",
+    "optimizer.zero_grad()",
+    "loss.backward()",
+    "optimizer.step()",
+    "print(f'after {loss.item():.4f}')",
+    "before 0.7134",
+    "after 0.7134"
+   ]
+  }
+ }
+}

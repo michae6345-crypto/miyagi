@@ -1,0 +1,103 @@
+{
+ "id": "jupyter-nn-gd-and-stale-predictions",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Neural networks plan, 'Gradient descent'. The learner split the step into a training cell and a predictions cell. An earlier run printed [0, 0, 0, 1] in the predictions cell ([4]). Then they tried lr = 0.05 and re-ran the training cell ([5]), which re-initialises w and b in the same cell: the loss only creeps 0.2614 -> 0.2282 and with those weights the AND neuron rounds to [0, 0, 0, 0]. The [0, 0, 0, 1] on screen comes from the weights before [5]; nothing printed the current model's predictions. Not done: re-run the predictions cell (or train with lr = 0.5).",
+ "step": {
+  "id": "nn7s4",
+  "title": "Train the AND neuron with gradient descent",
+  "instructions": "In and_gate.ipynb, run 1000 steps of gradient descent with lr = 0.5: compute the prediction and the loss, update w and b with their gradients, and print the loss every 100 steps. Then print the rounded predictions for the four AND inputs.",
+  "file": "and_gate.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "and_gate.ipynb",
+    "match": "w -= lr",
+    "caption": "Update the weights, then run"
+   }
+  ],
+  "code": "lr = 0.5\nfor step in range(1000):\n    p = sigmoid(X @ w + b)\n    loss = np.mean((p - y) ** 2)\n    grad_z = 2 * (p - y) / len(X) * p * (1 - p)\n    w -= lr * X.T @ grad_z\n    b -= lr * grad_z.sum()\n    if step % 100 == 0:\n        print(f'step {step} loss {loss:.4f}')\n\nprint(np.round(sigmoid(X @ w + b)).astype(int).ravel().tolist())",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "Weights updated with the learning rate",
+    "app": "Code",
+    "pattern": "w\\s*-=\\s*lr",
+    "id": "nn7s4c1"
+   },
+   {
+    "type": "metric_trend",
+    "label": "The printed loss falls",
+    "metric": "loss",
+    "metric_pattern": "step\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+|nan)",
+    "trend": "decreasing",
+    "window": 1000,
+    "id": "nn7s4c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "All four AND cases right (0, 0, 0, 1)",
+    "app": "Code",
+    "output": true,
+    "pattern": "\\[\\s*0,\\s*0,\\s*0,\\s*1\\s*\\]",
+    "id": "nn7s4c3"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "nn7s4c4"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "and_gate.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\n\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([[0], [0], [0], [1]])\n\ndef sigmoid(z):\n    return 1 / (1 + np.exp(-z))",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "rng = np.random.default_rng(0)\nw = rng.normal(size=(2, 1))\nb = 0.0\n\nlr = 0.05\nfor step in range(1000):\n    p = sigmoid(X @ w + b)\n    loss = np.mean((p - y) ** 2)\n    grad_z = 2 * (p - y) / len(X) * p * (1 - p)\n    w -= lr * X.T @ grad_z\n    b -= lr * grad_z.sum()\n    if step % 100 == 0:\n        print(f'step {step} loss {loss:.4f}')",
+       "stdout": "step 0 loss 0.2614\nstep 100 loss 0.2571\nstep 200 loss 0.2530\nstep 300 loss 0.2490\nstep 400 loss 0.2452\nstep 500 loss 0.2415\nstep 600 loss 0.2380\nstep 700 loss 0.2346\nstep 800 loss 0.2313\nstep 900 loss 0.2282\n",
+       "count": 5
+      },
+      {
+       "source": "print(np.round(sigmoid(X @ w + b)).astype(int).ravel().tolist())",
+       "stdout": "[0, 0, 0, 1]\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "and_gate.ipynb",
+    "[5]",
+    "rng = np.random.default_rng(0)",
+    "w = rng.normal(size=(2, 1))",
+    "lr = 0.05",
+    "for step in range(1000):",
+    "w -= lr * X.T @ grad_z",
+    "step 300 loss 0.2490",
+    "step 400 loss 0.2452",
+    "step 500 loss 0.2415",
+    "step 600 loss 0.2380",
+    "step 700 loss 0.2346",
+    "step 800 loss 0.2313",
+    "step 900 loss 0.2282",
+    "[4]",
+    "print(np.round(sigmoid(X @ w + b)).astype(int).ravel().tolist())",
+    "[0, 0, 0, 1]"
+   ]
+  }
+ }
+}

@@ -1,0 +1,85 @@
+{
+ "id": "jupyter-nn-gradcheck-np-float64-repr",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "Neural networks plan, 'Gradients by hand' (the hand-coded gradient matches the numerical gradient to within 1e-6). The learner computed the central differences exactly as asked but ended the cell with the bare expression np.abs(num_grad - grad(w)).max() instead of print('max diff', ...). Jupyter shows Out[3]: np.float64(3.4416913763379853e-11), NumPy 2's repr of a scalar. 3.4e-11 is far below 1e-6: the gradients match. Done.",
+ "step": {
+  "id": "nn6s4",
+  "title": "Check your gradient numerically",
+  "instructions": "In grad_check.ipynb, compute the numerical gradient of loss_fn with respect to w by central differences with eps = 1e-5, and print the largest absolute difference from your hand-coded grad(w).",
+  "file": "grad_check.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "grad_check.ipynb",
+    "match": "2 * eps",
+    "caption": "Run the cell"
+   }
+  ],
+  "code": "eps = 1e-5\nnum_grad = np.zeros_like(w)\nfor i in range(w.size):\n    w_plus, w_minus = w.copy(), w.copy()\n    w_plus.flat[i] += eps\n    w_minus.flat[i] -= eps\n    num_grad.flat[i] = (loss_fn(w_plus) - loss_fn(w_minus)) / (2 * eps)\n\nprint('max diff', np.abs(num_grad - grad(w)).max())",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "Central difference uses 2 * eps",
+    "app": "Code",
+    "pattern": "2\\s*\\*\\s*eps",
+    "id": "nn6s4c1"
+   },
+   {
+    "type": "metric_threshold",
+    "label": "Gradients match to within 1e-6",
+    "metric": "grad_diff",
+    "metric_pattern": "max\\s+diff\\s+(?P<value>[0-9.eE+-]+)",
+    "op": "<=",
+    "value": 1e-06,
+    "id": "nn6s4c2"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "nn6s4c3"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "grad_check.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\n\nrng = np.random.default_rng(1)\nX = rng.normal(size=(20, 3))\ny = rng.normal(size=(20, 1))\nw = rng.normal(size=(3, 1))",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "def loss_fn(w):\n    return np.mean((X @ w - y) ** 2)\n\ndef grad(w):\n    return 2 * X.T @ (X @ w - y) / len(X)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "eps = 1e-5\nnum_grad = np.zeros_like(w)\nfor i in range(w.size):\n    w_plus, w_minus = w.copy(), w.copy()\n    w_plus.flat[i] += eps\n    w_minus.flat[i] -= eps\n    num_grad.flat[i] = (loss_fn(w_plus) - loss_fn(w_minus)) / (2 * eps)\n\nnp.abs(num_grad - grad(w)).max()",
+       "result": "np.float64(3.4416913763379853e-11)",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "grad_check.ipynb",
+    "[3]",
+    "eps = 1e-5",
+    "num_grad = np.zeros_like(w)",
+    "num_grad.flat[i] = (loss_fn(w_plus) - loss_fn(w_minus)) / (2 * eps)",
+    "np.abs(num_grad - grad(w)).max()",
+    "np.float64(3.4416913763379853e-11)"
+   ]
+  }
+ }
+}
