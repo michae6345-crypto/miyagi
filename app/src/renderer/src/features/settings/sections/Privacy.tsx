@@ -34,6 +34,7 @@ import '../privacy/deleteWeb'
 import { Sees } from '../privacy/Sees'
 import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
+import { takeDeleteAsk } from '../v4/facts'
 
 /** offline: the server couldn't be reached, nothing was deleted. done / pending: deleted; a restart follows. */
 type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | 'refused'
@@ -41,7 +42,8 @@ type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | '
 const RESTART_MS = 2600
 
 export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v: KeysView) => void }): ReactNode {
-  const [step, setStep] = useState<Step>(stage.confirm === 'delete' ? 'confirm' : 'idle')
+  // Your data's Delete account (v4 page) lands here straight on the confirm, the same as the stage's ?confirm=delete.
+  const [step, setStep] = useState<Step>(() => (takeDeleteAsk() || stage.confirm === 'delete' ? 'confirm' : 'idle'))
   // Unchecked by default, and again every time the confirm opens: lesson folders are the learner's own work.
   const [lessons, setLessons] = useState(false)
   const [leftovers, setLeftovers] = useState(false)
