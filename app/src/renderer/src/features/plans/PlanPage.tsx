@@ -11,7 +11,7 @@
  * plan the learner has marks its passed lessons and starts any lesson with plan: {id, index} (store.ts startLesson).
  */
 import { Check, Circle, Eye, Flag, GitFork, List, Play, SquarePlay, SquareTerminal, ChevronRight } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { PlanState } from '../../../../../../shared/contracts/events'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { color, radius2, type2 } from '../../core/theme'
@@ -71,6 +71,11 @@ export function PlanPage({ id }: { id: string }): ReactNode {
     )
   }
   const narrow = w < 760
+  // Below 760 the picture shrinks beside the title rather than stacking full width above it (QA R2-01); only a very
+  // narrow column stacks, and then the title, facts and action come first. Beside the picture the title column can be
+  // narrower than a long title (332 px at a 556 px page), so the PageHeader wraps it onto two lines instead of clipping.
+  const stack = w < 520
+  const side = narrow ? 200 : 300
   const done = mine?.done ?? 0
   const minutes = page.lessons.reduce((n, l) => n + (l.minutes ?? 0), 0)
   const start = (): void => {
@@ -102,10 +107,10 @@ export function PlanPage({ id }: { id: string }): ReactNode {
 
   return (
     <div ref={ref} data-plan-page={page.id} className="flex flex-col" style={{ gap: 32 }}>
-      <div className={narrow ? 'flex flex-col-reverse' : 'flex items-start'} style={{ gap: narrow ? 20 : 40 }}>
+      <div className={stack ? 'flex flex-col' : 'flex items-start'} style={{ gap: narrow ? 24 : 40 }}>
         <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 20 }}>
-          <PageHeader title={page.title} lede={page.line} />
-          <dl className="m-0 grid" style={{ gridTemplateColumns: '148px minmax(0,1fr)', rowGap: 12, alignItems: 'start' }}>
+          <PageHeader title={page.title} lede={page.line} wrap />
+          <dl className="m-0 grid" style={{ gridTemplateColumns: `${narrow ? 120 : 148}px minmax(0,1fr)`, rowGap: 12, alignItems: 'start' }}>
             {facts.map(([icon, k, v]) => (
               <div key={k} className="contents">
                 <dt className="flex items-center gap-[10px]" style={{ ...meta, fontSize: type2.md, minHeight: 22 }}>
@@ -119,10 +124,10 @@ export function PlanPage({ id }: { id: string }): ReactNode {
             ))}
           </dl>
         </div>
-        <div className="flex shrink-0 flex-col" style={{ width: narrow ? '100%' : 300, gap: 12 }}>
+        <div className="flex shrink-0 flex-col" style={{ width: stack ? Math.min(w, 300) : side, gap: 12 }}>
           <Thumb art={page.art} w="100%" radius={radius2.card} />
           <PrimaryButton label={action} icon={Play} onClick={start} size="lg" block />
-          {mine && <QuietButton label="Remove plan" onClick={() => removePlan(mine.id)} />}
+          {mine && <RemoveButton id={mine.id} />}
         </div>
       </div>
 
@@ -143,6 +148,24 @@ export function PlanPage({ id }: { id: string }): ReactNode {
         </div>
       )}
     </div>
+  )
+}
+
+/** How long Remove plan stays armed for its second click. */
+const REMOVE_ARM_MS = 4000
+
+/** Remove plan asks for a second click, as End lesson does (QA R2-04): the first arms it, the next within 4 s removes. */
+function RemoveButton({ id }: { id: string }): ReactNode {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), REMOVE_ARM_MS)
+    return () => clearTimeout(t)
+  }, [armed])
+  return (
+    <span className="flex flex-col" data-plan-remove={armed ? 'armed' : 'idle'} aria-live="polite">
+      <QuietButton label={armed ? 'Click again to remove' : 'Remove plan'} onClick={() => (armed ? removePlan(id) : setArmed(true))} />
+    </span>
   )
 }
 

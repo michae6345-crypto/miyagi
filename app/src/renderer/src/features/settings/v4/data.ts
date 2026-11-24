@@ -8,6 +8,7 @@
  * `clearCache()`: data.delete lesson_cache; offered only when the inventory's canDelete lists it.
  */
 import { useEffect } from 'react'
+import type { DataDeleteKind } from '../../../../../../../shared/contracts/events'
 import { create } from 'zustand'
 import { cmd } from '../../../../../common/wire'
 import { bridge, isElectron } from '../../../bridge'
@@ -32,16 +33,21 @@ export function useYourData(live: boolean): YourData {
 }
 
 /** data.delete lesson_cache; resolves with what the row says once the engine answered (or did not, within 8 s). */
-export function clearCache(): Promise<string> {
+export const clearCache = (): Promise<string> => clearKind('lesson_cache')
+
+/** data.delete progress: lesson history, skills and plans start over (Your data's Clear lesson history). */
+export const clearHistory = (): Promise<string> => clearKind('progress')
+
+function clearKind(kind: DataDeleteKind): Promise<string> {
   if (!canSend('data.delete')) return Promise.resolve('Not ready yet.')
   const since = Date.now()
-  bridge.send(cmd('data.delete', { what: ['lesson_cache'] }))
+  bridge.send(cmd('data.delete', { what: [kind] }))
   return new Promise((done) => {
     const stop = useData.subscribe((s) => {
       if (s.at < since) return
       stop()
       clearTimeout(t)
-      done(s.deleted?.includes('lesson_cache') ? 'Cleared.' : 'Not cleared.')
+      done(s.deleted?.includes(kind) ? 'Cleared.' : 'Not cleared.')
     })
     const t = setTimeout(() => {
       stop()

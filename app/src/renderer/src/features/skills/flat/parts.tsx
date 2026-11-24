@@ -13,6 +13,7 @@ import { MiyagiMark } from '../../../core/ui/Mark'
 import type { SkillGraph, SkillGraphNode } from '../model'
 import { usePicture } from '../extras/Portfolio'
 import { skillExtras } from './contract'
+import { usePlanGoal } from '../planGoal'
 import { CARD_H, type EdgeKind, type FlatLayout } from './layout'
 
 /** The flat page's tokens, all theme variables (light and dark follow the app). */
@@ -199,8 +200,11 @@ export function ProjectCard({
 }): ReactNode {
   const n = g.byId[id]
   const isGoal = g.goal?.id === id
+  // The inferred goal's card carries the project Home names (QA R2-02), not the last skill's name.
+  const plan = usePlanGoal(g)
+  const name = isGoal && plan ? plan.title : n?.label ?? id
   const art = n ? skillExtras(n, g).artifact : undefined
-  const done = isGoal && g.goal ? g.goal.mastered / Math.max(1, g.goal.total) : 0
+  const done = isGoal && plan ? plan.done / plan.total : isGoal && g.goal ? g.goal.mastered / Math.max(1, g.goal.total) : 0
   const style: CSSProperties = {
     position: 'absolute',
     left: x,
@@ -215,7 +219,7 @@ export function ProjectCard({
   }
   const title = (
     <b className="block" style={{ fontSize: layout === 'small' ? 13.5 : 14.5, fontWeight: 620, lineHeight: 1.25, color: T.ink }}>
-      {n?.label ?? id}
+      {name}
     </b>
   )
   return (

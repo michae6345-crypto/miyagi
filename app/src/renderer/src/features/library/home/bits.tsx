@@ -22,7 +22,7 @@ export function Sec({ id, children, link, onLink, first }: { id?: string; childr
       </h2>
       {link &&
         (onLink ? (
-          <button type="button" onClick={onLink} className="ml-auto flex cursor-pointer items-center gap-[3px] rounded-[6px] outline-offset-2 hover:underline focus-visible:outline-2" style={{ fontWeight: 450, color: color.label, outlineColor: color.text }}>
+          <button type="button" onClick={onLink} className="ml-auto flex cursor-pointer items-center gap-[3px] rounded-[6px] outline-offset-2 hover:underline focus-visible:outline-2" style={{ fontWeight: 450, color: color.label, outlineColor: color.text, minHeight: 24, marginBlock: -3 }}>
             {link}
             <ChevronRight aria-hidden size={13} strokeWidth={1.8} />
           </button>

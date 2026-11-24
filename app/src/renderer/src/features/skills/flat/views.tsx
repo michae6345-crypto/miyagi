@@ -19,6 +19,7 @@ import { goalBits, minutesLeft, ruleLine, shortDate, statusCell, stillToGo } fro
 import { estimate, FOLD_ID, mapLayout, pathLayout, stepsLayout, STEPS, tracksLayout, type FlatLayout, type Measure } from './layout'
 import { everyHasMinutes, skillExtras, type SkillStepLine } from './contract'
 import { useSkillProof, type ProofItem } from '../proof'
+import { usePlanGoal } from '../planGoal'
 import { FoldCard, NodeMark, ProjectCard, Refresh, SkillCard, Stage, StateMark, T, TrackCard } from './parts'
 
 export function useWidth<E extends HTMLElement>(initial = 960): [React.RefObject<E | null>, number, number] {
@@ -58,12 +59,15 @@ export const measure: Measure = (t) => {
 // ---- the lede and the tabs ---------------------------------------------------------------------------------------
 
 export function Lede({ g, onChange }: { g: SkillGraph; onChange?: () => void }): ReactNode {
+  // An inferred goal gives way to the one Home names (the plan's project), so both pages state one goal (QA R2-02).
+  const plan = usePlanGoal(g)
   if (!g.goal) return null
+  const bits = plan ? [`${plan.done} of ${plan.total} ${plan.unit ?? 'skills'}`] : goalBits(g, minutesLeft(g, (n) => skillExtras(n, g).estMinutes), { now: Date.now(), minutesPerWeek: g.week?.minutes })
   return (
     <p data-skills-lede className="m-0 truncate" style={{ fontSize: 14.5, lineHeight: '20px', color: T.muted, marginTop: 2 }}>
       Goal{' '}
-      <b style={{ color: T.ink, fontWeight: 560 }}>{g.goal.label}</b>
-      {goalBits(g, minutesLeft(g, (n) => skillExtras(n, g).estMinutes), { now: Date.now(), minutesPerWeek: g.week?.minutes }).map((b) => (
+      <b style={{ color: T.ink, fontWeight: 560 }}>{plan?.title ?? g.goal.label}</b>
+      {bits.map((b) => (
         <span key={b}> · {b}</span>
       ))}
       {onChange && (

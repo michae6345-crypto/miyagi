@@ -84,7 +84,7 @@ function Field({ icon, value, onChange, onEnter, placeholder, label }: { icon: R
             onEnter()
           }
         }}
-        className="min-w-0 flex-1"
+        className="min-w-0 flex-1 self-stretch"
         style={{ background: 'none', border: 0, outline: 'none', color: color.text, fontSize: type2.body }}
       />
     </label>

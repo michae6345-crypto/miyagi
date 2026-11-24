@@ -128,7 +128,7 @@ export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): 
           onChange={(e) => setAskText(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--c-faint)]"
+          className="min-w-0 flex-1 self-stretch bg-transparent outline-none placeholder:text-[var(--c-faint)]"
           style={{ fontSize: 15, color: color.text }}
         />
         {read.kind === 'idle' ? (
@@ -176,7 +176,7 @@ export function ContinueCard({ view, action }: { view: ContView; action: ReactNo
       <Cover kind={view.cover} width={132} />
       <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: 180 }}>
         <span style={{ fontSize: T.small, color: color.label, fontVariantNumeric: 'tabular-nums' }}>{view.kicker}</span>
-        <h3 id="home-continue" className="m-0 truncate" title={view.title} style={{ margin: '2px 0', fontSize: 17, fontWeight: 640, letterSpacing: '-0.01em', color: color.text }}>
+        <h3 id="home-continue" className="m-0" title={view.title} style={{ margin: '2px 0', fontSize: 17, lineHeight: 1.3, fontWeight: 640, letterSpacing: '-0.01em', color: color.text, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
           {view.title}
         </h3>
         {view.sub && (

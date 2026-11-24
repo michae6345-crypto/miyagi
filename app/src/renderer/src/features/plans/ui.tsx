@@ -53,7 +53,7 @@ export function SectionLabel({ children, count, right }: { children: ReactNode; 
 /** "Browse plans >": a quiet link at a section's right. */
 export function MoreLink({ children, onClick }: { children: ReactNode; onClick: () => void }): ReactNode {
   return (
-    <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-[2px] whitespace-nowrap" style={{ ...meta, background: 'none', border: 0, padding: 0 }}>
+    <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-[2px] whitespace-nowrap" style={{ ...meta, background: 'none', border: 0, padding: 0, minHeight: 24, marginBlock: -3 }}>
       {children}
       <ChevronRight size={14} strokeWidth={1.8} />
     </button>
