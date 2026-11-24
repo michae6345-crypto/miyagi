@@ -75,6 +75,44 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 1 fixes (Nov 24 2026, `claude/eng-check-fixes-r1`)
+
+The four round-1 case sets merged: 135 cases, 108 train + 27 held out. Every fix is general (no lesson ids, no case
+text); each has a regression test in `server/checks/tests/test_round1_fixes.py`. Fixed against the train cases only;
+the held-out wrong verdicts were never read (ids only) while fixing.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (108), before | 0.694 | 0.639 | 0.780 | 22 | 11 |
+| train (108), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (27), before | 0.222 | 0.200 | 0.444 | 16 | 5 |
+| held-out (27), after | 0.444 | 0.333 | 0.667 | 12 | 3 |
+
+What changed in `server/checks`:
+
+- **A terminal read per command** (`blocks.py`): prompt rows (zsh / bash / fish / oh-my-zsh, and AutoCAD's
+  `Command:`) split the history into a command and its own output. A `screen_contains` match counts only in a
+  command's newest run whose output shows no failure (`fatal:`, `error:`, `! [rejected]`, `nothing added to commit`,
+  `*Cancel*`, `cd: no such file`), unless that failure is what the pattern wants; the step's Terminal target command
+  must be among the commands that ran (program + subcommand; `git switch` for `git checkout`); a clean run plus the
+  step's `file_exists` proofs passes other wording. A `screen_absent` match is dropped when the command got past it
+  (pip's resolver `ERROR:`, then `Successfully installed`), was run again since, or repeats an already-successful
+  command with a "nothing to do" refusal. Error forms gained `1 failed`, `FAILED`, `error TS2305:`, `Found 1 error`.
+  (git s2-s8, pytest, tsc build, pip, rebase, AutoCAD STLOUT.)
+- **Notebooks and metrics**: "restart and run all" needs the run counts in order from [1]; a `nan` / `inf` beside
+  the checked metric on its own lines fails it as diverged; a value printed inside `tensor(...)` is read.
+- **Equivalent code** (`code_equiv.py`): import aliases, `import mod` + `mod.f()`, several names per import, a
+  renamed default import, `import * as`, `<Fragment>` for `<>`. A JSX tag pattern on a component file is a code
+  check. A VS Code line that is on disk in another lesson file (a split editor) doesn't count for the check's file.
+  A step whose files import a name their own module no longer defines / exports fails ("Imports resolve").
+- **App files** (`model_files.py`): a scene dump is read for the objects the step names (and what is attached to
+  them), long decimals are read at 4 places (float32 noise), "every / all / each" labels hold for every instance of
+  the key, an STL / OBJ with no geometry fails, a number in a DXF text group (a dimension override) is not a
+  measurement, and a file the step never named may have any name (same extension, same folder). A word seen only as
+  an item of an open "Add..." menu is not added.
+
+Held-out wrong after the fixes (15): ids in `baseline.json` → `held_out.known_wrong`; not read.
+
 ## Round 1: Jupyter notebooks and ML training runs (Nov 24 2026)
 
 20 new cases (13 training, 7 held out): NaN / inf divergence, a recovered loss spike, a run still mid-epoch, cell
@@ -83,7 +121,7 @@ only one cell re-run), plots (an imshow error after the prints, a figure saved b
 common mistakes (wrong loss, `probabilities` not indexed, evaluating on the training set) and done-but-odd work
 (compile and fit in two cells, a separate Softmax layer, a loss printed as a tensor).
 
-Training cases wrong at the start of the round (`known_wrong`):
+Training cases wrong at the start of the round (all fixed, see "Round 1 fixes"):
 
 - **FP `jupyter-mnist-s5-nan-loss-high-acc`**: the metric is `accuracy`; the same Keras line's `loss: nan` is never
   read, so an epoch-averaged 0.9563 passes a run whose weights went NaN.
@@ -106,7 +144,7 @@ Train 69 (56 earlier + 13 new), held-out 6. Before any fix:
 | train (69) | 0.855 | 0.857 | 0.857 | 5 | 5 |
 | held-out (6) | 0.333 | 0.333 | 1.000 | 4 | 0 |
 
-Train wrong verdicts (`baseline.json` → `known_wrong`):
+Train wrong verdicts before any fix (all fixed, see "Round 1 fixes"):
 
 - **FP `terminal-pymod-m5-pytest-one-failed`** / **FP `terminal-tsshop-t3-build-error-under-old-success`**: a bare
   `failed` / `error` in a `screen_absent` pattern is exempted unless its line is an error form (`_absent_hit`), so
@@ -136,7 +174,7 @@ npm 10's `npm error`), exit codes on a hidden terminal.
 | train terminal (29) | 0.655 | 0.588 | 0.769 | 7 | 3 |
 | held out (7) | 0.143 | 0.167 | 0.500 | 5 | 1 |
 
-Known wrong train verdicts (`known_wrong`), worst first:
+Train wrong verdicts before any fix (all fixed, see "Round 1 fixes"), worst first:
 
 - **FP `terminal-git-s2-init-wrong-folder-chain`**: `cd projct1; git init` initialised `~`; "Initialized empty"
   is on screen, so it passes.
@@ -193,7 +231,7 @@ training cases (13) score:
 
 Held-out (7): acc 0.000 (4 FP, 3 FN). Not listed here on purpose (`--held-out`).
 
-Known wrong verdicts in the training cases (`baseline.json` → `known_wrong`), worst first:
+Training wrong verdicts before any fix (all fixed, see "Round 1 fixes"), worst first:
 
 - **FP `blender-mug-subsurf-on-default-cube`, `blender-material-glossy-on-cube`**: `file_contains` over the whole
   scene dump can't tie a fact to the object the step is about; the Subdivision modifier / the glossy material is on

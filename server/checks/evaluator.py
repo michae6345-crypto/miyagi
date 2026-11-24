@@ -31,7 +31,7 @@ from typing import Any, Literal, TypedDict
 from server.safety import regex_worker
 from server.safety.patterns import MAX_PATTERN_LEN, pattern_problem, safe_compile  # noqa: F401 - re-exported
 
-from . import blocks, code_equiv
+from . import blocks, code_equiv, model_files
 from .code_text import code_view, lang_of, signatures
 from .notebook import Notebook, find_notebook, read_notebook
 from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
@@ -254,11 +254,14 @@ def scan_windows(text: str | None, limit: int = FILE_SCAN_CHARS,
         end = start + overlap
 
 
-def _search_file(rx: Any, text: str) -> tuple[Any, int] | None:
-    """(the first match, its 1-based line in `text`) over scan_windows(text), newest window first; None."""
+def _search_file(rx: Any, text: str, accept: Any = None) -> tuple[Any, int] | None:
+    """(the first match, its 1-based line in `text`) over scan_windows(text), newest window first; None. With
+    ``accept(line, matched_text)``, the first match it accepts."""
     for off, sc in scan_windows(text):
-        if m := rx.search(sc.text):
-            return m, text.count("\n", 0, off) + sc.line_of(m.start())
+        for m in rx.finditer(sc.text) if accept is not None else filter(None, [rx.search(sc.text)]):
+            line = text.count("\n", 0, off) + sc.line_of(m.start())
+            if accept is None or accept(line, m.group(0)):
+                return m, line
     return None
 
 
@@ -340,9 +343,28 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", "check has no 'file'")
     if not _resolve(ctx.workdir, rel):
         return _result(check, "fail", f"{rel} is outside the lesson folder")
-    if os.path.exists(_resolve(ctx.workdir, rel)):
+    path = _resolve(ctx.workdir, rel)
+    if os.path.exists(path):
+        if why := model_files.empty_mesh(path):  # an export with nothing in it is not the model saved
+            return _result(check, "fail", why)
         return _result(check, "pass", f"{rel} exists")
+    if check.get("_any_name") and (other := _same_kind_beside(path)):
+        # the step never named the file ("save it as a PNG next to mug.blend"): Blender's untitled.png is that PNG
+        return _result(check, "pass", f"{other} saved (any name will do)")
     return _result(check, "fail", f"{rel} not found")
+
+
+def _same_kind_beside(path: str) -> str | None:
+    """A file with ``path``'s extension in ``path``'s folder (the newest), else None."""
+    folder, ext = os.path.dirname(path), os.path.splitext(path)[1].lower()
+    if not ext:
+        return None
+    try:
+        found = [e for e in os.scandir(folder) if e.is_file() and not e.name.startswith(".")
+                 and e.name.lower().endswith(ext) and not model_files.empty_mesh(e.path)]
+    except OSError:
+        return None
+    return max(found, key=lambda e: e.stat().st_mtime).name if found else None
 
 
 def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
@@ -362,17 +384,34 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"{rel} not found")
     except OSError as exc:
         return _result(check, "fail", f"cannot read {rel}: {exc.strerror}")
+    if why := model_files.empty_mesh(path):
+        return _result(check, "fail", why)
     view = code_view(full, check, rel, check.get("_sigs")) if lang_of(rel) else full  # no comments, one function
+    subjects: list[str] = []
+    if rel.lower().endswith(".json") and (sc := model_files.scoped_json(view, str(check.get("_subject") or ""))):
+        view, subjects = sc  # a scene dump: only what the step is about (the Mug, not the default Cube)
+    on = f" for {', '.join(subjects)}" if subjects else ""
+    accept = None
+    if rel.lower().endswith(".dxf"):
+        lines = view.split("\n")
+        accept = lambda n, s: model_files.dxf_numeric_ok(lines, n, s)  # noqa: E731
     try:  # 64 KB windows (up to 1 MB), no line over 2 KB: what one lesson search may cost is bounded
-        hit = _search_file(_compile(pattern), view)
+        rx = _compile(pattern)
+        if why := model_files.every_instance(check, model_files.rounded(view), rx):
+            return _result(check, "fail", f"{why} in {rel}{on}")
+        hit = _search_file(rx, view, accept)
+        if hit is None and (r := model_files.rounded(view)) != view:  # float noise: 90.00000250447816 is 90.0
+            hit = _search_file(rx, r, accept)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if hit:
         line = hit[1]
+        if subjects:
+            return _result(check, "pass", f"found in {rel}{on}")
         if view.count("\n") != full.count("\n") and (at := full.find(hit[0].group(0))) >= 0:
             line = full.count("\n", 0, at) + 1  # the check was scoped to a function: the line in the whole file
         return _result(check, "pass", f"found in {rel}:{line}")
-    return _result(check, "fail", f"not in {rel} yet")
+    return _result(check, "fail", f"not in {rel}{on} yet")
 
 
 def _script_tokens(command: str) -> list[str]:
@@ -788,8 +827,10 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         if m:
             return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
         return _result(check, "pass", f"not showing{where}")
-    if m and not output and app == "Code" and (other := _in_another_file(check, ctx)):
+    if m and not output and app == "Code" and (other := _in_another_file(check, ctx, text)):
         return _result(check, "fail", other)
+    if m and not output and app not in ("Code", *_TERMINAL_APPS) and _only_in_open_menu(pattern, text):
+        return _result(check, "fail", f"{m.group(0)[:60]!r} is only an item of an open menu{where}: not added yet")
     if m:
         return _result(check, "pass", f"seen{where}")
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
@@ -804,10 +845,36 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
-def _in_another_file(check: dict, ctx: RunContext) -> str | None:
+# an app's "add something" menu: its header row ("Add", "Add Modifier", "Insert") then a long column of short labels
+_MENU_HEADER = re.compile(r"^\s*(?:Add|Insert|New|Create)(?:\s+[A-Z][A-Za-z]*)?\s*$")
+_MENU_ITEM = re.compile(r"^\s*[A-Z][A-Za-z]*(?:[ -][A-Za-z]+){0,2}\s*$")  # 1-3 words, letters only (no "Levels 2")
+MENU_MIN_ITEMS = 8
+
+
+def _only_in_open_menu(pattern: str, text: str) -> bool:
+    """Is every line the pattern matches an item of an open menu (Blender's Add Modifier > Generate list, Shift+A >
+    Light)? A word in a menu is something the learner could add, not something added. A match across lines, or any
+    match outside a menu, is not."""
+    lines = text.split("\n")
+    menu: set[int] = set()
+    for i, ln in enumerate(lines):
+        if _MENU_HEADER.match(ln):
+            j = i + 1
+            while j < len(lines) and _MENU_ITEM.match(lines[j]):
+                j += 1
+            if j - i - 1 >= MENU_MIN_ITEMS:
+                menu |= set(range(i + 1, j))
+    if not menu:
+        return False
+    hits = [i for i, ln in enumerate(lines) if search_screen(pattern, ln)]
+    return bool(hits) and all(i in menu for i in hits)
+
+
+def _in_another_file(check: dict, ctx: RunContext, screen: str) -> str | None:
     """A code line seen in VS Code that belongs to another file of the lesson (a split editor: the import is at the
     top of test_operations.py, the call in main.py). The check's file (the one its label names, else the step's) is on
-    disk without the pattern, and another lesson file of the same language has it: why the screen doesn't count."""
+    disk without the pattern, and another lesson file of the same language whose name is on screen (an open tab) has
+    it: why the screen doesn't count."""
     if not os.path.isabs(str(ctx.workdir or "")):
         return None
     rel = code_equiv.file_in_label(str(check.get("label") or "")) or str(check.get("file") or "")
@@ -822,7 +889,7 @@ def _in_another_file(check: dict, ctx: RunContext) -> str | None:
     if code_equiv.read(own) is None or has(own):
         return None
     for p in code_equiv.lesson_files(ctx.workdir):
-        if p != own and code_equiv.kind_of(p.name) == code_equiv.kind_of(own.name) and has(p):
+        if p != own and code_equiv.kind_of(p.name) == code_equiv.kind_of(own.name) and p.name in screen and has(p):
             return f"not in {own.name} yet (that line on screen is in {p.name})"
     return None
 
@@ -1123,6 +1190,14 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
               else c for c in checks]
     # the step's own terminal commands (its Terminal targets), and the files they make when that is all its precision
     # checks look for: _on_blocks / _ran_and_made read them
+    # what the step is about, in its own words: a scene dump is read for the objects it names (model_files), and a file
+    # it never names ("save it as a PNG next to mug.blend") may have any name
+    about = " ".join(str(step.get(k) or "") for k in ("title", "instructions"))
+    checks = [{**c, "_subject": f"{about} {c.get('label') or ''}"} if c.get("type") == "file_contains"
+              and str(c.get("file") or "").lower().endswith(".json") else c for c in checks]
+    checks = [{**c, "_any_name": True} if c.get("type") == "file_exists" and about.strip()
+              and os.path.basename(str(c.get("file") or "")).lower() not in f"{about} {c.get('label') or ''}".lower()
+              else c for c in checks]
     own = blocks.programs_of(str(step.get("run_command") or ""))
     cmds = [str(t.get("match")).strip() for t in step.get("targets") or [] if t.get("app") in _TERMINAL_APPS
             and blocks.is_command(str(t.get("match") or ""), own)]
@@ -1375,7 +1450,7 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
             checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
                                 "detail": "run the cell (Shift+Enter)"}]
         return {"passed": False, "via": None, "checks": checks, "precision": prec}
-    if (broken := _broken_imports(step, ctx)) and (step_passed(checks) or step_passed(prec)):
+    if (step_passed(checks) or step_passed(prec)) and (broken := _broken_imports(step, ctx)):
         # the step's files look finished, but one imports what its module no longer has: it crashes when run
         checks = [*checks, {"checkId": f"{step.get('id', '')}-imports", "label": "Imports resolve",
                             "status": "fail", "detail": broken[0]}]

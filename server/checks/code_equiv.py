@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+import time
 from pathlib import Path
 
 _PY = (".py", ".pyw")
@@ -137,8 +138,24 @@ def equivalent_view(text: str, filename: str | None) -> str | None:
 
 # ---------------------------------------------------------------- the lesson's files
 
+_WALKS: dict[tuple[str, tuple[str, ...]], tuple[float, list[Path]]] = {}
+WALK_TTL_S = 2.0  # checks run on every frame and save: one folder walk serves them for a moment
+
+
 def lesson_files(workdir: str | os.PathLike, exts: tuple[str, ...] = CODE_EXT) -> list[Path]:
     """The lesson folder's code files (never .venv / node_modules / build output), at most MAX_FILES."""
+    key, now = (os.fspath(workdir), exts), time.monotonic()
+    hit = _WALKS.get(key)
+    if hit and now - hit[0] < WALK_TTL_S:
+        return [p for p in hit[1] if p.exists()]
+    if len(_WALKS) > 64:
+        _WALKS.clear()
+    files = _walk(workdir, exts)
+    _WALKS[key] = (now, files)
+    return files
+
+
+def _walk(workdir: str | os.PathLike, exts: tuple[str, ...]) -> list[Path]:
     out: list[Path] = []
     for root, dirs, files in os.walk(workdir):
         dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS and not d.startswith("."))

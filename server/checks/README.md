@@ -80,6 +80,19 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
   (traceback, `XError:` line, "command not found") the step didn't ask for. An expected pattern found in the error
   lines ("run it and see the ZeroDivisionError") makes the crash the step's point; output printed before a crash doesn't.
 
+### Reading what the learner made (eval round 1, see `server/evals/checks/README.md`)
+- `blocks.py`: a terminal's history (and AutoCAD's `Command:` rows) as command blocks. Terminal screen checks count a
+  match only in a command's newest run with no failure in its own output; the step's Terminal target command must
+  have run; `screen_absent` skips errors a command got past, older runs, and "nothing to do" repeats.
+- `code_equiv.py`: code checks also read the canonical form (import aliases, module-qualified calls, one name per
+  import, `<Fragment>` as `<>`); `broken_imports` fails a step whose files import what their own module lacks; a VS
+  Code line that is another lesson file's on disk doesn't count for the check's file.
+- `model_files.py`: scene dumps read for the objects the step names, float noise rounded, "every / all" over every
+  instance of a key, empty STL / OBJ exports, DXF numbers only from numeric group codes.
+- In `evaluator.py`: an "Add..." menu's items are not added things; a file the step never named may have any name;
+  "restart and run all" needs run counts in order from [1]; a `nan` beside the checked metric is divergence; a
+  metric inside `tensor(...)` is read (`screen.wrapper_tolerant`).
+
 ### `metric_trend`: thresholds
 The window is the points with `step ≥ latest_step − window` (default 1000; pending below 8 points or < 50 % coverage).
 A trend needs **both** gates (Mann-Kendall test + Sen's slope):

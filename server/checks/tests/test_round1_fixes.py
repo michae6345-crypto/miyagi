@@ -263,3 +263,109 @@ def test_js_default_and_named_imports_are_resolved_against_the_lessons_modules(t
     (src / "utils.ts").write_text("export const formatCents = 1\n")
     assert broken_imports(tmp_path, ["src/App.jsx"]) == [
         "App.jsx imports formatPrice from utils.ts, which doesn't export it"]
+
+
+# -- app lessons: menus on screen, scene dumps, exports, drawings -----------------------------------------------------
+
+ADD_MENU = ["Object Mode View Select Add Object", "Add", "Mesh", "Curve", "Surface", "Light", "Light Probe", "Camera",
+            "Point", "Sun", "Spot", "Area", "Scene Collection", "Collection", "Camera", "Light", "Mug"]
+AREA = {"id": "s9", "checks": [{"id": "c", "type": "screen_contains", "label": "Area light added", "app": "Blender",
+                                "pattern": "Area"}]}
+
+
+def test_a_word_seen_only_as_an_open_menus_item_is_not_added():
+    assert not _gate(AREA, screen={"Blender": ADD_MENU})["passed"]
+    added = ["Object Mode View Select Add Object", "Scene Collection", "Collection", "Camera", "Light", "Mug", "Area",
+             "Power 500 W"]
+    assert _gate(AREA, screen={"Blender": added})["passed"]
+    panel = ["Add Modifier", "Subdivision", "Catmull-Clark", "Simple", "Levels Viewport 2", "Render 2"]
+    sub = {"id": "s3", "checks": [{"id": "c", "type": "screen_contains", "label": "Modifier added", "app": "Blender",
+                                   "pattern": "Subdivision"}]}
+    assert _gate(sub, screen={"Blender": panel})["passed"]
+
+
+def _scene(tmp_path, objects, materials=()):
+    (tmp_path / "mug.scene.json").write_text(json.dumps({"file": "mug.blend", "objects": objects,
+                                                         "materials": list(materials)}, indent=1))
+
+
+SUBSURF = {"id": "s5", "title": "Subdivision and smooth shading",
+           "instructions": "Select the mug, add a Subdivision Surface modifier (Ctrl+2), then Shade Smooth.",
+           "checks": [{"id": "c", "type": "file_contains", "label": "Subdivision modifier added",
+                       "file": "mug.scene.json", "pattern": r"\"type\":\s*\"SUBSURF\""}]}
+MOD = [{"name": "Subdivision", "type": "SUBSURF", "levels": 2}]
+
+
+def test_a_scene_fact_counts_only_on_the_object_the_step_names(tmp_path):
+    _scene(tmp_path, [{"name": "Cube", "modifiers": MOD}, {"name": "Mug", "modifiers": []}])
+    assert not _gate(SUBSURF, workdir=str(tmp_path))["passed"]
+    _scene(tmp_path, [{"name": "Cube", "modifiers": []}, {"name": "Mug", "modifiers": MOD}])
+    assert _gate(SUBSURF, workdir=str(tmp_path))["passed"]
+
+
+def test_a_material_counts_for_what_it_is_attached_to_not_for_a_word_of_the_instructions(tmp_path):
+    step = {"id": "s8", "instructions": "With the mug selected, click New and set Roughness below 0.3 for a glossy "
+                                        "ceramic look.",
+            "checks": [{"id": "c", "type": "file_contains", "label": "Roughness under 0.3", "file": "mug.scene.json",
+                        "pattern": r"\"roughness\":\s*0\.[0-2]\d*"}]}
+    objs = [{"name": "Cube", "materials": ["Ceramic"]}, {"name": "Mug", "materials": ["Material"]}]
+    _scene(tmp_path, objs, [{"name": "Material", "users": ["Mug"], "roughness": 0.5},
+                            {"name": "Ceramic", "users": ["Cube"], "roughness": 0.2}])
+    assert not _gate(step, workdir=str(tmp_path))["passed"]
+    _scene(tmp_path, objs, [{"name": "Ceramic", "users": ["Mug"], "roughness": 0.2}])
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+
+
+def test_float_noise_in_a_saved_value_is_that_value(tmp_path):
+    _scene(tmp_path, [{"name": "Cone", "rotation_deg": [90.00000250447816, 0.0, 0.0]}])
+    step = {"id": "s6", "instructions": "turn the cone 90 degrees around X",
+            "checks": [{"id": "c", "type": "file_contains", "label": "Cone turned 90 degrees", "file": "mug.scene.json",
+                        "pattern": r"\"rotation_deg\":\s*\[\s*90(?:\.0+)?\s*[,\]]"}]}
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+
+
+def test_every_means_every_instance_of_the_key(tmp_path):
+    feats = [{"name": "Sketch", "valid": True}, {"name": "Pad", "valid": True}, {"name": "Pocket", "valid": False}]
+    (tmp_path / "plate.scene.json").write_text(json.dumps({"bodies": [{"name": "Body", "features": feats}]}, indent=1))
+    step = {"id": "s9", "instructions": "fix any feature that turns red",
+            "checks": [{"id": "c", "type": "file_contains", "label": "Every feature rebuilds",
+                        "file": "plate.scene.json", "pattern": r"\"valid\":\s*true"}]}
+    g = _gate(step, workdir=str(tmp_path))
+    assert not g["passed"] and "false" in g["checks"][0]["detail"]
+    feats[2]["valid"] = True
+    (tmp_path / "plate.scene.json").write_text(json.dumps({"bodies": [{"name": "Body", "features": feats}]}, indent=1))
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+
+
+def test_an_stl_export_with_no_triangles_is_not_saved(tmp_path):
+    step = {"id": "s10", "instructions": "save it as hook.stl",
+            "checks": [{"id": "a", "type": "file_exists", "label": "hook.stl saved", "file": "hook.stl"},
+                       {"id": "b", "type": "file_contains", "label": "STL mesh", "file": "hook.stl",
+                        "pattern": r"^solid\b"}]}
+    (tmp_path / "hook.stl").write_text("solid Mesh\nendsolid Mesh\n")
+    assert [r["status"] for r in _gate(step, workdir=str(tmp_path))["checks"]] == ["fail", "fail"]
+    (tmp_path / "hook.stl").write_text("solid Mesh\nfacet normal 0 0 1\nouter loop\nendloop\nendfacet\nendsolid Mesh\n")
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+
+
+DXF_DIM = "0\nSECTION\n2\nENTITIES\n0\nDIMENSION\n8\nDIMS\n1\n{text}\n42\n{measured}\n0\nENDSEC\n0\nEOF\n"
+
+
+def test_a_number_typed_over_a_dxf_dimension_is_not_its_measurement(tmp_path):
+    step = {"id": "s5", "instructions": "The body should measure 120 mm.",
+            "checks": [{"id": "c", "type": "file_contains", "label": "Body is 120 mm long", "file": "car.dxf",
+                        "pattern": r"\b120(?:\.0+)?\b"}]}
+    (tmp_path / "car.dxf").write_text(DXF_DIM.format(text="120", measured="118.5"))
+    assert not _gate(step, workdir=str(tmp_path))["passed"]
+    (tmp_path / "car.dxf").write_text(DXF_DIM.format(text="<>", measured="120.0"))
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+
+
+def test_a_file_the_step_never_named_may_have_any_name(tmp_path):
+    step = {"id": "s10", "instructions": "Render with F12, then Image > Save As a PNG next to mug.blend.",
+            "checks": [{"id": "c", "type": "file_exists", "label": "PNG render saved", "file": "mug.png"}]}
+    assert not _gate(step, workdir=str(tmp_path))["passed"]
+    (tmp_path / "untitled.png").write_bytes(b"PNG")
+    assert _gate(step, workdir=str(tmp_path))["passed"]
+    named = {**step, "instructions": "Save the render as mug.png next to mug.blend."}
+    assert not _gate(named, workdir=str(tmp_path))["passed"]

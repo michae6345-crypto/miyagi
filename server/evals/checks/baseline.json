@@ -1,64 +1,35 @@
 {
-<<<<<<< HEAD
  "_comment": "Written by `python -m server.evals.checks --write-baseline`. The top-level scores and known_wrong are the TRAIN set: test_check_evals.py fails when a score drops below these or a train case outside known_wrong gets a wrong verdict. held_out is scored apart and guarded only in aggregate (never tune a fix on it). Raise it when the checks get better.",
- "cases": 69,
- "accuracy": 0.8551,
- "precision": 0.8571,
- "recall": 0.8571,
- "fp": 5,
- "fn": 5,
- "known_wrong": {
-  "terminal-pymod-m5-pytest-one-failed": "FP",
-  "terminal-tsshop-t3-build-error-under-old-success": "FP",
-  "vscode-pymod-m2-import-in-test-tab": "FP",
-  "vscode-pymod-m4-stale-import": "FP",
-  "vscode-react-s3-no-default-export": "FP",
-  "vscode-pymod-m2-import-alias": "FN",
-  "vscode-pymod-m2-module-import": "FN",
-  "vscode-react-s3-aliased-import": "FN",
-  "vscode-react-s6-named-fragment": "FN",
-  "vscode-tsshop-t2-multi-named-import": "FN"
- },
+ "cases": 108,
+ "accuracy": 1.0,
+ "precision": 1.0,
+ "recall": 1.0,
+ "fp": 0,
+ "fn": 0,
+ "known_wrong": {},
  "held_out": {
-  "cases": 6,
-  "accuracy": 0.3333,
+  "cases": 27,
+  "accuracy": 0.4444,
   "precision": 0.3333,
-  "recall": 1.0,
-  "fp": 4,
-  "fn": 0,
+  "recall": 0.6667,
+  "fp": 12,
+  "fn": 3,
   "known_wrong": {
+   "autocad-dxf-wheels-layer-empty": "FP",
+   "freecad-plate-pad-open-sketch": "FP",
+   "jupyter-mnist-s3-plot-shape-error": "FP",
+   "jupyter-mnist-s5-mid-training": "FP",
+   "jupyter-mnist-s7-evaluated-on-train": "FP",
+   "terminal-calc-s2-hidden-exit-1-after-5": "FP",
+   "terminal-git-s7-fish-typed-not-run": "FP",
+   "terminal-git-s7-pathspec-error": "FP",
+   "terminal-mnist-s1-forgot-activate": "FP",
+   "terminal-react-s1-npm10-error": "FP",
    "terminal-react-s1-server-stopped": "FP",
-   "terminal-tsshop-t4-jest-one-failed": "FP",
    "vscode-pymod-m2-module-in-subfolder": "FP",
-   "vscode-tsshop-t2-renamed-export": "FP"
+   "autocad-toy-car-s2-presspull": "FN",
+   "jupyter-mnist-s4-separate-softmax-layer": "FN",
+   "terminal-git-s8-push-ligature-arrow": "FN"
   }
-=======
- "_comment": "Written by `python -m server.evals.checks --write-baseline`. test_check_evals.py fails when a training score drops below these or a training case outside known_wrong gets a wrong verdict. Raise it when the checks get better. held_out is the held-out cases' score, for the record only: never a target to tune on, and no case ids.",
- "cases": 69,
- "accuracy": 0.8551,
- "precision": 0.7949,
- "recall": 0.9394,
- "fp": 8,
- "fn": 2,
- "known_wrong": {
-  "autocad-dxf-dimension-text-overridden": "FP",
-  "autocad-toy-car-s3-stlout-cancelled": "FP",
-  "blender-donut-s3-add-modifier-menu": "FP",
-  "blender-light-add-menu-open": "FP",
-  "blender-material-glossy-on-cube": "FP",
-  "blender-mug-subsurf-on-default-cube": "FP",
-  "freecad-hook-stl-empty-export": "FP",
-  "freecad-plate-80mm-pocket-broken": "FP",
-  "blender-render-saved-as-untitled-png": "FN",
-  "blender-transform-cone-rotation-float": "FN"
- },
- "held_out": {
-  "cases": 7,
-  "accuracy": 0.0,
-  "precision": 0.0,
-  "recall": 0.0,
-  "fp": 4,
-  "fn": 3
->>>>>>> origin/claude/eng-evals-r1-3
  }
 }
