@@ -103,7 +103,36 @@ def _py_view(text: str) -> str:
         line = f"{m.group(1)}def {m.group(2)}({plain}):"
         if line.strip() != m.group(0).strip():
             extra.append(line)
+    extra += _py_inlined(body)
     return body + ("\n" + "\n".join(extra) if extra else "")
+
+
+_PY_TEMP = re.compile(r"^([ \t]*)([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S[^\n#]*?)[ \t]*(?:#[^\n]*)?$")
+
+
+def _py_inlined(text: str) -> list[str]:
+    """A value kept in a name only to be used once on the next line is the same program with the value in place:
+    ``total = add(2, 3)`` then ``print(total)`` is ``print(add(2, 3))``. Only a one-line value, a name read nowhere
+    else in the file, and a next line at the same indent."""
+    lines = text.split("\n")
+    out = []
+    for k, ln in enumerate(lines):
+        m = _PY_TEMP.match(ln)
+        if not m or m.group(3).endswith(("(", "[", "{", ",", "\\")):
+            continue
+        nxt = next((j for j in range(k + 1, len(lines)) if lines[j].strip()), None)
+        if nxt is None:
+            continue
+        name = m.group(2)
+        word = re.compile(rf"(?<![\w.]){re.escape(name)}(?!\w)")
+        rest = "\n".join(lines[:k] + lines[k + 1:])
+        uses = word.findall(rest)
+        indent = lines[nxt][:len(lines[nxt]) - len(lines[nxt].lstrip())]
+        if len(uses) != 1 or not word.search(lines[nxt]) or indent != m.group(1) \
+                or re.match(rf"[ \t]*{re.escape(name)}\s*=(?!=)", lines[nxt]):
+            continue
+        out.append(word.sub(lambda _: m.group(3), lines[nxt]))
+    return out
 
 
 _PY_DEF = re.compile(r"^([ \t]*(?:async[ \t]+)?)def[ \t]+(\w+)[ \t]*\(([^()\n]*(?:\([^()\n]*\)[^()\n]*)*)\)"
@@ -167,6 +196,8 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
             body = re.sub(rf"(?<![\w.$]){re.escape(star)}\.(?=\w)", "", body)
     body = _FRAGMENT_CLOSE.sub("</>", _FRAGMENT_OPEN.sub("<>", body))
     extra += _destructured_callbacks(text)
+    # a component declared and exported in one line is the same default export as a separate ``export default Food``
+    extra += [f"export default {m.group(1)}" for m in _JS_EXPORT_DECL.finditer(text)]
     # a function bound to a name (const f = (a, b) => ..., const f = function (a, b) {...}) is `function f(a, b)`
     for m in _JS_BOUND_FN.finditer(text):
         params = next((g for g in m.groups()[1:] if g is not None), "")
@@ -181,6 +212,10 @@ def _js_view(text: str, file: Path | None = None, root: Path | None = None) -> s
             for name, _ in _names(m.group(2) or ""):
                 extra.append(f"import {{ {name} }} from {q}{rel}{q}")
     return body + ("\n" + "\n".join(extra) if extra else "")
+
+
+_JS_EXPORT_DECL = re.compile(r"^[ \t]*export[ \t]+default[ \t]+(?:async[ \t]+)?(?:function\b[ \t]*\*?|class\b)[ \t]*"
+                             r"([A-Za-z_$][\w$]*)", re.M)
 
 
 # a callback over a list that destructures each element: items.map(({ id, price }) => ...)
@@ -397,8 +432,42 @@ def _py_module(importer: Path, root: Path, mod: str) -> Path | None:
     return None
 
 
+def _py_case_mismatch(importer: Path, root: Path, mod: str) -> Path | None:
+    """The lesson file a module name only matches with its letters' case aside (``from operations import add`` with
+    Operations.py beside it): macOS's file system finds it, Python's import doesn't (ModuleNotFoundError). None when
+    the name matches exactly, or nothing in the lesson matches at all (a library)."""
+    parts = [p for p in mod.lstrip(".").split(".") if p]
+    if not parts:
+        return None
+    for base in ([importer.parent] if mod.startswith(".") else [importer.parent, root]):
+        cur = base
+        for i, part in enumerate(parts):
+            want = {f"{part}.py", part} if i == len(parts) - 1 else {part}
+            try:
+                names = os.listdir(cur)
+            except OSError:
+                break
+            exact = [n for n in names if n in want]
+            if exact:
+                if i == len(parts) - 1:
+                    return None
+                cur = cur / exact[0]
+                continue
+            folded = [n for n in names if n.casefold() in {w.casefold() for w in want}
+                      and (n.endswith(".py") or (cur / n).is_dir())]
+            if folded:
+                return cur / folded[0]
+            break
+    return None
+
+
 def _py_broken(path: Path, root: Path, text: str) -> list[str]:
     out = []
+    for mod_name in [*(m.group(1) for m in _PY_FROM.finditer(text)), *(m.group(1) for m in _PY_IMPORT.finditer(text))]:
+        if (wrong := _py_case_mismatch(path, root, mod_name)) is not None:
+            out.append(f"{path.name} imports {mod_name}, but the file is {wrong.name}: Python's import is "
+                       f"case-sensitive (ModuleNotFoundError); rename {wrong.name} so its case matches the import")
+            return out
     for m in _PY_FROM.finditer(text):
         mod = _py_module(path, root, m.group(1))
         if mod is None or mod == path:

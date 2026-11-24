@@ -328,14 +328,87 @@ def _footprint_turned(doc: dict) -> bool:
     return changed
 
 
+def _packed_images(doc: dict) -> bool:
+    """An image packed into the .blend (File > External Data > Pack Resources) has an empty filepath: it is still the
+    file it was opened from, which its name keeps (``kloofendal_2k.hdr``)."""
+    changed = False
+    for img in doc.get("images") or []:
+        if isinstance(img, dict) and img.get("packed") is True and not img.get("filepath") \
+                and isinstance(img.get("name"), str) and "." in img["name"]:
+            img["filepath"] = f"//{img['name']}"
+            changed = True
+    return changed
+
+
+# the name Blender gives a light it adds (Shift+A > Light > Area is "Area"); the default scene's light is "Light"
+_LIGHT_NAMES = {"POINT": "Point", "SUN": "Sun", "SPOT": "Spot", "AREA": "Area"}
+
+
+def _lights_by_type(doc: dict) -> bool:
+    """A light is the kind its type says, whatever it is called: the default "Light" switched to Area in Light
+    Properties is an area light. Each light (and its object) is also read under the name Shift+A gives its type."""
+    renamed: dict[str, str] = {}
+    for light in doc.get("lights") or []:
+        if not isinstance(light, dict) or not isinstance(light.get("name"), str):
+            continue
+        new = _LIGHT_NAMES.get(str(light.get("type") or "").upper())
+        if new and light["name"] != new and not re.fullmatch(rf"{new}(?:\.\d+)?", light["name"]):
+            renamed[light["name"]] = new
+    if not renamed:
+        return False
+    for node in [*(doc.get("lights") or []), *(doc.get("objects") or [])]:
+        if isinstance(node, dict) and node.get("name") in renamed:
+            node["name"] = renamed[node["name"]]
+    return True
+
+
+def _body_holes(body: dict) -> list[dict]:
+    shape = body.get("shape")
+    holes = shape.get("holes") if isinstance(shape, dict) else None
+    return [h for h in holes if isinstance(h, dict)] if isinstance(holes, list) else []
+
+
+def _through_pockets(doc: dict) -> bool:
+    """A Pocket of Type Length whose holes all go through the body (5 mm deep in a 5 mm plate) cuts what Through all
+    cuts: its Type is also read as ThroughAll."""
+    changed = False
+    for body in _walk(doc):
+        holes = _body_holes(body)
+        if not holes or not all(h.get("through") is True for h in holes) or not isinstance(body.get("features"), list):
+            continue
+        for f in body["features"]:
+            if isinstance(f, dict) and "pocket" in str(f.get("type") or "").lower() \
+                    and str(f.get("Type") or "") not in ("", "ThroughAll"):
+                f["Type"] = "ThroughAll"
+                changed = True
+    return changed
+
+
+def _cut_holes(doc: dict) -> bool:
+    """A round hole cut through a wall some other way (a circle sketched and Extrude-cut) is a hole all the same: each
+    of a body's ``through_holes`` is also read as a Hole feature of its diameter."""
+    holes = [h for n in _walk(doc) for h in (n.get("through_holes") or [])
+             if isinstance(n.get("through_holes"), list) and isinstance(h, dict) and _num(h.get("diameter"))]
+    feats = doc.get("features")
+    if not holes or not isinstance(feats, list) or any(isinstance(f, dict) and str(f.get("type")) == "Hole"
+                                                       for f in feats):
+        return False
+    for k, h in enumerate(holes):
+        feats.append({"name": f"(cut hole {k + 1})", "type": "Hole", "diameter": h["diameter"],
+                      **({"axis": h["axis"]} if isinstance(h.get("axis"), list) else {})})
+    return True
+
+
 def alt_views(text: str, subject_text: str = "") -> list[str]:
     """The same JSON scene written the other ways a step's numbers may be read (a second chance for a pattern): an
     applied scale as the primitive's scale (a 1 m sphere is a 2 m UV sphere at scale 0.5), a Radius as its Diameter,
     a Principled BSDF input under its Blender 3.x / 4.x name; and, unless the step's words give a direction or name
     an axis, a rotation by its size (R X -90 is turned 90 degrees) and a body's footprint turned on its plane (50 by
-    80 is 80 by 50)."""
+    80 is 80 by 50). Also a packed image under the file it came from, a light under its type's name, a Pocket that
+    cuts through as Through all, and a hole Extrude-cut through a wall as a Hole."""
     out = []
-    fs = [_applied_scale, _radius_diameter, _bsdf_names]
+    fs = [_applied_scale, _radius_diameter, _bsdf_names, _packed_images, _lights_by_type, _through_pockets,
+          _cut_holes]
     if not _DIRECTED_TURN.search(subject_text or ""):
         fs.append(_turn_magnitude)
     if not _NAMED_AXIS.search(subject_text or ""):
@@ -375,7 +448,9 @@ def claims(text: str, doc: dict) -> list[str]:
     out: list[str] = [*_axis_claims(text, doc), *_key_end_claims(text, doc), *_one_piece_claims(text, doc),
                       *_wall_claims(text, doc), *_component_claims(text, doc), *_modifier_off_claims(text, doc),
                       *_uv_overlap_claims(text, doc), *_overshoot_claims(text, doc), *_shell_open_claims(text, doc),
-                      *_height_claims(text, doc)]
+                      *_height_claims(text, doc), *_colorspace_claims(text, doc), *_parent_claims(text, doc),
+                      *_zero_modifier_claims(text, doc), *_slot_claims(text, doc), *_link_claims(text, doc),
+                      *_hole_count_claims(text, doc), *_plane_claims(text, doc)]
     for entries in _named_lists(doc).values():
         by_name = {e["name"]: e for e in entries}
         for a, ea in by_name.items():
@@ -646,6 +721,196 @@ def _height_claims(text: str, doc: dict) -> list[str]:
     return out
 
 
+_NON_COLOR = re.compile(r"\bnon[-\s]?colou?r\b", re.I)
+# a shader input that takes numbers, not colours: an image feeding one must be read as Non-Color data
+_DATA_SOCKETS = frozenset("""roughness metallic normal specular alpha height displacement strength ior distance
+anisotropic""".split()) | {"specular ior level", "specular tint", "coat weight", "coat roughness", "transmission weight",
+                           "subsurface weight", "sheen weight", "emission strength"}
+_DATA_NODES = frozenset({"NORMAL_MAP", "BUMP", "DISPLACEMENT", "VECTOR_DISPLACEMENT"})
+
+
+def _node_trees(doc: dict) -> list[dict]:
+    return [t for t in [*(doc.get("materials") or []), doc.get("world")] if isinstance(t, dict)
+            and isinstance(t.get("nodes"), list) and isinstance(t.get("links"), list)]
+
+
+def _colorspace_claims(text: str, doc: dict) -> list[str]:
+    """A step that sets an image's Color Space to Non-Color: an Image Texture that feeds a number input (Roughness,
+    Metallic, a Normal Map) must be Non-Color, and one that feeds a colour (Base Color) must not be (Non-Color on the
+    wrong node washes the colours out and leaves the roughness gamma-curved)."""
+    if not _NON_COLOR.search(text):
+        return []
+    out = []
+    for tree in _node_trees(doc):
+        nodes = {n["name"]: n for n in tree["nodes"] if isinstance(n, dict) and isinstance(n.get("name"), str)}
+        for link in tree["links"]:
+            if not isinstance(link, dict):
+                continue
+            n, to = nodes.get(str(link.get("from"))), nodes.get(str(link.get("to")))
+            if not n or str(n.get("type")) != "TEX_IMAGE" or not isinstance(n.get("colorspace"), str):
+                continue
+            sock, cs, what = str(link.get("to_socket") or ""), n["colorspace"], n.get("image") or n["name"]
+            data = sock.lower() in _DATA_SOCKETS or (to is not None and str(to.get("type")) in _DATA_NODES)
+            if data and cs != "Non-Color":
+                out.append(f"{what} feeds {sock} but its Color Space is {cs}: set that node to Non-Color")
+            elif not data and "color" in sock.lower() and cs == "Non-Color":
+                out.append(f"{what} feeds {sock} but is set to Non-Color: a colour image stays sRGB (Non-Color goes on "
+                           f"the image that feeds a number input such as Roughness)")
+    return out
+
+
+_PARENTING = re.compile(r"\bparent\w*\b|\bchild(?:ren)?\s+of\b|\bctrl\s*\+\s*p\b", re.I)
+
+
+def _name_stem(name: str) -> str:
+    return re.sub(r"[\s._-]*\d+$", "", name).lower()
+
+
+def _parent_claims(text: str, doc: dict) -> list[str]:
+    """"Parent the blades to the hub": every object of the kind the step names in the plural (Blade1, Blade2, Blade3
+    for "blades") has that parent, not only the ones that were in the selection."""
+    if not _PARENTING.search(text):
+        return []
+    objs = _objects(doc)
+    out = []
+    for p in sorted({o["parent"] for o in objs if isinstance(o.get("parent"), str)}):
+        if not _word_in(p, text):
+            continue
+        for stem in sorted({_name_stem(o["name"]) for o in objs if o.get("parent") == p}):
+            if not stem or not re.search(rf"(?<!\w){re.escape(stem)}s(?!\w)", text, re.I):
+                continue
+            for o in objs:
+                if _name_stem(o["name"]) == stem and o["name"] != p and o.get("parent") != p:
+                    out.append(f"{o['name']} is not parented to {p} (its parent is {o.get('parent') or 'none'}): "
+                               f"select it with the others, {p} last, and press Ctrl+P > Object")
+    return out
+
+
+# the setting that makes a modifier do anything: at 0 (an Array of 1) it is in the stack and changes nothing
+_MODIFIER_SIZE = {"BEVEL": ("width", "Amount"), "SOLIDIFY": ("thickness", "Thickness"),
+                  "DISPLACE": ("strength", "Strength"), "SUBSURF": ("levels", "Levels"), "ARRAY": ("count", "Count")}
+
+
+def _zero_modifier_claims(text: str, doc: dict) -> list[str]:
+    """A modifier the step adds (its name in the step's words) whose size is zero: a Bevel of Amount 0 rounds nothing,
+    a Solidify of Thickness 0 adds no wall."""
+    out = []
+    for o in _subject_objects(text, doc):
+        for m in o.get("modifiers") or []:
+            t = str(m.get("type") or "").upper() if isinstance(m, dict) else ""
+            if t not in _MODIFIER_SIZE or not (_word_in(str(m.get("name") or ""), text) or _word_in(t, text)):
+                continue
+            key, shown = _MODIFIER_SIZE[t]
+            v = m.get(key)
+            if _num(v) and (v <= 1 if t == "ARRAY" else abs(v) < 1e-9):
+                out.append(f"{o['name']}'s {m.get('name') or t} modifier has {shown} {v:g}: it changes nothing; "
+                           f"set {shown} to the step's value")
+    return out
+
+
+def _slot_claims(text: str, doc: dict) -> list[str]:
+    """A material the step names that sits in one of the object's slots no face uses (a second slot added and never
+    Assigned): the object renders with the other slot's material."""
+    # a name the step gives ("Glaze"); Blender's default "Material" is only ever the word "material"
+    named = {m["name"] for m in doc.get("materials") or [] if isinstance(m, dict) and isinstance(m.get("name"), str)
+             and not re.fullmatch(r"Material(?:\.\d+)?", m["name"]) and _word_in(m["name"], text)}
+    out = []
+    for o in _objects(doc):
+        slots = [s for s in o.get("material_slots") or [] if isinstance(s, dict)]
+        for s in slots:
+            mat = s.get("material")
+            if mat in named and s.get("faces") == 0 \
+                    and not any(x.get("material") == mat and _num(x.get("faces")) and x["faces"] > 0 for x in slots):
+                out.append(f"{mat} is in a slot of {o['name']} but no face uses it: select the faces in Edit Mode and "
+                           f"click Assign (or put {mat} in the first slot)")
+    return out
+
+
+_CONNECT = re.compile(r"\b(?:connect|link|plug|wire)\w*\b([^.;]*)", re.I)
+_NAMED = r"[A-Z][\w]*(?:\s+[A-Z][\w]*)*"
+_LINK = re.compile(rf"(?:the\s+)?(?P<a>{_NAMED})['’]s\s+(?P<sa>{_NAMED})\s+(?:(?:output|socket)\s+)?(?:in)?to\s+"
+                   rf"(?:the\s+)?(?P<b>{_NAMED})['’]s\s+(?P<sb>{_NAMED})")
+
+
+def _link_claims(text: str, doc: dict) -> list[str]:
+    """"Connect the Noise's Fac to the Color Ramp's Fac and the Color Ramp's Color to the Principled BSDF's Base
+    Color": each link the step spells out (node's socket to node's socket) is in the node tree that holds both nodes.
+    A node is named by a word of its name ("the Noise" is "Noise Texture")."""
+    want = [m for c in _CONNECT.finditer(text) for m in _LINK.finditer(c.group(1))]
+    out = []
+    for m in want:
+        for tree in _node_trees(doc):
+            names = [n["name"] for n in tree["nodes"] if isinstance(n, dict) and isinstance(n.get("name"), str)]
+            a = [n for n in names if _word_in(m.group("a"), n)]
+            b = [n for n in names if _word_in(m.group("b"), n)]
+            if not a or not b:
+                continue
+            links = [x for x in tree["links"] if isinstance(x, dict)]
+
+            def same(v: object, want_: str) -> bool:
+                return v is None or str(v).casefold() == want_.casefold()
+
+            if any(x.get("from") in a and x.get("to") in b and same(x.get("from_socket"), m.group("sa"))
+                   and same(x.get("to_socket"), m.group("sb")) for x in links):
+                continue
+            went = [x for x in links if x.get("from") in a and same(x.get("from_socket"), m.group("sa"))]
+            where = f" goes to {went[0].get('to')}'s {went[0].get('to_socket')}" if went else " is not connected"
+            out.append(f"the {m.group('a')}'s {m.group('sa')}{where}, not the {m.group('b')}'s {m.group('sb')}: "
+                       f"drag it onto {m.group('sb')}")
+    return out
+
+
+_COUNTS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "eight": 8}
+_N_HOLES = re.compile(r"\b(one|two|three|four|five|six|eight|\d+)(?!\s*(?:mm|cm|m|in)\b)\s+"
+                      r"(?:\d+(?:\.\d+)?\s*mm\s+)?(?:[a-z]+\s+)?(holes|circles)\b", re.I)
+
+
+def _hole_count_claims(text: str, doc: dict) -> list[str]:
+    """"Two 4 mm holes go through the plate": the body's shape has that many holes. A circle sketched off the solid
+    (its centre past the plate's end) is in the sketch and the Pocket recomputes, but cuts nothing."""
+    if not re.search(r"\bholes?\b|\bpocket", text, re.I):
+        return []
+    found = []
+    for m in _N_HOLES.finditer(text):
+        w = m.group(1).lower()
+        found.append((m.group(2).lower() != "holes", int(w) if w.isdigit() else _COUNTS.get(w, 0)))
+    counts = [n for _, n in sorted(found, key=lambda x: x[0]) if n >= 2]
+    if not counts:
+        return []
+    want = counts[0]
+    out = []
+    for body in _walk(doc):
+        shape = body.get("shape")
+        if not isinstance(shape, dict) or not isinstance(shape.get("holes"), list):
+            continue
+        got = len(_body_holes(body))
+        if got < want:
+            out.append(f"{body.get('name') or 'the body'} has {got} hole{'s' if got != 1 else ''}, not {want}: a "
+                       f"circle whose centre is off the part cuts nothing (check each centre)")
+    return out
+
+
+_BASE_PLANE = re.compile(r"\b(XY|XZ|YZ)[_\s-]?plane\b", re.I)
+_SUPPORT_PLANE = re.compile(r"^(XY|XZ|YZ)(?:[_\s]Plane)?\b", re.I)
+
+
+def _plane_claims(text: str, doc: dict) -> list[str]:
+    """"Pick XY_Plane": the sketch is on that base plane, not another one picked in the list (XZ stands the part on
+    its end). Only when the step names one base plane and no sketch on a base plane uses it."""
+    named = {m.group(1).upper() for m in _BASE_PLANE.finditer(text)}
+    if len(named) != 1:
+        return []
+    want = named.pop()
+    on_planes = [(n, m.group(1).upper()) for n in _walk(doc) if "sketch" in str(n.get("type") or "").lower()
+                 for key in ("support", "plane") if isinstance(n.get(key), str)
+                 and (m := _SUPPORT_PLANE.match(n[key].strip()))]
+    if not on_planes or any(p == want for _, p in on_planes):
+        return []
+    n, p = on_planes[0]
+    return [f"{n.get('name') or 'the sketch'} is on the {p} plane, not {want}: make the sketch again and pick "
+            f"{want}_Plane"]
+
+
 # ---------------------------------------------------------------- ASCII DXF: what the drawing is
 
 def _dxf_entities(raw: str) -> list[tuple[str, list[tuple[int, str]]]]:
@@ -710,6 +975,28 @@ def _layer_claims(text: str, ents: list[tuple[str, list[tuple[int, str]]]]) -> l
     return out
 
 
+# a circle's size across in the step's words: "18 mm across", "a diameter of 18", "type D for Diameter and enter 18"
+_ACROSS = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:mm\s+)?(?:across|in\s+diameter|diameter)\b"
+                     r"|\bdiameter\b[^.;\d]{0,40}?(?<![\w.])(\d+(?:\.\d+)?)(?![\d.]*\s*,)", re.I)
+
+
+def _circle_size_claims(text: str, ents: list[tuple[str, list[tuple[int, str]]]]) -> list[str]:
+    """Circles the step sizes by their diameter whose saved size is not it: a DXF CIRCLE stores its radius (group 40),
+    and typing the number straight away at AutoCAD's CIRCLE prompt makes it the radius (twice the size)."""
+    if not re.search(r"\bcircles?\b|\bCIRCLE\b", text, re.I):
+        return []
+    sizes = {float(m.group(1) or m.group(2)) for m in _ACROSS.finditer(text)}
+    radii = [r for t, g in ents if t == "CIRCLE" and (r := _dxf_float(g, 40)) is not None]
+    if len(sizes) != 1 or not radii:
+        return []
+    want = sizes.pop()
+    if any(abs(2 * r - want) <= max(1e-3, want * 1e-4) for r in radii):
+        return []
+    r = radii[-1]
+    how = " (the number typed at the CIRCLE prompt is the radius: type D first)" if abs(r - want) <= 1e-3 else ""
+    return [f"the circles are {2 * r:g} across (radius {r:g}), not {want:g}{how}"]
+
+
 _CLOSE_WORDS = re.compile(r"\bclosed?\b", re.I)
 _READS = re.compile(r"\b(?:reads?|measures?|shows?)\s+(\d+(?:\.\d+)?)\b", re.I)
 
@@ -726,6 +1013,7 @@ def dxf_claims(text: str, raw: str) -> list[str]:
         out.append("the polyline is open (its closed flag is off): clicking back on the first point doesn't close it; "
                    "finish PLINE with C")
     out += _layer_claims(text, ents)
+    out += _circle_size_claims(text, ents)
     dims = [g for t, g in ents if t == "DIMENSION"]
     if dims and re.search(r"\bdimension", text, re.I) and (m := _READS.search(text)):
         want = float(m.group(1))
@@ -836,7 +1124,9 @@ _KEY_PATTERN = re.compile(r'^\\?"([A-Za-z_][\w]*)\\?"')
 def every_instance(check: dict, text: str, rx: re.Pattern[str]) -> str | None:
     """A check whose label says every / all / each and whose pattern is about one JSON key (``"valid":\\s*true``):
     the first instance of that key whose value doesn't match ("``"valid": false`` at line 79"), else None."""
-    if not _UNIVERSAL.search(str(check.get("label") or "")):
+    # "Through all" whose pattern is "ThroughAll": the word names the value the check wants, it says nothing of how many
+    if not any(w.lower() not in str(check.get("pattern") or "").lower()
+               for w in _UNIVERSAL.findall(str(check.get("label") or ""))):
         return None
     m = _KEY_PATTERN.match(str(check.get("pattern") or ""))
     if not m:
@@ -920,6 +1210,40 @@ def _stl_triangles(path: str) -> list[tuple] | None:
     if not verts or len(verts) % 3:
         return None
     return [tuple(verts[i:i + 3]) for i in range(0, len(verts), 3)]
+
+
+def mesh_extent(path: str) -> list[float] | None:
+    """An STL's size along X, Y, Z (its vertices' bounding box), or None (not an STL, unreadable, empty)."""
+    tris = _stl_triangles(path)
+    pts = [v for t in tris or [] for v in t]
+    if not pts:
+        return None
+    return [max(p[k] for p in pts) - min(p[k] for p in pts) for k in range(3)]
+
+
+def mesh_vs_bodies(mesh: str, dump_text: str) -> str | None:
+    """An exported mesh whose size is no body's in the model's scene dump (``bodies[].shape.bound_box``): File > Export
+    with one feature selected (the first Pad) writes that feature's shape, not the finished body. Why, else None (no
+    bodies with a size, or the mesh matches one of them, in any orientation)."""
+    try:
+        doc = json.loads(dump_text)
+    except ValueError:
+        return None
+    boxes = [(str(n.get("name") or "the body"), [float(v) for v in n["shape"]["bound_box"]])
+             for n in _walk(doc) if isinstance(n.get("shape"), dict) and isinstance(n["shape"].get("bound_box"), list)
+             and len(n["shape"]["bound_box"]) == 3 and all(_num(v) for v in n["shape"]["bound_box"])]
+    ext = mesh_extent(mesh)
+    if not boxes or ext is None:
+        return None
+
+    def same(a: list[float], b: list[float]) -> bool:
+        return all(abs(x - y) <= max(0.05, 0.01 * max(abs(x), abs(y))) for x, y in zip(sorted(a), sorted(b)))
+
+    if any(same(ext, bb) for _, bb in boxes):
+        return None
+    name, bb = max(boxes, key=lambda x: x[1][0] * x[1][1] * x[1][2])
+    return (f"{os.path.basename(mesh)} measures {' x '.join(f'{v:g}' for v in ext)} but {name} measures "
+            f"{' x '.join(f'{v:g}' for v in bb)}: select the Body (not one of its features) and export again")
 
 
 def open_mesh(path: str) -> str | None:

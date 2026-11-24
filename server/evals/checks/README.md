@@ -254,6 +254,52 @@ Train wrong verdicts (all 13 new; the 257 earlier train cases stay right):
 
 Held out: 7 new cases, 6 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
 
+## Round 5 fixes (Nov 24 2026, `claude/eng-check-fixes-r5`)
+
+The four round-5 case sets merged: 442 cases, 307 train + 135 held out (77 new: 50 train, 27 held out). Every fix is
+general (no lesson ids, no case text); each has a regression test in `server/checks/tests/test_round5_fixes.py` (37
+tests, each also checking that the finished form still passes). Fixed against the train cases only; the held-out
+cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (307), before | 0.879 | 0.819 | 0.915 | 26 | 11 |
+| train (307), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (135), before | 0.422 | 0.288 | 0.447 | 52 | 26 |
+| held-out (135), after | 0.430 | 0.292 | 0.447 | 51 | 26 |
+| held-out, the 27 new, before / after | 0.370 / 0.407 | | | | |
+
+Honest generalisation: one held-out case is now right (`vscode-tsshop-t2-call-as-jsx-text`, by the JSX-text rule);
+the other 16 round-5 held-out wrong verdicts are still wrong, and no held-out case got worse. `known_wrong` (train) is
+empty.
+
+What changed (server/checks):
+
+- **Scene / drawing** (`model_files`): claims for an Image Texture's Color Space against the socket it feeds (Non-Color
+  on number inputs, never on Base Color); every object of the kind the step parents ("the blades") has the parent; a
+  modifier the step adds with size 0 (Bevel Amount, Solidify Thickness, Array Count 1); a named material in a slot no
+  face uses; each link the step spells out ("the Noise's Fac to the Color Ramp's Fac"); "two holes" counted in the
+  body's shape; a sketch on another base plane than the one the step names; circles sized by their diameter whose DXF
+  radius is that number. Read another way (`alt_views`): a packed image under its file name, a light under its type's
+  name (Area), a Pocket whose holes go through as Through all, a hole Extrude-cut through a wall as a Hole. An exported
+  STL whose size is no body's in the scene dump beside it (`mesh_vs_bodies`). "Through all" in a label is not "every".
+- **Notebooks** (`evaluator`): leading numbers the step spells out (`plt.subplots(1, 2`); a step "in one cell" split
+  over two cells; a copy-returning method whose result is dropped (`xb.to(device)`, never a model's `.to`); Out[n]
+  reprs read as print would show them (`device(type='mps', index=0)` is `mps:0`); an earlier cell's error the step's
+  cell ran cleanly after is not the step's; Run All counts with a gap while a cell reads a name no cell makes; a
+  progress-line row when the cell ran with `verbose=0` and the step never asks for progress.
+- **Code files** (`code_equiv`, `evaluator.code_mistakes`): an import whose module file differs only in case
+  (Operations.py); a value kept in a name for the next line (`total = add(2, 3)` / `print(total)`); `export default
+  function Food` as a default export; a web page that threw in the browser; a cleanup / handler called instead of
+  handed over (`return clearInterval(id)`); one fixed key for every mapped item; a JSX expression left as text; the
+  step's file in another folder (settings.json outside .vscode); a type error silenced with `any` / `@ts-ignore` in
+  the step's file or a module it imports; `npm install` run outside the project (a bare package.json above it).
+- **Terminal** (`evaluator`, `blocks`): a pull / merge that stopped on a conflict and was never finished; another
+  subcommand on the step's arguments (`docker pull hello-world`); a commit on a detached HEAD; a commit that added a
+  file .gitignore lists; a result-changing flag left out (`grep -h` for `grep -hi`); a failed install of a wrong name
+  that the step's own command then got past; brace expansion (`touch notes/day{1,2,3}.txt`), and the files a step's
+  own file_exists checks expect as proof of its command when it has no precision checks.
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is
