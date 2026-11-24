@@ -43,6 +43,7 @@ import { color, copy, dock, fill } from '../../core/theme'
 import { beat, enter, fade, pressMotion, press, spring, textSwap } from '../../core/ui/motion'
 import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { Buddy } from '../buddy/store'
 import { useChecking } from '../drawer/v2/view'
 import { BootLine, useLinePhase } from '../errors/boot'
 import { retryBoot, useBoot, useBootClock, useBootInput, useSetupPending } from '../errors/startup'
@@ -632,6 +633,14 @@ function StatusEar(): ReactNode {
   return <StatusMark mark={s.mark} />
 }
 
+/**
+ * The left ear: bon's living bonsai (features/buddy Buddy) in place of the static mark. It sways while the engine thinks,
+ * blooms once on every real pass and leans toward what bon points at. Same brand tree, same 16 px, in color.
+ */
+function BonEar(): ReactNode {
+  return <Buddy size={16} />
+}
+
 /** A build in flight: the spinner. */
 function BuildingEar(): ReactNode {
   return <Spinner size={14} />
@@ -642,8 +651,8 @@ export default defineFeature({
   islandModes: [
     // No step and nothing building. Also a lesson that's set but stopped building before its first step (a failed or
     // dropped build after lesson.ready): no mode covered that, and the island drew nothing (review A20: "blank").
-    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle, notch: { useView: useIdleView, Right: IdleEar } },
-    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact, notch: { useView: () => 'ears', Right: StatusEar } },
+    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle, notch: { useView: useIdleView, Left: BonEar, Right: IdleEar } },
+    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact, notch: { useView: () => 'ears', Left: BonEar, Right: StatusEar } },
     // Over compact while a new build is being planned (a lesson started from the launcher during another one); otherwise
     // building (no step yet) and compact (a step) never overlap.
     {
@@ -655,7 +664,7 @@ export default defineFeature({
         return planning || building
       },
       Content: Building,
-      notch: { useView: () => 'ears', Right: BuildingEar }
+      notch: { useView: () => 'ears', Left: BonEar, Right: BuildingEar }
     },
     // Over the idle pill only (a new lesson building or on screen wins), and never offline: Undo would go nowhere.
     {
