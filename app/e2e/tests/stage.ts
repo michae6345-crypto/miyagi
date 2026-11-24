@@ -1,5 +1,5 @@
 /** Shared setup for the stage screenshots: pinned clock, offline, theme, settle, and the CSS that hides moving parts. */
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 
@@ -23,6 +23,34 @@ export function scenarios(): string[] {
   return ['full', ...names.sort()]
 }
 
+type Item = { wait?: number; goto?: string; type?: string }
+type ScenarioFile = { on?: Record<string, string>; segments?: Record<string, Item[]> }
+
+/**
+ * How long the scenario's scripted start-up runs (ms): the time of the last event its `connect` segment plays,
+ * following gotos. `full` starts idle (0). Shooting before it ends catches a different moment on a slower machine.
+ */
+export function startupMs(scenario: string): number {
+  if (scenario === 'full') return 0
+  let s: ScenarioFile
+  try {
+    s = JSON.parse(readFileSync(join(__dirname, '..', '..', 'mock', 'scenarios', `${scenario}.json`), 'utf8')) as ScenarioFile
+  } catch {
+    return 0
+  }
+  let last = 0
+  const walk = (name: string | undefined, t: number, depth: number): number => {
+    for (const it of (name && s.segments?.[name]) || []) {
+      t += it.wait ?? 0
+      if (it.goto && depth < 8) t = walk(it.goto, t, depth + 1)
+      else if (it.type) last = Math.max(last, t)
+    }
+    return t
+  }
+  walk(s.on?.connect, 0, 0)
+  return last
+}
+
 export async function openStage(page: Page, query: Record<string, string>, theme: Theme): Promise<void> {
   await page.clock.setFixedTime(NOW)
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
@@ -31,6 +59,7 @@ export async function openStage(page: Page, query: Record<string, string>, theme
   await page.goto('/?' + new URLSearchParams({ ...query, appearance: theme }).toString(), { waitUntil: 'load' })
   await page.evaluate(() => document.fonts.ready)
   await page.addStyleTag({ content: HIDE_CSS })
-  // Springs and enter transitions: reduced motion shortens them; this covers the rest.
-  await page.waitForTimeout(1200)
+  // The scenario's scripted start-up (capped), then springs and enter transitions: reduced motion shortens them.
+  const sc = query.scenario ?? 'full'
+  await page.waitForTimeout(Math.min(startupMs(sc), 10_000) + 1200)
 }
