@@ -45,6 +45,11 @@ PROFILE_10MIN = {
 }
 # the same video when step 1's own round-1 checks fail lint too (5 of 7 steps did in the recorded build)
 PROFILE_10MIN_S1_RETRY = {**PROFILE_10MIN, "name": "same, step 1 needs an adapt retry", "lint_fail": {1, 3, 5}}
+# the recorded build itself (Nov 22, 17.6 min, 7 steps): its own segment and detail latencies; 5 of 7 steps failed
+# lint in round 1, in 2 of its batches (which 5 is not in the log: steps 1-5 is one set that fits)
+PROFILE_RECORDED = {**PROFILE_10MIN, "name": "recorded Nov 22 build (17.6 min, 7 steps)", "length_s": 1056, "steps": 7,
+                    "watch_page_s": 0.24, "captions_s": 0.57, "segment_s": 9.3,
+                    "detail_s": [3.6, 5.8, 6.0, 7.7, 6.3, 6.7, 6.5], "lint_fail": {1, 2, 3, 4, 5}}
 
 
 def scaled(profile: dict, k: float) -> dict:
@@ -162,7 +167,8 @@ class Fakes:
             out = []
             for i in idx:
                 # lint rejects a screen pattern over 60 chars (OCR is noisy): round 1's for the lint_fail steps
-                pat = (rf"def\s+part_{i}\b" + r"\s*\(\s*\)\s*:" * 6) if (i in p["lint_fail"] and not retry) else rf"def\s+part_{i}\b"
+                bad = i in p["lint_fail"] and (not retry or i in p.get("lint_fail_always", ()))  # "always": no retry fixes it
+                pat = (rf"def\s+part_{i}\b" + r"\s*\(\s*\)\s*:" * 6) if bad else rf"def\s+part_{i}\b"
                 wf = p.get("work_file", "todo.py")
                 out.append({"index": i, "checks": [{"type": "screen_contains", "label": f"part_{i} typed", "app": "Code", "pattern": pat}],
                             "precision_checks": [{"type": "file_contains", "label": f"part_{i} in {wf}", "file": wf,
@@ -210,7 +216,7 @@ class _Blocked:
 
 
 @contextlib.contextmanager
-def patched(fakes: Fakes, *, fast: bool, root: Path):
+def patched(fakes: Fakes, *, fast: bool, root: Path, batched: bool = True):
     import anthropic
     import httpx
 
@@ -222,7 +228,8 @@ def patched(fakes: Fakes, *, fast: bool, root: Path):
     async def no_materials(url, **k):
         raise RuntimeError("offline")
 
-    env = {"LESSON_NO_DOTENV": "1", "LESSON_FAST_FIRST_STEP": "1" if fast else "0", "MIYAGI_STATE_DIR": str(root / "state")}
+    env = {"LESSON_NO_DOTENV": "1", "LESSON_FAST_FIRST_STEP": "1" if fast else "0", "MIYAGI_STATE_DIR": str(root / "state"),
+           "LESSON_BATCHED_ADAPT": "1" if batched else "0"}
     keys = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY", "LESSON_ENGINE",
             "LESSON_CLAUDE_MODEL", "LESSON_QUICK_START_S", "ORCH_PREBUILD")
     with contextlib.ExitStack() as st:
@@ -244,7 +251,8 @@ def patched(fakes: Fakes, *, fast: bool, root: Path):
         yield
 
 
-def build_once(profile: dict, *, fast: bool, root: Path | None = None, fakes: Fakes | None = None, **build_kw) -> dict:
+def build_once(profile: dict, *, fast: bool, root: Path | None = None, fakes: Fakes | None = None, batched: bool = True,
+               **build_kw) -> dict:
     """One build of the profile's video on the virtual clock -> {graph, events, updates, done_s}. `root`: a folder to
     keep the lesson caches in across builds (default: a fresh temporary one)."""
     from server.lesson import builder
@@ -254,7 +262,7 @@ def build_once(profile: dict, *, fast: bool, root: Path | None = None, fakes: Fa
         if root is None:
             root = Path(st.enter_context(tempfile.TemporaryDirectory()))
         (root / "work").mkdir(exist_ok=True)
-        st.enter_context(patched(fakes, fast=fast, root=root))
+        st.enter_context(patched(fakes, fast=fast, root=root, batched=batched))
 
         async def go():
             def on_update(graph, complete):
@@ -315,16 +323,33 @@ def timeline_rows(run: dict) -> list[tuple[str, str]]:
     return rows
 
 
-def report(profiles=(PROFILE_10MIN, PROFILE_10MIN_S1_RETRY)) -> str:
+def calls(run: dict) -> dict:
+    """Model calls a build made, by kind (adapt round 1 is Haiku, an adapt retry with lint feedback is Sonnet)."""
+    out: dict = {}
+    for e in run["events"]:
+        out[e["kind"]] = out.get(e["kind"], 0) + 1
+    return out
+
+
+MODES = (("serial", {"fast": False}), ("step 1 first", {"fast": True, "batched": False}), ("batched", {"fast": True}))
+
+
+def report(profiles=(PROFILE_10MIN, PROFILE_10MIN_S1_RETRY, PROFILE_RECORDED)) -> str:
+    """The critical-path timeline of each profile in each mode: serial (LESSON_FAST_FIRST_STEP=0), step 1 first
+    (LESSON_BATCHED_ADAPT=0) and batched (both on, the default)."""
     out = []
     for p in profiles:
-        before, after = build_once(p, fast=False), build_once(p, fast=True)
-        same = comparable(before["graph"]) == comparable(after["graph"])
+        runs = [(name, build_once(p, **kw)) for name, kw in MODES]
+        ref = comparable(runs[0][1]["graph"])
         out.append(f"\n{p['name']}  (seconds from the Build press; virtual clock)")
-        out.append(f"{'stage':40s} {'before':>16s}   {'after':>16s}")
-        for (name, b), (_n, a) in zip(timeline_rows(before), timeline_rows(after)):
-            out.append(f"{name:40s} {b:>16s}   {a:>16s}")
-        out.append(f"finished lesson, same steps on this deterministic fake: {same}")
+        out.append(f"{'stage':40s}" + "".join(f" {name:>16s}" for name, _r in runs))
+        rows = [timeline_rows(r) for _n, r in runs]
+        for k, (label, _v) in enumerate(rows[0]):
+            out.append(f"{label:40s}" + "".join(f" {r[k][1]:>16s}" for r in rows))
+        for kind, label in (("adapt", "adapt calls, round 1 (Haiku)"), ("adapt_retry", "adapt retries (Sonnet)")):
+            out.append(f"{label:40s}" + "".join(f" {calls(r).get(kind, 0):>16d}" for _n, r in runs))
+        same = all(comparable(r["graph"]) == ref for _n, r in runs)
+        out.append(f"finished lesson, same steps in every mode on this deterministic fake: {same}")
     return "\n".join(out)
 
 

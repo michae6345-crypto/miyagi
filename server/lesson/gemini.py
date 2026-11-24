@@ -467,17 +467,16 @@ Keep labels <= 6 words, unique within a step, naming the thing built by its name
 {feedback}"""
 
 
+# what of each draft step the adapt prompt shows (batched.py keys its early round-1 calls on exactly these)
+ADAPT_STEP_KEYS = ("index", "title", "instructions", "file", "code", "run_command", "expected_output", "terminal_output",
+                   "checks", "targets")
+
+
 def adapt_prompt(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> str:
     fb = ""
     if feedback:
         fb = "\nYour previous answer had these problems; fix all of them:\n- " + "\n- ".join(feedback[:40])
-    steps_txt = json.dumps(
-        [
-            {k: s.get(k) for k in ("index", "title", "instructions", "file", "code", "run_command", "expected_output", "terminal_output", "checks", "targets")}
-            for s in draft_steps
-        ],
-        indent=1,
-    )
+    steps_txt = json.dumps([{k: s.get(k) for k in ADAPT_STEP_KEYS} for s in draft_steps], indent=1)
     return ADAPT_PROMPT.format(goal=goal, steps=steps_txt, workdir=wrap("workdir", workdir_summary), feedback=fb)
 
 
