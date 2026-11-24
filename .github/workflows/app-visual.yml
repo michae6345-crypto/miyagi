@@ -4,7 +4,9 @@ name: app-visual
 # macOS runner: the baselines are macOS Chromium headless-shell renders. Headless, 3 workers, offline (the stage runs
 # the mock inline; every non-localhost request is aborted). On a diff, the HTML report with expected / actual / diff
 # images is uploaded as an artifact.
-# Intended UI change: run "app-visual" by hand with update=true, download the new-baselines artifact, review, commit.
+# Intended UI change: the run fails on the diff, then re-shoots everything and uploads app-visual-baselines (the full
+# __screenshots__ folder from this runner). Review the report, unzip the artifact over app/e2e/tests/__screenshots__
+# and commit. (workflow_dispatch update=true does the same, but only once this file is on the default branch.)
 on:
   pull_request:
     paths: ["app/**", ".github/workflows/app-visual.yml"]
@@ -46,7 +48,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: app-visual-report, path: app/e2e/playwright-report, retention-days: 14 }
+      - name: re-shoot as candidate baselines (after a diff)
+        if: failure() && !inputs.update
+        working-directory: app/e2e
+        run: npx playwright test --update-snapshots --reporter=dot || true
       - name: new baselines
-        if: inputs.update
+        if: always() && (inputs.update || failure())
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: app-visual-baselines, path: app/e2e/tests/__screenshots__, retention-days: 14 }
