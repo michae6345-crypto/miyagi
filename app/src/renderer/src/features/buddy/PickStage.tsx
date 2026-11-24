@@ -1,8 +1,8 @@
 /**
- * Feature: buddy. A mock of the setup step where the learner picks their buddy's color, only in the browser stage
- * with ?buddy=pick (index.tsx). Not an app window: the real step belongs to setup (brief, Core requests), which would
- * mount the same BuddyColorPicker. Continue closes the mock and has the buddy point at something on the fake desktop,
- * so the pick can be seen in use; Pick again reopens it.
+ * Feature: buddy. The first mock of the setup step where the learner picks their buddy's color, only in the browser
+ * stage with ?buddy=pick (index.tsx). Not an app window: the real step is features/onboarding BuddyStep.tsx, built
+ * from the same pieces. Kept because its Continue closes the mock and has the buddy point at something on the fake
+ * desktop, so the pick can be seen in use (setup itself ends at home); Pick again reopens it.
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
