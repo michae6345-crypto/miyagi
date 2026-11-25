@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -242,3 +244,12 @@ def test_the_app_pattern_skips_its_helpers():
                          "miyagi Helper (Renderer) --type=renderer")
     assert not rx.search("/Applications/miyagi.app/Contents/Resources/engine/python/bin/python3 -s -B -m "
                          "server.orchestrator.main")
+
+
+@pytest.mark.skipif(shutil.which("pgrep") is None, reason="no pgrep")
+def test_pgrep_takes_every_pattern():
+    """Exit 2 is a usage error (a pattern read as an option): every pattern must give 0 (found) or 1 (not found)."""
+    from server.demokit import check
+
+    for pat in (common.APP_PROC, common.ENGINE_PROC, check.VSCODE_PROC, check.CAFFEINATE_PROC):
+        assert subprocess.run([*common.PGREP, pat], capture_output=True, timeout=5, check=False).returncode in (0, 1), pat

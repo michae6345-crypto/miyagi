@@ -32,6 +32,7 @@ from .common import (
 
 CLOUD_HEALTHZ = "https://miyagi-cloud.onrender.com/healthz"
 VSCODE_PROC = r"Visual Studio Code\.app/Contents/MacOS/"
+CAFFEINATE_PROC = r"(^|/)caffeinate( |$)"
 RESET = "Quit miyagi, then run scripts/miyagi-demo-reset.sh"
 SETTINGS = "System Settings > Privacy & Security > {}: turn on miyagi, then quit and reopen miyagi"
 PANES = {"accessibility": ("Accessibility", "Accessibility"),
@@ -92,7 +93,7 @@ class Probes:
             return None
 
     def caffeinated(self) -> bool:
-        return pgrep(r"(^|/)caffeinate( |$)")
+        return pgrep(CAFFEINATE_PROC)
 
     def on_battery(self) -> bool | None:
         try:

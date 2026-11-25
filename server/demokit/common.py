@@ -29,6 +29,7 @@ FILE = "nn.py"
 # pgrep -f patterns. The app's main process only (its helpers live under Contents/Frameworks), and any engine.
 APP_PROC = r"miyagi\.app/Contents/MacOS/miyagi"
 ENGINE_PROC = r"-m server\.orchestrator\.main"
+PGREP = ("pgrep", "-f", "--")  # `--`: ENGINE_PROC starts with a dash, which pgrep would read as an option (exit 2)
 
 
 def slugify(text: str, max_len: int = 48) -> str:
@@ -141,7 +142,7 @@ def port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.4) -> bool:
 
 def pgrep(pattern: str) -> bool:
     try:
-        return subprocess.run(["pgrep", "-f", pattern], capture_output=True, timeout=5, check=False).returncode == 0
+        return subprocess.run([*PGREP, pattern], capture_output=True, timeout=5, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
