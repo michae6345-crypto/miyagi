@@ -310,6 +310,16 @@ class ReviewQueue(_Model):
     items: list[ReviewItem]
 
 
+class LessonApp(_Model):
+    """On-screen coach (Nov 24): the desktop app a no-code lesson is done in (server.lesson.app_lesson.adapt). tool: the
+    server.workspace.apps id ("blender"); label: its name ("Blender"); using: the app the learner really works in when it
+    isn't the one the lesson names ("FreeCAD"). Never set for a code or VS Code lesson."""
+
+    tool: str
+    label: str
+    using: str | None = None
+
+
 class LessonInfo(_Model):
     id: str
     title: str
@@ -327,6 +337,7 @@ class LessonInfo(_Model):
     learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
     outline: LessonOutline | None = None  # every step from the start (absent: a build whose step count isn't known yet)
     origin: BuildSource | None = None  # any link (Nov 24): what it was built from (web / github: mode "lesson", no video)
+    app: LessonApp | None = None  # on-screen coach: a desktop-app lesson (absent: a code / VS Code lesson)
 
 
 class LessonReady(_Model):
@@ -495,11 +506,12 @@ class Annotation(_Model):
     """Buddy draws (Nov 22): one thing the app circles with a hand-drawn stroke grown from the island (event annotate).
 
     x / y / w / h: screen points, the ScreenRegion space. displayId None = the primary display (spotlight.rect).
-    why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask). The engine
-    sends only "answer" marks today. why "point" is reserved: the coach's pointing reaches the app through the
-    existing events (spotlight {rect, caption}, card.targets, offtrack targets), and the app's buddy draws from those
-    itself; the engine does not repeat them as annotate. label: <= 4 words. id: stable per mark, so a re-sent annotate
-    keeps a circle still drawn instead of drawing it again.
+    why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask).
+    why "point" (Nov 24, on-screen coach): only in an app lesson (lesson.app), ONE mark at a step start, a "Not yet" or
+    Show me ("where?"), with text (+ keys). A mark with text is not timed (holdMs does not apply to it): it stays until
+    the step passes or changes, the learner reaches it, Esc, lesson.ended or annotate {clear}. Other pointing still
+    reaches the app as spotlight {rect, caption}, card.targets and offtrack targets, and is not repeated as annotate.
+    label: <= 4 words. id: stable per mark, so a re-sent annotate keeps a circle still drawn instead of drawing it again.
     """
 
     id: str | None = None
@@ -512,11 +524,14 @@ class Annotation(_Model):
     why: Literal["point", "answer"]
     askId: str | None = None
     stepId: str | None = None
+    text: str | None = None  # on-screen coach, why "point" only: the step's action, <= 12 words, drawn next to the circle
+    keys: list[str] | None = None  # the shortcut: one keycap label per key, in order (<= 3), spelled as bridge.platform.keys spells keys ("⇧A", "⌘S", "Tab")
 
 
 class AnnotateMarks(_Model):
     """annotate: circle these. A new annotate replaces the marks drawn before; the overlay stays click-through. The app
-    fades them on a click inside one, a step change, lesson.ended, or after holdMs (None: the app's default, a few s)."""
+    fades them on a click inside one, a step change, lesson.ended, or after holdMs (None: the app's default, a few s);
+    a mark with text ignores holdMs."""
 
     marks: list[Annotation]
     holdMs: int | None = None
@@ -900,9 +915,13 @@ class SkillGraphInfo(_Model):
     reviewDays: list[int] | None = None  # the review schedule in use (REVIEW_DAYS is the proposal)
 
 
+# open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend,
+# opened with the miyagi bridge); label in setup.actionLabels.open_in_app; text = the app's tool id (absent: the lesson's app);
+# the card sends setup.holdVideo false
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "hint", "show_me", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
+                     "retry", "hint", "show_me", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -1823,10 +1842,14 @@ class BuildLesson(_Model):
     resultIds: list[str]
 
 
+# open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend,
+# opened with the miyagi bridge); label in setup.actionLabels.open_in_app; text = the app's tool id (absent: the lesson's app);
+# the card sends setup.holdVideo false
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
+                     "retry", "start", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
 class AskCapture(_Model):

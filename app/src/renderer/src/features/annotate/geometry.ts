@@ -10,6 +10,8 @@
  *                           A seeded wobble, so the same mark always draws the same line (a re-sent mark never jumps)
  *   labelSpot               where the optional label goes: beside the loop on its own line (the end of a line of text is
  *                           mostly empty), else under it, or over it near the screen bottom
+ *   textSpot                where the on-screen coach's text box goes (Nov 24): right of the loop, else left, below, above;
+ *                           never over the target or the loop as drawn (loopBox), always 16 pt inside the display
  */
 
 export type Pt = { x: number; y: number }
@@ -69,6 +71,18 @@ export function onOverlay(local: Rect, size: { width: number; height: number }, 
 export function islandAnchor(box: Rect | undefined, fallback: { centerX: number; restBottom: number }): Pt {
   if (box && isDrawable(box)) return { x: box.x + box.w / 2, y: box.y + box.h - 2 }
   return { x: fallback.centerX, y: fallback.restBottom - 2 }
+}
+
+/** A frozen root moves to the island's bottom once that bottom is this far (pt) above it. */
+export const REROOT_PT = 4
+
+/**
+ * A mark's branch root this frame: its root from birth (`was`), frozen while the island grows (a card coming out of it
+ * does not drag the line), but moved up to `now` once the island's bottom is above it by more than REROOT_PT (the card
+ * it was born under went back into the pill), so a long-lived mark never starts in mid-air below the island.
+ */
+export function rootFor(was: Pt | undefined, now: Pt): Pt {
+  return !was || now.y < was.y - REROOT_PT ? now : was
 }
 
 /** Room around the box: at least this much, more for a wide one (a whole line of code). */
@@ -180,6 +194,10 @@ export type BuddyPath = {
   ring: Ring
   /** Where the branch meets the loop. */
   join: Pt
+  /** The branch, sampled (island to join): what the coach's text box keeps clear of (textSpot). */
+  branch: Pt[]
+  /** The loop, sampled (its wobble runs up to LOOP_REACH of the ring: textSpot keeps clear of loopBox). */
+  loopPts: Pt[]
   branchLength: number
   loopLength: number
 }
@@ -198,6 +216,8 @@ export function buddyPath(from: Pt, box: Rect, seed: number): BuddyPath {
     loop: `M${f(join.x)} ${f(join.y)}${loopD}`,
     ring,
     join,
+    branch: branchPts,
+    loopPts: loop,
     branchLength: polyLength(branchPts),
     loopLength: polyLength(loop)
   }
@@ -238,4 +258,127 @@ export function labelSpot(ring: Ring, size: { width: number; height: number }, w
   const y = above ? ring.cy - ring.ry - LABEL_GAP - LABEL_H : below
   const half = width / 2
   return { x: Math.min(size.width - LABEL_EDGE - half, Math.max(LABEL_EDGE + half, ring.cx)), y: Math.max(LABEL_EDGE, y), above, align: 'center' }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// On-screen coach (Nov 24): the step's action written beside the loop.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** The text box keeps this far inside the display's edges. */
+export const TEXT_EDGE = 16
+/** The text box is at most this wide (it wraps to 2 lines inside it). */
+export const TEXT_MAX_W = 280
+/** The text box keeps this far from the buddy's line (pt), so the line never runs under the words. */
+export const BRANCH_CLEAR = 10
+/** Sliding a box along the loop to clear the line: this step (pt). */
+const SLIDE_STEP = 8
+
+export type Side = 'right' | 'left' | 'below' | 'above'
+export type TextSpot = Pt & { side: Side; fits: boolean }
+
+const overlap = (a: Rect, b: Rect): number =>
+  Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+
+/** The ring's bounding box. */
+export const ringBox = (ring: Ring): Rect => ({ x: ring.cx - ring.rx, y: ring.cy - ring.ry, w: ring.rx * 2, h: ring.ry * 2 })
+
+/** The most the drawn loop's radius grows past the ring (loopPoints: both waves at their peak plus the full drift). */
+export const LOOP_REACH = 1 + WOBBLE.a1 + WOBBLE.a2 + WOBBLE.drift
+
+/** The box the drawn loop can reach: the ring's box grown by LOOP_REACH (about 12.5% of each radius for a big target). */
+export const loopBox = (ring: Ring): Rect => ringBox({ ...ring, rx: ring.rx * LOOP_REACH, ry: ring.ry * LOOP_REACH })
+
+const clamp = (v: number, lo: number, hi: number): number => (hi < lo ? lo : Math.min(hi, Math.max(lo, v)))
+
+/** Does the segment a-b cross the rect (Liang-Barsky clipping)? */
+export function segmentHitsRect(a: Pt, b: Pt, r: Rect): boolean {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  let t0 = 0
+  let t1 = 1
+  const edges: [number, number][] = [
+    [-dx, a.x - r.x],
+    [dx, r.x + r.w - a.x],
+    [-dy, a.y - r.y],
+    [dy, r.y + r.h - a.y]
+  ]
+  for (const [p, q] of edges) {
+    if (p === 0) {
+      if (q < 0) return false
+      continue
+    }
+    const t = q / p
+    if (p < 0) t0 = Math.max(t0, t)
+    else t1 = Math.min(t1, t)
+    if (t0 > t1) return false
+  }
+  return true
+}
+
+/** Does the polyline come within `pad` of the rect? */
+export function lineHitsRect(line: readonly Pt[], r: Rect, pad = 0): boolean {
+  const g = { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }
+  for (let i = 0; i < line.length - 1; i++) if (segmentHitsRect(line[i], line[i + 1], g)) return true
+  return line.length === 1 && segmentHitsRect(line[0], line[0], g)
+}
+
+/**
+ * Where the coach's text box goes (its top-left, window coordinates). `ring`: the loop; `target`: the circled box; `size`:
+ * the display; `box`: the text box's size; `branch`: the buddy's line from the island to the loop (sampled), if drawn.
+ *
+ * Tries right of the loop (centered on its line), then left, below and above, LABEL_GAP from the loop as drawn (loopBox:
+ * the wobble carries the stroke up to LOOP_REACH past the ring, so a big target's loop would otherwise run under the
+ * words). A side fits when
+ * the box lies TEXT_EDGE inside the display without moving toward the loop. On a side the line crosses, the box slides
+ * along the loop (the smallest slide first) until it is BRANCH_CLEAR off the line; a side with no clear slide yields to
+ * the next, and if no side is clear of the line the first side that fits is used anyway.
+ * When no side fits at all, each side is pushed inside the display and the one covering least of the loop wins among
+ * those that leave the target uncovered (the box is data-ui: the engine's screen reader cannot see under it). Pure.
+ */
+export function textSpot(ring: Ring, target: Rect, size: { width: number; height: number }, box: { w: number; h: number }, branch?: readonly Pt[]): TextSpot {
+  const rb = loopBox(ring)
+  const { w, h } = box
+  const loX = TEXT_EDGE
+  const hiX = size.width - TEXT_EDGE - w
+  const loY = TEXT_EDGE
+  const hiY = size.height - TEXT_EDGE - h
+  const midY = clamp(ring.cy - h / 2, loY, hiY)
+  const midX = clamp(ring.cx - w / 2, loX, hiX)
+  const raw: Record<Side, Pt> = {
+    right: { x: rb.x + rb.w + LABEL_GAP, y: midY },
+    left: { x: rb.x - LABEL_GAP - w, y: midY },
+    below: { x: midX, y: rb.y + rb.h + LABEL_GAP },
+    above: { x: midX, y: rb.y - LABEL_GAP - h }
+  }
+  const order: Side[] = ['right', 'left', 'below', 'above']
+  const inside = (p: Pt): boolean => p.x >= loX && p.x <= hiX && p.y >= loY && p.y <= hiY
+  const clear = (p: Pt): boolean => !branch || branch.length === 0 || !lineHitsRect(branch, { x: p.x, y: p.y, w, h }, BRANCH_CLEAR)
+  let firstFit: TextSpot | undefined
+  for (const side of order) {
+    const p0 = raw[side]
+    if (!inside(p0)) continue
+    firstFit ??= { ...p0, side, fits: true }
+    if (clear(p0)) return { ...p0, side, fits: true }
+    // Slide along the loop's side (across it for left / right, along it for above / below), the smallest slide first.
+    // Never so far that the words leave their loop: about the loop's half plus the box.
+    const across = side === 'right' || side === 'left'
+    const reach = across ? rb.h / 2 + h : rb.w / 2 + w
+    for (let d = SLIDE_STEP; d <= reach; d += SLIDE_STEP) {
+      for (const s of [d, -d]) {
+        const p = across ? { x: p0.x, y: p0.y + s } : { x: p0.x + s, y: p0.y }
+        if (inside(p) && clear(p)) return { ...p, side, fits: true }
+      }
+    }
+  }
+  if (firstFit) return firstFit
+  // Nothing fits as is: push each side inside the display and keep the one covering least of the loop, target uncovered.
+  let best: (TextSpot & { cost: number }) | undefined
+  for (const side of order) {
+    const p = { x: clamp(raw[side].x, loX, hiX), y: clamp(raw[side].y, loY, hiY) }
+    const r = { x: p.x, y: p.y, w, h }
+    // Covering the target costs far more than any loop overlap: only a target too big to avoid gets covered at all.
+    const cost = overlap(r, target) * 1e6 + overlap(r, rb)
+    if (!best || cost < best.cost) best = { ...p, side, fits: false, cost }
+  }
+  return { x: best!.x, y: best!.y, side: best!.side, fits: false }
 }

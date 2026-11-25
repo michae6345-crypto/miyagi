@@ -9,14 +9,61 @@
  *   createReach          "the learner went there": a click inside, or the pointer coming into the box from outside and
  *                        resting there a moment. In Electron the overlay is click-through, so clicks never reach it; it
  *                        only gets forwarded mouse moves. The move rule is the stand-in until main can say "clicked here".
+ *   cleanText / cleanKeys the on-screen coach (Nov 24): a "point" mark in an app lesson may carry the step's action
+ *                        (text, <= 12 words) and its shortcut (keys, <= 3 keycap labels): contract Annotation.text / .keys,
+ *                        still cleaned here (wire data). A mark with text is not timed (timedMarks).
  */
 import type { Annotation } from '../../../../../../shared/contracts/events'
 import { isDrawable, type Pt, type Rect } from './geometry'
 
 export type { Annotation }
 
-/** One drawn mark. `rect` stays in screen points (global space); the layer maps it to the window. */
-export type DrawMark = { key: string; id?: string; rect: Rect; displayId?: number; label?: string; why: Annotation['why']; stepId?: string; askId?: string; born: number }
+/** One drawn mark. `rect` stays in screen points (global space); the layer maps it to the window. `text` / `keys`: the
+ * on-screen coach's step action and shortcut, drawn beside the loop (BuddyLayer TextBox). */
+export type DrawMark = {
+  key: string
+  id?: string
+  rect: Rect
+  displayId?: number
+  label?: string
+  text?: string
+  keys?: string[]
+  why: Annotation['why']
+  stepId?: string
+  askId?: string
+  born: number
+}
+
+/** The step's action is 12 words or fewer by contract; keep the first 12 if an engine sends more. */
+export const MAX_TEXT_WORDS = 12
+/** At most this many keycaps, each label this long at most (a key name, not a sentence). */
+export const MAX_KEYS = 3
+export const MAX_KEY_CHARS = 12
+
+export function cleanText(s: unknown): string | undefined {
+  if (typeof s !== 'string') return undefined
+  const words = s.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, MAX_TEXT_WORDS)
+  return words.length ? words.join(' ') : undefined
+}
+
+/** Keycap labels as the engine spells them: strings only, trimmed, 1 to 12 characters, the first 3. */
+export function cleanKeys(k: unknown): string[] | undefined {
+  if (!Array.isArray(k)) return undefined
+  const out = k
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => v.trim())
+    .filter((v) => v.length >= 1 && [...v].length <= MAX_KEY_CHARS)
+    .slice(0, MAX_KEYS)
+  return out.length ? out : undefined
+}
+
+/** A mark with the coach's text stays while its step is live: no hold timer (holdMs does not apply to it). */
+export const hasText = (m: Pick<DrawMark, 'text'>): boolean => !!m.text
+
+/** The marks the hold timer fades: every mark without text. */
+export function timedMarks<T extends Pick<DrawMark, 'text'>>(marks: readonly T[]): T[] {
+  return marks.filter((m) => !hasText(m))
+}
 
 /** The app's default hold when annotate has no holdMs (the brief: fade after 6 s). */
 export const DEFAULT_HOLD_MS = 6000
@@ -102,6 +149,10 @@ export function mergeMarks(prev: readonly DrawMark[], incoming: readonly Annotat
     const was = prev.find((p) => p.key === (knownKey(m, prev) ?? keyOf(m)))
     if (was && out.includes(was)) continue
     const label = cleanLabel(m.label)
+    // The coach's text and keys: "point" marks only (contract). A re-send with new text updates it in place (same key and
+    // birth, so the stroke does not redraw).
+    const text = m.why === 'point' ? cleanText(m.text) : undefined
+    const keys = text ? cleanKeys(m.keys) : undefined
     out.push({
       key: was ? was.key : keyOf(m),
       ...(hasId ? { id: m.id } : {}),
@@ -109,6 +160,8 @@ export function mergeMarks(prev: readonly DrawMark[], incoming: readonly Annotat
       rect: was && near(was.rect, m) ? was.rect : { x: m.x, y: m.y, w: m.w, h: m.h },
       ...(m.displayId !== undefined ? { displayId: m.displayId } : {}),
       ...(label ? { label } : {}),
+      ...(text ? { text } : {}),
+      ...(keys ? { keys } : {}),
       why: m.why,
       ...(m.stepId ? { stepId: m.stepId } : {}),
       ...(m.askId ? { askId: m.askId } : {}),
@@ -116,6 +169,25 @@ export function mergeMarks(prev: readonly DrawMark[], incoming: readonly Annotat
     })
   }
   return out
+}
+
+/** A drawn mark as the engine sent it (an Annotation, with the coach's text and keys), so it can be drawn again later
+ * (store.ts: a text mark withdrawn while the lesson was quiet comes back when it is live again). */
+export function asAnnotation(d: DrawMark): Annotation & { text?: string; keys?: string[] } {
+  return {
+    ...(d.id ? { id: d.id } : {}),
+    x: d.rect.x,
+    y: d.rect.y,
+    w: d.rect.w,
+    h: d.rect.h,
+    ...(d.displayId !== undefined ? { displayId: d.displayId } : {}),
+    ...(d.label ? { label: d.label } : {}),
+    why: d.why,
+    ...(d.stepId ? { stepId: d.stepId } : {}),
+    ...(d.askId ? { askId: d.askId } : {}),
+    ...(d.text ? { text: d.text } : {}),
+    ...(d.keys ? { keys: [...d.keys] } : {})
+  }
 }
 
 /** The pointer must rest inside a box this long (after coming in from outside) to count as "went there". */

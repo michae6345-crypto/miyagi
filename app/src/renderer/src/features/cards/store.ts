@@ -142,8 +142,9 @@ let pendingTimer: ReturnType<typeof setTimeout> | undefined
  * Buttons with no answer to wait for: open_editor brings the editor forward and the engine says nothing back (no
  * "thinking", no card), so the button spun until PENDING_MS (Michael's desktop test 5). They spin SETTLE_MS, then the
  * card settles: it closes when that button was its only job (the where card's Open), else it stays for its other buttons.
+ * open_in_app (Nov 24) is the same for an app lesson: it opens the lesson's scene in its desktop app.
  */
-const SETTLE = new Set<CardAction>(['open_editor'])
+const SETTLE = new Set<CardAction>(['open_editor', 'open_in_app'])
 const SETTLE_MS = 900
 function settle(kind: CardAction): void {
   const card = get().card
