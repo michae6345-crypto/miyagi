@@ -213,6 +213,15 @@ def _s2():
         return None
 
 
+def _starter_pick(ws, workdir: str | Path) -> str | None:
+    """S2's starter file to show first (its open_file), never README.md: our README is never an editor tab."""
+    try:
+        return ws.open_file_for(Path(workdir), readme=False)
+    except TypeError:  # an older S2 (or a test's stand-in) without readme=: its pick, minus a README
+        f = ws.open_file_for(Path(workdir))
+        return None if f and Path(f).name.lower() == "readme.md" else f
+
+
 def notebook_autosave(workdir: str | Path) -> bool:
     """t9 V3: a notebook lesson's folder under the lessons root autosaves (server.workspace.core.ensure_notebook_autosave),
     so the checks read the cells' outputs from the .ipynb. Never the repo's own folders. Never raises."""
@@ -591,9 +600,26 @@ class Workspace:
         self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
         self.reveal = None  # (path, line) -> revealed? t8: the companion's /open; None = reveal_line on real windows
         self.front = None  # () -> is the editor the active app? None = _editor_in_front (tests inject both)
+        # (folder, file, line) -> shown in the lesson's own open window? None = where_row.reveal on real windows only
+        self.show = None
         # () -> (card, item) when this Mac has no VS Code, else None: real windows only (tests inject a runner, and may
         # inject this too)
         self.editor_check = editor_missing if runner is None else None
+
+    def show_in_lesson_window(self, workdir: str, file: str | None, line: int | None = None) -> bool:
+        """Start with the lesson's window already up: the step's file in THAT window through the companion (no `code`
+        CLI, so VS Code never adds a window or brings back older ones; Nov 24, the 1517 demo). False when no window
+        with the companion has the folder: the caller opens it. Blocking (<= 0.3 s HTTP): call it in a thread."""
+        show = self.show
+        if show is None:
+            if self.run != self._spawn:  # tests inject a runner: never the real companion
+                return False
+            from .where_row import reveal as show
+        try:
+            return bool(file and show(workdir, file, line))
+        except Exception:  # noqa: BLE001 - the CLI open is the fallback
+            log.exception("showing %s in the lesson's window failed", file)
+            return False
 
     @staticmethod
     def _spawn(argv: list[str]) -> bool:
@@ -619,7 +645,8 @@ class Workspace:
         screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
         S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
         automatic open waits until the learner isn't in Miyagi's launcher/cards or typing.
-        file (L2): the file to show, the step's own; None = S2's starter pick (open_file_for, e.g. README.md).
+        file (L2): the file to show, the step's own; None = S2's starter pick (open_file_for), never README.md: a
+        lesson with no step file opens the folder alone (Nov 24: README.md came up as an extra tab).
         busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson).
         miyagi_wait_s: how long Miyagi in front holds an automatic open (then only busy() does); None = the default
         (LESSON_MIYAGI_WAIT_S when full, else until the learner leaves Miyagi)."""
@@ -634,7 +661,7 @@ class Workspace:
             wait = miyagi_wait_s if miyagi_wait_s is not None else (LESSON_MIYAGI_WAIT_S if full else None)
             holds = {"busy": busy, "cancelled": cancelled, "miyagi_wait_s": wait}
             ws.editor.open_lesson_editor(
-                workdir, file or ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
+                workdir, file or _starter_pick(ws, workdir), lesson_id=self._key(), fullscreen=full and real,
                 explicit=explicit, runner=None if (real and not full) else self.run, **(holds if real else {}),
                 **({} if real else {"focus": lambda: None, "background": False, "arrange_windows": False,
                                      "trusted": lambda: False, "previous": None, "windows": lambda: []}))
@@ -645,7 +672,7 @@ class Workspace:
         self.opened = workdir
         if ws is not None:
             runner = None if self.run == self._spawn else self.run
-            ok = ws.open_editor(workdir, file or ws.open_file_for(Path(workdir)), runner=runner)
+            ok = ws.open_editor(workdir, file or _starter_pick(ws, workdir), runner=runner)
             log.info("opened workspace %s in VS Code: %s", workdir, ok)
             return
         ok = False

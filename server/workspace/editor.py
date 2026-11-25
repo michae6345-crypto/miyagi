@@ -633,7 +633,7 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
         report["error"] = "not a folder"
         return report
     if ed is None:
-        report["error"] = "no supported editor installed (Cursor or VS Code)"
+        report["error"] = "no supported editor installed (VS Code)"
         return report
     target = None
     if file:
@@ -1116,20 +1116,58 @@ def lesson_window_state(folder: str | Path) -> bool | None:
 
 def _lesson_window_alive(folder: str | Path) -> bool:
     """Is the editor running with a window on this lesson folder right now? Unknown counts as yes (keep the
-    at-most-once rule); a plain `code <folder>` on a window that is there only focuses it anyway."""
+    at-most-once rule); a plain `code <folder>` on a window that is there only focuses it anyway.
+    The companion extension answers first (its windows list their folders exactly). Without it, an empty title list
+    means "no window" only when titles are readable (Screen Recording granted); without that grant it is unknown
+    (Nov 24, the 1517 demo: the window was up and `code` ran again as a first open)."""
     try:
         ed = preferred_editor()
         if ed and editor_pid(ed) is None:
             return False  # the editor isn't running at all
+    except Exception:  # noqa: BLE001 - no process list: assume it's still there
+        return True
+    seen = _companion_has_folder(folder)
+    if seen is not None:
+        return seen
+    try:
         from .active import vscode_windows
 
         wins = vscode_windows()
     except Exception:  # noqa: BLE001 - no window list: assume it's still there
         return True
     if not wins:
-        return False  # running, but no window open
+        return not _titles_readable()  # running with no window open, or no titles to read (unknown)
     name = Path(folder).expanduser().resolve().name
-    return any(w.get("folder_name") == name for w in wins)
+    names = [w.get("folder_name") for w in wins if isinstance(w, dict)]
+    if not any(names):
+        return True  # windows without a folder in their titles (a title setting): can't tell
+    return name in names
+
+
+def _titles_readable() -> bool:
+    """Can this process read other apps' window titles (macOS Screen Recording)? Preflight only: never prompts."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        import Quartz
+
+        return bool(Quartz.CGPreflightScreenCaptureAccess())
+    except Exception:  # noqa: BLE001 - no pyobjc: unknown
+        return False
+
+
+def _companion_has_folder(folder: str | Path) -> bool | None:
+    """True / False: a VS Code window with the companion extension has / none has `folder` open. None: no companion
+    answered (not installed, or VS Code still starting), so the window list decides."""
+    try:
+        from . import vscode_ext
+
+        wins = vscode_ext.windows()
+    except Exception:  # noqa: BLE001 - the companion is a refinement
+        return None
+    if not wins:
+        return None
+    return any(vscode_ext._inside(folder, f) for w in wins for f in (w.get("folders") or []))
 
 
 def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]] | None = None) -> bool:

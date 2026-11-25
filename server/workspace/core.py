@@ -188,12 +188,15 @@ def set_aside_previous(folder: str | Path) -> Path | None:
         return None
 
 
-def open_file_for(folder: Path) -> str | None:
-    """The starter file prepare() picked to open first (else README.md if present)."""
+def open_file_for(folder: Path, readme: bool = True) -> str | None:
+    """The starter file prepare() picked to open first (else README.md if present; readme=False: else None, the
+    lesson editor's open never shows our README as a tab)."""
     st = read_state(folder) or {}
     f = st.get("open_file")
-    if f and (folder / f).is_file():
+    if f and (folder / f).is_file() and (readme or Path(f).name != st.get("readme")):
         return f
+    if not readme:
+        return None
     return st.get("readme") if st.get("readme") and (folder / st["readme"]).is_file() else None
 
 
