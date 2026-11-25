@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -217,7 +218,10 @@ def test_yarn_project_shows_its_own_command_and_partial_node_modules(tmp_path, m
     assert by["yarn"]["from"] == "yarn.lock" and not by["yarn"]["ok"]
 
 
-def test_make_without_developer_tools_is_never_run(tmp_path, mac):
+def test_make_without_developer_tools_is_never_run(tmp_path, mac, monkeypatch):
+    # The Command Line Tools stub is a macOS thing (project._clt_missing is False elsewhere, where make is real make):
+    # this is the fake Mac's story, so it runs as darwin on any test host (CI is Linux).
+    monkeypatch.setattr(sys, "platform", "darwin")
     root = tmp_path / "c-proj"
     root.mkdir()
     (root / "Makefile").write_text("all:\n\tcc main.c\n")
@@ -228,6 +232,18 @@ def test_make_without_developer_tools_is_never_run(tmp_path, mac):
     assert make["tool"] == "make" and not make["installed"] and make["install"]["command"] == "xcode-select --install"
     assert rep["_next"] == "make is missing. Run xcode-select --install in Terminal."
     assert not any(a[0].endswith("make") for a in mac.argv)
+
+
+def test_make_off_macos_is_the_real_make(tmp_path, mac, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")  # no Apple stub there: no xcode-select, make is checked as itself
+    root = tmp_path / "c-proj"
+    root.mkdir()
+    (root / "Makefile").write_text("all:\n\tcc main.c\n")
+    mac.clt = False
+    mac.bins = {"make": "4.3"}
+    make = full(root, mac)["items"][0]
+    assert make["tool"] == "make" and make["installed"]
+    assert not any(a[0] == "xcode-select" for a in mac.argv)
 
 
 def test_long_requirements_sends_missing_rows_and_counts_the_rest(tmp_path, mac):
