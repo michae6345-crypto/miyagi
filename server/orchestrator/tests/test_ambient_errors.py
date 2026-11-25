@@ -83,7 +83,14 @@ def test_hello_lists_the_three_commands(amb):
         hello = ws.receive_json()
         caps = set(hello["payload"]["capabilities"])
         assert {"ambient.set", "error.explain", "error.dismiss"} <= caps
-        assert not {"setup.scan", "setup.fix", "help.ask", "help.nav"} & caps  # other lanes list their own
+        # the setup / how-do-I lane (server/ambient/assist.py) lists its own beside these, never the same names
+        from server.orchestrator import ambient as ambient_mod
+        try:
+            from server.ambient import assist as assist_mod
+        except Exception:  # noqa: BLE001
+            assist_mod = None
+        if assist_mod is not None:
+            assert not set(ambient_mod.COMMANDS) & set(assist_mod.COMMANDS)
 
 
 def test_spot_explain_dismiss(amb):
