@@ -21,7 +21,7 @@ import type { Layout } from '../../../../preload/api'
 import { isElectron } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { useWindowArgs } from '../../core/surfaces'
-import { color, copy, font } from '../../core/theme'
+import { color, copy, font, v4c } from '../../core/theme'
 import { Checklist } from './Checklist'
 import { Consent } from './Consent'
 import { Guided } from './Guided'
@@ -143,7 +143,7 @@ export function Onboarding({ layout }: { layout: Layout }): ReactNode {
   const shown: Phase | 'consent' | undefined = fixed && fixed !== 'intro' && !consent ? 'consent' : fixed
 
   return (
-    <div data-onb-window data-phase={shown} className="relative flex h-full w-full select-none overflow-hidden" style={{ background: color.window, color: color.text, fontFamily: font.ui }}>
+    <div data-onb-window data-phase={shown} className="relative flex h-full w-full select-none overflow-hidden" style={{ background: v4c.page, color: color.text, fontFamily: font.ui }}>
       <AnimatePresence>{shown === 'intro' && <Intro key="intro" onDone={endIntro} hold={hold} />}</AnimatePresence>
       {shown === 'consent' && <Consent chrome="window" enterDelay={fromIntro ? 0.24 : 0} onDone={() => undefined} />}
       {shown === 'setup' && <Guided rows={rows} width={layout.width} height={layout.height} enterDelay={fromIntro ? 0.24 : 0} onFinish={() => setPhase('ready')} />}
