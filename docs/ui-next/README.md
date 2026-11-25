@@ -12,6 +12,7 @@ Mockups and content from Nov 22 to 24 2026. No app code. The app pages and the e
 | `INTEGRATIONS.md` | How Blender and CAD work should be checked, and the contract ask. |
 | `tools/render.mjs` | Renders screens to PNG with headless Chrome. |
 | `apps/` | The apps list for Home (MIC-87): the note and its render script. |
+| `social/` | Friends and the leaderboard (MIC-84, MIC-85): the two specs and their render script. |
 
 ## Screens
 
@@ -85,6 +86,26 @@ Which apps miyagi teaches in, shown on Home. The note is `apps/NOTE.md`. The scr
 The renders are in `shots/apps/`, light and dark. `node apps/shoot.mjs [screen ...]` renders them again and holds each height.
 
 No third-party logo is drawn: every app is a name. The note says why.
+
+## Friends and the leaderboard, Nov 24 (MIC-84, MIC-85)
+
+A weekly board of steps passed among friends, and how friends are added. The specs are `social/LEADERBOARD.md` and `social/FRIENDS.md`; Adrian picked each decision in them on Nov 24. The screens are in `mock/social.js` and `mock/social.css`, loaded after `v4.js`. They add screens and change none.
+
+| Screen | What it shows |
+|---|---|
+| `friends` | The board: this week, last week, and your own week in the rail |
+| `home-friends` | Home with four rows of the board in the rail |
+| `friends-first`, `friends-on` | Friends off on first run, and the step that turns it on |
+| `friends-empty`, `friends-offline`, `friends-off`, `friends-guest` | No friends yet, offline, turned off later, not signed in |
+| `friends-list` | The Friends tab: requests, the list, adding |
+| `friends-add`, `friends-add-found`, `friends-add-miss` | Adding by code: empty, a code that matches, one that does not |
+| `friend`, `friends-menu`, `friends-remove`, `friends-block` | A friend's panel, the menu on a friend, remove, block |
+| `settings-friends` | Settings, Friends |
+| `friends-teen-on`, `friends-teen-add`, `settings-friends-teen` | 13 to 17: turning it on, a single-use link, Settings |
+
+The renders are in `shots/social/`, light and dark. `node social/shoot.mjs [screen ...]` renders them again and holds each height.
+
+The learners and their numbers are sample data. The Friends item in the sidebar, the block on Home and the Settings page are mockups of pages built in the app lane. The research note behind the bracketed numbers in the specs (`RESEARCH.md`) is attached to MIC-84 and MIC-85 on Linear and is not kept here.
 
 ## The catalog
 
