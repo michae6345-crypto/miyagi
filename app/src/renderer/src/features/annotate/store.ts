@@ -20,6 +20,10 @@
  * timed. It stays while its step is live and goes on step.passed, a step.started for another step, lesson.ended, a new
  * (non-replay) lesson.ready, Esc, annotate {clear}, a replacing annotate, or the learner reaching it. Marks without text
  * keep the hold above.
+ * An explicit ask brings pointing back after the learner reached or dismissed it: a Show me press ("where?"), or a
+ * "Not yet" card (verdict not_done) for the current step. The engine re-sends the point mark then (same id), and the
+ * next annotate after the ask draws its marks again even if they are gone this step. If the re-send came first (it was
+ * skipped as gone), the "Not yet" draws it again itself. A re-send with no ask stays gone.
  * Nothing here takes the mouse: the layer is click-through, always.
  */
 import { create } from 'zustand'
@@ -42,6 +46,12 @@ let engineAnnotates = false
 /** The last spotlight box bridged, so the engine's re-reads of one box draw it once. */
 let lastSpot: Rect | undefined
 const SPOT_JITTER = 8
+/** The step now running (step.started), so a "Not yet" for it counts as an ask. */
+let curStep: string | undefined
+/** A Show me press or a "Not yet" for this step, not yet answered by an engine annotate: that annotate draws again. */
+let engineAsked = false
+/** The marks of this step's latest annotate that were skipped as gone (and its hold): a "Not yet" draws them again. */
+let dropped: { marks: Annotation[]; holdMs: number } | undefined
 
 function stopHold(): void {
   clearTimeout(hold)
@@ -65,6 +75,8 @@ function forget(): void {
   gone.clear()
   lastAsk = undefined
   lastSpot = undefined
+  engineAsked = false
+  dropped = undefined
   if (get().marks.length) set({ marks: [] })
 }
 
@@ -109,12 +121,39 @@ onMessage('annotate', (p) => {
   if (!p || typeof p !== 'object') return
   if ('clear' in p && p.clear) return fade()
   if (!('marks' in p)) return
-  show(validMarks(p.marks), holdFor(p.holdMs))
+  const marks = validMarks(p.marks)
+  const holdMs = holdFor(p.holdMs)
+  // The answer to an explicit ask (Show me, "Not yet"): its marks are born again even if reached or dismissed.
+  if (engineAsked) {
+    engineAsked = false
+    marks.forEach(askAgain)
+  }
+  show(marks, holdMs)
+  const drawn = get().marks
+  const skipped = marks.filter((m) => !sameMarkKeys(m, drawn).length)
+  dropped = skipped.length ? { marks: skipped, holdMs } : undefined
+})
+
+// "Not yet" for the step now running: the learner still needs the pointing, so it counts as an ask.
+onMessage('card', (p) => {
+  if (p?.verdict !== 'not_done' || !p.stepId || p.stepId !== curStep) return
+  if (!dropped) {
+    engineAsked = true
+    return
+  }
+  // The engine's re-send came before the card and was skipped as gone: draw it again now.
+  const again = dropped
+  dropped = undefined
+  again.marks.forEach(askAgain)
+  show(again.marks, again.holdMs)
 })
 
 onMessage('step.started', (p) => {
+  if (p?.stepId) curStep = p.stepId
   if (p?.replay) return // a reconnect's replay of the step already running: not a new step
   const step = p?.stepId
+  engineAsked = false
+  dropped = undefined
   const keep = get().marks.filter((m) => m.stepId && m.stepId === step)
   stopHold()
   gone.clear()
@@ -124,11 +163,19 @@ onMessage('step.started', (p) => {
   const now = Date.now()
   holdTimed(keep, timedMarks(keep).length ? now + DEFAULT_HOLD_MS : undefined, now)
 })
-onMessage('step.passed', forget)
-onMessage('lesson.ended', forget)
+onMessage('step.passed', () => {
+  curStep = undefined
+  forget()
+})
+onMessage('lesson.ended', () => {
+  curStep = undefined
+  forget()
+})
 // A reconnect's replay of the lesson already running is not a new lesson: what is drawn stays.
 onMessage('lesson.ready', (p) => {
-  if (!p?.replay) forget()
+  if (p?.replay) return
+  curStep = undefined
+  forget()
 })
 onUi('reset', () => {
   forget()
@@ -147,6 +194,8 @@ void Promise.all([import('../spotlight/store'), import('../../core/shortcuts')])
   usePressed.subscribe((p, was) => {
     if (!p.kind || (p.kind === was.kind && p.at === was.at)) return
     showMeAsked = p.kind === 'show_me'
+    // Show me ("where?") asks the engine too: its next annotate draws even marks already reached or dismissed.
+    if (showMeAsked) engineAsked = true
   })
   onMessage('step.started', () => (showMeAsked = false))
   useSpotlight.subscribe((s, prev) => {

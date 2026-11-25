@@ -18,6 +18,11 @@ island; the steps list stays one click away (the Mini pill).
     stepId (kept for the same stepId), lesson.ended, a non-replay lesson.ready, Esc, annotate {clear}, a replacing
     annotate, or the learner reaching it (createReach). Marks without text keep the 6 s default. A replayed
     lesson.ready no longer wipes the drawn marks (it is the same lesson).
+    Reached or dismissed marks stay gone this step against a bare re-send, but an explicit ask brings them back
+    (review round 1): a Show me press ("where?"), or a `card` with verdict `not_done` for the current stepId ("Not yet").
+    The next annotate after the ask runs `askAgain` on its marks (they are born again, with their text). If the
+    engine's re-send came before the "Not yet" card (skipped as gone), the card draws it again itself. The panel is
+    collapsed in app lessons, so this is the learner's only pointing.
   - `geometry.ts`: pure `textSpot(ring, target, size, box, branch?)`: right of the loop, else left, below, above
     (LABEL_GAP from it); never over the target or the loop's box; 16 pt inside the display; slides along the loop to
     stay 10 pt off the buddy's line; when no side fits, the side covering least of the loop with the target uncovered.
@@ -46,15 +51,22 @@ island; the steps list stays one click away (the Mini pill).
   the Add menu" and its keycap to the right.
 - ~15 s: step 2, a target at the right edge: the text flips to the left of the loop.
 - ~30 s: step 3, a bar along the bottom: the text sits above it, beside the line.
-- Click the Mini pill (the island): the steps panel opens; the text stays. Esc fades the text.
+- Click the Mini pill (the island): the steps panel opens; the text stays. Esc fades the text; Show me (in the
+  panel, or its shortcut) draws it again.
+- After a pass the drawer holds "Step done" on the island until Continue / Next step; the next step's mark is
+  already drawn under it.
 - Compare http://localhost:5205/?scenario=lesson-panel (no lesson.app): the drawer still opens as before.
 
 Checks run (Nov 24): `npm run typecheck`; `node --import tsx --test src/renderer/src/features/annotate/*.test.ts`
-(83 pass); `npm test` (746 pass, no failures); brand lint on the added lines in app/src (no hex, rgba, hand-typed
+(87 pass, round 1: Show me / "Not yet" bring a reached or dismissed text mark back, a bare re-send does not);
+`npm test` (746 pass, no failures); brand lint on the added lines in app/src (no hex, rgba, hand-typed
 keycaps, Cursor, dangerouslySetInnerHTML, green, capital M; test keycaps are escaped engine data).
 
 Shots (headless Chromium, 1440x900, the stage scales a 1600x1000 display):
 `agents/shots/app-onscreen-coach-circle.png`, `-collapsed.png`, `-edge-right.png`, `-edge-bottom.png`, `-steps.png`.
+- `-collapsed.png` is its own capture (`&draw=slow`, mid-draw, the island collapsed to "Click to reopen · 1 of 3").
+- `-edge-right.png` / `-edge-bottom.png` are taken after pressing Continue on the held "Step done" card, so they show
+  only the live step (the Mini pill still reads "Step n passed", the drawer's own wording).
 
 ## Unverified
 - Nothing ran in Electron or against a live engine: no real `annotate` with text, no real `lesson.app`.

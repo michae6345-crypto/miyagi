@@ -1,7 +1,8 @@
 /**
  * On-screen coach (Nov 24), offline, with mock timers and no window:
  *   - store.ts: a text mark has no hold timer (it stays while its step is live), a plain mark still fades at 6 s; what
- *     takes a text mark away (another step, step.passed, Esc, annotate {clear}, a new lesson, not a replay).
+ *     takes a text mark away (another step, step.passed, Esc, annotate {clear}, a new lesson, not a replay); what brings
+ *     it back after the learner reached or dismissed it (a Show me press, a "Not yet" for this step; never a bare re-send).
  *   - onscreen.ts: lesson.ready with lesson.app asks core's `panel` UI event to collapse, once, after the drawer's own
  *     lesson.ready handler; never without app, never on a replay.
  * `node --import tsx --test src/renderer/src/features/annotate/onscreen.test.ts`
@@ -11,14 +12,32 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, it, mock } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 // store.ts imports the spotlight store and core/shortcuts late (its spotlight bridge); they pull in the whole renderer.
-// Here they are inert stand-ins: nothing in these tests goes through the bridge.
+// Here they are tiny stand-in stores: the spotlight one stays still, the pressed one lets a test press Show me.
 const dir = mkdtempSync(join(tmpdir(), 'onscreen-'))
 const STUB = pathToFileURL(join(dir, 'stub.mjs')).href
-writeFileSync(join(dir, 'stub.mjs'), 'const store = { subscribe: () => () => {}, getState: () => ({}) }\nexport const useSpotlight = store\nexport const usePressed = store\n')
+writeFileSync(
+  join(dir, 'stub.mjs'),
+  [
+    'function store(init) {',
+    '  let s = init',
+    '  const subs = new Set()',
+    '  return {',
+    '    getState: () => s,',
+    '    setState: (p) => { const was = s; s = { ...s, ...p }; subs.forEach((f) => f(s, was)) },',
+    '    subscribe: (f) => { subs.add(f); return () => subs.delete(f) }',
+    '  }',
+    '}',
+    // One pair per process: store.ts may load this file apart from the test (its own module instance).
+    'const stubs = (globalThis.__annotateStubs ??= { useSpotlight: store({}), usePressed: store({ kind: undefined, at: 0 }) })',
+    'export const useSpotlight = stubs.useSpotlight',
+    'export const usePressed = stubs.usePressed',
+    ''
+  ].join('\n')
+)
 registerHooks({
   resolve(specifier, context, next) {
     if (context.parentURL?.includes('/features/annotate/store') && /(spotlight\/store|core\/shortcuts)$/.test(specifier)) return { url: STUB, shortCircuit: true }
@@ -29,7 +48,7 @@ registerHooks({
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
 
 const { dispatch, emitUi, onMessage, onUi } = require('../../core/bus') as typeof import('../../core/bus')
-const { useAnnotate } = require('./store') as typeof import('./store')
+const { fade, useAnnotate } = require('./store') as typeof import('./store')
 require('./onscreen')
 
 const send = (type: string, payload: unknown): void => dispatch({ type, payload } as never)
@@ -54,6 +73,18 @@ beforeEach(() => {
   log.length = 0
 })
 afterEach(() => mock.timers.runAll())
+
+/** The stand-in pressed store, once store.ts's late import of it has resolved. */
+let pressed: { setState: (p: { kind?: string; at: number }) => void }
+before(async () => {
+  await new Promise((r) => setImmediate(r))
+  pressed = (globalThis as unknown as { __annotateStubs: { usePressed: typeof pressed } }).__annotateStubs.usePressed
+})
+after(() => mock.timers.reset())
+const press = (kind: string): void => pressed.setState({ kind, at: Date.now() })
+const notYet = (stepId: string): void => send('card', { kind: 'step', title: 'Not yet', body: '', source: 'judge', verdict: 'not_done', stepId })
+const startS1 = (): void => send('step.started', { stepId: 's1', index: 0, title: 't', instructions: 'i' })
+const reach = (): void => fade([(useAnnotate.getState().marks[0] as { key: string }).key])
 
 describe('text mark hold (store.ts)', () => {
   it('a text mark has no fade timer; a plain mark still fades at 6 s', () => {
@@ -94,10 +125,54 @@ describe('text mark hold (store.ts)', () => {
     send('step.passed', { stepId: 's1' })
     assert.deepEqual(ids(), [])
   })
-  it('Esc removes it, and a re-send this step does not bring it back', () => {
+  it('Esc removes it; a plain re-send this step (no ask) does not bring it back', () => {
+    startS1()
     send('annotate', { marks: [textMark] })
     emitUi('dismiss')
     assert.deepEqual(ids(), [])
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+  })
+  it('Esc, then Show me: the re-send draws it again with its text', () => {
+    startS1()
+    send('annotate', { marks: [textMark] })
+    emitUi('dismiss')
+    press('show_me')
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+    assert.equal(marks()[0].text, 'Add a torus from the Add menu')
+    // The ask is spent: reached again, a bare re-send stays gone.
+    reach()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+  })
+  it('reached, then "Not yet" for this step: the re-send draws it again', () => {
+    startS1()
+    send('annotate', { marks: [textMark] })
+    reach()
+    assert.deepEqual(ids(), [])
+    notYet('s1')
+    assert.deepEqual(ids(), [], 'the card alone draws nothing new')
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+    assert.equal(marks()[0].text, 'Add a torus from the Add menu')
+    mock.timers.tick(60_000)
+    assert.deepEqual(ids(), ['os-s1-1'], 'still untimed')
+  })
+  it('reached, a re-send first (skipped), then "Not yet": the card draws it again', () => {
+    startS1()
+    send('annotate', { marks: [textMark] })
+    reach()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+    notYet('s1')
+    assert.deepEqual(ids(), ['os-s1-1'])
+  })
+  it('a "Not yet" for another step is not an ask', () => {
+    startS1()
+    send('annotate', { marks: [textMark] })
+    emitUi('dismiss')
+    notYet('s0')
     send('annotate', { marks: [textMark] })
     assert.deepEqual(ids(), [])
   })
