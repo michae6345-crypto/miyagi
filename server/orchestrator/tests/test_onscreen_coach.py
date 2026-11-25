@@ -376,8 +376,10 @@ def test_the_onscreen_path_never_calls_a_model(rig, monkeypatch, fast):
     reader = types.SimpleNamespace(where=boom, describe=boom, overlay_rects=lambda: [],
                                    latest=lambda: ScreenObservation(
                                        t=time.time(), app="Blender", windows=[Window("Blender", "d", Rect(0, 0, 1200, 800))],
-                                       blocks=[Block("Add", Rect(400, 300, 40, 16), 0.9, app="Blender")]))
-    monkeypatch.setattr(OC, "_observe", lambda s: (reader.latest(), reader.overlay_rects(), "Blender"))
+                                       blocks=[Block("Add", Rect(400, 300, 40, 16), 0.9, app="Blender")],
+                                       screen=Rect(0, 0, 1440, 900)))
+    monkeypatch.setattr(OC, "_observe", lambda s: (reader.overlay_rects(), "Blender"))
+    monkeypatch.setattr(OC, "_frame", lambda s: reader.latest())
     monkeypatch.setitem(__import__("sys").modules, "server.workspace.blender_ext", None)
     monkeypatch.setattr(app_target, "ax_target", lambda *a, **kw: None)
 
@@ -403,6 +405,9 @@ def test_the_onscreen_path_never_calls_a_model(rig, monkeypatch, fast):
     ("Render with F12.", ["F12"]),
     ("Press Esc, then Delete, then Return, then Space.", ["Esc", "Delete", "Return"]),
     ("Select a face in the viewport.", []),
+    ("Type 0.5 in the Width field.", []),      # a typed value is never a keycap
+    ("Type 2 and press Enter.", ["Return"]),
+    ("Set the scale to 1,5 and press Tab.", ["Tab"]),
 ])
 def test_keys(text, want):
     assert OC.keys(text) == want
@@ -428,3 +433,157 @@ def test_contract_marks_validate():
     assert engine_message("annotate", m)["payload"] == json.loads(json.dumps(m))
     assert engine_message("annotate", {"marks": [{"why": "answer", "askId": "a1", "x": 1, "y": 2, "w": 3, "h": 4}]})
     assert engine_message("annotate", {"clear": True})
+
+
+# ------------------------------------------------------------------ review round 1
+
+class FakeS:
+    """The parts of a LessonSession the coach reads: graph, step, step_gen, passed, screen, emit, clock."""
+
+    def __init__(self, graph: dict | None = None, screen=None):
+        self.graph = app_lesson.adapt(graph or blender_graph())
+        self.steps = self.graph["steps"]
+        self.step, self.step_gen, self.passed = self.steps[0], 1, False
+        self.screen, self.spot_rect, self.t = screen, None, 1000.0
+        self.events: list[tuple[str, dict]] = []
+
+    def clock(self) -> float:
+        return self.t
+
+    async def emit(self, type_: str, payload: dict | None = None) -> None:
+        self.events.append((type_, payload or {}))
+        if type_ == "spotlight" and (payload or {}).get("clear"):
+            self.spot_rect = None
+
+    def _live_front(self) -> str:
+        return "Blender"
+
+    def of(self, type_: str) -> list[dict]:
+        return [p for t, p in self.events if t == type_]
+
+
+def blender_frame(age_s: float) -> ScreenObservation:
+    return ScreenObservation(t=time.time() - age_s, app="Blender", windows=[Window("Blender", "d", Rect(0, 0, 1200, 800))],
+                             blocks=[Block("Add", Rect(400, 300, 40, 16), 0.9, app="Blender")],
+                             screen=Rect(0, 0, 1440, 900))
+
+
+@pytest.fixture
+def real_chain(monkeypatch):
+    """The real app_target.resolve with no bridge and no AX: OCR on the frame decides."""
+    monkeypatch.setitem(__import__("sys").modules, "server.workspace.blender_ext", None)
+    monkeypatch.setattr(app_target, "ax_target", lambda *a, **kw: None)
+
+
+def test_a_still_screens_old_frame_is_refreshed_and_circled(real_chain):
+    # the reader keeps its latest frame until the screen changes: a learner reading the step leaves it 5 s old
+    class Bridge:  # ScreenBridge: fresh() captures + OCRs when the latest frame is older than max_age
+        def __init__(self):
+            self.ages: list[float] = []
+            self.reader = types.SimpleNamespace(latest=lambda: blender_frame(5.0), overlay_rects=lambda: [])
+
+        def fresh(self, max_age: float = 1.0):
+            self.ages.append(max_age)
+            return blender_frame(0.0)
+
+    br = Bridge()
+    s = FakeS(screen=br)
+    assert run(OC.on_where(s, s.step)) is True
+    assert br.ages == [app_target.MAX_FRAME_AGE_S]
+    ms = [p for p in s.of("annotate") if p.get("marks")]
+    assert len(ms) == 1 and ms[0]["marks"][0]["label"] == "Add" and ms[0]["marks"][0]["x"] == 400.0
+    # without a ScreenBridge the 5 s old latest frame is all there is: refused, no circle
+    s2 = FakeS(screen=types.SimpleNamespace(reader=br.reader))
+    assert run(OC.on_where(s2, s2.step)) is False and s2.of("annotate") == []
+
+
+def test_a_paused_screen_bridge_gives_no_frame_and_no_circle(real_chain):
+    s = FakeS(screen=types.SimpleNamespace(fresh=lambda max_age=1.0: None,
+                                           reader=types.SimpleNamespace(latest=lambda: blender_frame(0.0))))
+    assert run(OC.on_where(s, s.step)) is False and s.of("annotate") == []
+
+
+def tinkercad_graph() -> dict:
+    return {
+        "lesson": {"id": "lesson-tinkercad-keychain", "title": "Tinkercad: design a keychain", "goal": "a keychain"},
+        "sources": [{"id": "src1", "kind": "blog", "title": "Tinkercad keychain", "url": "https://example.com/kc"}],
+        "steps": [{"id": "s1", "index": 1, "title": "Add a box", "instructions": 'Drag a "Box" onto the Workplane.',
+                   "checks": [{"id": "c1", "type": "screen_contains", "label": "box", "pattern": "Box"}],
+                   "targets": [{"match": "Box"}], "explanations": [], "hints": [], "common_mistakes": []}],
+    }
+
+
+def test_a_web_app_lesson_has_no_app_and_no_point_mark(rig, resolver):
+    g = tinkercad_graph()
+    g["lesson"]["app"] = {"tool": "tinkercad", "label": "Tinkercad"}  # what app_lesson.adapt sets for a WEB_APP
+    run(start(rig, g))
+    assert not OC.is_app_lesson(rig.s)
+    ready = rig.of("lesson.ready")[-1]
+    assert "app" not in ready["lesson"]
+    engine_message("lesson.ready", ready)
+    run(rig.s.action("show_me"))
+    run(settle(rig))
+    assert marks(rig) == [] and resolver.calls == []
+
+
+@pytest.mark.parametrize("app", [
+    {"tool": "tinkercad", "label": "Tinkercad"},
+    {"tool": "autocad", "label": "AutoCAD", "using": "Onshape"},     # repin to a web alternative
+    {"tool": "photoshop", "label": "Photoshop", "using": "Photopea"},
+])
+def test_web_apps_and_web_alternatives_are_not_app_lessons(app):
+    g = blender_graph()
+    g["lesson"]["app"] = app
+    assert not OC.is_app_lesson(types.SimpleNamespace(graph=g))
+    assert OC.ready_app(types.SimpleNamespace(graph=g)) is None
+
+
+@pytest.mark.parametrize("app", [{"tool": "blender"}, {"tool": "blender", "label": ""}, {"tool": "blender", "label": 3}])
+def test_lesson_ready_needs_a_string_tool_and_label(rig, app):
+    g = blender_graph()
+    g["lesson"]["app"] = app
+    rig.s.graph = g
+    ready = rig.s._lesson_ready_payload()
+    assert "app" not in ready["lesson"]
+    engine_message("lesson.ready", ready)  # the whole lesson.ready still validates
+
+
+def test_a_show_me_that_resolves_while_the_step_passes_sends_nothing(monkeypatch):
+    r = Resolver()
+    r.gate = threading.Event()
+    monkeypatch.setattr(app_target, "resolve", r)
+    s = FakeS()
+
+    async def go():
+        task = asyncio.ensure_future(OC.on_where(s, s.step))
+        for _ in range(100):
+            if r.calls:
+                break
+            await asyncio.sleep(0.01)
+        assert r.calls
+        s.passed = True  # step.passed (and clear()) while the resolver ran
+        r.gate.set()
+        return await task
+
+    assert run(go()) is False
+    assert s.of("annotate") == []
+
+
+def test_a_spotlight_box_already_up_goes_when_the_mark_does(rig, monkeypatch, fast):
+    monkeypatch.setattr(app_target, "resolve", Resolver(None))
+    run(start(rig))
+    assert marks(rig) == []
+    rig.s.spot_rect = {"x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0}  # an off-track box up for this step
+    monkeypatch.setattr(app_target, "resolve", Resolver(HIT))
+    mark = rig.mark()
+    assert run(OC.on_where(rig.s, rig.s.step)) is True
+    after = [(e["type"], e["payload"]) for e in rig.since(mark)]
+    kinds = [t for t, p in after if t == "annotate" or (t == "spotlight" and p.get("clear"))]
+    assert kinds == ["spotlight", "annotate"] and rig.s.spot_rect is None
+
+
+def test_no_spotlight_clear_when_no_box_is_up():
+    s = FakeS()
+    run(OC._send(s, s.step, {"id": "os-s1-1", "why": "point", "stepId": "s1", "x": 1, "y": 2, "w": 30, "h": 20},
+                 "where", HIT))
+    assert [t for t, _ in s.events] == ["annotate"]

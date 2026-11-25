@@ -3607,8 +3607,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         origin = lesson.get("origin")  # any link (ANY-LINK.md): the BuildSource a web / github lesson was built from
         if isinstance(origin, dict) and origin.get("kind") in ("web", "github") and isinstance(origin.get("title"), str):
             info["origin"] = {k: origin[k] for k in ("kind", "title", "url", "site", "author") if isinstance(origin.get(k), str)}
-        if isinstance(lesson.get("app"), dict) and lesson["app"].get("tool"):  # on-screen coach: the desktop app
-            info["app"] = {k: lesson["app"][k] for k in ("tool", "label", "using") if lesson["app"].get(k)}
+        if (app := onscreen_coach.ready_app(self)) is not None:  # on-screen coach: a desktop-app lesson's app only
+            info["app"] = app
         if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
             info["primer"] = [
                 {k: v for k, v in item.items() if k in ("id", "title", "body", "code", "diagramPrompt") and v}

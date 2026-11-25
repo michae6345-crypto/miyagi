@@ -20,10 +20,14 @@ def step(instr: str = "Click Add, then choose Mesh > Torus.", **kw) -> dict:
     return {"id": "s1", "title": "Add a torus", "instructions": instr, **kw}
 
 
-def obs(blocks=(), *, app: str = "Blender", t: float | None = None, windows=None) -> ScreenObservation:
+PRIMARY = Rect(0, 0, 1440, 900)  # the primary display, in points
+
+
+def obs(blocks=(), *, app: str = "Blender", t: float | None = None, windows=None,
+        screen: Rect = PRIMARY) -> ScreenObservation:
     return ScreenObservation(t=time.time() if t is None else t, app=app,
                              windows=windows if windows is not None else [Window("Blender", "donut.blend", WIN)],
-                             blocks=list(blocks))
+                             blocks=list(blocks), screen=screen)
 
 
 def blk(text: str, x: float, y: float, w: float = 40, h: float = 16, conf: float = 0.9, app: str = "Blender") -> Block:
@@ -254,3 +258,50 @@ def test_gate():
     assert T.gate(Rect(100, 50, 900, 600), WIN) is None
     assert T.gate(Rect(100, 50, 900, 600), WIN, area=True) is not None
     assert T.gate(Rect(400, 300, 40, 20), WIN, [{"x": 390, "y": 290, "w": 100, "h": 100}]) is None
+
+
+# ------------------------------------------------------------------ review round 1
+
+@pytest.mark.parametrize("win,hit", [
+    (Rect(1500, 100, 1000, 700), Rect(2000, 300, 40, 20)),   # a display to the right of a 1440-wide primary
+    (Rect(100, -800, 1000, 700), Rect(400, -500, 40, 20)),   # a display above it
+])
+def test_a_window_on_another_display_is_never_circled(no_bridge, win, hit):
+    # marks carry no displayId: a rect off the primary display would be drawn on the primary one
+    o = obs([blk("Add", hit.x, hit.y)], windows=[Window("Blender", "donut.blend", win)])
+    ax = Recorder((hit, win))
+    assert T.resolve(step("Click Add."), BLENDER, o, [], ax_fn=ax) is None
+    assert ax.calls  # AX found it; the display check refused it
+    assert T.resolve(step("Click Add."), BLENDER, obs(), [], ax_fn=Recorder((Rect(300, 60, 40, 20), WIN))).via == "ax"
+
+
+def test_an_unknown_primary_display_is_no_circle(no_bridge):
+    o = obs([blk("Add", 400, 70)], screen=Rect(0, 0, 0, 0))
+    assert T.resolve(step("Click Add."), BLENDER, o, [], ax_fn=Recorder((Rect(300, 60, 40, 20), WIN))) is None
+
+
+RAW_MAIN = {"x": 0, "y": 0, "width": 2000, "height": 1300, "areas": [
+    {"type": "VIEW_3D", "ui_type": "VIEW_3D", "x": 0, "y": 200, "width": 1500, "height": 1100},
+    {"type": "OUTLINER", "ui_type": "OUTLINER", "x": 1500, "y": 900, "width": 500, "height": 400}]}
+RAW_PREFS = {"x": 0, "y": 0, "width": 1400, "height": 1100, "areas": [
+    {"type": "PREFERENCES", "ui_type": "PREFERENCES", "x": 0, "y": 0, "width": 1400, "height": 1100}]}
+
+
+def test_raw_bridge_with_several_windows_places_areas_on_the_one_that_fits(monkeypatch):
+    fake_bridge(monkeypatch, lambda: {"origin": "bottom-left", "windows": [RAW_MAIN, RAW_PREFS]})
+    main = Rect(100, 50, 1000, 678)   # 2000 x 1300 px at 2 px / pt + a 28 pt title bar
+    prefs = Rect(200, 100, 700, 578)  # 1400 x 1100 px at 2 px / pt + a 28 pt title bar
+    st = step("Rename it in the Outliner.")
+    # the main window in front: its Outliner, on it
+    o = obs(windows=[Window("Blender", "donut.blend", main), Window("Blender", "Preferences", prefs)])
+    t = T.resolve(st, BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder())
+    assert t is not None and t.via == "bridge" and t.rect == Rect(850, 78, 250, 200)
+    # Preferences in front: the main window's Outliner is never placed on it
+    o = obs(windows=[Window("Blender", "Preferences", prefs), Window("Blender", "donut.blend", main)])
+    assert T.resolve(st, BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder()) is None
+
+
+def test_raw_bridge_with_two_windows_of_one_shape_is_ambiguous(monkeypatch):
+    fake_bridge(monkeypatch, lambda: {"origin": "bottom-left", "windows": [RAW_MAIN, {**RAW_MAIN, "x": 40}]})
+    o = obs(windows=[Window("Blender", "donut.blend", Rect(100, 50, 1000, 678))])
+    assert T.resolve(step("Rename it in the Outliner."), BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder()) is None

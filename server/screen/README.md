@@ -276,7 +276,9 @@ finds it for free, with no model call:
   "Click <Name>", then Blender area words.
 - **Bridge**: `server.workspace.blender_ext.ui_rects()`, imported inside the function only (absent, missing, None, a
   raise or an unknown shape: skip). Blender's raw `/ui` (pixels, origin bottom-left, areas relative to their window)
-  is placed on the app's window from the frame, bottom-aligned. A points shape `{window, areas, objects}` is taken as
+  is placed on the app's window from the frame, bottom-aligned; with several Blender windows (Preferences, a pop-out
+  editor) only the one whose shape fits the front window (width-scaled height + a ~28 pt title bar), and none when two
+  fit alike. A points shape `{window, areas, objects}` is taken as
   is. Area words: viewport / 3D view `VIEW_3D`, properties / modifier `PROPERTIES`, outliner `OUTLINER`, timeline
   `TIMELINE`, shader editor `NODE_EDITOR`; object names in the step match `objects` (never one the step adds).
 - **AX**: a bounded walk (<= 2500 nodes) of the named app's focused window (`ax.attr`, `ax.rect_of`, `ax._labels`,
@@ -284,6 +286,12 @@ finds it for free, with no model call:
 - **OCR**: the frame's blocks in that app's window equal to the phrase (or a word run inside a block), or a fuzzy ratio
   >= 92 for 4+ char phrases, confidence >= 0.5. Exactly one candidate, or a best that beats the second by >= 8.
 - **Gate** (a wrong circle is worse than none): outside the app's window, under miyagi's overlay, under 6 pt a side,
-  over 40% of the window (a bridge area aside), a frame older than 2 s, or another app in front: no rect.
+  over 40% of the window (a bridge area aside), a centre off the primary display (`obs.screen`; marks carry no
+  displayId), a frame older than 2 s, or another app in front: no rect.
+- **Frame**: the coach reads it with `ScreenBridge.fresh(2.0)` in its worker thread. The reader keeps its latest frame
+  until the screen changes, so on a still screen `latest()` is often older than 2 s; `fresh` captures + OCRs a new one
+  (None while capture is paused or down).
+- **Web apps** (`apps.WEB_APPS`: Tinkercad, Onshape, Photopea, as the lesson's tool or its `using` alternative) are
+  never app lessons: their window is the browser's, so nothing can be circled and lesson.ready carries no `app`.
 
 Tests: `server/screen/tests/test_app_target.py` (fake bridge module, fake AX tree, fake frames).

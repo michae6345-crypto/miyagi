@@ -13,8 +13,10 @@ circle never calls a model. The phrase comes from the step's own words; the rect
              4+ chars, confidence >= 0.5; exactly one candidate, or a best that beats the second by >= 8.
 
 Confidence gate (a wrong circle is worse than none): a rect outside the app's window, under miyagi's overlay, smaller
-than 6 pt on a side, larger than 40% of the window (a bridge area aside), on a frame older than 2 s, or with another
-app in front is dropped. All rects are screen points, top-left origin of the primary display (types.Rect).
+than 6 pt on a side, larger than 40% of the window (a bridge area aside), off the primary display (marks carry no
+displayId), on a frame older than 2 s, or with another app in front is dropped. All rects are screen points, top-left
+origin of the primary display (types.Rect). The caller hands in a fresh frame (ScreenBridge.fresh: a still screen's
+latest frame can be minutes old, since the reader keeps it until something changes).
 """
 from __future__ import annotations
 
@@ -36,6 +38,9 @@ OCR_MIN_CONF = 0.5
 OCR_FUZZY = 92.0
 OCR_MARGIN = 8.0
 MAX_PHRASE_CHARS = 40
+TITLE_BAR_PT = 28.0          # a macOS window's title bar: the screen window counts it, Blender's own size doesn't
+TITLE_BAR_SLACK_PT = 24.0    # a Blender window fits the screen window when its implied title bar is within this of 28
+WINDOW_MATCH_MARGIN_PT = 12.0  # ... and the next best fit is at least this much worse (else ambiguous: no rects)
 OVERLAY_APPS = frozenset({"miyagi", "electron", "miyagi-overlay"})  # our own overlay in front is not "another app"
 
 # Blender area words -> area types (the bridge's area["type"]; a shader editor is a NODE_EDITOR)
@@ -154,6 +159,14 @@ def gate(rect: Rect | None, window: Rect | None, overlay: Iterable = (), *, area
     return rect
 
 
+def on_primary(rect: Rect | None, screen: Rect | None) -> bool:
+    """The rect's centre is on the primary display. Marks carry no displayId, so a rect on another display (x past
+    the primary's width, a negative y above it) would be drawn on the primary one. Unknown display: False."""
+    if rect is None or screen is None or screen.w <= 0 or screen.h <= 0:
+        return False
+    return screen.x <= rect.cx <= screen.x2 and screen.y <= rect.cy <= screen.y2
+
+
 def _names(app: dict) -> list[str]:
     """The window names of the app the learner works in: `using` first (FreeCAD for AutoCAD), then the lesson's."""
     out: list[str] = []
@@ -223,7 +236,9 @@ def bridge_shape(ui: dict | None, window: Rect | None = None) -> dict | None:
       - points: {"window": rect, "areas": [{"type", "rect"}], "objects": [{"name", "rect"}]}
       - Blender's raw /ui: {"origin": "bottom-left", "windows": [{x, y, width, height, areas: [{type, ui_type, x, y,
         width, height}]}]} in Blender pixels, area x / y relative to its window: placed on the app's window on screen
-        (`window`, from the frame), bottom-aligned (the screen rect includes the title bar, Blender's doesn't).
+        (`window`, from the frame: the front-most one), bottom-aligned (the screen rect includes the title bar,
+        Blender's doesn't). Several Blender windows (Preferences, a pop-out editor): the one whose shape fits the
+        screen window (_fit_window); none fits or two fit alike: None (never areas on the wrong window).
     None for anything else."""
     if not isinstance(ui, dict):
         return None
@@ -232,7 +247,9 @@ def bridge_shape(ui: dict | None, window: Rect | None = None) -> dict | None:
             wins = [w for w in ui["windows"] if isinstance(w, dict) and _rect(w) is not None]
             if not wins or window is None:
                 return None
-            bw = max(wins, key=lambda w: _rect(w).w * _rect(w).h)
+            bw = wins[0] if len(wins) == 1 else _fit_window(wins, window)
+            if bw is None:
+                return None
             braw = _rect(bw)
             k = window.w / braw.w
             bottom = window.y + window.h
@@ -258,6 +275,28 @@ def bridge_shape(ui: dict | None, window: Rect | None = None) -> dict | None:
     except (TypeError, ValueError, ZeroDivisionError, AttributeError):
         return None
     return None
+
+
+def _fit_window(wins: list[dict], window: Rect) -> dict | None:
+    """The Blender window (/ui pixels) that is the screen window: scaled to its width, its height plus a title bar of
+    ~28 pt is the screen window's height (the same aspect ratio, title bar aside). None: none fits, or the best fits
+    no better than the next by WINDOW_MATCH_MARGIN_PT (two windows of one shape: ambiguous)."""
+    scored: list[tuple[float, dict]] = []
+    for w in wins:
+        r = _rect(w)
+        if r is None:
+            continue
+        title = window.h - r.h * (window.w / r.w)  # the title bar this window would imply
+        err = abs(title - TITLE_BAR_PT)
+        if err <= TITLE_BAR_SLACK_PT:
+            scored.append((err, w))
+    if not scored:
+        return None
+    scored.sort(key=lambda e: e[0])
+    if len(scored) > 1 and scored[1][0] - scored[0][0] < WINDOW_MATCH_MARGIN_PT:
+        log.info("on-screen coach: %d Blender windows fit the one in front: no bridge rects", len(scored))
+        return None
+    return scored[0][1]
 
 
 def _area_type(phrase: str) -> str | None:
@@ -469,24 +508,31 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
     overlay = list(overlay_rects or [])
     fresh = obs is not None and now - float(getattr(obs, "t", 0.0) or 0.0) <= MAX_FRAME_AGE_S
     win = app_window(obs, names) if fresh else None
+    screen = _rect(getattr(obs, "screen", None)) if obs is not None else None
     plist = phrase_list if phrase_list is not None else phrases(step)
+
+    def ok(r: Rect | None) -> Rect | None:  # no displayId on a mark: only a rect on the primary display
+        if r is not None and not on_primary(r, screen):
+            log.info("on-screen coach: %s is off the primary display (%s): no circle", r.rounded(), screen)
+            return None
+        return r
 
     got = (bridge or bridge_target)(step, app, window=win, phrase_list=plist)
     if got is not None:
         t, bwin, area = got
-        if (r := gate(t.rect, bwin or win, overlay, area=area)) is not None:
+        if (r := ok(gate(t.rect, bwin or win, overlay, area=area))) is not None:
             return Target(r, "bridge", t.label)
     ui = [p for p in plist if p.kind == "ui"]
     for ph in ui:
         hit = (ax_fn or ax_target)(names, ph.text)
         if hit is not None:
             r, awin = hit
-            if (r := gate(r, awin or win, overlay)) is not None:
+            if (r := ok(gate(r, awin or win, overlay))) is not None:
                 return Target(r, "ax", ph.text)
     if not fresh or win is None:
         return None
     for ph in ui:
         r = (ocr_fn or ocr_target)(obs, ph.text, names, window=win)
-        if (r := gate(r, win, overlay)) is not None:
+        if (r := ok(gate(r, win, overlay))) is not None:
             return Target(r, "ocr", ph.text)
     return None

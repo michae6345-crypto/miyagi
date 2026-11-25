@@ -58,8 +58,25 @@ def _app(s) -> dict | None:
     return app if isinstance(app, dict) and str(app.get("tool") or "").strip() else None
 
 
+def _web_app(app: dict) -> bool:
+    """The lesson's app, or the one the learner really uses, is a website (Tinkercad, Onshape, Photopea): its window
+    is the browser's, so nothing in it can be circled (the 'another app in front' gate would always refuse)."""
+    try:
+        from server.workspace import apps
+    except Exception:  # noqa: BLE001 - unsure: treat it as a website (no circles, the words still come)
+        return True
+    web = {str(k).lower() for k in apps.WEB_APPS} | {str(e.get("label") or "").lower() for e in apps.WEB_APPS.values()}
+    for k in ("tool", "using"):
+        v = str(app.get(k) or "").strip()
+        if v and (v.lower() in web or (apps.canonical(v) or "") in apps.WEB_APPS):
+            return True
+    return False
+
+
 def is_app_lesson(s) -> bool:
-    """graph.lesson.app is a dict with a tool, the tool is no code / VS Code app, and no step writes or runs code."""
+    """graph.lesson.app is a dict with a tool, the tool is no code / VS Code app nor a website (apps.WEB_APPS, for the
+    lesson's tool or the `using` alternative), the app's window has a name to find it by, and no step writes or runs
+    code. Only then does lesson.ready carry lesson.app (the app collapses its panel for the on-screen coach)."""
     app = _app(s)
     if app is None:
         return False
@@ -70,12 +87,24 @@ def is_app_lesson(s) -> bool:
         CODE_APP_NAMES = set()  # noqa: N806
     if names & (CODE_TOOLS | set(CODE_APP_NAMES)):
         return False
+    if _web_app(app) or not app_target._names(app):
+        return False
     try:
         from server.lesson import app_lesson
 
         return not app_lesson.has_code(getattr(s, "graph", None) or {})
     except Exception:  # noqa: BLE001 - unsure: no circles (the words still come)
         return False
+
+
+def ready_app(s) -> dict | None:
+    """lesson.ready's lesson.app ({tool, label, using?}): only for an app lesson (is_app_lesson), and only with a
+    non-empty string tool and label (LessonApp requires both: a bad value would fail the whole lesson.ready)."""
+    app = _app(s)
+    if app is None or not is_app_lesson(s):
+        return None
+    out = {k: app[k].strip() for k in ("tool", "label", "using") if isinstance(app.get(k), str) and app[k].strip()}
+    return out if out.get("tool") and out.get("label") else None
 
 
 def holds_spot(s) -> bool:
@@ -120,9 +149,10 @@ _CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s
 _GLYPH = re.compile(r"[⌃⌥⇧⌘]+\s*(?:Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc|Return|Space|Delete|[←→↑↓]|[A-Za-z0-9])(?![a-z])")
 _PKEY = r"(?:[Nn]umpad\s*\d|F1[0-2]|F[1-9]|[Tt]ab|[Ee]sc(?:ape)?|[Rr]eturn|[Ee]nter|[Ss]pace(?:bar)?|[Dd]elete|" \
         r"[Bb]ackspace|[A-Z0-9])"
-_ONE_KEY = re.compile(rf"(?<![\w]){_PKEY}(?![\w+\-])")
+_NOT_NUM = r"(?![\w+\-]|[.,]\d)"  # "0.5", "1,000": a number, never a key
+_ONE_KEY = re.compile(rf"(?<![\w]){_PKEY}{_NOT_NUM}")
 _SEP = r"(?:\s*,\s*(?i:then\s+|and\s+then\s+|and\s+)?|\s+(?i:then|and then|followed by|and)\s+)"
-_PRESS = re.compile(rf"\b(?i:press|hit|tap|type)\s+({_PKEY})(?![\w+\-])((?:{_SEP}(?i:press\s+)?{_PKEY}(?![\w+\-]))*)")
+_PRESS = re.compile(rf"\b((?i:press|hit|tap|type))\s+({_PKEY}){_NOT_NUM}((?:{_SEP}(?i:press\s+)?{_PKEY}{_NOT_NUM})*)")
 _BARE = re.compile(r"\b(Numpad\s*\d|F1[0-2]|F[1-9])\b")
 
 
@@ -152,9 +182,10 @@ def keys(instructions: str) -> list[str]:
     for m in _GLYPH.finditer(text):
         add(m.start(), m.end(), re.sub(r"^([⌃⌥⇧⌘]+)\s+", r"\1", m.group(0).strip()))
     for m in _PRESS.finditer(text):
-        add(m.start(1), m.end(1), _key_label(m.group(1)))
-        off = m.start(2)
-        for k in _ONE_KEY.finditer(m.group(2)):
+        if not (m.group(1).lower() == "type" and len(m.group(2)) == 1):  # "Type 2": a value typed, not a key
+            add(m.start(2), m.end(2), _key_label(m.group(2)))
+        off = m.start(3)
+        for k in _ONE_KEY.finditer(m.group(3)):
             add(off + k.start(), off + k.end(), _key_label(k.group(0)))
     for m in _BARE.finditer(text):
         add(m.start(), m.end(), _key_label(m.group(1)))
@@ -163,17 +194,33 @@ def keys(instructions: str) -> list[str]:
 
 # ------------------------------------------------------------------ resolving (free, off the loop)
 
-def _observe(s) -> tuple[Any, list, str]:
-    """(latest frame, miyagi's overlay rects, the app in front now) from the session's reader; missing parts empty."""
-    reader = getattr(getattr(s, "screen", None), "reader", None)
-    obs = None
-    overlay: list = []
+def _frame(s) -> Any:
+    """A frame at most MAX_FRAME_AGE_S old (blocking: called in the worker thread). The reader keeps its latest frame
+    until the screen changes, so on a still screen (a learner reading the step) it is often older than that:
+    ScreenBridge.fresh captures + OCRs a new one then, and gives None while capture is paused or down. Only without a
+    ScreenBridge: the reader's latest frame / the session's last one (resolve still refuses a stale one)."""
+    scr = getattr(s, "screen", None)
+    if scr is not None and callable(getattr(scr, "fresh", None)):
+        try:
+            obs = scr.fresh(app_target.MAX_FRAME_AGE_S)
+        except Exception:  # noqa: BLE001
+            log.exception("on-screen coach: fresh frame failed")
+            return None
+        return obs if hasattr(obs, "blocks") else None
+    reader = getattr(scr, "reader", None)
     try:
         obs = reader.latest() if reader is not None and hasattr(reader, "latest") else None
     except Exception:  # noqa: BLE001
         obs = None
     if obs is None or not hasattr(obs, "blocks"):
         obs = getattr(s, "last_obs", None) if hasattr(getattr(s, "last_obs", None), "blocks") else None
+    return obs
+
+
+def _observe(s) -> tuple[list, str]:
+    """(miyagi's overlay rects, the app in front now) from the session's reader; missing parts empty."""
+    reader = getattr(getattr(s, "screen", None), "reader", None)
+    overlay: list = []
     try:
         overlay = list(reader.overlay_rects()) if reader is not None and hasattr(reader, "overlay_rects") else []
     except Exception:  # noqa: BLE001
@@ -183,17 +230,21 @@ def _observe(s) -> tuple[Any, list, str]:
         front = s._live_front() if hasattr(s, "_live_front") else ""
     except Exception:  # noqa: BLE001
         front = ""
-    return obs, overlay, front
+    return overlay, front
 
 
 async def _resolve(s, step: dict, phrase_list: list | None = None) -> app_target.Target | None:
     app = _app(s)
     if app is None:
         return None
-    obs, overlay, front = _observe(s)
+    overlay, front = _observe(s)
+    app = dict(app)
+
+    def work() -> app_target.Target | None:  # the capture + OCR, AX walk and OCR match: all off the event loop
+        return app_target.resolve(step, app, _frame(s), overlay, front=front, phrase_list=phrase_list)
+
     try:
-        return await asyncio.to_thread(app_target.resolve, step, dict(app), obs, overlay, front=front,
-                                       phrase_list=phrase_list)
+        return await asyncio.to_thread(work)
     except Exception:  # noqa: BLE001 - no circle, never a crash
         log.exception("on-screen coach: resolve failed")
         return None
@@ -229,8 +280,27 @@ def _same(last: dict | None, step: dict, mark: dict) -> bool:
     return all(abs(float(last[k]) - float(mark[k])) <= SAME_PT for k in ("x", "y", "w", "h"))
 
 
+async def _drop_spot(s) -> None:
+    """A spotlight box already up for this step (an off-track box, an earlier box) goes, through the session's own
+    spotlight clear (emit resets spot_rect), so the mark is the one pointer. spot_rect is cleared at every step start,
+    so one that is up belongs to this step."""
+    if getattr(s, "spot_rect", None) is None:
+        return
+    lock = s._spot_lock() if callable(getattr(s, "_spot_lock", None)) else None
+    if lock is not None:
+        async with lock:
+            if getattr(s, "spot_rect", None) is None:
+                return
+            if callable(getattr(s, "clock", None)):
+                s._spot_t = s.clock()
+            await s.emit("spotlight", {"clear": True})
+        return
+    await s.emit("spotlight", {"clear": True})
+
+
 async def _send(s, step: dict, mark: dict, why: str, t: app_target.Target) -> None:
     st = _state(s)
+    await _drop_spot(s)
     await s.emit("annotate", {"marks": [mark]})
     now = s.clock() if callable(getattr(s, "clock", None)) else 0.0
     st["live"] = {**mark, "gen": getattr(s, "step_gen", None)}
@@ -306,8 +376,10 @@ async def on_where(s, step: dict, phrase_list: list | None = None) -> bool:
     if step is None or not is_app_lesson(s):
         return False
     gen = getattr(s, "step_gen", None)
+    if not _current(s, gen, step):
+        return False
     t = await _resolve(s, step, phrase_list)
-    if t is None or getattr(s, "step_gen", None) != gen or getattr(s, "step", None) is not step:
+    if t is None or not _current(s, gen, step):  # the step changed or passed meanwhile: clear() has run
         return False
     await _send(s, step, _mark(s, step, t), "where", t)
     return True
