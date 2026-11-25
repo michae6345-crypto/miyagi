@@ -27,7 +27,8 @@
  * the lesson is live again (lesson.resumed, the last blocker's clear, a status that is not idle) and their step is still
  * the one running. The engine sends a step's point mark once (step start, "Not yet", Show me), never after a resume, so
  * this is the only way the pointing comes back. They are let go on another step, step.passed, lesson.ended, a new
- * lesson.ready, annotate {clear} and Esc.
+ * lesson.ready, annotate {clear} and Esc. The quiet itself outlives a step.passed (round 4): a blocker raised before a
+ * pass still hides the next step's text mark until its clear; only lesson.ended, lesson.ready and a reset drop it.
  * An explicit ask brings pointing back after the learner reached or dismissed it: a Show me press ("where?"), or a
  * "Not yet" card (verdict not_done) for the current step. The engine re-sends the point mark then (same id), and the
  * next annotate after the ask draws its marks again even if they are gone this step. If the re-send came first (it was
@@ -38,7 +39,7 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { asAnnotation, cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known, type OnscreenFields } from './marks'
+import { asAnnotation, cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -86,7 +87,9 @@ export function fade(keys?: readonly string[]): void {
   if (!left.length) stopHold()
 }
 
-/** Back to blank: nothing drawn, nothing remembered (a new step, a new lesson, a reset). */
+/** Back to blank: nothing drawn, nothing remembered (a passed step, a new lesson, a reset). The quiet state (paused,
+ * blockers, idle) is lesson state, not step state: a step.passed keeps it, since the engine does not re-send a blocker
+ * or a pause for the next step. Only liven() drops it. */
 function forget(): void {
   stopHold()
   gone.clear()
@@ -95,10 +98,14 @@ function forget(): void {
   engineAsked = false
   dropped = undefined
   hidden = []
+  if (get().marks.length) set({ marks: [] })
+}
+
+/** The lesson is live from scratch: no pause, no blocker, not idle (lesson.ended, a lesson.ready, a reset). */
+function liven(): void {
   paused = false
   blockers.clear()
   idle = false
-  if (get().marks.length) set({ marks: [] })
 }
 
 /** Start the hold for the timed marks among `marks` (those without text): they fade at `at`; a text mark is untouched. */
@@ -131,7 +138,7 @@ function withdraw(): void {
 }
 
 /** A mark that carries the coach's text (a "point" mark with text: mergeMarks keeps text for those only). */
-const textOf = (m: Annotation): boolean => m.why === 'point' && !!cleanText((m as Annotation & OnscreenFields).text)
+const textOf = (m: Annotation): boolean => m.why === 'point' && !!cleanText(m.text)
 
 /** Not drawn now: a text mark for a step that is not the one running, or any text mark while the lesson is quiet. */
 const notLive = (m: Annotation): boolean => textOf(m) && (quiet() || (!!m.stepId && m.stepId !== curStep))
@@ -242,14 +249,13 @@ onMessage('step.passed', () => {
 })
 onMessage('lesson.ended', () => {
   curStep = undefined
+  liven()
   forget()
 })
 // A reconnect's replay of the lesson already running is not a new lesson: what is drawn stays.
 onMessage('lesson.ready', (p) => {
   // A reconnect replays the pause and the blockers after the step (engine v2_snapshot): start from live, they re-arrive.
-  paused = false
-  blockers.clear()
-  idle = false
+  liven()
   if (p?.replay) return
   curStep = undefined
   forget()
@@ -279,6 +285,7 @@ onMessage('status', (p) => {
   else restoreText()
 })
 onUi('reset', () => {
+  liven()
   forget()
   engineAnnotates = false
 })

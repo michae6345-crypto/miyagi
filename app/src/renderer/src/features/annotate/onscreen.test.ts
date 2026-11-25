@@ -309,6 +309,52 @@ describe('no text mark on idle (store.ts)', () => {
     send('status', { state: 'watching' })
     assert.deepEqual(ids(), [])
   })
+  // Round 4: the quiet state is lesson state. The engine does not re-send a blocker or a pause for the next step, so a
+  // step.passed must not forget them.
+  const s2Mark = { ...textMark, id: 'os-s2-1', stepId: 's2', text: 'Add a subdivision modifier' }
+  const startS2 = (): void => send('step.started', { stepId: 's2', index: 1, title: 't', instructions: 'i' })
+  it('a blocker raised before step.passed still hides the next step\'s text mark until its clear', () => {
+    send('annotate', { marks: [textMark] })
+    send('blocker', { kind: 'editor_closed', title: 'Open it again' })
+    send('step.passed', { stepId: 's1' })
+    startS2()
+    send('annotate', { marks: [s2Mark] })
+    assert.deepEqual(ids(), [], 'still blocked: nothing drawn')
+    mock.timers.tick(10_000)
+    assert.deepEqual(ids(), [])
+    send('blocker', { kind: 'editor_closed', clear: true })
+    assert.deepEqual(ids(), ['os-s2-1'], 'drawn on the clear, with no re-send')
+    assert.equal(marks()[0].text, 'Add a subdivision modifier')
+  })
+  it('a pause across a pass: the next step\'s text mark waits for lesson.resumed', () => {
+    send('annotate', { marks: [textMark] })
+    send('lesson.paused', { reason: 'user' })
+    send('step.passed', { stepId: 's1' })
+    startS2()
+    send('annotate', { marks: [s2Mark] })
+    assert.deepEqual(ids(), [], 'still paused: nothing drawn')
+    send('lesson.resumed', { reason: 'user' })
+    assert.deepEqual(ids(), ['os-s2-1'], 'drawn on resume, with no re-send')
+  })
+  it('lesson.ended and a new lesson.ready still start from live', () => {
+    send('blocker', { kind: 'network' })
+    send('lesson.ended', {})
+    startS1()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'], 'lesson.ended dropped the blocker')
+
+    send('lesson.paused', { reason: 'user' })
+    send('lesson.ready', { lesson: { id: 'l2', title: 'Another', mode: 'lesson' }, steps: [] })
+    startS1()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'], 'a new lesson.ready dropped the pause')
+
+    send('blocker', { kind: 'network' })
+    emitUi('reset')
+    startS1()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'], 'a ui reset dropped the blocker')
+  })
   it('Esc or annotate {clear} while hidden lets it go', () => {
     send('annotate', { marks: [textMark] })
     send('lesson.paused', { reason: 'user' })

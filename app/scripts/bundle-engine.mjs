@@ -3,7 +3,8 @@
  * Put the engine inside the Mac app, ready to run offline (DISTRIBUTION-PLAN.md section 2, "The bundle"):
  *
  *   app/build/engine/
- *     src/            engine source from git (server, shared, cli, scripts, demo), .pyc precompiled (checked-hash)
+ *     src/            engine source from git (server, shared, cli, scripts, demo, blender-addon), .pyc precompiled
+ *                     (checked-hash; server, shared and cli only: blender-addon runs in Blender's own Python)
  *     python/         standalone CPython 3.12 (python-build-standalone, pinned version + sha256) with the engine's
  *                     packages already in python/lib/python3.12/site-packages, all precompiled (unchecked-hash)
  *     vscode/         the VS Code companion: <publisher>.<name>-<version>.vsix + companion.json
@@ -61,8 +62,10 @@ const repo = resolve(app, '..')
 const out = join(app, 'build', 'engine')
 const REF = process.env.MIYAGI_ENGINE_REF || 'origin/integration/live'
 const INSTALL_REFS = [process.env.MIYAGI_INSTALL_REF, REF, 'origin/claude/distribution'].filter(Boolean)
-/** What the engine needs at runtime (docs/DISTRIBUTION.md: server imports shared/contracts; demo/cache ships lessons). */
-const PATHS = ['server', 'shared', 'cli', 'scripts', 'demo']
+/** What the engine needs at runtime (docs/DISTRIBUTION.md: server imports shared/contracts; demo/cache ships lessons;
+ * blender-addon: the Blender bridge (start_bridge.py) and the headless scene dump (dump_scene.py), which
+ * server/workspace/blender_ext.py and blender.py find at <src>/blender-addon). */
+const PATHS = ['server', 'shared', 'cli', 'scripts', 'demo', 'blender-addon']
 
 const PLATFORM = args.has('--windows') ? 'win32' : pickPlatform({ env: process.env, hostPlatform: process.platform })
 if (!PLATFORM) {

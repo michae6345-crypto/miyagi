@@ -9,17 +9,16 @@
  *     what the learner chose), and never again once the learner opened the panel: one collapse per lesson.ready.
  *   - Nothing lesson-specific: any app the engine names.
  *
- * lesson.app is read defensively (LessonAppFields) until the contract's LessonApp reaches this branch.
+ * lesson.app is the contract's LessonApp; its values are still checked here (wire data).
  */
+import type { LessonApp } from '../../../../../../shared/contracts/events'
 import { emitUi, onMessage } from '../../core/bus'
 
-/** The contract's LessonApp (Nov 24), read defensively: tool is the engine's app id, label its name. */
-export type LessonApp = { tool: string; label: string; using?: string }
-type LessonAppFields = { app?: unknown }
+export type { LessonApp }
 
 /** The lesson's desktop app, if it is an app lesson: an object with a non-empty string tool. */
 export function lessonAppOf(lesson: unknown): LessonApp | undefined {
-  const app = lesson && typeof lesson === 'object' ? (lesson as LessonAppFields).app : undefined
+  const app = lesson && typeof lesson === 'object' ? (lesson as { app?: unknown }).app : undefined
   if (!app || typeof app !== 'object') return undefined
   const { tool, label, using } = app as { tool?: unknown; label?: unknown; using?: unknown }
   if (typeof tool !== 'string' || !tool.trim()) return undefined

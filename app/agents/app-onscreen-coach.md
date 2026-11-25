@@ -107,3 +107,23 @@ and `-edge-right` / `-edge-bottom` again in round 3, where the line now starts a
 - **(b) Keycap label variant:** a core keycap that renders an engine-given key label (`<Keycap label=...>`) with the
   keycap look, since `bridge.platform.keys` only holds miyagi's own shortcuts. Until then the text box uses core `Kbd`.
 - **(c) Optional:** a `useLessonApp()` selector in core/lesson (onscreen.ts reads the lesson.ready payload directly).
+
+## Round 4 (Nov 24, lane app-blender-polish, branch `michael/app-blender-polish`)
+- **Quiet state is lesson state.** `store.ts forget()` ran on step.passed and also reset `paused`, `blockers` and
+  `idle`. The engine does not re-send a blocker or a pause for the next step, so a blocker raised before a pass stopped
+  hiding the next step's text mark. Now `forget()` keeps the quiet state; a new `liven()` drops it, only on
+  lesson.ended, lesson.ready (replay or not, as before) and ui `reset`. Tests in `onscreen.test.ts`: a blocker up, then
+  step.passed, then the next step's annotate with text: nothing drawn until that blocker clears, then it draws with no
+  re-send; the same for lesson.paused across a pass; lesson.ended, a new lesson.ready and a ui reset still start from
+  live. Both new pass-crossing tests fail on the round-3 code.
+- **rootFor re-checked** (`geometry.test.ts`): the BuddyLayer frame loop for one text mark, from real island boxes. A
+  root born under a 240 pt card moves to the island's new bottom once it shrinks to the pill (more than 4 pt up), and
+  stays frozen when the island grows again or wobbles by 4 pt.
+- **Shots retaken** headless at 1440x900, port 5206, after pressing Continue on the held "Step done" card:
+  `-edge-right.png` and `-edge-bottom.png` (byte-identical to round 3). DOM check after Continue: each stroke's first
+  point (`data-part="buddy-draw"` path `M x y`) is at y 72 with the island's bottom at 74 (2 pt, the tuck under the
+  edge) and x on the island's middle; before Continue it was at 228, under the 230 pt card.
+- **Core request (a) done on this branch:** the 66950fef fields are ported by hand into `shared/contracts/events.ts` /
+  `.py` (no `origin`, no other later contract work). `OnscreenFields` and `LessonAppFields` are gone; marks.ts and
+  onscreen.ts use the contract types and still clean the wire values.
+- Checks: annotate tests 109 pass (105 before); `npm test` 752 pass; `npm run typecheck` passes.
