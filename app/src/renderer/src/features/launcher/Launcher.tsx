@@ -65,7 +65,7 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { WifiOff } from 'lucide-react'
+import { MousePointerClick, PackageCheck, WifiOff } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import type { PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
@@ -110,6 +110,7 @@ import { COVER_H, LessonRow, LibraryContinueRow, LinkPreview, MessageRow, PlanRo
 import { isFlipKey, navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { isDuplicateToggle } from './guard'
+import { ambientCommand, runAmbientCommand } from '../ambient/commands'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 import { beat, ease, fade, instant } from '../../core/ui/motion'
@@ -557,7 +558,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * run, the rows take over (videos under "Build a lesson from the internet"), also when it found no video.
    */
   /** The typed text is a settings word: a single "Settings" row replaces everything else. */
-  const settingsRow = !link && isSettingsQuery(typed)
+  const settingsWord = !link && isSettingsQuery(typed)
+  /**
+   * Ambient help (features/ambient commands.ts): "set up this project" or a "how do I …" typed outside a lesson is a
+   * command too, drawn and run like the Settings row (one row replaces the rest). Offered only when the engine lists it.
+   */
+  const ambient = !link && !settingsWord ? ambientCommand(typed, lesson.hasLesson || lesson.building) : undefined
+  const settingsRow = settingsWord || !!ambient
   const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
   /** The highlighted way: the learner's Tab pick, else "Just teach me" for a goal that reads like building something. */
   const how: How = howPicked ?? (isBuildGoal(typed) ? 'lesson' : 'video')
@@ -788,6 +795,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
+  /** An ambient command: the island takes over (the setup card, or bon's step line) as the launcher collapses into it. */
+  const runAmbient = (): void => {
+    if (!ambient || phaseRef.current !== 'open') return
+    if (runAmbientCommand(ambient)) setPhase('closing')
+  }
+
   /** Ask what's typed, or a suggested question (it goes into the field, which keeps it until the answer arrives). */
   const ask = (text = question.trim()): void => {
     if (!text || phaseRef.current !== 'open') return
@@ -826,7 +839,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const submit = (): void => {
     if (activeItem) return runIdle(activeItem)
-    if (settingsRow) return openSettings()
+    if (settingsRow) return ambient ? runAmbient() : openSettings()
     // "Continue" goes back into the island and the lesson carries on. Enter never ends a lesson (the footer link does).
     if (resumeRows) return continueLesson()
     if (mode === 'ask') return ask()
@@ -1066,7 +1079,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * highlighted way's own name, exactly as on its chip and the lesson row (review A18); for Demo, "Start demo".
    */
   const actLabel = {
-    settings: 'Settings',
+    settings: ambient ? (ambient.kind === 'setup' ? 'Check project' : 'Show me') : 'Settings',
     resume: 'Continue',
     open: 'Open',
     start: 'Start',
@@ -1209,7 +1222,17 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <Rise key="settings" i={2} style={{ paddingTop: 8 }}>
                 <div className="relative" style={{ height: COVER_H }}>
                   <ListHighlight at={0} count={1} h={COVER_H} />
-                  <SettingsRow onPick={openSettings} />
+                  {ambient ? (
+                    <SettingsRow
+                      onPick={runAmbient}
+                      title={ambient.title}
+                      meta={ambient.meta}
+                      icon={ambient.kind === 'setup' ? PackageCheck : MousePointerClick}
+                      data={{ 'data-ambient-command': ambient.kind }}
+                    />
+                  ) : (
+                    <SettingsRow onPick={openSettings} />
+                  )}
                 </div>
               </Rise>
             )}
