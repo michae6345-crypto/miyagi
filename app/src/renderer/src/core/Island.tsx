@@ -556,7 +556,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={open && shown.h >= SHORT_OPEN_H} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={stretch !== 1 ? stretch : hi.light && !open ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={open && shown.h >= SHORT_OPEN_H} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
             {layers}
           </NotchShape>
         ) : (
