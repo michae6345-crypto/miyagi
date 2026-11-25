@@ -41,7 +41,7 @@ import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
 import { useGrowth } from './growth'
-import { cornerPoint, HOME, useHome } from './home'
+import { HOME, homePoint, useHome } from './home'
 import { NAME } from './name'
 import { useSkin } from './skin'
 import { ringBox } from './marks'
@@ -203,7 +203,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const first = standDown ? undefined : here[0]
   const key = first?.key
   /** It lives in the corner of the screen (home.ts), not tucked in the island. */
-  const corner = useHome((h) => h.place) === 'corner' && !standDown
+  const place = useHome((h) => h.place)
+  const corner = place !== 'notch' && !standDown
   // Woken in its corner it stays there: it does not go to the pointer.
   const goal: 'mark' | 'follow' | 'home' = key !== undefined ? 'mark' : talk.summoned && !standDown && !(corner && talk.woken) ? 'follow' : 'home'
 
@@ -236,7 +237,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   }, [modelKey, heardLen])
 
   const wa = layout.workArea
-  const nest = cornerPoint({ x: wa.x, y: wa.y, w: wa.width, h: wa.height })
+  const nest = homePoint(place, { x: wa.x, y: wa.y, w: wa.width, h: wa.height })
   const cx = nest.x
   const cy = nest.y
   const rx = first?.rect.x
@@ -528,8 +529,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   // Left of the loop it is mirrored (its bubble runs off to the left). It keeps the way it faced on the flight home.
   const facing = useRef(false)
   if (spot) facing.current = spot.mirrored
-  // In its corner (bottom right) the bubble runs off to the left too.
-  const mirrored = key !== undefined ? facing.current : nested
+  // At home on the right half of the screen the bubble runs off to the left too.
+  const mirrored = key !== undefined ? facing.current : nested && cx > layout.width / 2
   const point: -1 | 0 | 1 = perched && !beaming && spot && (spot.side === 'right' || spot.side === 'left') ? (spot.mirrored ? 1 : -1) : 0
   const end = (v: number): CSSProperties => (mirrored ? { right: v } : { left: v })
   const wide = useTransform(squash, (q) => 1 + SQUASH.wide * q)
@@ -560,7 +561,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       data-buddy={standDown ? 'stand-down' : trip.phase}
       data-buddy-why={buddyWhy({ standDown, marks: marks.length, here: here.length, summoned: talk.summoned })}
       data-buddy-mood={away || corner ? mood : undefined}
-      data-buddy-home={corner ? 'corner' : 'notch'}
+      data-buddy-home={corner ? place : 'notch'}
       data-letters={letters || undefined}
     >
       {model && (

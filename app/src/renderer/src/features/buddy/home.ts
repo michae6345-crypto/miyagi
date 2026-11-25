@@ -14,8 +14,13 @@
 import { create } from 'zustand'
 import type { Point, Rect } from '../../core/geometry'
 
-export type HomePlace = 'corner' | 'notch'
-export const HOME_PLACES: readonly HomePlace[] = ['corner', 'notch']
+/**
+ * On the screen: 'corner' (bottom right), 'bottom-left', 'top-right', 'top-left' (under the menu bar), 'right' (half way
+ * down the right edge) and 'island' (hanging just under the island, to its right). Or 'notch': tucked in the island.
+ * Places to try in the stage while Adrian picks where it lives (Nov 24: "it should be somewhere else").
+ */
+export type HomePlace = 'corner' | 'bottom-left' | 'top-right' | 'top-left' | 'right' | 'island' | 'notch'
+export const HOME_PLACES: readonly HomePlace[] = ['corner', 'bottom-left', 'top-right', 'top-left', 'right', 'island', 'notch']
 export const DEFAULT_HOME: HomePlace = 'corner'
 
 /**
@@ -31,8 +36,25 @@ export function cornerPoint(workArea: Rect): Point {
   return { x: workArea.x + workArea.w - HOME.inset, y: workArea.y + workArea.h - HOME.inset }
 }
 
+/** How far under the work area's top edge, and right of the screen's middle, it hangs for 'island' (px). */
+export const BY_ISLAND = { dx: 168, dy: 34 } as const
+
+/** bon's center at home for a place on the screen (not 'notch': there it is in the island, Reach.tsx bonsaiPoint). */
+export function homePoint(place: HomePlace, workArea: Rect): Point {
+  const left = workArea.x + HOME.inset
+  const right = workArea.x + workArea.w - HOME.inset
+  const top = workArea.y + HOME.inset
+  const bottom = workArea.y + workArea.h - HOME.inset
+  if (place === 'bottom-left') return { x: left, y: bottom }
+  if (place === 'top-right') return { x: right, y: top }
+  if (place === 'top-left') return { x: left, y: top }
+  if (place === 'right') return { x: right, y: workArea.y + workArea.h / 2 }
+  if (place === 'island') return { x: workArea.x + workArea.w / 2 + BY_ISLAND.dx, y: workArea.y + BY_ISLAND.dy }
+  return cornerPoint(workArea)
+}
+
 const KEY = 'miyagi.buddy.home'
-const isPlace = (v: unknown): v is HomePlace => v === 'corner' || v === 'notch'
+const isPlace = (v: unknown): v is HomePlace => typeof v === 'string' && (HOME_PLACES as readonly string[]).includes(v)
 
 /** The place a stored or typed value means; anything else is the default. */
 export function placeFrom(v: unknown): HomePlace {
