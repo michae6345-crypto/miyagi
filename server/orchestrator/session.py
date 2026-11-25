@@ -1326,6 +1326,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
             self._spawn(self._confirm_lesson_window(self.workdir), timer=True)
 
+    async def _start_editor(self, step: dict | None) -> None:
+        """Start pressed: the step's file in the lesson's VS Code window. Shown in the window already up when the
+        companion has the folder (no `code` CLI: never a second window or older windows restored), else one
+        `code <folder> -g <file>`."""
+        ws, folder = self.workspace, self.workdir
+        if ws is None or not folder:
+            return
+        from . import workspace as wsmod
+
+        file = self._editor_file(step)
+        loc = wsmod.target_location(folder, step) if step is not None and file else None
+        line = loc[1] if loc and Path(loc[0]).resolve() == Path(file).resolve() else None
+        show = getattr(ws, "show_in_lesson_window", None)
+        if show is not None and await asyncio.to_thread(show, folder, file, line):
+            log.info("Start: %s shown in the lesson's open window", file)
+            return
+        await asyncio.to_thread(ws.open, folder, True, True, explicit=True, file=file)
+
     async def _confirm_lesson_window(self, folder: str) -> None:
         """After Open: did a VS Code window of the lesson folder come forward on this Space? Logged either way (the QA
         run couldn't tell 'never sent' from 'sent, nothing came forward'); once more `code <folder>` if it didn't."""
@@ -2389,6 +2407,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         that the learner never ended)? Then its files stay as they are. A save the learner ended (`stopped`: only the
         resume card's Continue restores it, never a build) or none at all: a fresh build. Unknown: keep the files."""
         lid = (graph.get("lesson") or {}).get("id")
+        if curated.is_curated(graph):  # its own rule: a save at step 1 (a restart right after Start) is a fresh start
+            return curated.resumable_save(graph) is not None
         try:
             from server.sessions import store
             from server.sessions.resume import is_demo
@@ -2446,6 +2466,26 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 and stage.on_graph(self.graph) == stage.on_graph(graph)
                 and self.step is not None and self.phase == "active" and not lesson_end.finished(self))
 
+    async def _curated_folder(self, graph: dict, fresh: bool = False) -> str | None:
+        """The curated lesson's folder for a start ("Just teach me", a Demo take, the library's cached copy).
+        A save the learner never ended at step 2 or later (an engine restart mid-lesson): that folder, its nn.py kept
+        byte for byte (the Resumer continues at the saved step). Anything else is a fresh start: step 1, the save
+        dropped, the clean starter in nn.py (the last attempt kept in .miyagi-state/attempts) and VS Code's open
+        nn.py reset to it too (never the last run's unsaved code). None: the folder failed (the caller's default)."""
+        demo = stage.on_graph(graph)  # a Demo take never continues a save: step 1, clean nn.py, every time
+        kept = None if demo else await asyncio.to_thread(curated.resumable_save, graph)  # Nov 15: an engine
+        if kept:  # restart / deploy mid-lesson: its nn.py stays and the Resumer continues at the saved step
+            return kept
+        await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
+        try:
+            folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh or demo)
+        except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
+            log.exception("curated lesson folder failed")
+            return None
+        if demo or await asyncio.to_thread(curated.has_starter, folder):  # the buffer too (stage.py)
+            await stage.reset_editor(self, folder)
+        return folder
+
     async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
         """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
         self.phase = "building"
@@ -2457,19 +2497,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await self.emit("lesson.building", self.build_progress)
             rec.mark("workspace")
-            demo = stage.on_graph(graph)  # a Demo take never continues a save: step 1, clean nn.py, every time
-            kept = None if demo else await asyncio.to_thread(curated.resumable_save, graph)  # Nov 15: an engine
-            if kept:  # restart / deploy mid-lesson: its nn.py stays and the Resumer continues at the saved step
-                folder = kept
-            else:  # a fresh start, or the learner ended it (End / Start new): step 1 with a clean nn.py
-                await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
-                try:
-                    folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh or demo)
-                except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
-                    log.exception("curated lesson folder failed")
-                    folder = None
-                if demo:  # a new take: VS Code's open nn.py too, not the last take's unsaved code (stage.py)
-                    await stage.reset_editor(self, folder)
+            folder = await self._curated_folder(graph, fresh=fresh)
             graph["lesson"]["workdir"] = folder or str(config.lesson_workdir("", goal))
             log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
             self.build_progress = None
@@ -4857,9 +4885,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 and not await self._editor_missing(explicit=True):  # pressed Start: the card again if it's still missing
             # Start pressed: bring the lesson's VS Code window forward on the step's file. A repeat run (Demo, a
             # rerun) reuses the folder, so the once-per-lesson auto-open may never fire; the learner must not be
-            # left on the desktop with no editor (Michael, Nov 15 3:50 AM).
-            self._spawn(asyncio.to_thread(self.workspace.open, self.workdir, True, True, explicit=True,
-                                          file=self._editor_file(step)))
+            # left on the desktop with no editor (Michael, Nov 15 3:50 AM). Nov 24 (the 1517 demo: `code` ran three
+            # times per start): a window already up shows the file through the companion; the CLI only when none is.
+            self._spawn(self._start_editor(step))
             self.editor_open = True
         elif deferred and self.workdir and not self.editor_open:  # another control pressed: the held open goes now
             if self.lesson_mode:
