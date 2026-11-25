@@ -43,9 +43,9 @@ export function cornerPoint(workArea: Rect): Point {
  * Under the island ('island').
  *   dx    right of the screen's middle, when the island cannot be measured (px): just past a resting pill
  *   dy    under the work area's top edge (px)
- *   gap   from the island's right edge to bon's center (px): half its body and a little air
+ *   gap   from the island's right edge to bon's center (px): half its body, and room for an open island's slanted side
  */
-export const BY_ISLAND = { dx: 168, dy: 34, gap: 38 } as const
+export const BY_ISLAND = { dx: 168, dy: 34, gap: 54 } as const
 
 /**
  * bon's x beside an island whose right edge is at `islandRight` (undefined: not measured). Never left of its resting
