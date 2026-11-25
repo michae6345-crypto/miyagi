@@ -12,10 +12,14 @@
  *        - Esc.
  *        A new circle-to-ask (a new askId) starts fresh. A new step keeps only the marks sent for that step and
  *        forgets what was gone; step.passed, the lesson ending and a reset clear everything.
- * Today's pointing, as in his store: until the engine has sent one `annotate`, every new spotlight box the spotlight
- * feature shows also gets a mark (why 'point', no label: the spotlight says its own words), so the buddy goes there
- * before the engine speaks annotate (spotlit, fed by wire.ts). When the spotlight hides, that mark goes with it and may
- * come back. A Show me press is an explicit ask, so its box is marked again even if the learner already reached it.
+ * The step's target: every new spotlight box the spotlight feature shows (the engine's `spotlight` target, the same
+ * source features/annotate used) also gets a mark (why 'point', no label: the spotlight says its own words), so bon
+ * flies to the button or line the step is about, points at it and circles it in its color (spotlit, fed by wire.ts).
+ * It holds SPOT_HOLD_MS, long enough to be seen (Adrian: longer than 6 s). The engine's own marks (`annotate`, today a
+ * circle-to-ask answer) win while they are up; once they are gone, spotlight boxes are marked again. When the engine
+ * clears the spotlight, its mark goes with it and may come back. When the spotlight only fades on its own (a video
+ * lesson's calm dim goes after 4 s or a keystroke: spotlight/calm.ts), bon keeps pointing until its own hold is up.
+ * A Show me press is an explicit ask, so its box is marked again even if the learner already reached it.
  *
  * Nothing here takes the mouse: the layer is click-through, always.
  */
@@ -41,8 +45,8 @@ export type Trip = { phase: 'home' | 'out' | 'perched' | 'follow' | 'back'; at?:
  * cheer  bumped each time the learner gets to a mark: the buddy hops.
  * total  how many marks the set now up started with. The buddy takes them one at a time, so with marks.length this
  *        is its place in the tour: step total - marks.length + 1 of total.
- * bridged  the marks now up are the spotlight's box (spotlit), not the engine's annotate. The spotlight rings that
- *        box itself and puts its caption to the right of it, so the buddy draws no loop there and sits on the left.
+ * bridged  the marks now up are the spotlight's box (spotlit), not the engine's annotate. The spotlight puts its
+ *        caption to the right of that box, so the buddy sits on its left.
  */
 export const usePointing = create<{ marks: Shown[]; lean: number; pose?: Rect; trip: Trip; cheer: number; total: number; bridged: boolean }>(() => ({ marks: [], lean: 0, trip: { phase: 'home' }, cheer: 0, total: 0, bridged: false }))
 const get = usePointing.getState
@@ -57,8 +61,11 @@ const gone = new Map<string, Known>()
 /** The ask the current `gone` belongs to: a new circle-to-ask starts fresh. */
 let lastAsk: string | undefined
 let hold: ReturnType<typeof setTimeout> | undefined
-/** The engine speaks annotate: spotlight boxes are no longer bridged. */
-let engineAnnotates = false
+/**
+ * How long a spotlight box's mark stays (ms): bon flies there, circles it and points, and the learner needs time to
+ * see it (Adrian, Nov 24: longer than 6 s). The engine's annotate names its own holdMs.
+ */
+export const SPOT_HOLD_MS = 10_000
 /** The last spotlight box bridged, so the engine's re-reads of one box mark it once. */
 let lastSpot: Rect | undefined
 /** A spotlight box within this many px of the last one is the same box (the spotlight's own JITTER_PX). */
@@ -111,15 +118,19 @@ function withdraw(): void {
 }
 
 /**
- * Today's pointing: the spotlight feature now shows this box (screen points), or nothing (it hid: the engine cleared
- * it, or its app left the front). `again`: a Show me press asked for it. Does nothing once the engine sends annotate.
+ * The step's target: the spotlight feature now shows this box (screen points), or nothing. Nothing with `faded`: the
+ * spotlight's dim went on its own (calm), so bon keeps pointing until SPOT_HOLD_MS is up; without it the engine
+ * cleared the box, and its mark goes now. `again`: a Show me press asked for it. Leaves the engine's own marks alone
+ * while they are up.
  */
-export function spotlit(rect: Rect | undefined, again = false): void {
-  if (engineAnnotates) return
+export function spotlit(rect: Rect | undefined, again = false, faded = false): void {
+  const engineUp = get().marks.length > 0 && !get().bridged
   if (!rect) {
+    if (faded) return // the same box re-sent stays one mark (lastSpot); its hold ends it
     lastSpot = undefined
-    return withdraw()
+    return engineUp ? undefined : withdraw()
   }
+  if (engineUp) return
   if (!isDrawable(rect)) return
   const mark: Mark = { x: rect.x, y: rect.y, w: rect.w, h: rect.h, why: 'point' }
   if (again) {
@@ -132,7 +143,7 @@ export function spotlit(rect: Rect | undefined, again = false): void {
   if (lastSpot && sameRect(lastSpot, rect, SPOT_JITTER)) return
   lastSpot = rect
   if (!get().bridged) set({ bridged: true })
-  show([mark])
+  show([mark], SPOT_HOLD_MS)
 }
 
 /**
@@ -157,7 +168,6 @@ export function show(incoming: readonly Mark[], holdMs: number = HOLD.base, now 
 
 /** One `annotate` payload: { marks, holdMs? } or { clear: true }. Anything else is ignored. */
 export function annotate(payload: unknown): void {
-  engineAnnotates = true
   if (get().bridged) set({ bridged: false })
   if (!payload || typeof payload !== 'object') return
   const p = payload as { marks?: unknown; holdMs?: unknown; clear?: unknown }
@@ -191,10 +201,7 @@ onMessage('step.started', (p) => {
 onMessage('step.passed', forget)
 onMessage('lesson.ready', forget)
 onMessage('lesson.ended', forget)
-onUi('reset', () => {
-  forget()
-  engineAnnotates = false
-})
+onUi('reset', forget)
 onUi('dismiss', () => {
   fade() // Esc: the learner wants the screen back. Never claims the event, so cards still close.
 })

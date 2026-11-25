@@ -1,7 +1,8 @@
 /**
  * bon's count from the engine (ui-v4 contract; features/buddy engine.ts createBonLink, growth.ts sync / local / import):
- * bon.import once per Mac and bon.get on connect, each only when engine.hello lists it; `bon` syncs `steps` (wins when
- * ahead, never lowers the count, never plays a level-up); a ui-v4 step.passed grows bon only when `counted`, and the
+ * bon.import once per Mac and bon.get on connect, each only when engine.hello lists it; `bon` syncs `steps` (followed
+ * down too, so Delete progress shrinks bon; the import's answer keeps the larger; never plays a level-up); a ui-v4
+ * step.passed grows bon only when `counted`, and the
  * local count stays the fallback for an engine (or scenario) without it.
  * Run: node --import tsx --import ./test/setup.mjs --test test/bonEngine.test.ts
  */
@@ -108,6 +109,34 @@ describe('bon (the engine count)', () => {
     assert.equal(g.store.getState().level, 5)
     assert.equal(g.store.getState().grew, 0, 'the moment belongs to the counted step.passed')
   })
+  it('follows the engine down: Delete progress (data.delete progress) shrinks bon', () => {
+    const storage = memory()
+    const { g, bon } = link({ storage, caps: ALL, lessonId: 'L' })
+    bon.bon({ steps: 24 })
+    bon.passed({ stepId: 's4', key: 'L:s4', counted: true })
+    bon.bon({ steps: 25, grew: true, lastKey: 'L:s4' })
+    assert.equal(g.store.getState().level, 5)
+    // The engine erased its counter and pushes the empty bon.
+    bon.bon({ steps: 0, level: 1, name: 'Seed' })
+    assert.equal(g.store.getState().steps, 0)
+    assert.equal(g.store.getState().level, 1)
+    assert.equal(JSON.parse(storage.data[GROWTH_KEY]).steps, 0, 'saved, so other windows and the next launch follow')
+    assert.equal(g.store.getState().grew, 1, 'shrinking plays no moment')
+    // Passing the same step again counts: the engine forgot it, and so did this window.
+    assert.equal(bon.passed({ stepId: 's4', key: 'L:s4', counted: true }), undefined)
+    assert.equal(g.store.getState().steps, 1)
+  })
+  it('the import answer keeps the larger count (once); later answers are followed as they are', () => {
+    const storage = memory()
+    const before = createGrowth({ app: true, storage })
+    for (let i = 1; i <= 9; i++) before.pass(`L:s${i}`)
+    const { g, bon } = link({ storage, caps: ALL })
+    bon.hello(ALL)
+    bon.bon({ steps: 4 })
+    assert.equal(g.store.getState().steps, 9, 'the import: the larger of the two')
+    bon.bon({ steps: 4 })
+    assert.equal(g.store.getState().steps, 4, 'after it, the engine is the count')
+  })
   it('ignores a payload without steps', () => {
     const { g, bon } = link()
     bon.bon({ level: 6 })
@@ -173,10 +202,26 @@ describe('growth sync (the engine count)', () => {
     assert.equal(s.grew, 0, 'a sync never plays the level-up moment')
     assert.equal(JSON.parse(storage.data[GROWTH_KEY]).steps, 27)
   })
-  it('never lowers the count shown', () => {
-    const g = createGrowth({ app: false, search: '?steps=10' })
+  it('follows the engine down, and forgets the passes remembered here', () => {
+    const storage = memory()
+    const g = createGrowth({ app: true, storage })
+    g.sync(10)
+    g.pass('L:s1')
     g.sync(6)
-    assert.equal(g.store.getState().steps, 10)
+    assert.equal(g.store.getState().steps, 6)
+    assert.equal(g.store.getState().level, 2)
+    assert.deepEqual(JSON.parse(storage.data[GROWTH_KEY]).seen, [])
+    const stage = createGrowth({ app: false, search: '?steps=10' })
+    stage.sync(6)
+    assert.equal(stage.store.getState().steps, 6)
+  })
+  it('an equal count changes nothing', () => {
+    const storage = memory()
+    const g = createGrowth({ app: true, storage })
+    g.sync(14)
+    g.pass('L:s1')
+    g.sync(15)
+    assert.deepEqual(JSON.parse(storage.data[GROWTH_KEY]).seen, ['L:s1'])
   })
   it('a live pass after a sync counts on top, and keeps the engine count saved', () => {
     const storage = memory()

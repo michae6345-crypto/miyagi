@@ -22,8 +22,10 @@
  *
  * The count comes from the engine (ui-v4 `bon`, engine.ts): its passed-step counter, kept with the learner's progress
  * so it survives a new computer. sync(n) takes it. The count kept here before the engine kept one is handed to it once
- * per Mac (bon.import: local(), imported(), markImported()). The engine's count never lowers the one shown (a pass counted here a
- * moment before the engine's next answer would otherwise flicker back), and a sync never plays the level-up moment:
+ * per Mac (bon.import: local(), imported(), markImported()); the larger of the two wins for that one answer only
+ * (engine.ts). After that the engine's count is the count, down too: Delete progress (`data.delete progress`, or
+ * Delete my data) erases it in the engine, which pushes the lower `bon`, and bon shrinks with it. A lower count also
+ * forgets the passes remembered here, so passing those steps again counts. A sync never plays the level-up moment:
  * that belongs to the live step.passed.
  * The local count is the fallback, for an engine that does not send one yet: localStorage `miyagi.buddy.growth` in
  * the app, shared by every window and followed through the `storage` event; memory only in the browser stage, where
@@ -95,7 +97,7 @@ export type Growth = {
   store: UseBoundStore<StoreApi<GrowthState>>
   /** Count one passed step. Returns the new level when this pass leveled bon up, else undefined. */
   pass: (key: string) => number | undefined
-  /** The engine's passed-step count (contract ui-v4). Quiet: no level-up moment. Ignores anything not a count. */
+  /** The engine's passed-step count (contract ui-v4): followed, down too. Quiet: no level-up moment. Ignores anything not a count. */
   sync: (engineSteps: unknown) => void
   onStorage: (key: string | null, value: string | null) => void
   /** The count kept in localStorage (the app only), for bon.import; undefined when none was ever kept. */
@@ -165,8 +167,10 @@ export function createGrowth(env: Env): Growth {
       if (typeof engineSteps !== 'number' || !Number.isFinite(engineSteps) || engineSteps < 0) return
       const n = Math.floor(engineSteps)
       mem = read() ?? mem
-      if (mem.engine === n && mem.steps >= n) return
-      mem = { ...mem, steps: Math.max(mem.steps, n), engine: n }
+      if (mem.engine === n && mem.steps === n) return
+      // The engine owns the count (UI-V4.md section 2). Lower than here: it forgot passes (Delete progress), so forget
+      // their keys too.
+      mem = { steps: n, seen: n < mem.steps ? [] : mem.seen, engine: n }
       if (env.app) {
         try {
           env.storage?.setItem(GROWTH_KEY, JSON.stringify(mem))

@@ -59,11 +59,18 @@ if (typeof window !== 'undefined') {
       onMessage('step.started', () => {
         showMeAsked = false
       })
+      /** The engine sent `spotlight {clear: true}` since the last box: a box that goes now was cleared, not faded. */
+      let cleared = false
+      onMessage('spotlight', (p) => {
+        if (p && 'clear' in p && p.clear) cleared = true
+      })
       useSpotlight.subscribe((s, prev) => {
         if (s.target === prev.target) return
         const again = !!s.target && s.showMe && showMeAsked
         if (again) showMeAsked = false
-        spotlit(s.target?.rect, again)
+        // A box gone with no clear from the engine faded on its own (calm.ts): bon keeps pointing for its hold.
+        spotlit(s.target?.rect, again, !s.target && !cleared)
+        cleared = false
       })
     })
     .catch(() => undefined)
