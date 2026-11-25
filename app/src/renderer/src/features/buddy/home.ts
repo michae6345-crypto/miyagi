@@ -1,15 +1,18 @@
 /**
- * Feature: buddy. Where bon lives when it has nothing to do (Adrian, Nov 24: "bon should always be open on the corner
- * ... if you click on bon then you can ask him or talk to him and then he moves around").
+ * Feature: buddy. Where bon lives when it has nothing to do (Adrian, Nov 24: "bon should always be open ... if you
+ * click on bon then you can ask him or talk to him and then he moves around"). He saw it in the bottom right corner
+ * first ("it should be somewhere else"), then six places side by side, and picked under the island.
  *
- *   corner   bon sits in the bottom right corner of the screen, always there, full size. A click on it wakes it: its
- *            bubble opens with Ask (the ask field) and how to talk to it (push to talk). Its trips start and end here.
- *            The default.
+ *   island   bon hangs just under the island, to its right: always there, full size, next to the thing every other
+ *            surface comes out of. A click on it wakes it: its bubble opens with Ask (the ask field) and how to talk to
+ *            it (push to talk). Its trips start and end here. When the island grows into a card, bon moves along its
+ *            right edge so it never sits on the card (islandSide). The default.
+ *   corner   the bottom right corner of the screen; and four more places on the screen, kept for the stage.
  *   notch    as before: bon is tucked in the island and only comes out to point or when it is talked to.
  *
  * Pure (no React, no DOM beyond localStorage), so test/buddyHome.test.ts runs it in node.
  * The pick is kept in localStorage `miyagi.buddy.home` until Prefs has a field for it (brief: Core requests); the
- * browser stage's ?bonhome=notch|corner shows either.
+ * browser stage's ?bonhome=<place> shows any of them.
  */
 import { create } from 'zustand'
 import type { Point, Rect } from '../../core/geometry'
@@ -21,7 +24,7 @@ import type { Point, Rect } from '../../core/geometry'
  */
 export type HomePlace = 'corner' | 'bottom-left' | 'top-right' | 'top-left' | 'right' | 'island' | 'notch'
 export const HOME_PLACES: readonly HomePlace[] = ['corner', 'bottom-left', 'top-right', 'top-left', 'right', 'island', 'notch']
-export const DEFAULT_HOME: HomePlace = 'corner'
+export const DEFAULT_HOME: HomePlace = 'island'
 
 /**
  * The corner home.
@@ -36,8 +39,22 @@ export function cornerPoint(workArea: Rect): Point {
   return { x: workArea.x + workArea.w - HOME.inset, y: workArea.y + workArea.h - HOME.inset }
 }
 
-/** How far under the work area's top edge, and right of the screen's middle, it hangs for 'island' (px). */
-export const BY_ISLAND = { dx: 168, dy: 34 } as const
+/**
+ * Under the island ('island').
+ *   dx    right of the screen's middle, when the island cannot be measured (px): just past a resting pill
+ *   dy    under the work area's top edge (px)
+ *   gap   from the island's right edge to bon's center (px): half its body and a little air
+ */
+export const BY_ISLAND = { dx: 168, dy: 34, gap: 38 } as const
+
+/**
+ * bon's x beside an island whose right edge is at `islandRight` (undefined: not measured). Never left of its resting
+ * place, so it does not twitch when the pill shrinks, and never off the work area.
+ */
+export function islandSide(rest: number, islandRight: number | undefined, workArea: Rect): number {
+  const x = islandRight === undefined ? rest : Math.max(rest, islandRight + BY_ISLAND.gap)
+  return Math.min(x, workArea.x + workArea.w - HOME.inset)
+}
 
 /** bon's center at home for a place on the screen (not 'notch': there it is in the island, Reach.tsx bonsaiPoint). */
 export function homePoint(place: HomePlace, workArea: Rect): Point {

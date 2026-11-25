@@ -21,11 +21,12 @@
  * it (beside a code row: that row's line number, which the engine reads to place the box). Only a bubble with buttons
  * takes the mouse (data-hit); nothing else here does.
  *
- * Where it lives (home.ts): in the bottom right corner of the screen by default, always there, full size (Adrian,
+ * Where it lives (home.ts): just under the island, to its right, by default: always there, full size (Adrian's pick,
  * Nov 24). Its trips start and end there, and a click on it wakes it: its bubble offers Ask (the ask field) and how to
- * talk to it, and what it hears, thinks and answers shows there (talk.ts woken). At home in the corner its body takes
- * the mouse (data-hit, a 60 px square): the one place it does, so beside a code row it still hides nothing from the
- * engine's reader. With home 'notch' it is tucked in the island as before and takes no click.
+ * talk to it, and what it hears, thinks and answers shows there (talk.ts woken). When the island grows into a card it
+ * moves along the card's right edge. At home its body takes the mouse (data-hit, a 60 px square): the one place it
+ * does, so beside a code row it still hides nothing from the engine's reader. With home 'notch' it is tucked in the
+ * island as before and takes no click. (`corner` in this file: it has a home on the screen, wherever that is.)
  *
  * Reduced motion: no flights. It fades in where it would have landed, with its words whole, and fades out.
  * The character is the one that draws (Adrian, Nov 23). It stands down, with its loops, only for a cut of Michael's
@@ -41,7 +42,7 @@ import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
 import { useGrowth } from './growth'
-import { HOME, homePoint, useHome } from './home'
+import { HOME, homePoint, islandSide, useHome } from './home'
 import { NAME } from './name'
 import { useSkin } from './skin'
 import { ringBox } from './marks'
@@ -238,7 +239,24 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
 
   const wa = layout.workArea
   const nest = homePoint(place, { x: wa.x, y: wa.y, w: wa.width, h: wa.height })
-  const cx = nest.x
+  // Under the island it keeps to the right of the island's shape, card or pill (read from the DOM: the island morphs).
+  const [islandRight, setIslandRight] = useState<number>()
+  useEffect(() => {
+    if (place !== 'island') return setIslandRight(undefined)
+    const read = (): void => {
+      const fr = frame(el.current)
+      let right: number | undefined
+      fr?.root.querySelectorAll<HTMLElement>('[data-island-layer]').forEach((n) => {
+        const r = n.getBoundingClientRect()
+        if (r.width > 0) right = Math.max(right ?? 0, Math.round((r.right - fr.box.left) * fr.k))
+      })
+      setIslandRight((was) => (was === right ? was : right))
+    }
+    read()
+    const id = setInterval(read, 150)
+    return () => clearInterval(id)
+  }, [place])
+  const cx = place === 'island' ? islandSide(nest.x, islandRight, { x: wa.x, y: wa.y, w: wa.width, h: wa.height }) : nest.x
   const cy = nest.y
   const rx = first?.rect.x
   const ry = first?.rect.y
@@ -472,12 +490,17 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   useLayoutEffect(() => {
     if (usePointing.getState().trip.phase !== 'home') return
     if (!corner) return alpha.set(0)
-    x.set(cx)
-    y.set(cy)
     scale.set(1)
     tilt.set(0)
+    // Already there and its place moved (the island grew into a card): it slides over. Otherwise it is put there.
+    if (alpha.get() === 1 && !reduced && Math.hypot(cx - x.get(), cy - y.get()) < 600) {
+      const runs = [animate(x, cx, spring), animate(y, cy, spring)]
+      return () => runs.forEach((r) => r.stop())
+    }
+    x.set(cx)
+    y.set(cy)
     alpha.set(1)
-  }, [corner, cx, cy, x, y, scale, tilt, alpha])
+  }, [corner, cx, cy, reduced, x, y, scale, tilt, alpha])
 
   // It is where it means to be: its bubble can open.
   const perched = key !== undefined && trip.phase === 'perched' && trip.at === key

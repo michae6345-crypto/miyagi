@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { dispatch, emitUi } from '../src/renderer/src/core/bus'
-import { cornerPoint, DEFAULT_HOME, HOME, placeFrom } from '../src/renderer/src/features/buddy/home'
+import { BY_ISLAND, cornerPoint, DEFAULT_HOME, HOME, homePoint, islandSide, placeFrom } from '../src/renderer/src/features/buddy/home'
 import { forget } from '../src/renderer/src/features/buddy/pointing'
 import { ask, ASK_WAIT_MS, engineThinking, LINGER_MS, sendHome, setActivity, setAsker, summon, useTalk, wake } from '../src/renderer/src/features/buddy/talk'
 
@@ -28,12 +28,26 @@ describe('where bon lives (home.ts)', () => {
     assert.ok(HOME.inset >= HOME.hit / 2, 'the whole target is inside the work area')
   })
 
-  test('the corner is the default, and anything unknown falls back to it', () => {
-    assert.equal(DEFAULT_HOME, 'corner')
+  test('under the island is the default, and anything unknown falls back to it', () => {
+    assert.equal(DEFAULT_HOME, 'island')
     assert.equal(placeFrom('notch'), 'notch')
     assert.equal(placeFrom('corner'), 'corner')
-    assert.equal(placeFrom(null), 'corner')
-    assert.equal(placeFrom('desk'), 'corner')
+    assert.equal(placeFrom(null), 'island')
+    assert.equal(placeFrom('desk'), 'island')
+  })
+
+  test('under the island: right of the middle, just under the menu bar', () => {
+    const wa = { x: 0, y: 38, w: 1512, h: 874 }
+    assert.deepEqual(homePoint('island', wa), { x: 756 + BY_ISLAND.dx, y: 38 + BY_ISLAND.dy })
+  })
+
+  test('beside the island it clears a card, never moves left of its resting place, and stays on the screen', () => {
+    const wa = { x: 0, y: 38, w: 1512, h: 874 }
+    const rest = homePoint('island', wa).x
+    assert.equal(islandSide(rest, undefined, wa), rest, 'not measured: its resting place')
+    assert.equal(islandSide(rest, 860, wa), rest, 'a resting pill ends left of it')
+    assert.equal(islandSide(rest, 1040, wa), 1040 + BY_ISLAND.gap, 'a card: just past its right edge')
+    assert.equal(islandSide(rest, 1500, wa), 1512 - HOME.inset, 'never off the work area')
   })
 })
 
