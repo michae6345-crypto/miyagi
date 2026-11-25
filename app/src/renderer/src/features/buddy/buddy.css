@@ -125,3 +125,36 @@
 @media (prefers-reduced-motion: reduce) {
   .bd-foot { transition: none; }
 }
+
+/* ---- Tap bon and it plays (Poke.tsx). One trick per tap, 0.72 s (TRICK_MS), from its feet. Transform only. ---- */
+.ch-poke { display: inline-block; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; line-height: 0; border-radius: 999px; -webkit-tap-highlight-color: transparent; }
+.ch-poke:focus-visible { outline-offset: 4px; }
+.ch-poke-move { display: inline-block; line-height: 0; transform-origin: 50% 92%; }
+.ch-poke-move[data-trick='hop'] { animation: ch-hop 0.72s cubic-bezier(0.23, 1, 0.32, 1) both; }
+.ch-poke-move[data-trick='wiggle'] { animation: ch-wiggle 0.72s ease-in-out both; }
+.ch-poke-move[data-trick='twirl'] { animation: ch-twirl 0.72s cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes ch-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  14% { transform: translateY(0) scale(1.08, 0.9); }
+  42% { transform: translateY(-26%) scale(0.95, 1.07); }
+  70% { transform: translateY(0) scale(1.09, 0.91); }
+  84% { transform: translateY(-3%) scale(0.98, 1.02); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes ch-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  18% { transform: rotate(-11deg); }
+  40% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  80% { transform: rotate(3deg); }
+}
+@keyframes ch-twirl {
+  0% { transform: translateY(0) rotate(0deg) scale(1, 1); }
+  14% { transform: translateY(0) rotate(0deg) scale(1.07, 0.92); }
+  55% { transform: translateY(-22%) rotate(360deg) scale(1, 1); }
+  80% { transform: translateY(0) rotate(360deg) scale(1.06, 0.94); }
+  100% { transform: translateY(0) rotate(360deg) scale(1, 1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch-poke-move[data-trick] { animation: none !important; }
+}
