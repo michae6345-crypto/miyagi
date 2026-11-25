@@ -75,7 +75,7 @@ describe('pathLayout', () => {
       assert.equal(e.kind === 'done', done(e.from) && done(e.to), `${e.from} > ${e.to}`)
     }
   })
-  it('reports a wider stage than the column when it cannot fit (the view scales it)', () => {
+  it('reports a wider stage than the column when it cannot fit (the view pans it)', () => {
     assert.ok(pathLayout(g, 300).w > 300)
   })
 })
