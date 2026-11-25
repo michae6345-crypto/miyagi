@@ -47,6 +47,7 @@ class ScreenBridge:
         # capture, no Accessibility reader, no event taps, no frontmost poller (and so no permission prompt) before
         # the learner picks a lesson. resume() starts it the first time. ORCH_SCREEN_EAGER=1: the old boot start.
         self.started = False
+        self.start_error: str | None = None  # why start() gave up (None: it never failed); /health reports it
 
     @property
     def active(self) -> bool:
@@ -72,7 +73,11 @@ class ScreenBridge:
             if eager:
                 reader.start()
             self._loop = loop or asyncio.get_running_loop()
-            self._unsub = reader.subscribe(on_obs)
+            # The engine's loop, always: start() runs in a worker thread (Engine._start_screen), which has no running
+            # loop, and the reader's subscribe() asks for one for a coroutine callback. Without it every installed
+            # engine since Nov 21 logged "screen reader unavailable (no running event loop)" and ran blind: no
+            # spotlight boxes, so bon never flew to a step's target in a real lesson (only the stage's mock did).
+            self._unsub = reader.subscribe(on_obs, self._loop)
             self.reader = reader
             self.started = eager
             self.paused = not eager  # launch-quiet: resume() (the first lesson step) starts it
@@ -81,6 +86,7 @@ class ScreenBridge:
         except Exception as e:  # noqa: BLE001 - permission / platform problems must not kill the hub
             log.warning("screen reader unavailable (%s); running without screen", e)
             self.reader = None
+            self.start_error = f"{type(e).__name__}: {e}"
             return False
 
     def stop(self) -> None:

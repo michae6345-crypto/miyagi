@@ -290,7 +290,11 @@ class ScreenReader:
 
     def subscribe(self, cb: Callback, loop: asyncio.AbstractEventLoop | None = None) -> Callable[[], None]:
         """Call `cb(obs)` on every new observation. Coroutine functions are scheduled on `loop`
-        (defaults to the running loop at subscribe time). Returns an unsubscribe function."""
+        (defaults to the running loop at subscribe time). Returns an unsubscribe function.
+
+        Called from a worker thread (the engine boots the bridge in asyncio.to_thread), a coroutine callback MUST
+        get `loop`: that thread has no running loop, and this raises RuntimeError (Nov 21 - 24: the screen reader
+        never started in the installed app, so no lesson ever got a spotlight box or bon at a step's target)."""
         if loop is None and inspect.iscoroutinefunction(cb):
             loop = asyncio.get_running_loop()
         entry = (cb, loop)
@@ -981,6 +985,13 @@ class ScreenReader:
                 r.feed(obs)
             except Exception:
                 log.exception("metric reader failed")
+        self._deliver(obs, subs)
+        return obs
+
+    @staticmethod
+    def _deliver(obs: ScreenObservation, subs: list[tuple[Callback, asyncio.AbstractEventLoop | None]]) -> None:
+        """Hand a new frame to each subscriber: coroutine callbacks are scheduled on the loop they subscribed with
+        (from this capture thread, so always thread-safe)."""
         for cb, loop in subs:
             try:
                 if loop is not None:
@@ -992,7 +1003,6 @@ class ScreenReader:
                     cb(obs)
             except Exception:
                 log.exception("screen subscriber failed")
-        return obs
 
     # ------------------------------------------------------------------ cursor + AX
 
