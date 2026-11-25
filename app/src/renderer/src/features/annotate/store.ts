@@ -16,13 +16,29 @@
  *   - the hold runs out (holdMs, or 6 s, from the newest mark's birth: a re-sent mark does not restart it),
  *   - the step changes (step.started keeps only marks for the new step; step.passed clears), the lesson ends, a reset,
  *   - Esc (dismiss).
+ * On-screen coach (Nov 24, agents/app-onscreen-coach.md): a mark with text (the step's action, in an app lesson) is not
+ * timed. It stays while its step is live and goes on step.passed, a step.started for another step, lesson.ended, a new
+ * (non-replay) lesson.ready, Esc, annotate {clear}, a replacing annotate, or the learner reaching it. Marks without text
+ * keep the hold above.
+ * Only while its step is live: an annotate whose text mark names a step that is not running now (a late answer after
+ * step.passed, or after the next step.started) draws no text mark. And no text mark on idle: lesson.paused, a blocker
+ * (not a clear) or status "idle" hides the text marks, and an annotate meanwhile draws none. Hidden, not gone: they are
+ * kept aside (with an annotate's text marks for this step that came meanwhile) and drawn again, with no re-send, when
+ * the lesson is live again (lesson.resumed, the last blocker's clear, a status that is not idle) and their step is still
+ * the one running. The engine sends a step's point mark once (step start, "Not yet", Show me), never after a resume, so
+ * this is the only way the pointing comes back. They are let go on another step, step.passed, lesson.ended, a new
+ * lesson.ready, annotate {clear} and Esc.
+ * An explicit ask brings pointing back after the learner reached or dismissed it: a Show me press ("where?"), or a
+ * "Not yet" card (verdict not_done) for the current step. The engine re-sends the point mark then (same id), and the
+ * next annotate after the ask draws its marks again even if they are gone this step. If the re-send came first (it was
+ * skipped as gone), the "Not yet" draws it again itself. A re-send with no ask stays gone.
  * Nothing here takes the mouse: the layer is click-through, always.
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { fadeAt, holdFor, mergeMarks, sameMarkKeys, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
+import { asAnnotation, cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known, type OnscreenFields } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -38,6 +54,21 @@ let engineAnnotates = false
 /** The last spotlight box bridged, so the engine's re-reads of one box draw it once. */
 let lastSpot: Rect | undefined
 const SPOT_JITTER = 8
+/** The step now running (step.started), so a "Not yet" for it counts as an ask. */
+let curStep: string | undefined
+/** A Show me press or a "Not yet" for this step, not yet answered by an engine annotate: that annotate draws again. */
+let engineAsked = false
+/** The marks of this step's latest annotate that were skipped as gone (and its hold): a "Not yet" draws them again. */
+let dropped: { marks: Annotation[]; holdMs: number } | undefined
+/** The lesson is not live for the learner now: paused (lesson.paused), a blocker in the way (by kind), status "idle". */
+let paused = false
+const blockers = new Set<string>()
+let idle = false
+const quiet = (): boolean => paused || blockers.size > 0 || idle
+/** The text marks hidden while the lesson is quiet, to draw again when it is live (restoreText). */
+let hidden: Annotation[] = []
+/** The hold of the latest show(), so a restore keeps the plain marks on the same hold. */
+let lastHoldMs = DEFAULT_HOLD_MS
 
 function stopHold(): void {
   clearTimeout(hold)
@@ -61,22 +92,35 @@ function forget(): void {
   gone.clear()
   lastAsk = undefined
   lastSpot = undefined
+  engineAsked = false
+  dropped = undefined
+  hidden = []
+  paused = false
+  blockers.clear()
+  idle = false
   if (get().marks.length) set({ marks: [] })
 }
 
+/** Start the hold for the timed marks among `marks` (those without text): they fade at `at`; a text mark is untouched. */
+function holdTimed(marks: readonly DrawMark[], at: number | undefined, now: number): void {
+  stopHold()
+  if (at === undefined) return
+  const keys = timedMarks(marks).map((m) => m.key)
+  if (keys.length) hold = setTimeout(() => fade(keys), Math.max(0, at - now))
+}
+
 /** Draw `incoming` in place of what is drawn. The hold counts from the newest mark's birth (fadeAt), so a re-send of
- * marks already drawn keeps the old deadline and only a new mark moves it. */
+ * marks already drawn keeps the old deadline and only a new mark moves it. A mark with text gets no hold. */
 export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_HOLD_MS, now = Date.now()): void {
   const ask = incoming.find((m) => m.askId)?.askId
   if (ask && ask !== lastAsk) {
     gone.clear()
     lastAsk = ask
   }
+  lastHoldMs = holdMs
   const marks = mergeMarks(get().marks, incoming, gone.values(), now)
   set({ marks })
-  stopHold()
-  const at = fadeAt(marks, holdMs)
-  if (at !== undefined) hold = setTimeout(() => fade(), Math.max(0, at - now))
+  holdTimed(marks, fadeAt(timedMarks(marks), holdMs), now)
 }
 
 /** Take the marks away (they fade out) without remembering them as gone: the thing they pointed at went away, the
@@ -84,6 +128,39 @@ export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_H
 function withdraw(): void {
   stopHold()
   if (get().marks.length) set({ marks: [] })
+}
+
+/** A mark that carries the coach's text (a "point" mark with text: mergeMarks keeps text for those only). */
+const textOf = (m: Annotation): boolean => m.why === 'point' && !!cleanText((m as Annotation & OnscreenFields).text)
+
+/** Not drawn now: a text mark for a step that is not the one running, or any text mark while the lesson is quiet. */
+const notLive = (m: Annotation): boolean => textOf(m) && (quiet() || (!!m.stepId && m.stepId !== curStep))
+
+/** The lesson went quiet (paused, a blocker, idle): the untimed text marks go out of sight but are kept aside (not
+ * remembered as gone), so restoreText draws them again once it is live. Timed marks keep their hold. */
+function withdrawText(): void {
+  const cur = get().marks
+  const text = cur.filter(hasText)
+  if (!text.length) return
+  hidden = text.map(asAnnotation)
+  const left = cur.filter((m) => !hasText(m))
+  set({ marks: left })
+  if (!left.length) stopHold()
+}
+
+/** The lesson is live again: draw the hidden text marks of the step still running (born again, with their text), next
+ * to what is drawn now. Nothing while still quiet; the rest are let go. */
+function restoreText(): void {
+  if (quiet() || !hidden.length) return
+  const back = hidden.filter((m) => !notLive(m))
+  hidden = []
+  if (!back.length) return
+  // An ask still waiting (Show me, "Not yet" while quiet, its answer kept aside here): born again even if reached.
+  if (engineAsked) {
+    engineAsked = false
+    back.forEach(askAgain)
+  }
+  show([...get().marks.map(asAnnotation), ...back], lastHoldMs)
 }
 
 /** An explicit ask for this box (Show me): forget that it was reached or timed out, and let it be born again. */
@@ -97,30 +174,119 @@ function askAgain(m: Annotation): void {
 onMessage('annotate', (p) => {
   engineAnnotates = true
   if (!p || typeof p !== 'object') return
-  if ('clear' in p && p.clear) return fade()
+  if ('clear' in p && p.clear) {
+    hidden = []
+    return fade()
+  }
   if (!('marks' in p)) return
-  show(validMarks(p.marks), holdFor(p.holdMs))
+  // A text mark for a step that is no longer live (a late answer) or while the lesson is quiet: not drawn, so a stale
+  // untimed mark never stays up. It is not remembered as gone either. An annotate with nothing live left is ignored: a
+  // late answer must not replace what the running step drew.
+  const valid = validMarks(p.marks)
+  // While quiet, this step's text marks wait with the hidden ones (the newest win), to draw once it is live.
+  if (quiet()) {
+    const later = valid.filter((m) => textOf(m) && (!m.stepId || m.stepId === curStep))
+    if (later.length) hidden = later
+  }
+  const marks = valid.filter((m) => !notLive(m))
+  if (valid.length && !marks.length) return
+  const holdMs = holdFor(p.holdMs)
+  // The answer to an explicit ask (Show me, "Not yet"): its marks are born again even if reached or dismissed.
+  if (engineAsked) {
+    engineAsked = false
+    marks.forEach(askAgain)
+  }
+  show(marks, holdMs)
+  const drawn = get().marks
+  const skipped = marks.filter((m) => !sameMarkKeys(m, drawn).length)
+  dropped = skipped.length ? { marks: skipped, holdMs } : undefined
+})
+
+// "Not yet" for the step now running: the learner still needs the pointing, so it counts as an ask.
+onMessage('card', (p) => {
+  if (p?.verdict !== 'not_done' || !p.stepId || p.stepId !== curStep) return
+  if (!dropped) {
+    engineAsked = true
+    return
+  }
+  // The engine's re-send came before the card and was skipped as gone: draw it again now.
+  const again = dropped
+  dropped = undefined
+  const live = again.marks.filter((m) => !notLive(m))
+  if (!live.length) return
+  live.forEach(askAgain)
+  show(live, again.holdMs)
 })
 
 onMessage('step.started', (p) => {
+  if (p?.stepId) curStep = p.stepId
   if (p?.replay) return // a reconnect's replay of the step already running: not a new step
+  idle = false // a new step is running: the lesson is live
   const step = p?.stepId
+  engineAsked = false
+  dropped = undefined
   const keep = get().marks.filter((m) => m.stepId && m.stepId === step)
+  hidden = hidden.filter((m) => m.stepId && m.stepId === step)
   stopHold()
   gone.clear()
   lastSpot = undefined
   set({ marks: keep })
-  if (keep.length) hold = setTimeout(() => fade(), DEFAULT_HOLD_MS)
+  // A kept text mark stays with its step; kept plain marks get the default hold from now.
+  const now = Date.now()
+  holdTimed(keep, timedMarks(keep).length ? now + DEFAULT_HOLD_MS : undefined, now)
+  restoreText()
 })
-onMessage('step.passed', forget)
-onMessage('lesson.ended', forget)
-onMessage('lesson.ready', forget)
+onMessage('step.passed', () => {
+  curStep = undefined
+  forget()
+})
+onMessage('lesson.ended', () => {
+  curStep = undefined
+  forget()
+})
+// A reconnect's replay of the lesson already running is not a new lesson: what is drawn stays.
+onMessage('lesson.ready', (p) => {
+  // A reconnect replays the pause and the blockers after the step (engine v2_snapshot): start from live, they re-arrive.
+  paused = false
+  blockers.clear()
+  idle = false
+  if (p?.replay) return
+  curStep = undefined
+  forget()
+})
+// No text mark on idle: the lesson waits (paused, a blocker in the way) or the engine is idle.
+onMessage('lesson.paused', () => {
+  paused = true
+  withdrawText()
+})
+// Live again: the hidden text marks come back (no re-send needed).
+onMessage('lesson.resumed', () => {
+  paused = false
+  restoreText()
+})
+onMessage('blocker', (p) => {
+  const kind = String(p?.kind ?? '')
+  if (p?.clear) {
+    blockers.delete(kind)
+    return restoreText()
+  }
+  blockers.add(kind)
+  withdrawText()
+})
+onMessage('status', (p) => {
+  idle = p?.state === 'idle'
+  if (idle) withdrawText()
+  else restoreText()
+})
 onUi('reset', () => {
   forget()
   engineAnnotates = false
 })
 // Esc: the learner wants the screen back.
-onUi('dismiss', () => fade())
+onUi('dismiss', () => {
+  hidden = []
+  fade()
+})
 
 // Today's pointing: a new spotlight box gets a buddy mark too (until the engine sends its own annotate).
 // Imported late, not at the top: features load A to Z and "annotate" is first, so a static import pulled the spotlight
@@ -132,6 +298,8 @@ void Promise.all([import('../spotlight/store'), import('../../core/shortcuts')])
   usePressed.subscribe((p, was) => {
     if (!p.kind || (p.kind === was.kind && p.at === was.at)) return
     showMeAsked = p.kind === 'show_me'
+    // Show me ("where?") asks the engine too: its next annotate draws even marks already reached or dismissed.
+    if (showMeAsked) engineAsked = true
   })
   onMessage('step.started', () => (showMeAsked = false))
   useSpotlight.subscribe((s, prev) => {
