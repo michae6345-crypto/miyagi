@@ -40,7 +40,7 @@ import { useLocal } from '../settings/local'
  * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
  * time column (a "Just teach me" lesson) is mockup 01's denser list: at least 32 tall, its line wrapping to two.
  */
-const ROW = { h: 38, wrapH: 32, wrapPadY: 6, padX: 10, icon: 18, gap: 11 } as const
+const ROW = { h: 38, wrapH: 32, wrapPadY: 6, openPadY: 9, padX: 10, icon: 18, gap: 11 } as const
 /** Section labels: mockup 01's small caps (the eyebrow's style), faint. */
 /** Section labels: 12 px medium, sentence case, the label color (overlay round: the same as the home window's SectionHead). */
 const CAPS = 'text-[12px] font-medium'
@@ -635,6 +635,9 @@ function StepRow({
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
   const wrap = timeW === 0
+  // The open step's line is never cut either: beside a time column it wraps to two lines too (a one-line title keeps
+  // the row at ROW.h; the other rows stay one line so the list reads as a list).
+  const tall = !wrap && open
   const estimate = typeof step.estMinutes === 'number' && step.estMinutes > 0 ? `about ${Math.round(step.estMinutes)} min` : undefined
   return (
     <motion.div
@@ -648,13 +651,14 @@ function StepRow({
     >
       <button
         type="button"
-        className={`flex w-full items-center rounded-[12px] text-left ${canSeek ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
-        style={{ ...(wrap ? { minHeight: ROW.wrapH, paddingTop: ROW.wrapPadY, paddingBottom: ROW.wrapPadY } : { height: ROW.h }), paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
+        className={`flex w-full ${tall ? 'items-start' : 'items-center'} rounded-[12px] text-left ${canSeek ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
+        style={{ ...(wrap ? { minHeight: ROW.wrapH, paddingTop: ROW.wrapPadY, paddingBottom: ROW.wrapPadY } : tall ? { minHeight: ROW.h, paddingTop: ROW.openPadY, paddingBottom: ROW.openPadY } : { height: ROW.h }), paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
         disabled={!canSeek}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => v && seekVideo(v.start)}
       >
-        <span className="relative grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
+        {/* tall: the number and the time sit on the title's first line (20 px), not between its two lines. */}
+        <span className="relative grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon, marginTop: tall ? 1 : undefined }}>
           {/* initial={false}: icons already there when the drawer opens (or a row appears) don't draw in; a
               status change does (GlassCheck draws its tick). */}
           <AnimatePresence initial={false} mode="wait">
@@ -671,12 +675,12 @@ function StepRow({
           </AnimatePresence>
         </span>
         {timeW > 0 && (
-          <span className="shrink-0 text-[12.5px] tabular-nums" style={{ width: timeW, color: tone }}>
+          <span className={`shrink-0 text-[12.5px] tabular-nums ${tall ? 'leading-[20px]' : ''}`} style={{ width: timeW, color: tone }}>
             {v ? clock(v.start) : ''}
           </span>
         )}
         <span
-          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${open ? 'font-semibold' : ''}`}
+          className={`min-w-0 flex-1 text-[14px] ${wrap || tall ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${open ? 'font-semibold' : ''}`}
           style={{ color: tone }}
           title={line && line !== step.title ? step.title : undefined}
         >
