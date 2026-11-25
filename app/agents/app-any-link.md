@@ -33,7 +33,8 @@ docs.python.org link for the notch card. Shots: `agents/shots/anylink-*.png` (li
 
 ## Status
 
-Done for the mock. Not checked in Electron. The mock answers by order, not by URL (`link.get` cycles), so a card for a
+Done for the mock, merged up to michael/app-ui-v4 a12a7873 (ambient help in the launcher: a pasted page skips the
+ambient rows like a YouTube link). Shots re-taken after the merge (light and dark). Not checked in Electron. The mock answers by order, not by URL (`link.get` cycles), so a card for a
 link pasted out of order stays on "Reading the page…" in the stage.
 
 ## Core requests
