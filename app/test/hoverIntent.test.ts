@@ -169,19 +169,20 @@ describe('shared notch: hover zones', () => {
 })
 
 describe('wheel stretch', () => {
-  test('scale = max(0.6, 1 + progress * 0.01); commits past 200', () => {
+  test('the stretch leans at most 8% (never a balloon); commits past 200', () => {
     let s = STRETCH_IDLE
     assert.equal(stretchScale(s), 1)
     let r = stretchWheel(s, 50)
     s = r.state
-    assert.equal(stretchScale(s), 1.5)
-    assert.equal(stretchScale({ progress: 200, committed: true }), 3)
-    assert.equal(stretchScale({ progress: 20, committed: false }), 1.2)
+    assert.equal(stretchScale(s), 1.02)
+    assert.equal(stretchScale({ progress: 200, committed: true }), 1.08)
+    assert.equal(stretchScale({ progress: 5000, committed: true }), 1.08)
+    assert.equal(stretchScale({ progress: 100, committed: false }), 1.04)
     assert.equal(r.commit, false)
     r = stretchWheel(s, 160)
     assert.equal(r.commit, true)
     assert.equal(stretchWheel(r.state, 10).commit, false)
-    assert.equal(stretchScale({ progress: -500, committed: false }), 0.6)
+    assert.equal(stretchScale({ progress: -500, committed: false }), 1)
   })
 })
 

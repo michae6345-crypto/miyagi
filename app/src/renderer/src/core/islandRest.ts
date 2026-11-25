@@ -18,8 +18,13 @@ export const NOTCH_SPRING = {
 
 /** The lean when the pointer is on a closed island. */
 export const HOVER_SCALE = 1.04
-/** The soft shadow, only while the island is open or the pointer is on it; never at rest (it would show on the black notch). */
-export const NOTCH_SHADOW = 'drop-shadow(0 0 6px rgb(0 0 0 / 0.7))'
+/**
+ * The soft shadow, only while the island is open or the pointer is on it; never at rest (it would show on the black
+ * notch). It falls downward like the pill's and the cards' (theme `shadows`): the even 6 px halo it replaced also spread
+ * up and sideways, which drew a grey fringe on a light menu bar around the shape's top corners (MIC-83). One
+ * drop-shadow, so the filter costs what it did.
+ */
+export const NOTCH_SHADOW = 'drop-shadow(0 6px 12px rgb(0 0 0 / 0.36))'
 export const shadowFor = (open: boolean, hovering: boolean): string => (open || hovering ? NOTCH_SHADOW : 'none')
 
 /**
