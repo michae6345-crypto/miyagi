@@ -59,11 +59,29 @@ def mac(monkeypatch):
 def weather(tmp_path: Path, venv: bool = True) -> Path:
     root = tmp_path / "weather-app"
     shutil.copytree(FIX / "weather-app", root)
-    if venv:
+    if venv:  # a real venv's bin/python is a link to the Python it was made from, outside the project
+        base = tmp_path / "base-python" / "python3.12"
+        base.parent.mkdir(exist_ok=True)
+        base.write_text("")
         (root / ".venv" / "bin").mkdir(parents=True)
-        (root / ".venv" / "pyvenv.cfg").write_text("home = /usr/local/bin\n")
-        (root / ".venv" / "bin" / "python").write_text("")
+        (root / ".venv" / "pyvenv.cfg").write_text(f"home = {base.parent}\ninclude-system-site-packages = false\n"
+                                                   "version = 3.12.4\n")
+        (root / ".venv" / "bin" / "python").symlink_to(base)
+        (root / ".venv" / "lib" / "python3.12" / "site-packages").mkdir(parents=True)
     return root
+
+
+def dist(root: Path, name: str, version: str, venv: str = ".venv") -> None:
+    """A package installed in the project's venv, as pip leaves it: <name>-<version>.dist-info/METADATA."""
+    d = root / venv / "lib" / "python3.12" / "site-packages" / f"{name.replace('-', '_')}-{version}.dist-info"
+    d.mkdir(parents=True)
+    (d / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\nSummary: x\n\nlong text\n")
+
+
+def ran_inside(mac: FakeMac, root: Path) -> list[list[str]]:
+    """Commands whose program is a file inside the project folder (never allowed during a scan)."""
+    return [a for a in mac.argv if str(Path(a[0]).resolve()).startswith(str(root.resolve()))
+            or a[0].startswith(str(root))]
 
 
 def full(root: Path, mac: FakeMac, **kw) -> dict:
@@ -117,8 +135,8 @@ def test_find_root_walks_up_from_a_file_to_the_manifests(tmp_path):
 
 def test_weather_app_report_missing_first_with_from_env_and_next(tmp_path, mac):
     root = weather(tmp_path)
-    mac.bins = {"python": "3.12.4", "node": "18.19.0", "make": "3.81"}
-    mac.modules = {"requests": "2.32.3"}
+    mac.bins = {"node": "18.19.0", "make": "3.81"}
+    dist(root, "requests", "2.32.3")
     rep = full(root, mac)
     assert rep["reqId"] == "scan-1" and rep["name"] == "weather-app" and rep["_path"] == str(root.resolve())
     assert rep["files"] == ["requirements.txt", ".python-version", "package.json", ".nvmrc", "Dockerfile", "Makefile"]
@@ -141,9 +159,10 @@ def test_weather_app_report_missing_first_with_from_env_and_next(tmp_path, mac):
     assert by["uv"]["from"] == "Makefile" and by["uv"]["install"]["command"] == "brew install uv"
     assert by["python"]["ok"] and by["python"]["from"] == ".python-version"
     assert rep["env"]["python"].endswith("weather-app/.venv (Python 3.12.4)") and rep["env"]["node"] == "node 18.19.0"
-    assert rep["next"] == "Install pandas first. Then 5 more."
-    # read-only: version checks and the import probe, never an installer, never a project script
+    assert rep["_next"] == "Install pandas first. Then 5 more."
+    # read-only: version checks only, never an installer, never a project script (the .venv is read, not run)
     assert not any(a[0].endswith(("brew", "npm", "pip")) or "install" in a for a in mac.argv)
+    assert ran_inside(mac, root) == []
     assert not any(a[0] == "make" or a[-1] == "dev" for a in mac.argv)
 
 
@@ -160,28 +179,29 @@ def test_ready_project_and_next_steps(tmp_path, mac):
     (root / "requirements.txt").write_text("requests\n")
     mac.modules = {"requests": "2.32.3"}
     rep = full(root, mac, python="/usr/local/bin/python3.12")
-    assert rep["ready"] == rep["total"] == 1 and rep["next"] == "Everything this project asks for is here."
+    assert rep["ready"] == rep["total"] == 1 and rep["_next"] == "Everything this project asks for is here."
     assert rep["env"]["python"] == "python3.12, no project .venv yet"
     (root / "requirements.txt").write_text("requests\nnumpy\nscipy\n")
     rep = full(root, mac, python="/usr/local/bin/python3.12")
-    assert rep["next"] == "Install numpy and 1 more Python package into a new .venv in this folder."
+    assert rep["_next"] == "Install numpy and 1 more Python package into a new .venv in this folder."
     empty = tmp_path / "empty"
     empty.mkdir()
     rep = full(empty, mac)
-    assert rep["files"] == [] and rep["items"] == [] and rep["next"].startswith("No project files here yet")
+    assert rep["files"] == [] and rep["items"] == [] and rep["_next"].startswith("No project files here yet")
 
 
 def test_python_too_old_for_the_project_asks_for_a_newer_one(tmp_path, mac):
     root = weather(tmp_path)
     (root / ".python-version").write_text("3.13\n")
-    mac.bins = {"python": "3.12.4", "node": "20.11.1", "make": "3.81"}
-    mac.modules = {"requests": "2.32.3", "pandas": "2.2.0", "matplotlib": "3.8.0"}
+    mac.bins = {"node": "20.11.1", "make": "3.81"}
+    for name, v in (("requests", "2.32.3"), ("pandas", "2.2.0"), ("matplotlib", "3.8.0")):
+        dist(root, name, v)
     rep = full(root, mac)
     py = rep["items"][0]
     assert py["tool"] == "python@3.13" and py["label"] == "Python 3.13" and not py["ok"]
     assert py["why"] == ".python-version asks for Python 3.13; the .venv uses 3.12.4"
     assert py["install"]["command"] == "brew install python@3.13"
-    assert rep["next"].startswith("Install Python 3.13, then make the project's .venv again with it.")
+    assert rep["_next"].startswith("Install Python 3.13, then make the project's .venv again with it.")
 
 
 def test_yarn_project_shows_its_own_command_and_partial_node_modules(tmp_path, mac):
@@ -206,7 +226,7 @@ def test_make_without_developer_tools_is_never_run(tmp_path, mac):
     rep = full(root, mac)
     make = rep["items"][0]
     assert make["tool"] == "make" and not make["installed"] and make["install"]["command"] == "xcode-select --install"
-    assert rep["next"] == "make is missing. Run xcode-select --install in Terminal."
+    assert rep["_next"] == "make is missing. Run xcode-select --install in Terminal."
     assert not any(a[0].endswith("make") for a in mac.argv)
 
 
@@ -300,7 +320,7 @@ def test_fix_only_installs_what_the_project_asks_for(tmp_path, mac):
 
     res = P.fix("left-pad-evil", str(root), install=never, npm=never, run=mac.run, node=None)
     assert res == {"tool": "left-pad-evil", "ok": False, "error": "This project doesn't ask for that any more."}
-    mac.modules = {"requests": "2.32.3"}
+    dist(root, "requests", "2.32.3")
     assert P.fix("requests", str(root), install=never, run=mac.run, node=None)["ok"]  # already there: nothing runs
     assert P.fix("x", str(tmp_path / "gone"), install=never)["error"] == "That project folder isn't there any more."
 
@@ -372,3 +392,91 @@ def test_a_newer_python_beside_the_default_one_counts_without_a_venv(tmp_path, m
     mac.bins["python3.13"] = "3.13.1"  # installed with the row's Install
     rep = full(root, mac)
     assert rep["items"][0]["ok"] and rep["items"][0]["version"] == "3.13.1" and rep["ready"] == 1
+
+
+# --------------------------------------------------------------------------- a project's own venv is read, never run
+
+def committed_venv(root: Path, venv: str = ".venv", version: str = "3.11.2") -> Path:
+    """A venv committed to a cloned repo: pyvenv.cfg, an executable bin/python that is a shell script (it leaves a
+    marker file when run) and a site-packages .pth that would run code when an interpreter starts."""
+    v = root / venv
+    (v / "bin").mkdir(parents=True)
+    (v / "pyvenv.cfg").write_text(f"home = /usr/bin\nversion = {version}\n")
+    marker = root.parent / f"{root.name}-ran"
+    script = v / "bin" / "python"
+    script.write_text(f"#!/bin/sh\necho ran \"$@\" >> '{marker}'\necho 'Python 3.12.4'\n")
+    script.chmod(0o755)
+    sp = v / "lib" / "python3.11" / "site-packages"
+    sp.mkdir(parents=True)
+    (sp / "evil.pth").write_text(f"import os; open('{marker}', 'a').write('pth')\n")
+    return marker
+
+
+def test_scan_never_runs_a_python_committed_in_the_project(tmp_path, mac):
+    root = tmp_path / "cloned"
+    root.mkdir()
+    (root / "requirements.txt").write_text("requests>=2.30\nPyYAML\nnumpy\n")
+    (root / ".python-version").write_text("3.11\n")
+    marker = committed_venv(root)
+    sp = root / ".venv" / "lib" / "python3.11" / "site-packages"
+    (sp / "requests-2.32.3.dist-info").mkdir()
+    (sp / "requests-2.32.3.dist-info" / "METADATA").write_text("Metadata-Version: 2.1\nName: requests\nVersion: 2.32.3\n")
+    (sp / "PyYAML-6.0.1.dist-info").mkdir()  # no METADATA: the folder's own name
+    rep = full(root, mac)
+    assert ran_inside(mac, root) == [] and not marker.exists()
+    rep2 = P.scan(str(root))  # the real runner too: nothing inside the folder starts
+    assert not marker.exists() and rep2["items"] == rep["items"]
+    by = {it["tool"]: it for it in rep["items"]}
+    assert by["python"]["ok"] and by["python"]["version"] == "3.11.2"
+    assert by["requests"]["ok"] and by["requests"]["version"] == "2.32.3"
+    assert by["pyyaml"]["ok"] and by["pyyaml"]["version"] == "6.0.1"
+    assert not by["numpy"]["installed"] and by["numpy"]["actions"][0] == "install"
+    assert rep["env"]["python"].endswith("cloned/.venv (Python 3.11.2)")
+    assert rep["_next"] == "Install numpy into the project's .venv."
+
+
+def test_venv_files_uv_version_egg_info_and_name_normalizing(tmp_path):
+    v = tmp_path / "venv"
+    sp = v / "lib" / "python3.13" / "site-packages"
+    sp.mkdir(parents=True)
+    (v / "pyvenv.cfg").write_text("home = /x\nimplementation = CPython\nuv = 0.5.1\nversion_info = 3.13.0\n")
+    assert P.venv_version(v) == "3.13.0"
+    (sp / "scikit_learn-1.5.2.dist-info").mkdir()
+    (sp / "scikit_learn-1.5.2.dist-info" / "METADATA").write_text("Name: scikit-learn\nVersion: 1.5.2\n\nVersion: 9\n")
+    (sp / "Old.Pkg.egg-info").write_text("Metadata-Version: 1.0\nName: Old.Pkg\nVersion: 0.3\n")  # a file, not a folder
+    (sp / "notes.txt").write_text("x")
+    assert P.venv_dists(v) == {"scikit-learn": "1.5.2", "old-pkg": "0.3"}
+    assert P.venv_version(tmp_path / "missing") == "" and P.venv_dists(tmp_path / "missing") == {}
+    items = [{"tool": "scikit_learn", "pip_name": "Scikit_Learn>=1.6", "min_version": "1.6"},
+             {"tool": "old_pkg", "pip_name": "old_pkg"}]
+    P.check_venv_packages(items, v, "/p/venv/bin/python")
+    assert items[0]["installed"] and items[0]["version"] == "1.5.2" and not items[0]["ok"]  # older than asked
+    assert items[1]["ok"] and items[1]["where"] == "/p/venv/bin/python"
+
+
+def test_fix_never_runs_a_python_committed_in_the_project(tmp_path, mac):
+    root = tmp_path / "cloned"
+    root.mkdir()
+    (root / "requirements.txt").write_text("pandas\n")
+    marker = committed_venv(root)
+
+    def never(*_a, **_k):
+        raise AssertionError("ran pip with the project's own python")
+
+    res = P.fix("pandas", str(root), install=never, run=mac.run)
+    assert not res["ok"] and "Delete the .venv folder" in res["error"] and not marker.exists()
+
+    # a committed venv/ (not .venv): Install makes a fresh .venv (ensure_venv) instead of running venv/bin/python
+    root2 = tmp_path / "cloned2"
+    root2.mkdir()
+    (root2 / "requirements.txt").write_text("pandas\n")
+    marker2 = committed_venv(root2, "venv")
+    got = {}
+
+    def fake_install(item, *, workdir=None, on_line=None, python=None):
+        got.update(workdir=workdir, python=python)
+        return {"ok": True, "tool": item["tool"], "method": "pip"}
+
+    assert P.fix("pandas", str(root2), install=fake_install, run=mac.run)["ok"]
+    assert got == {"workdir": root2.resolve(), "python": None} and not marker2.exists()
+    assert ran_inside(mac, root) == [] and ran_inside(mac, root2) == []

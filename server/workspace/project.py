@@ -6,16 +6,19 @@
 
 What it reads (the project's own files, nothing else): requirements*.txt, pyproject.toml, Pipfile, environment.yml,
 .python-version, package.json, .nvmrc, .node-version, Dockerfile, docker-compose.yml, Makefile (which CLIs its recipes
-call). What it checks on this Mac: the project's Python (its .venv / venv when it has one, else the Python a new .venv
-would be made from), whether each package imports in it (setup.check_python_packages: one interpreter run), node's
-version, node_modules against package.json, and the CLIs those files call (`which`).
+call). What it checks on this Mac: the project's Python and packages, node's version, node_modules against
+package.json, and the CLIs those files call (`which`). Nothing inside the project folder ever runs during a scan: when
+the project has its own .venv / venv, its Python version comes from pyvenv.cfg and its packages from site-packages'
+*.dist-info headers (a cloned repo can commit a .venv whose bin/python is a script). Without one, the Python a new
+.venv would be made from is asked (`--version`, setup.check_python_packages: one interpreter run, outside the folder).
 
 Rows are the contract's SetupItem (setup._row) plus `from` ("requirements.txt:4", ".nvmrc"), kind node_package (every
-package.json dependency as one row) and install method npm. `next` on the report is one plain sentence saying what to
-do first (additive: the app may show it under the card's title).
+package.json dependency as one row) and install method npm. `_next` is one plain sentence saying what to do first; it
+is not in SetupReport yet, so the leading underscore keeps it off the wire (assist._public) until the contract has it.
 
 fix() goes through setup.install (brew, allowlisted casks, pip with the safety.packages verdict) with the project's
-own interpreter, or `npm install` in the project folder. The argv is rebuilt from the row's validated name: never a
+own interpreter when that resolves outside the project folder (else a new .venv, ensure_venv), or `npm install` in the
+project folder. The argv is rebuilt from the row's validated name: never a
 string from the app or the project's files.
 """
 
@@ -448,7 +451,9 @@ def read_project(root: Path) -> dict:
 # --------------------------------------------------------------------------- checks on this Mac
 
 def project_python(root: Path) -> tuple[str | None, str | None]:
-    """(the project's own venv python, its folder) when it has one, else (None, None)."""
+    """(the project's own venv python, its folder) when it has one, else (None, None). Found, never run by a scan:
+    setup.scan reads the venv's files instead (venv_version, venv_dists), since a cloned repo can commit a .venv whose
+    bin/python is a script, and even a real one processes the project's .pth files and imports its packages."""
     from . import paths
 
     for d in VENV_DIRS:
@@ -457,6 +462,97 @@ def project_python(root: Path) -> tuple[str | None, str | None]:
         if (venv / "pyvenv.cfg").is_file() and py.exists():
             return str(py), str(venv)
     return None, None
+
+
+MAX_DISTS = 5000        # *.dist-info folders read from one venv
+META_BYTES = 8192       # read of each METADATA / PKG-INFO / pyvenv.cfg: the headers come first
+
+
+def venv_version(venv: str | Path) -> str:
+    """The venv's Python version from its pyvenv.cfg (`version = 3.12.4`, or uv's `version_info`). No code runs."""
+    try:
+        with (Path(venv) / "pyvenv.cfg").open("r", encoding="utf-8", errors="replace") as f:
+            text = f.read(META_BYTES)
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip().lower() in ("version", "version_info") and (v := _setup._version(value)):
+            return v
+    return ""
+
+
+def _dist_key(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name.strip()).lower()  # PEP 503 normalized
+
+
+def _meta_head(path: Path) -> tuple[str, str]:
+    """(Name, Version) from a METADATA / PKG-INFO file's header block."""
+    name = version = ""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(META_BYTES)
+    except OSError:
+        return "", ""
+    for line in head.splitlines():
+        if not line.strip():
+            break
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        if key.strip().lower() == "name" and not name:
+            name = value.strip()
+        elif key.strip().lower() == "version" and not version:
+            version = value.strip()
+    return name, version
+
+
+def venv_dists(venv: str | Path) -> dict[str, str]:
+    """{normalized distribution name: version} from the venv's site-packages *.dist-info / *.egg-info headers."""
+    from . import paths
+
+    out: dict[str, str] = {}
+    seen = 0
+    for sp in paths.venv_site_packages(venv):
+        try:
+            entries = sorted(sp.iterdir())
+        except OSError:
+            continue
+        for d in entries:
+            if d.suffix not in (".dist-info", ".egg-info"):
+                continue
+            seen += 1
+            if seen > MAX_DISTS:
+                return out
+            meta = d / ("METADATA" if d.suffix == ".dist-info" else "PKG-INFO")
+            name, version = _meta_head(meta) if d.is_dir() else _meta_head(d)  # an .egg-info can be a file
+            if not name:  # no readable header: the folder's own name, <name>-<version>.dist-info
+                name, _sep, version = d.stem.partition("-")
+            if name:
+                out.setdefault(_dist_key(name), _setup._version(version) or version.strip()[:40])
+    return out
+
+
+def check_venv_packages(items: list[dict], venv: str | Path, py: str) -> None:
+    """check_python_packages' fields (installed / version / where / ok) for the project's own venv, read from its
+    files (venv_dists). Nothing runs, so a package that is there but fails to import still counts as installed."""
+    dists = venv_dists(venv)
+    for it in items:
+        name = re.split(r"[\[<>=!~ ;]", it.get("pip_name") or it.get("tool") or "")[0]
+        version = dists.get(_dist_key(name)) if name else None
+        installed = version is not None
+        it.update(installed=installed, version=version or "", where=py,
+                  ok=installed and _setup.meets(version or "", it.get("min_version", "")))
+        it.pop("unknown", None)
+
+
+def _inside(path: str | Path, root: Path) -> bool:
+    """Does `path`, links followed, end up inside `root`?"""
+    try:
+        Path(os.path.realpath(path)).relative_to(os.path.realpath(root))
+    except ValueError:
+        return False
+    return True
 
 
 def node_binary() -> str | None:
@@ -519,12 +615,16 @@ def build_items(root: Path, info: dict, *, run: Runner | None = None, brew: str 
     brew = _setup.brew_path() if brew is ... else brew
     venv_py, venv_dir = project_python(root)
     py = (venv_py or _setup.best_python()) if python is ... else python
+    in_venv = bool(venv_py) and py == venv_py  # the project's own venv: read its files, never run its python
     env: dict = {}
     items: list[dict] = []
     py_version = ""
     if py and (info["packages"] or info["python_floor"]):
-        code, out = run([py, "--version"])
-        py_version = _setup._version(out) if code == 0 else ""
+        if in_venv:
+            py_version = venv_version(venv_dir)
+        else:
+            code, out = run([py, "--version"])
+            py_version = _setup._version(out) if code == 0 else ""
         where = home_short(venv_dir) if venv_dir and py == venv_py else Path(py).name
         env["python"] = f"{where} (Python {py_version})" if py_version else where
         if not (venv_dir and py == venv_py):
@@ -548,7 +648,10 @@ def build_items(root: Path, info: dict, *, run: Runner | None = None, brew: str 
 
     pkgs = [dict(p) for p in info["packages"]]
     if pkgs:
-        _setup.check_python_packages(pkgs, py, run=run)
+        if in_venv:
+            check_venv_packages(pkgs, venv_dir, py)
+        else:
+            _setup.check_python_packages(pkgs, py, run=run)
         for p in pkgs:
             p["install"] = _install_dict(p, brew)
             if p.get("detail") and "fails to import" in p["detail"]:
@@ -708,7 +811,7 @@ def scan(path: str | Path | None = None, *, req_id: str | None = None, quick: bo
     shown += [it for it in ordered if it.get("ok")][:MAX_ROWS - len(shown)]
     venv = project_python(root)[0] is not None
     out = {**base, "items": [_contract_row(it) for it in shown], "ready": sum(1 for it in items if it.get("ok")),
-           "total": len(items), "next": next_step(ordered, info, venv)}
+           "total": len(items), "_next": next_step(ordered, info, venv)}
     if len(items) > len(shown):
         out["more"] = len(items) - len(shown)
     if env:
@@ -783,4 +886,13 @@ def fix(tool: str, root: str | Path, *, on_line: Callable[[str], None] | None = 
     if confirmed:
         item["confirmed"] = confirmed
     venv_py, _venv = project_python(r)
+    if venv_py and _inside(venv_py, r):
+        # Its python is a file inside the project (a committed .venv, or one made with --copies): never run a program
+        # that came with the folder. pip goes into <root>/.venv through ensure_venv instead, unless that's this one.
+        dot = _setup.venv_python(r)
+        if dot and _inside(dot, r):
+            return {"tool": tool, "ok": False, "method": item["install"]["method"],
+                    "error": "This project's .venv keeps its own copy of Python inside the folder, so miyagi won't "
+                             "run it. Delete the .venv folder, then press Install again to make a fresh one."}
+        venv_py = None
     return (install or _setup.install)(item, workdir=r, on_line=on_line, python=venv_py)

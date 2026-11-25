@@ -383,6 +383,14 @@ def _erases_activity(what: Any) -> bool:
     return any(k in ("progress", "all", "activity", "bon") for k in what if isinstance(k, str))
 
 
+def lesson_holds_screen(s: Any) -> bool:
+    """A lesson is on screen, so an ambient help card stops watching: searching, building or a lesson in progress. A
+    finished lesson (phase "done": its completion screen, the graph still held) doesn't count."""
+    if getattr(s, "phase", None) in ("building", "searching"):
+        return True
+    return getattr(s, "graph", None) is not None and getattr(s, "phase", None) != "done"
+
+
 def parse_command(raw: dict) -> Any:
     """parse_app_message, plus the v2 commands while this tree's contract (shared/contracts/events.py) predates W0-1.
     Once W0-1 lands, its models parse them (same names, same id pattern) and this fallback is unused."""
@@ -671,8 +679,7 @@ class Engine:
         if assist_mod is not None:
             try:
                 s = self.session
-                self.assist = assist_mod.Assist(
-                    lesson_running=lambda: s.graph is not None or s.phase in ("building", "searching"))
+                self.assist = assist_mod.Assist(lesson_running=lambda: lesson_holds_screen(s))
             except Exception as e:  # noqa: BLE001
                 log.warning("ambient setup / how-do-I unavailable: %s", e)
 

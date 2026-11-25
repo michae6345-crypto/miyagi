@@ -30,7 +30,8 @@ from .budget import BUDGET, CallBudget
 log = logging.getLogger("server.ambient")
 
 COMMANDS = ("setup.scan", "setup.fix", "help.ask", "help.nav")
-POLL_S = 0.5           # how often the help card's app is looked at while a card is open (AX only)
+POLL_S = 1.0           # how often the help card's app is looked at while a card is open (AX only; each read walks
+                       # the app's menus and window, up to controls.MAX_NODES elements)
 IDLE_S = 300.0         # a help card with no progress for this long stops watching
 CONFIRM_S = 180.0      # an off-list pip package: the same row's second Install within this long installs it
 BUSY_RETRY_S = 30
