@@ -610,12 +610,16 @@ function useIdleView(): NotchView {
   const thinking = useThinking()
   const connected = useLesson((s) => s.connected)
   const lessonLoaded = useLesson((s) => !!s.lesson)
+  const local = useLesson((s) => s.localEngine?.state)
   const firstOrSetup = !bootIn.everOpen || setupPending
   // Exactly Idle's own conditions (above): drop a line only when it says something other than "ask miyagi". Before,
   // 'failed' and an offer Idle didn't show dropped a plain "ask miyagi" pill under the notch, which looked like the
   // old pill below the menu bar, so choosing "In the notch" seemed to do nothing (Michael, Nov 21).
   const gettingReady = !bootIn.connected && firstOrSetup && (boot.phase === 'starting' || boot.phase === 'reconnecting')
-  return restViewFor({ wantsDrop: offline || gettingReady || (offer && !offline), connected, lessonLoaded, thinking })
+  // A start that failed is Idle's "miyagi couldn't start · Retry": it must drop too, or the notch shows a calm ear and a
+  // watching dot while nothing runs, and Retry is only reachable below the menu bar (MIC-83).
+  const couldntStart = !bootIn.connected && firstOrSetup && boot.phase === 'failed' && local !== 'missing'
+  return restViewFor({ wantsDrop: offline || gettingReady || couldntStart || (offer && !offline), connected, lessonLoaded, thinking })
 }
 
 /** The right ear at rest: the spinner while the engine is thinking, else the quiet status dot (watching). */
