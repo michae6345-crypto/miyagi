@@ -14,7 +14,8 @@
  * Brand rules (BRAND.md):
  *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
- *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
+ *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree. One exception:
+ *    the open notch island's black-into-pastel-mint fill (hud.notchGradient; Michael's call, Nov 25).
  *  - App text in Bricolage Grotesque (bundled, styles.css @font-face; Michael's call, Nov 24), system font as fallback. No Inter.
  */
 /**
@@ -70,12 +71,16 @@ export const hud = {
    */
   notch: '#000000',
   /**
-   * The open notch panel's glow: black at the notch, deep green at the bottom (Michael, Nov 22: Clicky does a blue that
-   * fades into black; ours is green). A try-out: tune or drop it here only.
+   * The open island's fill over the notch black: black at the top (so it melts into the hardware notch), fading
+   * smoothly into a soft pastel mint at the bottom edge (Michael, Nov 25: "try a pastel green gradient in"; Clicky does
+   * a blue into black, ours is the brand mint rgb 150 228 200). The one gradient the brand allows, and only on the open,
+   * tall island (gradientOn in notchGeometry.ts): closed, ears and the peek stay plain black. Linear and eased (many
+   * stops) so it never bands. Kept low enough that white text keeps >= 4.5:1 at the very bottom, and so does the
+   * island's muted text (white 60%); test/notchIsland.test.ts checks both. The island pins data-theme="dark", so it
+   * is the same in the light and dark system themes. Tune it here only.
    */
-  // Nov 22, round 2: the brand mint (pastel.mint #BFE6DA) as a soft glow rising from the bottom edge, so it fits the
-  // app's pastels and melts into the black instead of banding.
-  notchGlow: 'radial-gradient(130% 100% at 50% 130%, rgba(150,228,200,.62) 0%, rgba(150,228,200,.26) 42%, rgba(0,0,0,0) 80%)',
+  notchGradient:
+    'linear-gradient(180deg, rgba(150,228,200,0) 0%, rgba(150,228,200,0) 35%, rgba(150,228,200,.03) 48%, rgba(150,228,200,.09) 62%, rgba(150,228,200,.18) 78%, rgba(150,228,200,.27) 91%, rgba(150,228,200,.32) 100%)',
   dark: { glass: 'rgba(28,28,30,0.72)', text: '#F4F4F5', muted: 'rgba(255,255,255,0.6)', hairline: 'rgba(255,255,255,0.12)', button: '#F4F4F5', buttonText: '#141414' },
   light: { glass: 'rgba(255,255,255,0.78)', text: '#141414', muted: 'rgba(0,0,0,0.55)', hairline: 'rgba(0,0,0,0.10)', button: '#141414', buttonText: '#F6F6F3' }
 } as const

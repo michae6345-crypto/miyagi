@@ -24,6 +24,7 @@ import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, hud, pill, shadows } from './theme'
 import {
   EAR_W,
+  gradientOn,
   HOVER,
   isOpenView,
   notchClip,
@@ -31,7 +32,6 @@ import {
   notchSize,
   radiiFor,
   restSize,
-  SHORT_OPEN_H,
   viewWith,
   type NotchView
 } from './notchGeometry'
@@ -556,7 +556,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={open && shown.h >= SHORT_OPEN_H} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={gradientOn(open, shown.h)} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
             {layers}
           </NotchShape>
         ) : (
@@ -618,8 +618,8 @@ function NotchShape({ w, h, rt, rb, tp, glow, open, nm, coexist, shadow, scale, 
     >
       <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: H, background: color.island, clipPath: clip, mask, WebkitMask: mask }}>
         <motion.span aria-hidden className="pointer-events-none absolute" style={{ top: 0, height: 1, left: seamLeft, width: seamWidth, background: color.island }} />
-        {/* Open and tall: black at the notch fading into green at the bottom (Michael, Nov 22, after Clicky's blue). */}
-        <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: hud.notchGlow }} initial={false} animate={{ opacity: glow ? 1 : 0 }} transition={reduced ? instant : { duration: 0.35, ease: 'easeOut', delay: glow ? 0.08 : 0 }} />
+        {/* Open and tall: notch black at the top fading into a pastel mint at the bottom (Michael, Nov 25). Fades in after the shape opens; instant with reduced motion. */}
+        <motion.div aria-hidden data-notch-gradient={glow ? true : undefined} className="pointer-events-none absolute inset-0" style={{ background: hud.notchGradient }} initial={false} animate={{ opacity: glow ? 1 : 0 }} transition={reduced ? instant : { duration: 0.35, ease: 'easeOut', delay: glow ? 0.08 : 0 }} />
         {children}
       </motion.div>
     </motion.div>
