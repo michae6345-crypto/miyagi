@@ -1,0 +1,40 @@
+/* apps (Nov 24): the apps miyagi teaches in, for MIC-87. Same tokens as app.css. No new colors, no tiles. */
+
+/* A: one table on Home. A row is an app, what to start with, and whether it is on this Mac. */
+.tbl.apps td { height: 46px; white-space: nowrap; }
+.tbl.apps th.c-app { width: 168px; } .tbl.apps th.c-for { width: 76px; } .tbl.apps th.c-mac { width: 150px; } .tbl.apps th.c-go { width: 22px; }
+.tbl.apps td.app b { font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.tbl.apps td.app { display: flex; align-items: center; gap: 10px; border-bottom: 0; box-shadow: 0 1px 0 var(--hair); }
+.tbl.apps tr:last-child td.app { box-shadow: none; }
+.tbl.apps td .more { color: var(--muted); font-size: 13px; margin-left: 8px; }
+.tbl.apps td.go { padding: 0; text-align: right; }
+.tbl.apps td.go .ch { width: 14px; height: 14px; color: var(--ghost); vertical-align: middle; }
+.tbl.apps tr.soon td { height: 40px; color: var(--faint); font-size: 13.5px; }
+.ast { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--text); white-space: nowrap; }
+.ast.q { color: var(--muted); }
+a.ast { color: var(--ink); font-weight: 540; text-decoration: underline; text-decoration-color: var(--track); text-underline-offset: 3px; }
+a.ast .ic, .rrow a .ic, .appline .ic { width: 12px; height: 12px; color: var(--muted); stroke-width: 1.8; }
+
+/* the slot for an app's own mark. Empty until its owner's rules are cleared; the row reads the same without it. */
+.amark { width: 20px; height: 20px; flex: none; display: block; }
+.amark.sm { width: 16px; height: 16px; }
+
+/* returning learner: the same list as a short block in the rail */
+.rrow a.r { color: var(--ink); font-weight: 520; display: inline-flex; align-items: center; gap: 5px; text-decoration: underline; text-decoration-color: var(--track); text-underline-offset: 3px; }
+
+/* B: one line of names under the ask field */
+.appline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 14px; padding: 0 2px; font-size: 13.5px; }
+.appline .k { font-size: 12.5px; font-weight: 550; color: var(--muted); }
+.appline b { display: inline-flex; align-items: center; gap: 5px; font-weight: 540; color: var(--ink); white-space: nowrap; }
+.appline b.get { font-weight: 480; color: var(--muted); }
+.appline b.soon { font-weight: 450; color: var(--faint); }
+.appline .grp { display: inline-flex; align-items: center; gap: 20px; white-space: nowrap; }
+.appline .grp .k { font-weight: 450; color: var(--faint); }
+
+/* the page behind a row */
+.apphead h1 { display: flex; align-items: center; gap: 12px; }
+.apphead .amark { width: 30px; height: 30px; }
+.under { font-size: 12.5px; color: var(--faint); margin-top: 12px; }
+.btnrow { display: flex; gap: 8px; margin-top: 12px; }
+.btnrow .btn { flex: 1; }
+.btnrow .btn.primary { flex: 1.6; }
