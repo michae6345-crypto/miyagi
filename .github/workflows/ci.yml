@@ -81,24 +81,39 @@ jobs:
           print("cloud smoke: ok")
           EOF
   app:
+    # Typecheck, build, and the app's offline tests and checks for real (R04). The tests fake Electron, Supabase Auth and
+    # the cloud (test/setup.mjs, test/harness.ts): nothing leaves the runner but the auth loopback on 127.0.0.1.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # typecheck, build and the tests never start Electron
+    defaults: { run: { working-directory: app } }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: "22", cache: npm, cache-dependency-path: app/package-lock.json }
       - name: no secret Supabase keys in app/ or the build env (R46)
-        run: python3 scripts/check_supabase_keys.py --self-test && python3 scripts/check_supabase_keys.py --env app
+        run: python3 ../scripts/check_supabase_keys.py --self-test && python3 ../scripts/check_supabase_keys.py --env .
       - run: npm ci
-        working-directory: app
       - run: npm run typecheck
-        working-directory: app
       - run: npm run build
-        working-directory: app
       - name: no secret Supabase keys in the built app (R46)
-        run: python3 scripts/check_supabase_keys.py app/out
+        run: python3 ../scripts/check_supabase_keys.py out
+      - name: unit tests (test/*.test.ts)
+        run: node --import tsx --import ./test/setup.mjs --test --test-force-exit test/*.test.ts
+      - name: unit tests next to the code (src/**/*.test.ts)
+        run: node --import tsx --test --test-force-exit $(find src -name '*.test.ts' | sort)
+      - name: Node checks (src/**/*.check.ts)
+        run: |
+          for f in src/main/freshStart.check.ts src/main/island-sync.check.ts src/renderer/src/features/sound/sound.check.ts; do
+            echo "::group::$f"; npx tsx "$f"; echo "::endgroup::"
+          done
+      - name: "known failing: loginFirst.check (index.ts:384, hideLauncher's overlay.showInactive is outside a gate guard)"
+        # Fails on this branch as committed: hideLauncher() hands focus back with overlay.showInactive(), which the check
+        # only allows inside gateIsOpen()/onGate/gateCore. Either the check learns that the launcher only opens with the
+        # gate open, or the call gets a guard. Shown as a failed step; drop continue-on-error once it passes.
+        continue-on-error: true
+        run: npx tsx src/main/loginFirst.check.ts
       - name: VS Code companion tests
         run: npm test
         working-directory: vscode-ext

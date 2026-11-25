@@ -15,16 +15,17 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Waypoints, X } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
+import { islandBottom } from '../../core/islandEdge'
 import { useLesson, type Rect } from '../../core/lesson'
 import { dockRect } from '../player/dock'
 import { actionTone, color, glass, radius, spring, springOut } from '../../core/theme'
 import { DiagramBody } from '../diagrams/Diagram'
 import { closeDiagram, isLiveNetwork, useDiagram, type DiagramPayload } from '../diagrams/store'
 import { DiagramTabs, titleOf } from '../diagrams/Tabs'
-import { useBarTop } from '../shortcut-bar/lift'
 import { NetBody } from './LiveNet'
 import { RUN_DROP, RUN_SHARE } from './runTuck'
 import type { Side } from './store'
+import { fade } from '../../core/ui/motion'
 
 /** About the width of a lesson's drawer (mockup 01), clamped to the room beside the drawer. */
 export const FLY_W = 420
@@ -38,11 +39,10 @@ const PAD = 16
 const ISLAND_W = 600
 /** A run step's box starts where the old floating card did: under the notch band, then RUN_DROP lower. */
 const RUN_TOP = 24
-/** Air between the box and the shortcut bar's top edge. */
-const BAR_GAP = 12
-/** The resting step pill: about this far either side of the screen's center, this tall, from platform.pillTop. */
+/** The resting step pill: about this far either side of the screen's center, this tall, from the island's top. */
 const PILL_HALF = 180
-const PILL_H = 36
+/** The old step pill was 36 tall against the island's 34: the flyout keeps those 2 px of air under it. */
+const PILL_SLACK = 2
 const PILL_GAP = 10
 
 /**
@@ -51,7 +51,6 @@ const PILL_GAP = 10
  */
 export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Side; anchor: Rect; run: boolean }): ReactNode {
   const d = useDiagram((s) => s.diagram)
-  const barTop = useBarTop(layout)
   const wa = layout.workArea
   // A video lesson's player is docked on the right (player/dock.ts) and is wider than the drawer: the flyout never
   // covers it. With the drawer on the right it opens beside the player's left edge, toward the code; on the left it
@@ -69,9 +68,9 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   // Top-aligned with the drawer, unless that would put the header under the step pill (centered, at pillTop: on a
   // Mac the pill's band and the drawer's top overlap): then it starts just under the pill.
   const underPill = x0 < layout.width / 2 + PILL_HALF && x0 + Math.min(FLY_W, room) > layout.width / 2 - PILL_HALF
-  const pillClear = bridge.platform.pillTop + PILL_H + PILL_GAP
+  const pillClear = islandBottom(layout) + PILL_SLACK + PILL_GAP
   const top = run ? wa.y + RUN_TOP + RUN_DROP : underPill ? Math.max(anchor.y, pillClear) : anchor.y
-  const bottom = run ? Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) : anchor.y + anchor.h
+  const bottom = run ? wa.y + wa.height * RUN_SHARE : anchor.y + anchor.h
   const maxH = Math.max(160, bottom - top)
   const base = Math.max(Math.min(MIN_W, room), Math.min(FLY_W, room))
   // Too tall for its box (a run step's room above the terminal): narrower, so the scaled drawing gets shorter.
@@ -122,12 +121,12 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
       }}
       initial={{ x: away, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: fade.in } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <div ref={content} className="pb-[12px] pt-[12px]">
         <div className="flex min-w-0 items-center gap-[10px] pb-[10px]">
-          <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
+          <span className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onPastel }}>
             <Waypoints size={13} strokeWidth={1.9} />
           </span>
           <DiagramTabs glassy fallback={<span className="min-w-0 truncate text-[14px] font-semibold" style={{ color: glass.text }}>{titleOf(d)}</span>} />

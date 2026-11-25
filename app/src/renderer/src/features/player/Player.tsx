@@ -8,7 +8,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Check, ExternalLink, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
@@ -17,12 +17,17 @@ import { useLesson, useStatus, useThinking } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
 import { clock, color, copy, glass, radius, spring } from '../../core/theme'
+import { useCards } from '../cards/store'
+import { waitingRows } from '../cards/setupPlan'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
+import { guardSkip, skipLabel, useSkipArmed } from '../settings/guard'
+import { showsPlayGlyph } from './policy'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
+import { beat, ease, enter, fade as fades, prefersReduced, pressMotion } from '../../core/ui/motion'
 
 /** Frameless window: the header drags it; buttons inside opt out. */
 const drag = { WebkitAppRegion: 'drag' } as CSSProperties
@@ -30,10 +35,14 @@ const noDrag = { WebkitAppRegion: 'no-drag' } as CSSProperties
 
 /** Stop the lesson: the engine answers lesson.ended (every lesson store resets) + status idle. */
 const endLesson = (): void => bridge.send(cmd('end_lesson', {}))
+/** The header's End lesson stays armed ("Tap to end") this long for its second click, like the launcher's (QA Q03). */
+const END_ARM_MS = 3000
 /** "Can I move on?": the engine re-runs the checks now and Claude looks at the screen. */
 const checkStep = (): void => sendAction('check_step')
 /** Leave this step unfinished and start the next one (never shown green). */
-const skipStep = (): void => sendAction('skip_step')
+const skipStep = (): void => {
+  if (guardSkip()) sendAction('skip_step')
+}
 
 /** The open step's clip (undefined once the step has passed). */
 function useOpenSegment(): VideoSegment | undefined {
@@ -48,6 +57,10 @@ export function PlayerPanel({ framed = false }: { framed?: boolean }): ReactNode
   const hover = (on: boolean) => () => isElectron && bridge.invoke('player:hover', on).catch(() => {})
   return (
     <div
+      // data-theme auto: the overlay root pins the dark set (core/Overlay.tsx); the player follows Settings → Appearance
+      // like the drawer beside it (QA Q24). data-glass: the glass focus ring on its controls.
+      data-theme="auto"
+      data-glass
       className="flex h-full w-full flex-col overflow-hidden"
       style={{
         // A glass panel: follows Settings → Appearance (theme.glass flips on <html data-appearance>).
@@ -122,17 +135,7 @@ function Header(): ReactNode {
         </span>
       )}
       <GlassDot status={status} />
-      {hasStep && (
-        <button
-          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[7px] px-[8px] text-[12px] font-medium text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
-          style={noDrag}
-          onClick={endLesson}
-          title="End this lesson"
-          aria-label="End lesson"
-        >
-          <Square size={10} strokeWidth={2.2} /> End lesson
-        </button>
-      )}
+      {hasStep && <EndButton />}
       {isElectron && (
         <button
           className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
@@ -148,6 +151,42 @@ function Header(): ReactNode {
   )
 }
 
+/**
+ * End lesson in the header: two taps, like the launcher's footer link (QA Q03). The first click arms it ("Tap to end",
+ * brighter, on a field), a second click within END_ARM_MS ends the lesson; otherwise it quietly disarms.
+ */
+function EndButton(): ReactNode {
+  const [armed, setArmed] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const tap = (): void => {
+    clearTimeout(timer.current)
+    if (!armed) {
+      setArmed(true)
+      timer.current = setTimeout(() => setArmed(false), END_ARM_MS)
+      return
+    }
+    setArmed(false)
+    endLesson()
+  }
+  return (
+    <button
+      className={`flex h-[26px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[7px] px-[8px] text-[12px] font-medium hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)] ${armed ? 'bg-[var(--glass-field-hover)] text-[var(--glass-text)]' : 'text-[var(--glass-label)]'}`}
+      style={noDrag}
+      onClick={tap}
+      onBlur={() => {
+        clearTimeout(timer.current)
+        setArmed(false)
+      }}
+      title={armed ? 'Click again to end the lesson' : 'End this lesson'}
+      aria-label="End lesson"
+      data-armed={armed || undefined}
+    >
+      <Square size={10} strokeWidth={2.2} /> {armed ? 'Tap to end' : 'End lesson'}
+    </button>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Video + gate states
 // ---------------------------------------------------------------------------
@@ -156,7 +195,12 @@ type Mode = 'loading' | 'error' | 'passed' | 'building' | 'setup' | 'waiting' | 
 
 function Video(): ReactNode {
   const host = useRef<HTMLDivElement>(null)
-  useEffect(() => attachPlayer(host.current!), [])
+  // Retry (the error state's button) builds the YouTube player again from scratch.
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    if (retry) usePlayer.setState({ error: undefined })
+    return attachPlayer(host.current!)
+  }, [retry])
 
   const p = usePlayer(useShallow((s) => ({ ready: s.ready, playing: s.playing, pausedBy: s.pausedBy, resuming: s.resuming, error: s.error, muted: s.muted })))
   const stepOpen = useLesson((s) => !!s.stepId && !s.passed.includes(s.stepId))
@@ -175,7 +219,7 @@ function Video(): ReactNode {
           ? 'setup'
           : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
-          : !p.playing && p.pausedBy === 'user'
+          : !p.playing && showsPlayGlyph(p.pausedBy)
             ? 'paused'
             : undefined
 
@@ -186,7 +230,9 @@ function Video(): ReactNode {
           (it fits the width), while YouTube's own chrome (title bar and share button at the top, "More videos" and the logo at the
           bottom, shown after every seek or resume) lands in the clipped bands. */}
       <div ref={host} className="pointer-events-none absolute inset-x-0" style={{ top: -64, bottom: -64 }} />
-      <button className="absolute inset-0 cursor-pointer" onClick={() => player.toggle()} aria-label="Play or pause" />
+      {/* Only while the video itself shows (playing or plainly paused): the gate and error states carry their own buttons,
+          which must not sit on top of this full-frame hit area (QA Q09). */}
+      {(mode === undefined || mode === 'paused') && <button className="absolute inset-0 cursor-pointer" onClick={() => player.toggle()} aria-label="Play or pause" />}
       <AnimatePresence>
         {mode === 'waiting' && <Waiting key="waiting" />}
         {mode === 'passed' && <Passed key="passed" />}
@@ -194,7 +240,7 @@ function Video(): ReactNode {
         {mode === 'setup' && <SetupHold key="setup" />}
         {mode === 'paused' && <PausedGlyph key="paused" />}
         {mode === 'loading' && <Loading key="loading" />}
-        {mode === 'error' && <ErrorState key="error" message={p.error!} />}
+        {mode === 'error' && <ErrorState key="error" message={p.error!} onRetry={() => setRetry((n) => n + 1)} />}
       </AnimatePresence>
       {p.muted && (
         <button
@@ -208,7 +254,7 @@ function Video(): ReactNode {
   )
 }
 
-const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.28 } }
+const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0, transition: fades.out }, transition: fades.slow }
 
 /**
  * The waiting / building / passed states sit on the video as frosted glass in the panel's appearance
@@ -228,7 +274,7 @@ function GlassScrim({ children, strength = 0.8, cover = false }: { children: Rea
     </motion.div>
   )
 }
-const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: { ...spring, delay: 0.06 } }
+const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: enter(beat) }
 
 /** Calm "your turn" state: the clip is over, the step's checks decide when it continues. */
 function Waiting(): ReactNode {
@@ -238,6 +284,7 @@ function Waiting(): ReactNode {
   const pressed = usePressed((s) => s.kind)
   const checking = thinking && pressed === 'check_step'
   const skipping = thinking && pressed === 'skip_step'
+  useSkipArmed()
   const done = checks.filter((c) => c.status === 'pass').length
   // Apricot only for off track; otherwise Miyagi is watching (gray).
   const tone = offtrack ? glass.offTrack : color.gray
@@ -258,7 +305,7 @@ function Waiting(): ReactNode {
                   className="h-[7px] w-[7px] rounded-full"
                   initial={false}
                   animate={{ background: c.status === 'pass' ? glass.pass : c.status === 'fail' ? glass.offTrack : glass.faint }}
-                  transition={{ duration: 0.25 }}
+                  transition={fades.slow}
                 />
               ))}
             </span>
@@ -268,7 +315,7 @@ function Waiting(): ReactNode {
         <div className="pointer-events-auto mt-[16px] flex flex-wrap items-center justify-center gap-[8px]">
           <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={Check} onClick={checkStep} disabled={checking} />
           <GlassQuiet label="Replay" icon={RotateCcw} onClick={() => player.replayStep()} />
-          <GlassQuiet label="Skip step" icon={SkipForward} onClick={skipStep} busy={skipping} />
+          <GlassQuiet label={skipLabel('Skip step')} icon={SkipForward} onClick={skipStep} busy={skipping} />
         </div>
       </motion.div>
     </GlassScrim>
@@ -295,17 +342,22 @@ function BuildingNext(): ReactNode {
   )
 }
 
-/** A setup card is waiting ("Set up first"): the video holds at the clip's start and plays once setup is done or skipped. */
+/**
+ * A setup card holds the video (the step on screen truly needs a tool Install can get now): the video waits at the
+ * clip's start and plays once setup is done or skipped. The setup card is the one place that says "set up first"
+ * (Michael, Nov 22); here, only what the video waits for.
+ */
 function SetupHold(): ReactNode {
+  const tools = useCards((s) => waitingRows(s.card, s.installs).map((x) => (x.kind === 'editor' ? copy.editorName(x.label) : x.label)).slice(0, 2).join(', '))
   return (
     <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[8px] text-[17px] font-semibold leading-tight">
           <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color.gray }} />
-          Set up first
+          {tools ? `Waiting for ${tools}` : 'Waiting on setup'}
         </div>
         <div className="mt-[8px] text-[13px]" style={{ color: glass.label }}>
-          The video starts when setup is done.
+          It plays once that is ready.
         </div>
       </motion.div>
     </GlassScrim>
@@ -341,14 +393,37 @@ function Loading(): ReactNode {
   )
 }
 
-function ErrorState({ message }: { message: string }): ReactNode {
+/**
+ * The video didn't load (QA Q12): one calm line, the reason, and a next step. Try again builds the player again; Open on
+ * YouTube plays the same video at the same moment in the browser (a real YouTube id only, never the stand-in).
+ * Video chrome: white on the black frame in both appearances.
+ */
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }): ReactNode {
+  const { videoId, standIn, t } = usePlayer(useShallow((s) => ({ videoId: s.videoId, standIn: s.standIn, t: s.t })))
+  // The player never loaded (offline, blocked): no video id yet, so the lesson's own video link.
+  const sourceUrl = useLesson((s) => s.lesson?.sources.find((x) => x.kind === 'video')?.url)
+  const web =
+    videoId && !standIn
+      ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}${t >= 1 ? `&t=${Math.floor(t)}s` : ''}`
+      : sourceUrl && /^https?:\/\//i.test(sourceUrl)
+        ? sourceUrl
+        : undefined
+  const chip = 'flex h-[30px] cursor-pointer items-center gap-[6px] rounded-full px-[12px] text-[13px] font-medium'
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/70 px-8 text-center" {...fade}>
-      <div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: color.label }}>
-          Video unavailable
+    <motion.div data-video-error className="absolute inset-0 grid place-items-center bg-black/75 px-8 text-center" {...fade}>
+      <div className="flex flex-col items-center">
+        <div className="text-[15px] font-semibold text-white">The video didn’t load</div>
+        <div className="mt-[4px] text-[13px] text-white/75">{message}</div>
+        <div className="mt-[14px] flex flex-wrap items-center justify-center gap-[8px]">
+          <button type="button" className={`${chip} bg-white text-black hover:bg-white/90`} onClick={onRetry}>
+            <RotateCcw size={13} strokeWidth={2} /> Try again
+          </button>
+          {web && (
+            <button type="button" className={`${chip} bg-white/15 text-white hover:bg-white/25`} onClick={() => window.open(web, '_blank', 'noopener,noreferrer')}>
+              <ExternalLink size={13} strokeWidth={2} /> Open on YouTube
+            </button>
+          )}
         </div>
-        <div className="mt-[6px] text-[14px] text-white/80">{message}</div>
       </div>
     </motion.div>
   )
@@ -362,8 +437,7 @@ function IconButton({ children, onClick, label, disabled }: { children: ReactNod
   return (
     <motion.button
       className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-[9px] text-[var(--glass-text)] hover:bg-[var(--glass-field-hover)] disabled:cursor-default disabled:text-[var(--glass-faint)] disabled:hover:bg-transparent"
-      whileTap={disabled ? undefined : { scale: 0.94 }}
-      transition={{ duration: 0.09 }}
+      {...pressMotion(disabled)}
       onClick={onClick}
       disabled={disabled}
       title={label}
@@ -380,6 +454,7 @@ function Controls(): ReactNode {
   const pendingNext = useLesson((s) => s.pendingNext)
   const held = !p.playing && inGate(p.t)
   const heldLabel = pendingNext ? 'Opens when the next part is ready' : 'Opens when your checks pass'
+  const armed = useSkipArmed()
   return (
     <div className="mt-[8px] flex h-[32px] items-center gap-[2px]">
       <IconButton onClick={() => player.toggle()} label={held ? heldLabel : p.playing ? 'Pause' : 'Play'} disabled={held}>
@@ -389,19 +464,24 @@ function Controls(): ReactNode {
         <SkipBack size={15} strokeWidth={1.8} />
       </IconButton>
       {seg && (
-        <IconButton onClick={skipStep} label="Skip this step">
-          <SkipForward size={15} strokeWidth={1.8} />
+        <IconButton onClick={skipStep} label={armed ? skipLabel('Skip this step') : 'Skip this step'}>
+          {armed ? <Check size={15} strokeWidth={1.8} /> : <SkipForward size={15} strokeWidth={1.8} />}
         </IconButton>
       )}
-      <span className="ml-[6px] text-[13px] tabular-nums" style={{ color: glass.label }}>
+      <span className="ml-[6px] shrink-0 whitespace-nowrap text-[13px] tabular-nums" style={{ color: glass.label }}>
         {clock(p.t)} <span style={{ color: glass.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
       <Volume />
       <Speed />
       <span className="flex-1" />
-      {seg ? (
+      {seg && held ? (
+        // Held at the gate: the video's own "Check my work" is the one check action (QA Q09), so this is only a label.
+        <span className="flex min-w-0 items-center gap-[5px] overflow-hidden whitespace-nowrap px-[6px] text-[12px] tabular-nums" style={{ color: glass.faint }}>
+          <Lock size={11} strokeWidth={2} /> Checks at {clock(seg.end)}
+        </span>
+      ) : seg ? (
         <button
-          className="flex h-[24px] cursor-pointer items-center gap-[5px] rounded-[7px] px-[6px] text-[12px] tabular-nums text-[var(--glass-faint)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
+          className="flex h-[26px] min-w-0 cursor-pointer items-center gap-[5px] overflow-hidden whitespace-nowrap rounded-[7px] px-[6px] text-[12px] tabular-nums text-[var(--glass-faint)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           onClick={checkStep}
           title="The video holds here until the step's checks pass. Click to check now."
         >
@@ -432,7 +512,9 @@ function Volume(): ReactNode {
       <IconButton onClick={() => player.toggleMute()} label={level === 0 ? 'Unmute' : 'Mute'}>
         <Icon size={15} strokeWidth={1.8} />
       </IconButton>
-      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={{ duration: 0.16 }}>
+      {/* Closed, the slider is hidden and out of the tab order, so its box never sits on the speed chip (QA Q11). Open, it
+          is a 26 px tall hit area (QA Q10) inside its own 64 px. */}
+      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={prefersReduced() ? fades.instant : fades.in}>
         <input
           type="range"
           min={0}
@@ -441,7 +523,9 @@ function Volume(): ReactNode {
           value={level}
           aria-label="Volume"
           title={`Volume ${level}%`}
-          className="mx-[4px] h-[4px] w-[56px] cursor-pointer"
+          tabIndex={open ? 0 : -1}
+          aria-hidden={!open || undefined}
+          className={`mx-[4px] block h-[26px] w-[56px] cursor-pointer ${open ? '' : 'invisible'}`}
           style={{ accentColor: 'var(--glass-text)' }}
           onChange={(e) => player.setVolume(Number(e.target.value))}
         />
@@ -456,7 +540,7 @@ function Speed(): ReactNode {
   return (
     <button
       type="button"
-      className="ml-[2px] h-[24px] min-w-[38px] cursor-pointer rounded-[7px] px-[6px] text-[12px] font-semibold tabular-nums hover:bg-[var(--glass-field-hover)]"
+      className="ml-[2px] h-[26px] min-w-[38px] cursor-pointer rounded-[7px] px-[6px] text-[12px] font-semibold tabular-nums hover:bg-[var(--glass-field-hover)]"
       style={{ color: rate === 1 ? glass.faint : glass.text }}
       onClick={() => player.cycleRate()}
       title="Playback speed (click to change)"
@@ -551,8 +635,8 @@ function Chapters(): ReactNode {
     const row = box?.querySelector<HTMLElement>(`[data-step="${CSS.escape(stepId ?? '')}"]`)
     if (!box || !row) return
     const top = row.offsetTop - box.offsetTop
-    if (top < box.scrollTop) box.scrollTo({ top, behavior: 'smooth' })
-    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: 'smooth' })
+    if (top < box.scrollTop) box.scrollTo({ top, behavior: prefersReduced() ? 'auto' : 'smooth' })
+    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: prefersReduced() ? 'auto' : 'smooth' })
   }, [stepId])
 
   return (
@@ -572,7 +656,7 @@ function Chapters(): ReactNode {
             )
           })}
           {!complete && (
-            <motion.div key="more" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+            <motion.div key="more" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fades.slow}>
               <MoreComing parts={parts} />
             </motion.div>
           )}
@@ -653,7 +737,7 @@ function NowGlyph({ playing }: { playing: boolean }): ReactNode {
           className="w-[3px] origin-bottom rounded-full"
           style={{ height: 14, background: glass.button }}
           animate={playing ? { scaleY: [0.35, 1, 0.5, 0.85, 0.35] } : { scaleY: [0.45, 0.8, 0.6][i] }}
-          transition={playing ? { duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' } : spring}
+          transition={playing ? { duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: ease.inOut } : spring}
         />
       ))}
     </span>
@@ -667,6 +751,22 @@ function NowGlyph({ playing }: { playing: boolean }): ReactNode {
 /** Electron: the `player` window's whole content. */
 export function PlayerWindow(): ReactNode {
   return <PlayerPanel />
+}
+
+/**
+ * Stage only, `?player=frame`: the panel's empty frame at the dock, no video. Screenshots of what sits beside the
+ * player (the setup card, the drawer) without loading or playing anything.
+ */
+const STAGE_FRAME_ONLY = !isElectron && typeof location !== 'undefined' && new URLSearchParams(location.search).get('player') === 'frame'
+
+function FrameOnly(): ReactNode {
+  return (
+    <div
+      data-player-frame
+      className="h-full w-full"
+      style={{ background: glass.bg, borderRadius: radius.card, boxShadow: glass.shadow, border: `1px solid ${glass.hairline}` }}
+    />
+  )
 }
 
 /** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
@@ -688,7 +788,7 @@ export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
           exit={{ opacity: 0, x: 24 }}
           transition={spring}
         >
-          <PlayerPanel framed />
+          {STAGE_FRAME_ONLY ? <FrameOnly /> : <PlayerPanel framed />}
         </motion.div>
       )}
     </AnimatePresence>

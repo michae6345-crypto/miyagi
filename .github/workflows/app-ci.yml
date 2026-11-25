@@ -1,0 +1,31 @@
+name: app-ci
+# The Electron app on the platform it ships for (macOS): install from the lockfile, typecheck, and the offline unit
+# tests with a per-test timeout, so one stuck test fails on its own instead of holding the job until timeout-minutes.
+# The tests fake Electron, Supabase Auth and the cloud (app/test/setup.mjs, app/test/harness.ts): nothing leaves the
+# runner but sockets on 127.0.0.1. Node comes from app/.nvmrc (test/setup.mjs needs 22.15+ for registerHooks).
+on:
+  pull_request:
+    paths: ["app/**", ".github/workflows/app-ci.yml"]
+  push:
+    paths: ["app/**", ".github/workflows/app-ci.yml"]
+# Least privilege, and actions pinned to the commit their major tag pointed at (same pins as ci.yml).
+permissions:
+  contents: read
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  app:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # typecheck and the tests never start Electron
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: app/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - name: unit tests (test/*.test.ts, 60 s per test)
+        run: node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000 test/*.test.ts

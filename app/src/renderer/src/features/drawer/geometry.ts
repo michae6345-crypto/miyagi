@@ -8,8 +8,19 @@
  */
 import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'
+import { panelRect as dockPanelRect } from '../../core/dock'
 import { dockRect } from '../player/dock'
 import { useDrawer, type Side } from './store'
+
+/**
+ * v2 (BUILD-PLAN A1): a "Just teach me" lesson's drawer is the docked lesson panel (v2/LessonPanel.tsx), 360 wide at
+ * core/dock's place (right 16, top 52) in every lesson state (decision 6). It never yields, flips or tucks: the engine
+ * keeps VS Code beside it (panel.state). false = the old drawer in lesson mode too (a one-line rollback).
+ */
+export const LESSON_PANEL_V2 = true
+
+/** Where the v2 panel docks, in window coordinates (its max height; it hugs its content). */
+export const lessonPanelRect = (layout: Layout): Rect => dockPanelRect(layout)
 
 /** The edge the drawer is drawn on right now (store `at`): callers outside the layer get the same answer. */
 const drawnAt = (): Side => useDrawer.getState().at
@@ -21,8 +32,8 @@ export const PANEL_W = 340
  */
 export const PANEL_W_LESSON = 420
 const INSET = 8
-/** Same clearance as the player dock: the shortcut bar (88) + its 24px gap. */
-const BAR_CLEARANCE = 112
+/** Same clearance as the player dock (core/geometry.ts): none, the bottom bar is gone. */
+const BAR_CLEARANCE = 0
 
 /** The visible bar: 4×40, 6px from the right edge, vertically centered on the work area. */
 export const TAB = { w: 4, h: 40, edge: 6 } as const

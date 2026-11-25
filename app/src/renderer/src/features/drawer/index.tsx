@@ -33,18 +33,77 @@ import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
+import { useBeforeStart } from '../before-start/store'
 import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
 import { Flyout } from './Flyout'
-import { conceptRects, panelRect, tabRect } from './geometry'
+import { conceptRects, LESSON_PANEL_V2, lessonPanelRect, panelRect, tabRect } from './geometry'
 import { Selectable, SelectionExplain } from './SelectionExplain'
 import { useRunTuck } from './runTuck'
-import { claimDrawer, peekDrawer, setDrawerAt, useDrawer, type Side } from './store'
+import { claimDrawer, openPanel, peekDrawer, setDrawerAt, useDrawer, type Side } from './store'
+import { useDock } from '../../core/dock'
+import { LessonPanel } from './v2/LessonPanel'
+import './v2/stage'
 
 /** After the spotlight leaves, wait this long before sliding back (a spotlight tour hops between targets). */
 const RETURN_MS = 700
 
+/**
+ * v2 (A1): while the panel is collapsed, the labeled "Steps" handle on the right edge was the way back. A2's Mini
+ * pill (useDock collapsed, click = openPanel) replaces it now that A2 is merged: one way back, not two (Les-Mini).
+ */
+const STEPS_HANDLE_WHEN_COLLAPSED = false
+
+/** A "Just teach me" lesson gets the v2 lesson panel; a video lesson keeps the drawer below. */
 function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
+  const v2 = useLesson((s) => s.lesson?.mode === 'lesson') && LESSON_PANEL_V2
+  // The overlay root pins the island's dark set (data-theme="dark", core/Overlay.tsx). The drawer is a glass panel like
+  // the player window, so it follows Settings > Appearance (Michael, Nov 22: dark steps beside a light player).
+  // display: contents keeps every child placed against the overlay, as before.
+  return (
+    <div data-theme="auto" className="contents">
+      {v2 ? <PanelLayer layout={layout} /> : <LegacyLayer layout={layout} />}
+    </div>
+  )
+}
+
+/**
+ * The docked lesson panel (v2/LessonPanel.tsx). It shows from the first step.started on, once "Before you start" has
+ * closed; collapsed it goes back into
+ * the island (the Mini pill, A2). It never yields to the spotlight, flips edges or tucks for a run step: the engine
+ * fits VS Code beside it (panel.state), so nothing it points at sits under it. The Diagram flyout slides out of its
+ * inner edge as before.
+ */
+function PanelLayer({ layout }: { layout: Layout }): ReactNode {
+  const stepOn = useLesson((s) => !!s.lesson && !!s.stepId)
+  const open = useDrawer((s) => s.open)
+  // Where the panel leaves to (LessonPanel's exit reads it): into the Mini pill on a collapse, off the edge otherwise.
+  const via = useDrawer((s) => s.via ?? 'edge')
+  // "Before you start" first, alone (1517 demo, Nov 24): the sheet and the docked step 1 showed together, two big boxes
+  // before the learner pressed anything. The panel waits for the sheet to close (Start the lesson, Esc, a resume or a
+  // step pass); the engine's step 1 runs underneath meanwhile. A resumed lesson never opens the sheet, so it shows at once.
+  const sheet = useBeforeStart((s) => s.open)
+  const shown = stepOn && open && !sheet
+  const docked = useDock((d) => d.rect)
+  const rect = lessonPanelRect(layout)
+  const anchor: Rect = docked ? { ...rect, h: docked.h } : rect
+  const completing = useComplete((c) => !!c.card)
+  const flyout = useDiagram((s) => s.open && !!s.diagram) && !completing
+  useEffect(() => setDrawerAt('right'), [])
+  return (
+    <>
+      <AnimatePresence>{shown && flyout && <Flyout key="flyout-panel" layout={layout} side="right" anchor={anchor} run={false} />}</AnimatePresence>
+      {STEPS_HANDLE_WHEN_COLLAPSED && <Tab rect={tabRect(layout, true, 'right')} shown={stepOn && !open} labeled onOpen={openPanel} />}
+      <Selectable>
+        <AnimatePresence custom={via}>{shown && <LessonPanel key="lesson-panel" layout={layout} />}</AnimatePresence>
+      </Selectable>
+      <SelectionExplain />
+    </>
+  )
+}
+
+/** The drawer of a video lesson (passes 1-3), unchanged. */
+function LegacyLayer({ layout }: { layout: Layout }): ReactNode {
   const on = useLesson((s) => !!s.lesson)
   const open = useDrawer((s) => s.open)
   const panelH = useDrawer((s) => s.panelH)

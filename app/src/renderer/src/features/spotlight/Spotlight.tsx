@@ -34,11 +34,13 @@ import { useLesson, useStatus, type Rect } from '../../core/lesson'
 import { useDrawer } from '../drawer/store'
 import { useLauncherOpen } from '../launcher/store'
 import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { toggleVoice, useVoice } from '../voice/store'
 import { CodeText } from '../../core/ui/atoms'
 import { closeTicks, missingLines, plain } from './code'
 import { EDGE_MARGIN, hole, holeRadius, placeCaption, rightLane, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
+import { ease, fade } from '../../core/ui/motion'
 
 /** The caption chip hugs its text, up to this width, wrapping to at most CAPTION_LINES lines (one is the aim). */
 const CAPTION_MAX_W = 420
@@ -107,7 +109,7 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, text }: P
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: DIM.fade, ease: 'easeOut' }}
+      transition={{ duration: DIM.fade, ease: ease.out }}
     >
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
         {!outline && (
@@ -135,7 +137,7 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, text }: P
               data-dim={k}
               initial={false}
               animate={{ opacity: (k === 'soft') === soft ? 1 : 0 }}
-              transition={{ duration: DIM.fade, ease: 'easeOut' }}
+              transition={{ duration: DIM.fade, ease: ease.out }}
             />
           ))}
         <motion.g style={{ opacity: pulse }} data-part="ring">
@@ -143,7 +145,7 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, text }: P
           <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
         </motion.g>
       </svg>
-      <motion.div className="absolute inset-0" initial={false} animate={{ opacity: asking ? ASKING_OPACITY : 1 }} transition={{ duration: 0.2 }}>
+      <motion.div className="absolute inset-0" initial={false} animate={{ opacity: asking ? ASKING_OPACITY : 1 }} transition={fade.in}>
         {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} text={text} reduced={reduced} />}
       </motion.div>
     </motion.div>
@@ -214,7 +216,7 @@ function usePulse(key: string, reduced: boolean) {
       pulse.jump(PULSE.rest)
       return
     }
-    const run = animate(pulse, [Math.min(pulse.get(), PULSE.from), PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: 'easeInOut', times: [0, 0.45, 1] })
+    const run = animate(pulse, [Math.min(pulse.get(), PULSE.from), PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: ease.inOut, times: [0, 0.45, 1] })
     return () => run.stop()
   }, [key, reduced, pulse])
   return pulse
@@ -338,7 +340,7 @@ function Snippet({ code, missing, maxHeight }: { code: string; missing: Set<numb
 }
 
 function Caption({ target, hole: cut, bounds: screen, avoid: outside, text: boxed, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; text: Rect[]; reduced: boolean }): ReactNode {
-  const voiceOn = useVoice((s) => s.on)
+  const voiceOn = useVoice((s) => VOICE_ENABLED && s.on) // voice is off for now (common/flags)
   // The code lives in one place (Michael's desktop test, item 5): a "Just teach me" lesson or an open drawer has it
   // in the drawer, so the caption shows only the words.
   const textLesson = useLesson((s) => s.lesson?.mode === 'lesson')
@@ -384,7 +386,7 @@ function Caption({ target, hole: cut, bounds: screen, avoid: outside, text: boxe
       style={{ maxWidth: maxW, borderRadius: radius.chip, background: color.island, boxShadow: shadows.card }}
       initial={{ opacity: 0, x: at.x + from.x, y: at.y + from.y }}
       animate={{ opacity: 1, x: at.x, y: at.y }}
-      transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
+      transition={reduced ? fade.in : { ...spring, opacity: fade.in }}
     >
       <div className="flex items-center gap-[8px]" style={{ maxWidth: CAPTION_MAX_W }}>
         {/* A one-line chip; up to two lines (three in a narrow lane), then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}

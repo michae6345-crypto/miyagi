@@ -1,36 +1,144 @@
 appId: dev.sandhacks.miyagi
+# The app's name everywhere on the Mac: the .app folder, CFBundleName/CFBundleDisplayName (menu bar, Dock, ⌘Tab,
+# Activity Monitor, Spotlight) and the macOS permission prompts. Lowercase, like the brand (BRAND.md). The main
+# process says the same (src/main/identity.ts), and package.json productName keeps userData at .../miyagi.
 productName: miyagi
+copyright: © 2026 miyagi
 directories:
   output: dist
   buildResources: build
 files:
   - out/**
   - package.json
+# License texts that must travel with the app (agents/app-font-licenses.md). The fonts are SIL OFL 1.1, whose condition 2
+# wants the copyright notice and the license with every copy of the font: the woff2 files ride in app.asar (out/renderer),
+# their OFL texts land here, in Contents/Resources/licenses on a Mac (resources\licenses on Windows). The npm packages'
+# MIT / ISC notices sit beside them (scripts/third-party-notices.mjs writes the file). Top-level, so electron-builder
+# merges it with mac: and win: extraResources below. Settings > About > Open-source licenses shows the same texts.
+# test/fontLicenses.test.ts pins these entries and that every bundled font has a license file beside it.
+extraResources:
+  - from: src/renderer/src/assets/fonts/BricolageGrotesque-OFL.txt
+    to: licenses/fonts/BricolageGrotesque-OFL.txt
+  - from: brand/fonts/OFL.txt
+    to: licenses/fonts/GoogleSansFlex-OFL.txt
+  - from: licenses/THIRD-PARTY-NOTICES.txt
+    to: licenses/THIRD-PARTY-NOTICES.txt
+# Chromium ships ~55 UI locales per platform (~9 MB on Mac); the app's copy is English only.
+electronLanguages: [en]
+# Electron fuses (app-harden lane; test/fuses.test.ts pins every value). Flipped inside the Electron binary at package
+# time by @electron/fuses, before electron-builder signs, so they hold in every packaged build (dev runs are unaffected):
+#   runAsNode false: ELECTRON_RUN_AS_NODE=1 can't turn miyagi into a plain Node that runs any script with our
+#     permissions (screen recording, accessibility). Nothing in main forks or runs process.execPath as node: the engine
+#     (Resources/engine/python), the VS Code companion (Resources/vscode) and miyagi-listen (Resources/helpers) are
+#     extraResources that are spawned as their own programs, never require()d.
+#   enableNodeOptionsEnvironmentVariable false: NODE_OPTIONS / NODE_EXTRA_CA_CERTS (--require a script, a rogue CA) ignored.
+#   enableNodeCliInspectArguments false: --inspect, --inspect-brk and SIGUSR1 can't attach a debugger to main.
+#     index.ts also quits a packaged build started with those or with Chromium's --remote-debugging-* / --js-flags.
+#   enableEmbeddedAsarIntegrityValidation + onlyLoadAppFromAsar true: main and the renderer load only from app.asar,
+#     and only if its header hash matches ElectronAsarIntegrity in Contents/Info.plist (an app/ folder or a swapped asar
+#     is refused). Main reads nothing executable from outside the asar (identity.ts reads engine/VERSION, a text file).
+#     scripts/ship-mac.sh re-signs ad hoc after electron-builder (codesign --force --deep -s -) and edits only the
+#     helper apps' Info.plist (CFBundleName): the main Info.plist and app.asar are untouched, so the integrity hash
+#     electron-builder wrote still matches, and re-signing just seals that plist again. Signing identity and hardened
+#     runtime are unchanged here (a Developer ID is Michael's call; SHIP.md Known gaps).
+#   enableCookieEncryption true: the cookie store on disk is encrypted with the Keychain key (one way: never turn off).
+#   loadBrowserProcessSpecificV8Snapshot false: the default snapshot (no custom browser snapshot is shipped).
+#   grantFileProtocolExtraPrivileges false: file:// pages get no more than a browser gives them. The renderer is
+#     served from http://127.0.0.1 (main/serve.ts); the file:// fallback (only if that server fails) loses file://
+#     fetch and module loading, which is the point of the fuse.
+#   resetAdHocDarwinSignature true: flipping fuses rewrites the Electron Framework binary, which breaks the ad-hoc
+#     signature it came with. With mac.identity null electron-builder signs nothing afterwards, so without this an
+#     unsigned build (npm run dist:mac, CI) is killed by macOS at launch on Apple Silicon (invalid code signature).
+#     It re-signs ad hoc right after the flip; ship-mac.sh's later codesign --force --deep -s - just signs again.
+electronFuses:
+  resetAdHocDarwinSignature: true
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
 mac:
-  target: dir
+  # scripts/ship-mac.sh builds the .app with --dir, signs it ad hoc, then makes this dmg from it (--prepackaged).
+  target: dmg
   icon: build/icon.png
   category: public.app-category.education
   identity: null
   extendInfo:
     LSUIElement: true
+    CFBundleName: miyagi
+    CFBundleDisplayName: miyagi
     # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
     NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
     NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
-  # The engine travels inside the app (scripts/bundle-engine.mjs makes build/engine); on first launch
-  # main/localEngine.ts installs it to ~/miyagi/engine and starts it.
+    # Electron's own Info.plist carries generic "This app needs access to ..." strings for these. miyagi uses none of
+    # them (voice output is off), but if macOS ever asks, the prompt names miyagi and says so plainly.
+    NSMicrophoneUsageDescription: miyagi listens only while you hold Fn+Control, to hear your question. Speech is turned into text on this Mac.
+    NSSpeechRecognitionUsageDescription: miyagi turns your spoken question into text on this Mac.
+    NSCameraUsageDescription: miyagi doesn't use the camera.
+    NSBluetoothAlwaysUsageDescription: miyagi doesn't use Bluetooth.
+    NSBluetoothPeripheralUsageDescription: miyagi doesn't use Bluetooth.
+    NSAudioCaptureUsageDescription: miyagi doesn't record audio.
+  # The engine travels inside the app, ready to run offline (scripts/bundle-engine.mjs makes build/engine):
+  #   Resources/engine/src      engine source; first launch copies it to ~/miyagi/engine/src (main/localEngine.ts)
+  #   Resources/engine/python   standalone Python 3.12 with the engine's packages, precompiled; started directly
+  #   Resources/vscode          the VS Code companion .vsix + companion.json, installed with VS Code's `code` CLI
+  # extraResources copy everything as is (symlinks and __pycache__ included: electron-builder's default excludes
+  # apply to `files`, not here), so nothing is compiled or written inside the signed app at run time.
   extraResources:
     - from: build/engine
       to: engine
+      filter:
+        - "**/*"
+        - "!vscode{,/**/*}"
+    - from: build/engine/vscode
+      to: vscode
+    # Push to talk: the Swift helper (native/listen/build.sh makes build/helpers/miyagi-listen, universal, ad-hoc signed
+    # before the app is sealed). Main spawns it from process.resourcesPath/helpers. Mac only (this block is under mac:).
+    - from: build/helpers
+      to: helpers
+      filter:
+        - miyagi-listen
+# The Mac download (art and layout: agents/dmg-art.md). Finder draws both icons on the art; the art is 640x400 and
+# electron-builder sizes the window from it (background@2x.png next to it becomes the Retina half of a .tiff).
+# ULFO = lzfse, the strongest format electron-builder accepts; ship-mac.sh then recompresses to ULMO (lzma).
+dmg:
+  artifactName: Miyagi-Mac.${ext}
+  title: miyagi
+  background: build/dmg/background.png
+  iconSize: 112
+  iconTextSize: 13
+  format: ULFO
+  writeUpdateInfo: false
+  contents:
+    - { x: 168, y: 150, type: file }
+    - { x: 472, y: 150, type: link, path: /Applications }
 win:
   target: nsis
   icon: build/icon.ico
-# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+  # The engine, the same way as on the Mac, once bundle-engine.mjs can make a Windows bundle (build/engine with
+  # python/python.exe and PYTHON.json os "win32"; today it builds macOS bundles only). Until then a Windows build has
+  # no build/engine, electron-builder only warns ("file source doesn't exist"), and the app connects to an engine
+  # started by hand, as before (localEngine.ts whyUnmanaged).
+  extraResources:
+    - from: build/engine
+      to: engine
+      filter:
+        - "**/*"
+        - "!vscode{,/**/*}"
+    # The VS Code companion .vsix (same file as the Mac build; a .vsix is a zip, not platform code). Onboarding installs
+    # it with Code.exe + cli.js or code.cmd (main/features/vscodeCli.ts).
+    - from: build/engine/vscode
+      to: vscode
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts miyagi when done.
 # Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
 nsis:
   artifactName: Miyagi-Windows-Setup.${ext}
   oneClick: true
   perMachine: false
-  shortcutName: Miyagi
+  shortcutName: miyagi
   createDesktopShortcut: true
   createStartMenuShortcut: true
   runAfterFinish: true

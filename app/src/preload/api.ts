@@ -12,11 +12,13 @@
  *   launcher -> main : 'launcher:hidden' (closed normally), 'launcher:built' (shrank into the pill)
  *   main -> overlay  : 'pill:receive' (launcher just landed on the pill), 'shortcut' (kind)
  *   any -> main      : 'launcher:toggle' (e.g. clicking the idle pill or "Ask anything")
- *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control)
+ *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control; or {on: true, leaseMs}:
+ *                      main gives the mouse back itself if it is not said again within leaseMs)
  *   main -> any      : 'layout' (Layout)
  */
 import type { Incoming, Outgoing } from '../common/wire'
 import type { PlatformInfo, Rect } from '../main/platform'
+import type { NotchLayout } from '../common/notch'
 
 export type UiSignal =
   | 'launcher:open'
@@ -30,6 +32,8 @@ export type UiSignal =
   | 'video:intent'
   | 'island:yield'
   | 'island:return'
+  /** main -> overlay: wake, unlock, display change or a hung renderer: the island collapses to rest (core/Island.tsx). */
+  | 'island:collapse'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'
@@ -42,6 +46,18 @@ export type Layout = {
   height: number
   /** Usable area (excludes menu bar / dock / taskbar). */
   workArea: Rect
+  /** Additive: the pill's top for this display now (main re-fits it when displays change). Absent in the browser stage. */
+  pillTop?: number
+  /**
+   * The notch island's geometry (display-local points, y = 0 is the display top) and where the island lives now.
+   * `place` is the EFFECTIVE place: 'below' on Windows, on a Mac without a notch, or when the pref says so.
+   * Main re-sends the layout when any of it changes.
+   */
+  notch: NotchLayout
+  /** Additive (circle to ask): Electron's Display.id of the display this window is on (the engine's capture display). Absent in the browser stage. */
+  displayId?: number
+  /** Additive (circle to ask): that display's backing scale (Display.scaleFactor), page zoom not included. Absent in the browser stage. */
+  scaleFactor?: number
 }
 
 export type Unsub = () => void

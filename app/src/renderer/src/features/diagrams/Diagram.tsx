@@ -12,7 +12,7 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
-import { actionTone, color, fill } from '../../core/theme'
+import { actionTone, brand, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram, type DiagramPayload } from './store'
 import { Graph } from './Graph'
@@ -22,6 +22,7 @@ import { Firing, isFiringNetwork } from './Firing'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
+import { draw as drawIn, duration, enter, fade, prefersReduced, stagger } from '../../core/ui/motion'
 
 export function DiagramView(): ReactNode {
   const d = useDiagram((s) => s.diagram)
@@ -30,7 +31,7 @@ export function DiagramView(): ReactNode {
   return (
     <div className="px-[20px] pb-[16px] pt-[16px]">
       <div className="flex items-center gap-[10px]">
-        <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
+        <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onPastel }}>
           <Waypoints size={13} strokeWidth={1.9} />
         </span>
         <DiagramTabs fallback={<span className="text-[14px] font-semibold">{title}</span>} />
@@ -70,7 +71,8 @@ export function DiagramBody({ d }: { d: DiagramPayload }): ReactNode {
   )
 }
 
-const draw = (i: number) => ({ initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: 0.35, delay: i * 0.03 } })
+/** A diagram line drawing in as the i-th of its group (a fade with Reduce Motion). */
+const draw = (i: number) => drawIn(prefersReduced(), { delay: i * stagger.each, length: duration.draw })
 
 function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   // Generality: everything comes from the data (no demo-lesson defaults).
@@ -144,9 +146,9 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
               fill={color.island}
               stroke={li === layers.length - 1 ? color.accent : fill.chipText}
               strokeWidth="1.3"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: li * 0.03, duration: 0.2 }}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={enter(li * stagger.each)}
             />
           )
         )
@@ -208,7 +210,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
       {/* The combined output: an outline, not a filled pill (a filled white pill reads as a button). */}
       {residual && (
         <>
-          <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.island} stroke={color.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} />
+          <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.island} stroke={color.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: duration.draw }} />
           <text x={ux + 66} y={86} textAnchor="middle" fill={color.text} fontSize="11.5" fontFamily="ui-monospace, monospace">
             {residual.length > 13 ? `${residual.slice(0, 12)}…` : residual}
           </text>
@@ -239,7 +241,7 @@ function Gradients({ data }: { data: Record<string, unknown> }): ReactNode {
   const y = (v: number): number => pad.t + ((hi - v) / (hi - lo || 1)) * (H - pad.t - pad.b)
   // The highlighted layers (data.highlight, default the first two) in sky; the rest neutral. Amber only means off track.
   const hot = (data.highlight as number[]) ?? [0, 1]
-  const tone = (i: number): string => (hot.includes(i) ? actionTone.diagram : i < 3 ? color.label : color.text)
+  const tone = (i: number): string => (hot.includes(i) ? brand.pastel.sky : i < 3 ? color.label : color.text)
   return (
     <svg width={W} height={H} className="mx-auto block overflow-visible">
       <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke={color.hairline} />

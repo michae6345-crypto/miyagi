@@ -8,7 +8,9 @@
     "link.get@step_anylink_essay": "step_anylink_blocked",
     "link.get@step_anylink_blocked": "step_anylink_web",
     "learn_url@step_anylink_web": "anylink_build_web",
-    "learn_url@step_anylink_github": "anylink_build_github"
+    "learn_url@step_anylink_github": "anylink_build_github",
+    "library.list": "anylink_library",
+    "library.get": "anylink_item_web"
   },
   "segments": {
     "step_anylink": [
@@ -590,6 +592,145 @@
           "instructions": "Make a .venv, turn it on, then run pip install flask.",
           "kind": "run",
           "estMinutes": 3
+        }
+      }
+    ],
+    "anylink_library": [
+      {
+        "wait": 120,
+        "type": "library",
+        "payload": {
+          "items": [
+            {
+              "id": "web-w_4f1c0e9a",
+              "title": "Virtual environments and pip",
+              "steps": 4,
+              "estMinutes": 10,
+              "tools": [
+                "terminal"
+              ],
+              "ready": true,
+              "progress": {
+                "stepIndex": 1,
+                "stepTitle": "Turn it on",
+                "total": 4
+              },
+              "source": {
+                "kind": "web",
+                "title": "Virtual Environments and Packages",
+                "url": "https://docs.python.org/3/tutorial/venv.html",
+                "site": "docs.python.org"
+              },
+              "updatedAt": "2026-11-24T15:10:00-08:00"
+            },
+            {
+              "id": "web-g_9b27d311",
+              "title": "Your first Flask app",
+              "steps": 4,
+              "estMinutes": 10,
+              "tools": [
+                "vscode",
+                "terminal"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "github",
+                "title": "Flask",
+                "url": "https://github.com/pallets/flask",
+                "site": "github.com/pallets/flask",
+                "author": "Pallets"
+              }
+            },
+            {
+              "id": "web-w_2a71c0de",
+              "title": "Fetch data with the Fetch API",
+              "steps": 5,
+              "estMinutes": 15,
+              "tools": [
+                "vscode"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "web",
+                "title": "Using the Fetch API",
+                "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch",
+                "site": "developer.mozilla.org"
+              }
+            },
+            {
+              "id": "uiv4_plot",
+              "title": "Plot your data with matplotlib",
+              "steps": 6,
+              "estMinutes": 15,
+              "tools": [
+                "jupyter"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "youtube",
+                "title": "Matplotlib in 15 minutes",
+                "channel": "Corey Schafer",
+                "url": "https://www.youtube.com/watch?v=UO98lJQ3QGI"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "anylink_item_web": [
+      {
+        "wait": 120,
+        "type": "library.item",
+        "payload": {
+          "item": {
+            "id": "web-w_4f1c0e9a",
+            "title": "Virtual environments and pip",
+            "steps": 4,
+            "estMinutes": 10,
+            "tools": [
+              "terminal"
+            ],
+            "ready": true,
+            "progress": {
+              "stepIndex": 1,
+              "stepTitle": "Turn it on",
+              "total": 4
+            },
+            "source": {
+              "kind": "web",
+              "title": "Virtual Environments and Packages",
+              "url": "https://docs.python.org/3/tutorial/venv.html",
+              "site": "docs.python.org"
+            },
+            "updatedAt": "2026-11-24T15:10:00-08:00"
+          },
+          "overview": "Make a virtual environment, turn it on, and install packages into it with pip.",
+          "steps": [
+            {
+              "index": 0,
+              "title": "Make a virtual environment",
+              "what": "A .venv folder for this project",
+              "estMinutes": 2
+            },
+            {
+              "index": 1,
+              "title": "Turn it on",
+              "what": "Your terminal uses the .venv's Python",
+              "estMinutes": 2
+            },
+            {
+              "index": 2,
+              "title": "Install a package",
+              "what": "requests installed with pip",
+              "estMinutes": 3
+            },
+            {
+              "index": 3,
+              "title": "Save your requirements",
+              "what": "A requirements.txt file",
+              "estMinutes": 3
+            }
+          ]
         }
       }
     ]

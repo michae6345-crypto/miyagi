@@ -14,6 +14,7 @@
     "proof.get": "uiv4_proof",
     "data.get": "uiv4_data",
     "data.delete": "uiv4_data_deleted",
+    "library.list": "uiv4_library",
     "progress.get@step_uiv4": "uiv4_progress",
     "action:check_step@step_uiv4": "uiv4_pass"
   },
@@ -2681,6 +2682,25 @@
           ],
           "skillId": "np.indexing",
           "reqId": "r-proof-1"
+        }
+      }
+    ],
+    "uiv4_library": [
+      {
+        "wait": 120,
+        "type": "library",
+        "payload": {
+          "items": [
+            { "id": "lesson-3f9a21c0", "title": "The forward pass", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "progress": { "stepIndex": 2, "stepTitle": "Shapes and axes", "total": 6 }, "teaches": ["nn.forward"], "updatedAt": "2026-11-22T15:58:00-08:00" },
+            { "id": "lesson-5c7e2b90", "title": "Subdivision and smooth shading", "steps": 5, "estMinutes": 15, "tools": [], "ready": true, "progress": { "stepIndex": 2, "stepTitle": "Add a Subdivision modifier", "total": 5 }, "teaches": ["bl.modifiers"], "updatedAt": "2026-11-22T19:31:00-08:00" },
+            { "id": "uiv4_pandas_csv", "title": "Clean a CSV with pandas", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "progress": { "stepIndex": 3, "stepTitle": "Drop the empty rows", "total": 6 }, "teaches": ["pd.missing"], "updatedAt": "2026-11-21T18:10:00-08:00" },
+            { "id": "uiv4_plot", "title": "Plot your data with matplotlib", "steps": 6, "estMinutes": 15, "tools": ["jupyter"], "ready": true, "teaches": ["plt.line"] },
+            { "id": "uiv4_groupby", "title": "Summarize sales with pandas", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "teaches": ["pd.groupby"] },
+            { "id": "uiv4_venv", "title": "Set up a Python environment", "steps": 5, "estMinutes": 10, "tools": ["terminal"], "ready": true, "teaches": ["py.run"] },
+            { "id": "lesson-neur02aa", "title": "A layer is a matrix", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "teaches": ["nn.layer"], "updatedAt": "2026-11-19T20:00:00-08:00" },
+            { "id": "lesson-neur01aa", "title": "Activation functions", "steps": 5, "estMinutes": 15, "tools": ["jupyter"], "ready": true, "teaches": ["nn.activation"], "updatedAt": "2026-11-16T20:00:00-08:00" },
+            { "id": "lesson-intr01aa", "title": "Move, rotate and scale", "steps": 6, "estMinutes": 15, "tools": [], "ready": true, "teaches": ["bl.transform"], "updatedAt": "2026-11-07T20:00:00-08:00" }
+          ]
         }
       }
     ],

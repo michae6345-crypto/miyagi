@@ -10,6 +10,7 @@
  */
 import type { ComponentType } from 'react'
 import type { Layout } from '../../../preload/api'
+import type { NotchView } from './notchGeometry'
 
 export type IslandMode = {
   id: string
@@ -23,6 +24,13 @@ export type IslandMode = {
   /** A React hook: is this mode wanted right now? `hover` = the pointer is over the island. */
   useActive: (hover: boolean) => boolean
   Content: ComponentType
+  /**
+   * In the notch (layout.notch.place 'notch'): what a pill-sized mode looks like. `useView` is a hook: 'rest' = just the
+   * notch, 'ears' = the notch widened by an ear each side with `Left` (default the bonsai) and `Right` in them,
+   * 'drop' = its Content under the notch row (also what a hover peek shows), 'ears+drop' = both. Default 'drop', so a
+   * mode that says nothing keeps showing its content. Cards (width set) ignore it. Below the menu bar it is unused.
+   */
+  notch?: { useView: () => NotchView; Left?: ComponentType; Right?: ComponentType }
 }
 
 export type OverlayLayer = {
@@ -40,6 +48,15 @@ export type FeatureWindow = {
   stage?: 'fill' | { x: number; y: number; w: number; h: number }
   /** Stage stacking order (overlay = 0). */
   z?: number
+  /**
+   * v2 (W0-4). 'overlay' (default): a transparent, always-on-top window born from the island (launcher, settings,
+   * player). 'app': a normal macOS window (Onboarding, Library, Progress, Account; decision 4) opened with
+   * core/surfaces.ts and main/appWindows.ts (allowlisted routes). It shows a Dock icon while open, gets
+   * <html data-kind="app">, and in the browser stage opens with ?window=<route>.
+   */
+  kind?: 'overlay' | 'app'
+  /** v2: an app window's size in points (default theme.windowSize[route] when it has one). */
+  size?: { w: number; h: number }
 }
 
 export type Feature = {
@@ -47,6 +64,8 @@ export type Feature = {
   islandModes?: IslandMode[]
   overlayLayers?: OverlayLayer[]
   windows?: FeatureWindow[]
+  /** v2 (W0-4): false = not mounted at all (a flag such as v2Cloud, or an old path wave 2 turns off). Default true. */
+  enabled?: boolean
 }
 
 export function defineFeature(f: Feature): Feature {
@@ -67,7 +86,7 @@ function build(): Built {
   if (built) return built
   const features = Object.values(modules)
     .map((m) => m.default)
-    .filter((f): f is Feature => !!f && typeof f.id === 'string')
+    .filter((f): f is Feature => !!f && typeof f.id === 'string' && f.enabled !== false)
   built = {
     features,
     islandModes: features.flatMap((f) => f.islandModes ?? []).sort((a, b) => b.priority - a.priority),
@@ -83,3 +102,5 @@ export const getFeatures = (): Feature[] => build().features
 export const getIslandModes = (): IslandMode[] => build().islandModes
 export const getOverlayLayers = (): OverlayLayer[] => build().overlayLayers
 export const getFeatureWindows = (): FeatureWindow[] => build().featureWindows
+/** v2: the app-kind windows (Onboarding, Library, Progress, Account). */
+export const getAppWindows = (): FeatureWindow[] => build().featureWindows.filter((w) => w.kind === 'app')

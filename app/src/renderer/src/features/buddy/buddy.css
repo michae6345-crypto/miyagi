@@ -1,0 +1,160 @@
+/* The living bonsai (LivingMark.tsx). Transform only; the pot never moves. Every brand cut is a 100x100 viewBox with
+   the trunk meeting the pot at about (50, 74), so the canopy turns about that point. */
+.lm { display: inline-block; position: relative; line-height: 0; vertical-align: middle; }
+.lm-cut { width: 100%; height: 100%; }
+.lm-cut svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.lm .lm-lean, .lm .lm-sway, .lm .lm-bloom { transform-box: view-box; transform-origin: 50% 74%; }
+
+/* Hover lean: up to 6 degrees toward the pointer, on ease.out over the house spring's settle time. */
+.lm .lm-lean { transform: rotate(calc(var(--lm-lean, 0) * 6deg)); transition: transform 0.35s cubic-bezier(0.23, 1, 0.32, 1); }
+
+/* Thinking: a slow sway from the trunk base, starting from upright so it never jumps. */
+.lm[data-state='thinking'] .lm-sway { animation: lm-sway 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes lm-sway {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(2.4deg); }
+  75% { transform: rotate(-2.4deg); }
+}
+
+/* Pass: each pad swells once from its base, 60 ms apart, and the canopy lifts a hair. Plays once per bloom value. */
+.lm .lm-pad { transform-box: fill-box; transform-origin: 50% 100%; }
+.lm-cut[data-bloom] .lm-pad { animation: lm-bloom 0.56s cubic-bezier(0.23, 1, 0.32, 1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+.lm-cut[data-bloom] .lm-bloom { animation: lm-rise 0.56s cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes lm-bloom {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.14); }
+}
+@keyframes lm-rise {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-1.2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lm .lm-sway, .lm .lm-bloom, .lm .lm-pad { animation: none !important; }
+  .lm .lm-lean { transition: none; }
+}
+
+/* ---- The buddy's character (Character.tsx). Transform and opacity only. A 48-unit box. ---- */
+.ch { display: inline-block; position: relative; line-height: 0; vertical-align: middle; }
+/* It looks somewhere: the face slides there. */
+.ch .ch-face { transition: transform 0.22s cubic-bezier(0.23, 1, 0.32, 1); }
+/* It blinks, each one on its own clock (--ch-beat). */
+.ch .ch-eye { transform-box: fill-box; transform-origin: 50% 50%; animation: ch-blink 4.4s infinite; animation-delay: var(--ch-beat, 0s); }
+@keyframes ch-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.12); }
+}
+/* It talks: the mouth opens and closes. */
+.ch .ch-talk { transform-box: fill-box; transform-origin: 50% 50%; animation: ch-talk 0.24s ease-in-out infinite alternate; }
+@keyframes ch-talk {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+/* It breathes: a slow float, a hair. */
+.ch .ch-body { transform-box: view-box; transform-origin: 24px 42px; animation: ch-float 3.2s ease-in-out infinite; animation-delay: var(--ch-beat, 0s); }
+@keyframes ch-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.2px); }
+}
+/* The sprout's leaves turn with its mood (--turn), about where they meet the stem. */
+.ch .ch-leaf { transform-box: view-box; transform-origin: 24px 8.6px; transform: rotate(var(--turn, 0deg)); transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1); }
+/* Flying: the leaves beat like wings. */
+.ch[data-flying] .ch-leaf-l { animation: ch-flap-l 0.15s ease-in-out infinite alternate; }
+.ch[data-flying] .ch-leaf-r { animation: ch-flap-r 0.15s ease-in-out infinite alternate; }
+@keyframes ch-flap-l {
+  from { transform: rotate(16deg); }
+  to { transform: rotate(-28deg); }
+}
+@keyframes ch-flap-r {
+  from { transform: rotate(-16deg); }
+  to { transform: rotate(28deg); }
+}
+/* Thinking: the sprout sways. Listening: it swells a little with each beat, all ears. */
+.ch .ch-sprout { transform-box: view-box; transform-origin: 24px 13px; }
+.ch[data-mood='thinking'] .ch-sprout { animation: ch-sway 2.2s ease-in-out infinite; }
+/* It just grew a level: what is on its head unfurls from the stem (Character.tsx grew). */
+.ch[data-grew] .ch-sprout { animation: ch-unfurl 0.9s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+@keyframes ch-unfurl {
+  0% { transform: scale(0.15); opacity: 0; }
+  55% { transform: scale(1.18); opacity: 1; }
+  78% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+@keyframes ch-sway {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+}
+.ch[data-mood='listening'] .ch-body { animation: ch-perk 0.9s ease-in-out infinite; }
+@keyframes ch-perk {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch .ch-eye, .ch .ch-talk, .ch .ch-body, .ch .ch-leaf, .ch .ch-sprout { animation: none !important; }
+  .ch .ch-face, .ch .ch-leaf { transition: none; }
+}
+
+/* ---- The buddy's bubble (Companion.tsx): the dots while it thinks, the bars while it listens. ---- */
+.bd-dots, .bd-bars { display: inline-flex; align-items: center; gap: 4px; height: 18px; }
+.bd-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.35; animation: bd-dot 1s ease-in-out infinite; }
+.bd-dots i:nth-child(2) { animation-delay: 0.16s; }
+.bd-dots i:nth-child(3) { animation-delay: 0.32s; }
+@keyframes bd-dot {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+.bd-bars { gap: 3px; } /* their color is the buddy's (Companion.tsx, skin.ts) */
+.bd-bars i { display: block; width: 3px; height: 14px; border-radius: 2px; background: currentColor; animation: bd-bar 0.62s ease-in-out infinite alternate; }
+.bd-bars i:nth-child(2) { animation-delay: -0.2s; }
+.bd-bars i:nth-child(3) { animation-delay: -0.42s; }
+.bd-bars i:nth-child(4) { animation-delay: -0.1s; }
+@keyframes bd-bar {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bd-dots i, .bd-bars i { animation: none !important; opacity: 0.8; }
+}
+
+/* The bubble's buttons fold out under its words once it has said them (a grid row from 0 to its own height). */
+.bd-foot { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.22s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.18s cubic-bezier(0.23, 1, 0.32, 1); }
+.bd-foot > span { min-height: 0; overflow: hidden; }
+.bd-foot[data-open] { grid-template-rows: 1fr; opacity: 1; }
+.bd-foot[data-open] > span { overflow: visible; }
+@media (prefers-reduced-motion: reduce) {
+  .bd-foot { transition: none; }
+}
+
+/* ---- Tap bon and it plays (Poke.tsx). One trick per tap, 0.72 s (TRICK_MS), from its feet. Transform only. ---- */
+.ch-poke { display: inline-block; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; line-height: 0; border-radius: 999px; -webkit-tap-highlight-color: transparent; }
+.ch-poke:focus-visible { outline-offset: 4px; }
+.ch-poke-move { display: inline-block; line-height: 0; transform-origin: 50% 92%; }
+.ch-poke-move[data-trick='hop'] { animation: ch-hop 0.72s cubic-bezier(0.23, 1, 0.32, 1) both; }
+.ch-poke-move[data-trick='wiggle'] { animation: ch-wiggle 0.72s ease-in-out both; }
+.ch-poke-move[data-trick='twirl'] { animation: ch-twirl 0.72s cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes ch-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  14% { transform: translateY(0) scale(1.08, 0.9); }
+  42% { transform: translateY(-26%) scale(0.95, 1.07); }
+  70% { transform: translateY(0) scale(1.09, 0.91); }
+  84% { transform: translateY(-3%) scale(0.98, 1.02); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes ch-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  18% { transform: rotate(-11deg); }
+  40% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  80% { transform: rotate(3deg); }
+}
+@keyframes ch-twirl {
+  0% { transform: translateY(0) rotate(0deg) scale(1, 1); }
+  14% { transform: translateY(0) rotate(0deg) scale(1.07, 0.92); }
+  55% { transform: translateY(-22%) rotate(360deg) scale(1, 1); }
+  80% { transform: translateY(0) rotate(360deg) scale(1.06, 0.94); }
+  100% { transform: translateY(0) rotate(360deg) scale(1, 1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch-poke-move[data-trick] { animation: none !important; }
+}

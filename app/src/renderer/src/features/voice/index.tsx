@@ -4,6 +4,7 @@
  * window that speaks.
  */
 import { useEffect, type ReactNode } from 'react'
+import { VOICE_ENABLED } from '../../../../common/flags'
 import { defineFeature } from '../../core/registry'
 import { attachSpeech } from './store'
 
@@ -12,4 +13,5 @@ function VoiceSpeaker(): ReactNode {
   return null
 }
 
-export default defineFeature({ id: 'voice', overlayLayers: [{ id: 'voice-speaker', z: 0, Component: VoiceSpeaker }] })
+// Voice is off for now (common/flags): no speaker layer, so speech is never attached and nothing is ever said.
+export default defineFeature({ id: 'voice', overlayLayers: VOICE_ENABLED ? [{ id: 'voice-speaker', z: 0, Component: VoiceSpeaker }] : [] })

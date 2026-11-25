@@ -1,7 +1,7 @@
 name: trunk-guards
 on:
   push:
-    branches: [integration/live, main]
+    branches: [integration/live, michael/app-ui-v4]
   workflow_dispatch: {}
 # Trunk guards (Nov 25 foundations audit, fix #1): ci.yml runs gitleaks and the contract check only on PRs and main,
 # but the trunks take direct pushes, so those checks never ran where code ships. This runs them on every trunk push.

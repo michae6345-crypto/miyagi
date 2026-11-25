@@ -1,0 +1,29 @@
+{
+  "name": "fresh-user",
+  "on": {
+    "connect": "fresh_hello",
+    "library.list": "fresh_library",
+    "progress.get": "fresh_progress",
+    "health.get": "fresh_health",
+    "learn": "fresh_learn"
+  },
+  "segments": {
+    "fresh_hello": [
+      { "wait": 30, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 50, "goto": "fresh_health" }
+    ],
+    "fresh_health": [
+      { "wait": 100, "type": "health", "payload": { "ready": 3, "total": 4, "items": [ { "id": "engine", "label": "miyagi engine", "state": "ok" }, { "id": "vscode", "label": "VS Code", "state": "ok", "detail": "1.96" }, { "id": "python", "label": "Python", "state": "ok", "detail": "3.11.6" }, { "id": "companion", "label": "VS Code companion", "state": "missing", "fix": "install" } ] } }
+    ],
+    "fresh_library": [
+      { "wait": 120, "type": "library", "payload": { "items": [] } }
+    ],
+    "fresh_progress": [
+      { "wait": 120, "type": "progress", "payload": { "skills": [], "completed": [], "inProgress": [], "next": [], "activity": [], "review": { "items": [] } } }
+    ],
+    "fresh_learn": [
+      { "wait": 300, "type": "lesson.building", "payload": { "message": "Finding the steps", "progress": 0.3, "elapsedS": 3, "stage": "steps", "etaS": 60, "source": { "kind": "goal", "title": "A neural net from scratch" }, "phases": [ { "id": "steps", "label": "Finding the steps", "state": "active" }, { "id": "checks", "label": "Writing the checks", "state": "next" }, { "id": "ready", "label": "Ready to start", "state": "next" } ] } }
+    ]
+  }
+}

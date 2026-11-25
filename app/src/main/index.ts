@@ -8,16 +8,29 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, systemPreferences, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { V2_COMMANDS } from '../common/wire'
+import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs } from './prefs'
-import { setupLocalEngine } from './localEngine'
+import { setShortcutCheck, setupPrefs, trackWindowBackground, windowBackground } from './prefs'
+import { createShortcutKeys } from './shortcutKeys'
+import { quitAccelerator, SHORTCUT_KINDS } from '../common/shortcuts'
+import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
+import { servePlayerHost } from './playerHost'
+import playerHostScript from './playerHost.page.js?raw'
+import { appWindowFrame, setupAppWindows, type AppWindows } from './appWindows'
+import { setupPermissions } from './permissions'
+import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
+import { gateCore, gateIsOpen } from './gate'
+import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
+  fitPillTop,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -26,14 +39,64 @@ import {
   raise,
   returnFocus,
   setupApp,
+  OVERLAY_RESTORE_MS,
+  trackOverlayLifecycle,
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
+import { VOICE_ENABLED } from '../common/flags'
+import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
+import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
+import { helperPath } from './features/ptt'
+import { getPrefs, onPrefsChange } from './prefs'
+import { holdSplash, holdUntilPainted, showSplash, skipSplash } from './splash'
+
+// A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
+// here, the first statement of this file's own body. The imported modules' top-level code has run by then (ES imports
+// are hoisted: localEngine makes its ENGINE_TOKEN, for one), but nothing that waits for app 'ready' has: no window and
+// no engine process yet. The fuses already make Node ignore --inspect; Chromium's remote debugging has no fuse. Dev
+// runs (npm run dev) keep them.
+if (app.isPackaged) {
+  const flag = debugFlagIn(process.argv)
+  if (flag) {
+    console.error(`[tut] a packaged miyagi does not start with --${flag}; quitting`)
+    app.exit(1)
+    process.exit(1)
+  }
+}
 
 const platform = describePlatform(process.platform)
-const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
-const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
-let stopLocalEngine: () => void = () => undefined
+// A packaged app always talks to its own engine on localhost: ENGINE_URL from the environment is for dev runs only
+// (risk A12, launch register R33: a `launchctl setenv` could otherwise point the app at another engine).
+const ENGINE_URL = (!app.isPackaged && process.env.ENGINE_URL) || 'ws://localhost:8787'
+// The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
+const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
+let stopLocalEngine: () => Promise<void> | void = () => undefined
+/** R44: the most a quit waits for the engine to go (SIGTERM, QUIT_GRACE_MS, SIGKILL, QUIT_CONFIRM_MS), plus a margin. */
+const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
+/** Notch geometry and the other-notch-app flag (main/notch.ts); started at launch. */
+let notchService: NotchService | undefined
+/** Every window gets its layout again (Settings > General shows where the island is). Module level: the first notch read can land before whenReady has finished. */
+const resendLayout = (): void =>
+  forEachWindow((w) => {
+    const l = layoutFor(w)
+    if (w === overlay) {
+      logIsland('resend', l)
+      islandDiag?.snapshot('resend')
+    }
+    send(w, 'layout', l)
+  })
+/** Island diagnostics (main/features/islandDiag.ts): bounds, level, grab and display measurements, log-only. Created once the overlay exists. */
+let islandDiag: IslandDiag | undefined
+/** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). Rotates at ~512 KB. */
+let lastIslandLine = ''
+function logIsland(why: string, l: ReturnType<typeof layoutFor>): void {
+  const n = l.notch
+  const line = `pref=${getPrefs().island?.place} place=${n.place} hasNotch=${n.hasNotch} coexist=${n.coexist ? 1 : 0} notch=${n.x},${n.width}x${n.height} service=${notchService ? 'on' : 'off'}`
+  if (line === lastIslandLine && why === 'resend') return
+  lastIslandLine = line
+  appendRotating(join(app.getPath('logs'), 'island.log'), `${new Date().toISOString()} ${why} ${line}`)
+}
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -44,40 +107,142 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
+let launcherGen = 0
+/** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
+let launcherOpenedAt = 0
+const LAUNCHER_DOUBLE_MS = 400
+/** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
+let launcherOrigin: BrowserWindow | undefined
+/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
+let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
+/** The launcher's key follows the gate (gateCore's launcherKey): true only between its on and off. */
+let launcherWanted = false
 
 /** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
 const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
 
-function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
+// ---------------------------------------------------------------------------
+// Security core (W0-6, BUILD-PLAN Section 6)
+// ---------------------------------------------------------------------------
+
+/** Where our own pages come from: Vite in dev, main/serve.ts when built (file:// only as the last resort). */
+function ownOrigin(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (process.env.ELECTRON_RENDERER_URL) return u.origin === new URL(process.env.ELECTRON_RENDERER_URL).origin
+    if (rendererOrigin) return u.origin === rendererOrigin
+    return u.protocol === 'file:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * An IPC sender we trust: one of OUR windows, its main frame (never an iframe such as the YouTube embed), showing our
+ * own page. Every ipcMain handler in core and ctx.handle checks it.
+ */
+function trustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  const frame = e.senderFrame
+  if (!frame || frame !== e.sender.mainFrame) return false
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win || !windows.has(win)) return false
+  return ownOrigin(frame.url)
+}
+
+/**
+ * Commands a renderer may send to the engine (engine:cmd). config.keys is NOT here: keys go only through the settings
+ * feature in main (settings:save), so a renderer can never set or overwrite them. dev.reset only outside a built app.
+ */
+const RENDERER_COMMANDS = new Set<string>([
+  'learn',
+  'learn_url',
+  'build_lesson',
+  'action',
+  'video.state',
+  'end_lesson',
+  'overlay.bounds',
+  'card.shown',
+  'card.closed',
+  ...V2_COMMANDS
+])
+
+/**
+ * Microphone only, for voice, only for our own page. Everything else a page can ask for is refused.
+ * Voice is off for now (common/flags): then the microphone is refused too, so the app never asks for it.
+ */
+function hardenSession(): void {
+  const s = session.defaultSession
+  s.setPermissionRequestHandler((wc, permission, cb, details) => {
+    const media = details as { mediaTypes?: string[]; requestingUrl?: string }
+    const micOnly = permission === 'media' && !!media.mediaTypes?.length && media.mediaTypes.every((t) => t === 'audio')
+    cb(VOICE_ENABLED && micOnly && ownOrigin(media.requestingUrl ?? wc.getURL()))
+  })
+  s.setPermissionCheckHandler((_wc, permission, origin, details) => {
+    const media = details as { mediaType?: string }
+    return VOICE_ENABLED && permission === 'media' && media.mediaType === 'audio' && ownOrigin(origin)
+  })
+}
+
+/** Every web contents (windows, and any iframe's host): no navigating away from our page, no new windows. */
+function hardenContents(wc: WebContents): void {
+  const block = (e: Electron.Event, url: string): void => {
+    if (!ownOrigin(url)) e.preventDefault()
+  }
+  wc.on('will-navigate', block)
+  wc.on('will-redirect', (e, url, _inPlace, isMainFrame) => {
+    if (isMainFrame) block(e, url)
+  })
+  wc.on('will-attach-webview', (e) => e.preventDefault())
+  // window.open / target=_blank: never a new Electron window; any plain https link (setup downloads, citations,
+  // drawer sources) goes to the default browser. Other schemes are refused (safeOpen.isBrowserLink).
+  wc.setWindowOpenHandler(({ url }) => {
+    void openLinkInBrowser(url)
+    return { action: 'deny' }
+  })
+}
+
+/** v2 (W0-4): open / focus allowlisted app windows. Set up once the app is ready. */
+let appWindows: AppWindows | undefined
+
+function createWindow(route: string, options: BrowserWindowConstructorOptions, kind: 'overlay' | 'app' = 'overlay'): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
-    // A panel on macOS, like the core windows, so it can sit over full-screen apps.
-    ...(platform.os === 'mac' ? { type: 'panel' } : {}),
+    // A panel on macOS, like the core windows, so it can sit over full-screen apps. App windows (v2) are normal windows.
+    ...(platform.os === 'mac' && kind === 'overlay' ? { type: 'panel' } : {}),
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
-      contextIsolation: true,
       backgroundThrottling: false,
       additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`],
-      ...options.webPreferences
+      ...options.webPreferences,
+      // Last, so no caller (player, settings, app windows) can turn them off: sandboxed, isolated, no Node in any frame,
+      // no <webview>, and no DevTools in a built app (app-harden). The player relies on these for the video's frames (R33).
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      webviewTag: false,
+      devTools: !app.isPackaged
     }
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  if (kind === 'app') {
+    win.setBackgroundColor(windowBackground())
+    trackWindowBackground(win)
+  }
   showAfterFirstPaint(win)
-  // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
-  followSpaces(win)
-  // window.open / target=_blank from any window: never a new Electron window; http(s) goes to the default browser.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // Every overlay window follows the learner across Spaces and over full-screen apps (Michael, Sat). App windows
+  // (v2) stay on their own Space like any Mac window.
+  if (kind === 'overlay') followSpaces(win)
+  // No navigation away, no new windows (W0-6): hardenContents runs for every web contents on creation.
   if (!app.isPackaged) {
     // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {
@@ -144,8 +309,30 @@ function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
 
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
-  const wa = screen.getDisplayMatching(b).workArea
-  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  const display = screen.getDisplayMatching(b)
+  const wa = display.workArea
+  const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, coexist: false }
+  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, displayId: display.id, scaleFactor: display.scaleFactor, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+}
+
+/**
+ * A leased overlay:interactive ({on: true, leaseMs}, circle to ask): the grab lasts only while the renderer keeps saying
+ * it. Not said again within leaseMs (a hung renderer) and main gives the mouse back itself. A plain true (core hover)
+ * leaves a running lease alone; false ends it.
+ */
+let lease: ReturnType<typeof setTimeout> | undefined
+function leaseInteractive(payload: unknown): void {
+  const ms = payload && typeof payload === 'object' ? Number((payload as { leaseMs?: unknown }).leaseMs) : NaN
+  if (payload && !(ms > 0)) return
+  clearTimeout(lease)
+  lease = undefined
+  if (!payload) return
+  lease = setTimeout(() => {
+    lease = undefined
+    if (overlay.isDestroyed()) return
+    overlay.setIgnoreMouseEvents(true, { forward: true })
+    signalListeners.get('overlay:interactive')?.forEach((fn) => fn(false))
+  }, Math.min(5000, Math.max(250, ms)))
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -157,8 +344,13 @@ function forEachWindow(fn: (w: BrowserWindow) => void): void {
 }
 
 function openLauncher(): void {
-  if (launcherOpen) return
+  // Launch gate (main/gate.ts): no launcher before the login and setup are through.
+  if (launcherOpen || !gateIsOpen()) return
+  const front = BrowserWindow.getFocusedWindow()
+  launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
+  launcherGen++
+  launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
   launcher.show()
@@ -178,7 +370,14 @@ function openLauncher(): void {
 }
 
 function closeLauncher(): void {
-  if (launcherOpen) send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  if (!launcherOpen) return
+  send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
+  // (Only if it is still the same open: a quick reopen has a newer generation.)
+  const gen = ++launcherGen
+  setTimeout(() => {
+    if (launcherOpen && gen === launcherGen && !launcher.isDestroyed()) hideLauncher()
+  }, 2500)
 }
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
@@ -214,30 +413,74 @@ function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
+  const origin = launcherOrigin
+  launcherOrigin = undefined
+  if (origin && !origin.isDestroyed() && origin.isVisible()) {
+    // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
+    // The overlay comes back only behind the gate (a sign-out while the launcher was open keeps it hidden).
+    if (gateIsOpen()) {
+      overlay.showInactive()
+      raise(overlay)
+    }
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    origin.focus()
+    return
+  }
   returnFocus(app, overlay, previousApp())
 }
 
-const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+/** The launcher key: open, or close unless this press comes right after the open. */
+function onLauncherKey(): void {
+  if (!launcherOpen) return openLauncher()
+  if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+}
 
-/** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
+/**
+ * Whether a shortcut is registered right now. The launcher only while the login gate is open (main/gate.ts); the lesson
+ * keys only while a lesson is active (lesson.ready to lesson.ended), also behind the gate; voice's key never while voice
+ * is off (common/flags), so ⌃⌥V stays with the other apps. loginFirst.check.ts holds this function to the gate.
+ */
+function shortcutLive(kind: ShortcutKind): boolean {
+  if (!gateIsOpen()) return false
+  if (kind === 'launcher') return launcherWanted
+  if (kind === 'voice_toggle' && !VOICE_ENABLED) return false
+  return actionsRegistered
+}
+
+/**
+ * Live custom shortcuts (main/shortcutKeys.ts): the key in effect is prefs.shortcuts[kind] ?? platform.accelerators[kind].
+ * Every global registration of the launcher and lesson keys goes through here; sync() follows shortcutLive and the prefs.
+ * Action keys go to the overlay renderer, which decides (features may claim them) and tells the engine.
+ */
+const shortcutKeys = createShortcutKeys({
+  ops: { register: (acc, fn) => globalShortcut.register(acc, fn), unregister: (acc) => globalShortcut.unregister(acc) },
+  defaults: platform.accelerators,
+  mac: platform.os === 'mac',
+  kinds: SHORTCUT_KINDS.filter((k) => VOICE_ENABLED || k !== 'voice_toggle'),
+  overrides: () => getPrefs().shortcuts,
+  live: shortcutLive,
+  press: (kind) => (kind === 'launcher' ? onLauncherKey() : send(overlay, 'shortcut', kind)),
+  // A saved key another app owns fell back to the default (or to none): every keycap shows the key really bound.
+  onTaken: (taken) => forEachWindow((w) => w.webContents.send('feat:shortcuts:taken', taken)),
+  warn: (m) => console.warn(`[tut] ${m}`)
+})
+
+/** A lesson is ready: the lesson keys reach miyagi from any app. */
 function registerActionShortcuts(): void {
-  if (actionsRegistered) return
+  if (actionsRegistered || !gateIsOpen()) return
   actionsRegistered = true
-  for (const kind of ACTION_KINDS) {
-    const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
-    if (!ok) console.warn(`[tut] shortcut ${platform.accelerators[kind]} is taken by another app`)
-  }
+  shortcutKeys.sync()
 }
 
 /** A lesson ended: hand the lesson keys back to the other apps until the next lesson.ready (Michael, Sun 12:49 AM). */
 function unregisterActionShortcuts(): void {
   if (!actionsRegistered) return
   actionsRegistered = false
-  for (const kind of ACTION_KINDS) globalShortcut.unregister(platform.accelerators[kind])
+  shortcutKeys.sync()
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
-function sendBounds(): void {
+function sendBoundsNow(): void {
   const extra = [...reported]
     .filter((w) => !w.isDestroyed() && w.isVisible())
     .map((w) => {
@@ -247,12 +490,24 @@ function sendBounds(): void {
   engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
 }
 
+/** Window move/resize fire per frame while dragging; the engine only needs the last one (50 ms trailing). */
+const boundsOut = coalesce<void>(sendBoundsNow, 50)
+function sendBounds(): void {
+  boundsOut.push()
+}
+/** A window hid or closed: the OCR mask must shrink now, not up to 50 ms later. */
+function sendBoundsFlushed(): void {
+  boundsOut.push()
+  boundsOut.flush()
+}
+
 function reportBounds(win: BrowserWindow): void {
   reported.add(win)
-  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  for (const ev of ['move', 'resize', 'show'] as const) win.on(ev as 'move', sendBounds)
+  win.on('hide', sendBoundsFlushed)
   win.on('closed', () => {
     reported.delete(win)
-    sendBounds()
+    sendBoundsFlushed()
   })
   sendBounds()
 }
@@ -283,8 +538,12 @@ function youtubeReferer(): void {
   })
 }
 
+app.on('web-contents-created', (_e, wc) => hardenContents(wc))
+
 app.whenReady().then(async () => {
   setupApp(app)
+  setupIdentity()
+  hardenSession()
   youtubeReferer()
   if (!process.env.ELECTRON_RENDERER_URL) {
     try {
@@ -293,42 +552,114 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
     }
   }
+  // R33: the YouTube player's host page, on its own loopback origin, before any window (main/serve.ts's CSP frames it).
+  const appOrigin = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : rendererOrigin
+  if (appOrigin) {
+    try {
+      await servePlayerHost(playerHostScript, appOrigin)
+    } catch (err) {
+      console.error('[tut] could not serve the player host page; the video will not load', err)
+    }
+  }
+  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
+  // window exists: every renderer gets pillTop in its launch arguments.
+  basePillTop = platform.pillTop
+  platform.pillTop = fitPillTop(basePillTop, displayNow())
+  // The notch geometry (miyagi-listen --screens, persisted last-good in userData) and the other-notch-app flag; a change re-sends the layout to every core window.
+  notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
+  // The launch splash (main/splash.ts) waits for the renderer bundle's first load and, briefly, the engine link.
+  holdSplash(new Promise((res) => overlay.webContents.once('did-finish-load', () => res(undefined))))
+  holdSplash(new Promise((res) => engine.onOpen(() => res(undefined))), ENGINE_SPLASH_MS)
+  islandDiag = createIslandDiag({
+    logFile: join(app.getPath('logs'), 'island.log'),
+    overlay: () => overlay,
+    display: () => {
+      const d = screen.getDisplayMatching(overlay.getBounds())
+      return { id: d.id, bounds: d.bounds, workArea: d.workArea, scaleFactor: d.scaleFactor }
+    },
+    notch: () => layoutFor(overlay).notch as { place: string; hasNotch?: boolean; coexist?: boolean },
+    islandSize: () => islandSize,
+    pillTop: () => platform.pillTop,
+    cursor: () => screen.getCursorScreenPoint(),
+    helperBin: helperPath(),
+    mac: platform.os === 'mac',
+    pid: process.pid
+  })
+  islandDiag.start()
+  ipcMain.handle('feat:island:diag', (e, report: unknown) => {
+    if (trustedSender(e)) islandDiag?.onRenderer(report)
+  })
 
   overlay.setIgnoreMouseEvents(true, { forward: true })
-  overlay.once('ready-to-show', () => overlay.showInactive())
+  // Launch gate (main/gate.ts, Michael Nov 21: launch = start from new): the overlay shows and the launcher key
+  // registers only once the login and setup are through, and both go away on a sign-out. Until then only the home
+  // window (its first-run flow) is on screen. showInactive before the first paint is held (showAfterFirstPaint).
+  gateCore({
+    overlay,
+    // The launcher key (the learner's own or the default) registers through shortcutKeys, which also checks the gate.
+    launcherKey: (on) => {
+      launcherWanted = on
+      shortcutKeys.sync()
+    },
+    closed: () => {
+      if (launcherOpen) closeLauncher()
+      unregisterActionShortcuts()
+    }
+  })
   launcher.on('blur', onLauncherBlur)
   launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = isLeavingModifier(input)))
 
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
-    if (e.type === 'lesson.ready') registerActionShortcuts()
+    if (e.type === 'lesson.ready' && gateIsOpen()) registerActionShortcuts()
     if (e.type === 'lesson.ended') unregisterActionShortcuts()
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
 
-  ipcMain.on('engine:cmd', (_e, cmd) => {
-    if (cmd?.type === 'overlay.bounds') {
-      overlayRects = cmd.payload?.rects ?? []
+  ipcMain.on('engine:cmd', (e, cmd) => {
+    // W0-6: only our own windows' main frames, only allowlisted command types, never config.keys from a renderer.
+    if (!trustedSender(e) || !cmd || typeof cmd !== 'object' || typeof cmd.type !== 'string') return
+    const devReset = cmd.type === 'dev.reset' && !app.isPackaged
+    if (!RENDERER_COMMANDS.has(cmd.type) && !devReset) {
+      if (cmd.type === 'config.keys') console.warn('[tut] dropped config.keys sent by a renderer (keys go through settings:save)')
+      return
+    }
+    if (cmd.payload !== undefined && (typeof cmd.payload !== 'object' || cmd.payload === null)) return
+    if (cmd.type === 'overlay.bounds') {
+      const rects: unknown = cmd.payload?.rects
+      overlayRects = Array.isArray(rects)
+        ? rects
+            .slice(0, 64)
+            .filter((r): r is R => !!r && ['x', 'y', 'w', 'h'].every((k) => Number.isFinite((r as Record<string, unknown>)[k])))
+            .map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+        : []
       return sendBounds()
     }
     engine.send(cmd)
   })
 
   ipcMain.on('ui:ready', (e) => {
+    if (!trustedSender(e)) return
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
     // A renderer that (re)loads starts closed/click-through. If main still thinks the launcher is open,
     // its invisible full-screen window would keep the keyboard and every click: hide it.
     if (win === launcher && launcherOpen) hideLauncher()
     if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
-    e.sender.send('ui:layout', layoutFor(win))
+    const l = layoutFor(win)
+    if (win === overlay) {
+      logIsland('ready', l)
+      islandDiag?.snapshot('ready')
+    }
+    e.sender.send('ui:layout', l)
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)
   })
 
   ipcMain.on('ui:emit', (e, signal: string, payload: unknown) => {
+    if (!trustedSender(e) || typeof signal !== 'string') return
     switch (signal) {
       case 'video:intent':
         // core seekVideo(): every OTHER window follows (the sender already set it).
@@ -336,6 +667,7 @@ app.whenReady().then(async () => {
         break
       case 'overlay:interactive':
         overlay.setIgnoreMouseEvents(!payload, { forward: true })
+        leaseInteractive(payload)
         break
       case 'island:size':
         islandSize = payload as typeof islandSize
@@ -345,7 +677,9 @@ app.whenReady().then(async () => {
         send(overlay, signal, payload)
         break
       case 'launcher:toggle':
-        launcherOpen ? closeLauncher() : openLauncher()
+        // The pill can't open the launcher while the gate is closed (closing one that is open is always fine).
+        if (launcherOpen) closeLauncher()
+        else if (gateIsOpen()) openLauncher()
         break
       case 'shortcut':
         // A shortcut pressed in another window (the launcher's Explain / Hint chips): run it in the overlay, where
@@ -364,23 +698,119 @@ app.whenReady().then(async () => {
     signalListeners.get(signal)?.forEach((fn) => fn(payload))
   })
 
-  const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
-  if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+  // The launcher key follows the gate (gateCore above). A second launch opens home: features/launch.ts owns
+  // 'second-instance' (it used to open the launcher here too, over a closed gate).
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
-  const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
+  const quitKey = quitAccelerator(platform.os === 'mac')
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
-  screen.on('display-metrics-changed', () => {
+  // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
+  // when nothing answers) instead of showing a healthy pill that is deaf.
+  const wake = (): void => engine.wake()
+  // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
+  // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
+  // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
+  // Choosing "In the notch" must act now: read the geometry afresh, then resend the layout whatever the answer, so the
+  // island moves at once without waiting for a poll.
+  onPrefsChange(() => void recheckThenResend(notchService, resendLayout))
+  ipcMain.handle('feat:notch:recheck', async (e) => {
+    if (!trustedSender(e)) return false
+    await notchService?.recheck()
+    return true
+  })
+  // Back from another app: look again (rate limited in the service).
+  app.on('browser-window-focus', () => void notchService?.recheck())
+  app.on('activate', () => void notchService?.recheck())
+  /** Re-apply the display's bounds and the pill's fitted top to both core windows, raise them, send the layout. */
+  const applyDisplay = (): void => {
+    islandDiag?.snapshot('refit')
+    platform.pillTop = fitPillTop(basePillTop, displayNow())
     for (const w of [overlay, launcher]) {
-      w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
+      if (w.isDestroyed()) continue
+      w.setBounds(overlayBounds(displayNow()))
+      raise(w)
       send(w, 'layout', layoutFor(w))
     }
+  }
+  // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
+  const collapseIsland = (): void => send(overlay, 'island:collapse')
+  overlay.webContents.on('responsive', collapseIsland)
+  // The overlay itself: hidden while displays swap and while locked, shown again ~150 ms later, re-raised on a space
+  // change (platform.ts trackOverlayLifecycle). Its refit is applyDisplay.
+  const stopLifecycle = trackOverlayLifecycle(overlay, { screen, powerMonitor, systemPreferences, canShow: gateIsOpen }, applyDisplay)
+  app.on('before-quit', stopLifecycle)
+  // Display events, wake and unlock: collapse the island and ask for one geometry read (the service debounces it
+  // 250 ms, so a burst of display events is one helper call); a changed answer re-sends the layout through onChange.
+  let refitTimer: ReturnType<typeof setTimeout> | undefined
+  const displayChanged = (): void => {
+    islandDiag?.snapshot('display')
+    void islandDiag?.refreshScreens('display')
+    collapseIsland()
+    notchService?.refresh()
+    // Off macOS there is no lifecycle tracker: re-fit the windows here (debounced, a plug fires several events).
+    if (platform.os !== 'mac') {
+      clearTimeout(refitTimer)
+      refitTimer = setTimeout(applyDisplay, OVERLAY_RESTORE_MS)
+    }
+  }
+  screen.on('display-metrics-changed', displayChanged)
+  screen.on('display-added', displayChanged)
+  screen.on('display-removed', displayChanged)
+  // Wake: macOS can drop the panels' level and the renderer's frames; re-fit, re-raise, re-send the layout.
+  powerMonitor.on('resume', () => {
+    void islandDiag?.dumpWindows('resume')
+    displayChanged()
+    setTimeout(applyDisplay, OVERLAY_RESTORE_MS)
+    wake()
   })
+  // Unlock: the lifecycle shows the overlay again; here the island collapses and the link is checked.
+  powerMonitor.on('unlock-screen', () => {
+    void islandDiag?.dumpWindows('unlock')
+    displayChanged()
+    wake()
+  })
+  let wasOnline = net.isOnline()
+  const netTimer = setInterval(() => {
+    const on = net.isOnline()
+    if (on && !wasOnline) wake()
+    wasOnline = on
+  }, 3000)
+  netTimer.unref()
 
-  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  // Live custom shortcuts: main checks a new key before it is saved (taken by another app: the old key stays, the
+  // prefs:set result says so), and every change of the prefs re-registers what is live. Once now for the saved keys.
+  setShortcutCheck((next, prev) => {
+    const { accepted, refused } = shortcutKeys.accept(next, prev)
+    for (const r of refused) console.warn(`[tut] shortcut ${r.accelerator} for ${r.kind} refused (${r.reason})`)
+    return accepted
+  })
+  onPrefsChange(() => void shortcutKeys.sync())
+  // Which saved keys fell back (another app owns them), for a window that opens after the broadcast (core/keys.ts).
+  ipcMain.handle('feat:shortcuts:taken', (e) => (trustedSender(e) ? shortcutKeys.taken() : undefined))
+  shortcutKeys.sync()
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
-  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
+  try {
+    stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  } catch (err) {
+    console.error('[tut] engine start-up threw', err)
+  }
+
+  // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
+  const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
+  appWindows = setupAppWindows({
+    app,
+    create: (route, options) => {
+      const win = createWindow(route, options, 'app')
+      holdUntilPainted(win) // the splash leaves onto a painted home window (a no-op once the splash is gone)
+      return win
+    },
+    trusted: trustedSender
+  })
+  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
+  ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
   loadFeatures({
     app,
@@ -391,22 +821,105 @@ app.whenReady().then(async () => {
     display: () => screen.getDisplayMatching(overlay.getBounds()),
     createWindow,
     overlayOptions: overlayWindowOptions,
-    handle: (channel, fn) => ipcMain.handle(`feat:${channel}`, (_e, ...args) => fn(...args)),
-    broadcast: (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)),
+    // W0-6: a feature handler only ever runs for our own windows' main frames.
+    handle: (channel, fn) =>
+      ipcMain.handle(`feat:${channel}`, (e, ...args) => {
+        if (!trustedSender(e)) throw new Error('untrusted sender')
+        islandDiag?.onFeature(channel, args[0])
+        return fn(...args)
+      }),
+    broadcast: (channel, payload) => {
+      islandDiag?.onFeature(channel, payload)
+      forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
+    },
     onSignal: (signal, fn) => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
       signalListeners.get(signal)!.add(fn)
     },
     reportBounds,
-    raise,
+    raise: (w, rel) => {
+      raise(w, rel)
+      islandDiag?.snapshot('raise')
+    },
     islandSize: () => islandSize,
     yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return'),
-    overlayRects: () => overlayRects
+    overlayRects: () => overlayRects,
+    openWindow: (route, args) => appWindows?.open(route, args),
+    appWindow: (route) => appWindows?.get(route)
   })
+  setupMenu()
+  // A cold launch opens on the splash (main/splash.ts), in home's own frame; home opens and paints underneath it. Not when started at login
+  // or for recordings (MIYAGI_QUIET_LAUNCH=1, the same switch features/launch.ts reads), not with MIYAGI_NO_SPLASH=1,
+  // and not in a second copy that features/launch.ts is about to quit.
+  if (wantsSplash()) showSplash(appWindowFrame('library'))
+  else skipSplash()
 })
 
-app.on('will-quit', () => {
+/** How long the splash waits on the engine link before it leaves anyway (the engine keeps starting behind the app). */
+const ENGINE_SPLASH_MS = 2500
+
+function wantsSplash(): boolean {
+  if (process.env.MIYAGI_QUIET_LAUNCH === '1' || process.env.MIYAGI_NO_SPLASH === '1') return false
+  if (platform.os === 'mac' && !app.hasSingleInstanceLock()) return false
+  try {
+    if (platform.os === 'mac' && app.getLoginItemSettings().wasOpenedAtLogin) return false
+  } catch {
+    // no login item info: a normal launch
+  }
+  return true
+}
+
+/**
+ * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
+ * (Minimize, Zoom). The only menu definition (overlay-raise.ts no longer sets one), set once after the features load. Full screen
+ * and zoom act on the focused window; only app windows are fullscreenable (platform.ts appWindowOptions), so for the
+ * overlay, pill and panels those items stay disabled by Electron.
+ */
+function setupMenu(): void {
+  // Windows / Linux: no menu at all. Electron's default one carries Reload (Ctrl+R), Force Reload and Toggle Developer
+  // Tools (Ctrl+Shift+I) as accelerators even in a built app (app-harden). Copy and paste work without a menu there.
+  if (platform.os !== 'mac') return Menu.setApplicationMenu(null)
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'editMenu' },
+      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
+      { label: 'Window', role: 'windowMenu', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] }
+    ])
+  )
+}
+
+app.on('before-quit', () => boundsOut.flush())
+/**
+ * R44: the engine goes with the app. Its windows are already closed here; when the engine this app started is still
+ * running, the quit waits (bounded) while localEngine SIGTERMs its group and, if it's hung, SIGKILLs it, then exits.
+ * The other will-quit listeners (features) have run by then: app.exit skips the events, so none of them runs twice.
+ */
+let engineStopping = false
+app.on('will-quit', (event) => {
   globalShortcut.unregisterAll()
-  stopLocalEngine()
+  if (engineStopping) return event.preventDefault()
+  let pending: Promise<void> | void = undefined
+  try {
+    pending = stopLocalEngine()
+  } catch (err) {
+    console.error('[tut] stopping the engine threw', err)
+  }
+  if (!pending) return
+  engineStopping = true
+  event.preventDefault()
+  let done = false
+  const exit = (): void => {
+    if (done) return
+    done = true
+    app.exit(0)
+  }
+  const deadline = setTimeout(exit, QUIT_ENGINE_DEADLINE_MS)
+  pending
+    .catch((err: unknown) => console.error('[tut] stopping the engine failed', err))
+    .finally(() => {
+      clearTimeout(deadline)
+      exit()
+    })
 })
 app.on('window-all-closed', () => app.quit())

@@ -1,0 +1,313 @@
+{
+  "name": "onscreen",
+  "on": {
+    "connect": "os_connect",
+    "action:show_me@step_os1": "os_show1",
+    "action:show_me@step_os2": "os_show2",
+    "action:show_me@step_os3": "os_show3"
+  },
+  "segments": {
+    "os_connect": [
+      {
+        "wait": 100,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      },
+      {
+        "wait": 200,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "os-demo",
+            "title": "Make a spinning torus",
+            "mode": "lesson",
+            "builtBy": "curated",
+            "app": {
+              "tool": "blender",
+              "label": "Blender"
+            },
+            "sources": [],
+            "outline": {
+              "count": 3,
+              "steps": [
+                {
+                  "index": 0,
+                  "title": "Add a torus",
+                  "what": "Add a torus from the Add menu"
+                },
+                {
+                  "index": 1,
+                  "title": "Open its properties",
+                  "what": "Open the Object properties tab on the right"
+                },
+                {
+                  "index": 2,
+                  "title": "Play the animation",
+                  "what": "Play the timeline to see it spin"
+                }
+              ]
+            }
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 0,
+              "title": "Add a torus",
+              "what": "Add a torus from the Add menu"
+            },
+            {
+              "id": "s2",
+              "index": 1,
+              "title": "Open its properties",
+              "what": "Open the Object properties tab on the right"
+            },
+            {
+              "id": "s3",
+              "index": 2,
+              "title": "Play the animation",
+              "what": "Play the timeline to see it spin"
+            }
+          ]
+        }
+      },
+      {
+        "wait": 100,
+        "goto": "step_os1"
+      }
+    ],
+    "step_os1": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s1",
+          "index": 0,
+          "title": "Add a torus",
+          "instructions": "Add a torus from the Add menu",
+          "what": "Add a torus from the Add menu"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s1-1",
+              "x": 740,
+              "y": 486,
+              "w": 120,
+              "h": 28,
+              "why": "point",
+              "stepId": "s1",
+              "label": "Add menu",
+              "text": "Add a torus from the Add menu",
+              "keys": [
+                "⇧A"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "wait": 14000,
+        "goto": "os_pass1"
+      }
+    ],
+    "os_show1": [
+      {
+        "wait": 0,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s1-1",
+              "x": 740,
+              "y": 486,
+              "w": 120,
+              "h": 28,
+              "why": "point",
+              "stepId": "s1",
+              "label": "Add menu",
+              "text": "Add a torus from the Add menu",
+              "keys": [
+                "⇧A"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "os_pass1": [
+      {
+        "wait": 0,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "s1"
+        }
+      },
+      {
+        "wait": 400,
+        "goto": "step_os2"
+      }
+    ],
+    "step_os2": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s2",
+          "index": 1,
+          "title": "Open its properties",
+          "instructions": "Open the Object properties tab on the right",
+          "what": "Open the Object properties tab on the right"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s2-1",
+              "x": 1548,
+              "y": 330,
+              "w": 36,
+              "h": 36,
+              "why": "point",
+              "stepId": "s2",
+              "label": "Object tab",
+              "text": "Open the Object properties tab",
+              "keys": [
+                "Tab"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "wait": 14000,
+        "goto": "os_pass2"
+      }
+    ],
+    "os_show2": [
+      {
+        "wait": 0,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s2-1",
+              "x": 1548,
+              "y": 330,
+              "w": 36,
+              "h": 36,
+              "why": "point",
+              "stepId": "s2",
+              "label": "Object tab",
+              "text": "Open the Object properties tab",
+              "keys": [
+                "Tab"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "os_pass2": [
+      {
+        "wait": 0,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "s2"
+        }
+      },
+      {
+        "wait": 400,
+        "goto": "step_os3"
+      }
+    ],
+    "step_os3": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s3",
+          "index": 2,
+          "title": "Play the animation",
+          "instructions": "Play the timeline to see it spin",
+          "what": "Play the timeline to see it spin"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s3-1",
+              "x": 40,
+              "y": 940,
+              "w": 1520,
+              "h": 32,
+              "why": "point",
+              "stepId": "s3",
+              "label": "Timeline",
+              "text": "Press Space to play the timeline",
+              "keys": [
+                "Space"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "os_show3": [
+      {
+        "wait": 0,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            {
+              "id": "os-s3-1",
+              "x": 40,
+              "y": 940,
+              "w": 1520,
+              "h": 32,
+              "why": "point",
+              "stepId": "s3",
+              "label": "Timeline",
+              "text": "Press Space to play the timeline",
+              "keys": [
+                "Space"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

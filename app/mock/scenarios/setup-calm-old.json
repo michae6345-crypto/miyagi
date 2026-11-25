@@ -1,0 +1,129 @@
+{
+ "name": "setup-calm-old",
+ "on": {
+  "connect": "sco_connect"
+ },
+ "segments": {
+  "sco_connect": [
+   {
+    "wait": 100,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   },
+   {
+    "wait": 200,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "sco-toy-car",
+      "title": "Toy car for a 3D printer",
+      "sources": [],
+      "complete": true,
+      "builtBy": "claude",
+      "mode": "video"
+     },
+     "steps": [
+      {
+       "id": "sco1",
+       "index": 0,
+       "title": "Sketch the car profile",
+       "what": "Draw the side profile with lines and arcs",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 0,
+        "end": 300
+       },
+       "estMinutes": 5
+      },
+      {
+       "id": "sco2",
+       "index": 1,
+       "title": "Cut the wheel wells",
+       "what": "Trim two arcs for the wheels",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 300,
+        "end": 540
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sco3",
+       "index": 2,
+       "title": "Extrude the body",
+       "what": "Turn the profile into a solid",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 540,
+        "end": 780
+       },
+       "estMinutes": 4
+      },
+      {
+       "id": "sco4",
+       "index": 3,
+       "title": "Export for the printer",
+       "what": "Save the solid as an STL file",
+       "video": {
+        "videoId": "stand-in-autocad",
+        "start": 780,
+        "end": 1056
+       },
+       "estMinutes": 5
+      }
+     ]
+    }
+   },
+   {
+    "wait": 200,
+    "type": "step.started",
+    "payload": {
+     "stepId": "sco1",
+     "index": 0,
+     "title": "Sketch the car profile",
+     "instructions": "Watch 0:00-5:00 and follow along in AutoCAD.",
+     "video": {
+      "videoId": "stand-in-autocad",
+      "start": 0,
+      "end": 300
+     },
+     "kind": "read"
+    }
+   },
+   {
+    "wait": 300,
+    "type": "card",
+    "payload": {
+     "kind": "setup",
+     "title": "Set up first",
+     "body": "Missing: autocad. Install now? No editor needed: the tutorial is a no-code CAD workflow done entirely in AutoCAD, not writing code or text files.",
+     "actions": [
+      "skip_setup"
+     ],
+     "setup": {
+      "editorNeeded": false,
+      "editorLabel": "Visual Studio Code",
+      "resources": [],
+      "items": [
+       {
+        "tool": "autocad",
+        "label": "autocad",
+        "kind": "app",
+        "why": "Used to draw the car profile, cutouts, wheels and tolerances.",
+        "needed": true,
+        "installed": false,
+        "ok": false,
+        "install": {
+         "method": "none"
+        }
+       }
+      ]
+     },
+     "stepId": "sco1"
+    }
+   }
+  ]
+ }
+}

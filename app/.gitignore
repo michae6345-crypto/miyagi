@@ -5,3 +5,4 @@ dist
 *.log
 build/engine
 build/engine.tar
+build/helpers

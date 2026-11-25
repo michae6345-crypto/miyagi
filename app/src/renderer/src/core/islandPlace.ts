@@ -27,11 +27,14 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
+// TODO(W0-5 core request): the two feature stores below are the last feature imports here. Once spotlight/store.ts and
+// cards/store.ts publish their target rects with core/dock.ts reserveRect('spotlight' | 'card-targets', ...), read
+// useReserved() instead and drop them (agents/core-v2.md, Core requests).
 import { useCards } from '../features/cards/store'
-import { dockRect } from '../features/player/dock'
-import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
 import { onMessage, onUi } from './bus'
+import { reservedLocal, useReserved } from './dock'
+import { dockRect, hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
 import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
@@ -276,6 +279,10 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   const flagged = useLesson((s) => s.offtrack?.targets)
   // The open card's own targets, the same way (desktop test 9, A5).
   const carded = useCards((s) => s.card?.targets)
+  // A setup card ("This lesson uses AutoCAD", the VS Code sheet) opens before there is any work on screen to keep
+  // clear: it stays under the pill it grows out of, not dropped below VS Code's toolbar (QA Q07: below the menu bar
+  // it floated mid-screen with no pill above it). It still slides clear of the docked player.
+  const setup = useCards((s) => s.card?.kind === 'setup')
   // The holes as the spotlight draws them: the main one while it's on this display, and the coach's others with it.
   // The coach's targets count even with no spotlight up (Michael's desktop test 6/7, item 5: the "Not yet" card sat on
   // lines 40-48, the very lines it was talking about, because the step's box had cleared when it opened).
@@ -293,7 +300,11 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   const clear = useAvoidLocal(layout)
   const w = card?.w ?? 0
   const h = card?.h ?? 0
-  const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0 || clear.length > 0, card?.id ?? '')
+  const { others: domUi, chips } = useOverlayUi(wrapper, keepOff.length > 0 || clear.length > 0, card?.id ?? '')
+  // v2 (W0-5): space other surfaces reserved (the docked lesson panel, app-side panels in other windows): other UI
+  // a moved card would rather not cover, like the overlay's own. Nothing reserved = exactly the old behaviour.
+  const reserved = useReserved()
+  const avoid = useMemo(() => (reserved.length ? [...domUi, ...reservedLocal(reserved, layout)] : domUi), [domUi, reserved, layout])
 
   const notch = { x: (layout.width - w) / 2, y: top, w, h }
   const wa = layout.workArea
@@ -340,7 +351,7 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     spot.current = next
     aside.current = nextAside
   })
-  return offDock(card && { ...notch, w, h }, nextAside?.at ?? base, playerOn, layout)
+  return offDock(card && { ...notch, w, h }, nextAside?.at ?? base, playerOn, layout, !setup)
 }
 
 /** Room kept between a card's right edge and the docked video panel (Michael's test 10 polish, item 1). */
@@ -351,13 +362,14 @@ const DOCK_GAP = 16
  * boxes know about it: slide a card left until its right edge is DOCK_GAP clear of the panel, never past the work
  * area's left edge.
  */
-export function offDock(notch: Rect | undefined, at: Offset, playerOn: boolean, layout: Layout): Offset {
+export function offDock(notch: Rect | undefined, at: Offset, playerOn: boolean, layout: Layout, toolbar = true): Offset {
   if (!notch || !playerOn) return at
   const wa = layout.workArea
   // Below VS Code's title bar, tabs and notebook toolbar (the kernel picker, Run All): a card at the top centre took
-  // the click meant for ".venv", the first step of every notebook lesson (Michael's test 11, item 3).
+  // the click meant for ".venv", the first step of every notebook lesson (Michael's test 11, item 3). `toolbar` false:
+  // a card that comes before any of that (setup) stays at the pill.
   const minY = wa.y + NOTEBOOK_TOOLBAR_BOTTOM - notch.y
-  const y = Math.max(at.y, minY)
+  const y = toolbar ? Math.max(at.y, minY) : at.y
   const limit = dockRect(wa).x - DOCK_GAP
   const right = notch.x + at.x + notch.w
   if (right <= limit) return { x: at.x, y }

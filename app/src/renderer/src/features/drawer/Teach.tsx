@@ -24,6 +24,7 @@ import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
 import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
+import { fade, prefersReduced } from '../../core/ui/motion'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
 const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` } as CSSProperties
@@ -168,7 +169,7 @@ export function PrimerSection(): ReactNode {
         </motion.span>
       </button>
       {open && (
-        <motion.div className="flex flex-col gap-[6px] px-[2px] pb-[2px] pt-[4px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+        <motion.div className="flex flex-col gap-[6px] px-[2px] pb-[2px] pt-[4px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fade.in}>
           {primer.map((p) => (
             <PrimerCard key={p.id} item={p} />
           ))}
@@ -190,7 +191,7 @@ function PrimerCard({ item }: { item: PrimerItem }): ReactNode {
         </div>
       )}
       {item.code && (
-        <pre className="mt-[7px] overflow-x-auto whitespace-pre text-[12px] leading-[17px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
+        <pre data-code-pre className="mt-[7px] overflow-x-auto whitespace-pre leading-[17px]" style={{ fontFamily: font.mono, fontSize: 'var(--mg-code-size, 12px)', color: glass.text, ...thinScroll }}>
           {item.code}
         </pre>
       )}
@@ -290,7 +291,8 @@ function KindBadge({ kind }: { kind: StepKind }): ReactNode {
       data-part="drawer-kind"
       data-kind={kind}
       className="mr-[7px] inline-flex h-[19px] items-center gap-[4px] rounded-[6px] px-[6px] align-[1px] text-[11.5px] font-semibold leading-none"
-      style={{ background: glass.key, color: glass.keyText }}
+      // glass.label, not keyText: keyText measured 4.24:1 on the key fill in light at this size (QA R4-06).
+      style={{ background: glass.key, color: glass.label }}
     >
       <I size={11} strokeWidth={2} />
       {label}
@@ -355,7 +357,7 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         <button
           type="button"
           data-part="drawer-copy"
-          className="flex h-[22px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full px-[9px] text-[12px] font-medium"
+          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full px-[9px] text-[12px] font-medium"
           style={{ background: glass.key, color: glass.text }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={copy}
@@ -367,10 +369,10 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
       <div className="relative">
         {/* Lines never wrap (Michael, test 10: "sparse_categoric / al_crossentropy" broke inside a name, and typing it as
             shown fails); long lines scroll sideways. */}
-        <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
+        <pre ref={pre} data-code-pre className="overflow-x-auto whitespace-pre px-[12px] py-[9px] leading-[18px]" style={{ fontFamily: font.mono, fontSize: 'var(--mg-code-size, 12px)', color: glass.text, ...thinScroll }}>
           <code>
             {shown.split(/\r?\n/).map((line, i) => (
-              <span key={i} className="block">
+              <span key={i} data-code-line className="block">
                 {line || ' '}
               </span>
             ))}
@@ -386,7 +388,7 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
             title="More to the right"
             aria-label="Scroll the code right"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => pre.current?.scrollBy({ left: Math.round(pre.current.clientWidth * 0.6), behavior: 'smooth' })}
+            onClick={() => pre.current?.scrollBy({ left: Math.round(pre.current.clientWidth * 0.6), behavior: prefersReduced() ? 'auto' : 'smooth' })}
           >
             <span className="absolute inset-0 grid place-items-center" style={{ background: glass.field }}>
               <ChevronRight size={13} strokeWidth={2} />

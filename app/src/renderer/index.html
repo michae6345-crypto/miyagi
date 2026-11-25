@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      W0-6: the parts of the CSP that hold in dev too (Vite's HMR socket and React's refresh preamble need more, so
+      default-src / script-src / connect-src live in the header main/serve.ts sends with the built app).
+      R33: the only frame is the player's host page on a loopback port (main/playerHost.ts; 'self' in the browser
+      stage, where Vite serves it). The built app's header narrows frame-src to the host's exact origin.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob: https://i.ytimg.com"
+    />
     <title>miyagi</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="any" />

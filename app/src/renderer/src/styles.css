@@ -11,55 +11,58 @@
   --color-pill: #000000;
   /* "accent" = the active/interactive color on the dark HUD: white, never system blue. */
   --color-accent: #F4F4F5;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-brand: "Google Sans Flex", system-ui, sans-serif;
+  /* Bricolage Grotesque everywhere (Michael, Nov 24: "use Bricolage for everything"); the system font is the fallback. */
+  --font-sans: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-brand: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* v2 (W0-2, core/theme.ts surface / paper): app windows and light surfaces. */
+  --color-window: #141413;
+  --color-sheet: #2C2B2A;
+  --color-paper-surface: #FFFFFF;
+  --color-pass-text: #1C8A3C;
 }
 
 /*
- * Glass panels (theme.glass): dark by default, light under <html data-appearance="light"> (Settings → Appearance).
- * The island and the cards don't use these; they stay black.
- * --glass-bg is nearly opaque (.96 / .97): CSS can't blur other apps in Electron, and at .9 the terminal text under
- * the shortcut bar showed through (Michael's audit A22).
+ * Every themed variable (--c-*, --f-*, --s-*, --e-*, --h-*, --l-*, --tone-*, --glass-*, --mg-tint-*) is generated from
+ * core/theme.ts `palette` by themeCss() and injected by core/prefs.ts before first paint. Dark is the default; light
+ * follows <html data-appearance="light">; data-theme="dark" pins dark (island, overlay), data-theme="auto" resumes.
+ * This file only uses them.
  */
-:root {
-  --glass-bg: rgba(28, 28, 30, 0.96);
-  --glass-text: #F4F4F5;
-  --glass-label: rgba(255, 255, 255, 0.6);
-  --glass-faint: rgba(255, 255, 255, 0.42);
-  --glass-hairline: rgba(255, 255, 255, 0.12);
-  --glass-field: rgba(255, 255, 255, 0.06);
-  --glass-field-hover: rgba(255, 255, 255, 0.1);
-  --glass-rule: rgba(255, 255, 255, 0.08);
-  --glass-key: rgba(255, 255, 255, 0.1);
-  --glass-key-text: rgba(255, 255, 255, 0.62);
-  --glass-track: rgba(255, 255, 255, 0.18);
-  --glass-button: #F4F4F5;
-  --glass-button-text: #141414;
-  --glass-pass: #30D158;
-  --glass-offtrack: #F4F4F5;
-  --glass-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+
+/*
+ * The app font: Bricolage Grotesque, variable (opsz 12..96, wght 200..800), bundled so it works offline (SIL OFL,
+ * assets/fonts/BricolageGrotesque-OFL.txt). Two subsets, as Google Fonts serves them; latin-ext only loads when a
+ * glyph from its range shows. font-optical-sizing: auto (base layer) lets small text use the text cut.
+ */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("./assets/fonts/BricolageGrotesque-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
-:root[data-appearance="light"] {
-  --glass-bg: rgba(250, 250, 248, 0.97);
-  --glass-text: #141414;
-  --glass-label: rgba(0, 0, 0, 0.56);
-  --glass-faint: rgba(0, 0, 0, 0.38);
-  --glass-hairline: rgba(0, 0, 0, 0.1);
-  --glass-field: rgba(0, 0, 0, 0.045);
-  --glass-field-hover: rgba(0, 0, 0, 0.08);
-  --glass-rule: rgba(0, 0, 0, 0.08);
-  --glass-key: rgba(0, 0, 0, 0.07);
-  --glass-key-text: rgba(0, 0, 0, 0.55);
-  --glass-track: rgba(0, 0, 0, 0.14);
-  --glass-button: #141414;
-  --glass-button-text: #F6F6F3;
-  --glass-pass: #1C8A3C;
-  --glass-offtrack: #141414;
-  --glass-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("./assets/fonts/BricolageGrotesque-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/*
+ * The middle dot only: Bricolage's · has almost no side bearing, so "7 steps · 25 min" read cramped at 12-13 px.
+ * Declared last, so it wins for U+00B7 alone; the dot comes from a system face with roomier spacing.
+ */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  src: local("Helvetica Neue"), local("HelveticaNeue"), local("Segoe UI"), local("Arial");
+  unicode-range: U+00B7;
 }
 
-/* Brand font for brand moments only (the app UI uses the system font). */
+/* Google Sans Flex: no app token points at it since Nov 24 (Bricolage); kept for the brand kit's files. */
 @font-face {
   font-family: "Google Sans Flex";
   src: url("../../../brand/fonts/GoogleSansFlex.woff2") format("woff2");
@@ -79,8 +82,9 @@ body,
   height: 100%;
   overflow: hidden;
   background: transparent;
-  color: #fff;
+  color: var(--c-text);
   font-family: var(--font-sans);
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   user-select: none;
@@ -92,6 +96,148 @@ html[data-route="stage"] body {
   background: #08080b;
 }
 
+/*
+ * v2 app windows (data-kind="app": Onboarding, Library, Progress, Account; main/appWindows.ts). Opaque, a normal
+ * macOS window (hiddenInset title bar), so the body paints the window color and text can be selected where the
+ * feature allows it. The 28 px strip under the traffic lights drags the window.
+ */
+html[data-kind="app"] body {
+  background: var(--l-base);
+}
+html[data-kind="app"] [data-drag] {
+  -webkit-app-region: drag;
+}
+html[data-kind="app"] [data-drag] button,
+html[data-kind="app"] [data-drag] input,
+html[data-kind="app"] [data-no-drag] {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * The room kept for the traffic lights (they hide in macOS full screen; core/prefs.ts sets <html data-fullscreen>):
+ * the sidebar's top strip, the setup header's height and its left inset. In full screen the empty band is dropped.
+ */
+.mg-lights { height: 40px; }
+.mg-flow-head { height: 64px; }
+.mg-lights-pad { padding-left: 88px; }
+html[data-fullscreen] .mg-lights { height: 24px; }
+html[data-fullscreen] .mg-flow-head { height: 48px; }
+html[data-fullscreen] .mg-lights-pad { padding-left: 28px; }
+/*
+ * The app window's page header (features/shell ui.tsx PageHeader): the strip above the title drags the window. Its
+ * height comes from core/theme.ts layout.page.top / topFull through the header's own variables: the title's top sits
+ * 80 below the window's top, 52 in full screen (no title bar to drag). Top-anchored at every size, never centered.
+ */
+.mg-page-head { padding-top: var(--page-head-top); }
+html[data-fullscreen] .mg-page-head { padding-top: var(--page-head-top-full); }
+/*
+ * Home's and a lesson preview's first line (features/library layout.tsx firstLine): 80 from the window's top, 52 in full
+ * screen like every page title. The column's top padding and the preview's back bar read their numbers from variables.
+ */
+.mg-first-line { padding-top: var(--first-top); }
+html[data-fullscreen] .mg-first-line { padding-top: var(--first-top-full); }
+.mg-detail-bar { height: var(--bar); }
+/*
+ * The account window's card (features/account AccountWindow): top-anchored, never centered. The window is sized to its card
+ * (720x560 holds the 526 px sign-in card with 16 around it), so there it sits 16 down; in a window 720 tall or more
+ * (a resized one, macOS full screen) the card's top is 80 from the window's top, 52 in full screen, like every page.
+ */
+.mg-account-scroll { container-type: size; }
+.mg-account-stack { padding-top: 16px; }
+@container (min-height: 720px) {
+  .mg-account-stack { padding-top: 80px; }
+}
+html[data-fullscreen] .mg-account-stack { padding-top: 52px; }
+/* The sign-in view (features/auth Login): top-anchored. In its own window the mark is 80 down (52 in full screen); in the first-run flow it sits 40 under the flow's header. */
+.mg-login { padding-top: 80px; }
+html[data-fullscreen] .mg-login { padding-top: 52px; }
+[data-flow-view] .mg-login, html[data-fullscreen] [data-flow-view] .mg-login { padding-top: 40px; }
+html[data-fullscreen] .mg-detail-bar { height: var(--bar-full); }
+/*
+ * The page column's gutter (features/shell ui.tsx GUTTER, used by PageHeader and PageColumn): 40, and 24 once the
+ * content pane is under 760 wide (layout.page.tightBelow). Each page frame (and a lesson's preview over the pane) is the
+ * size container, so this follows the pane, not the window, and reaches everything inside the frame.
+ */
+.mg-page-frame { container-type: inline-size; }
+@container (max-width: 759.98px) {
+  .mg-page-frame > * { --page-gutter: 24px; }
+}
+/*
+ * v4 frame (features/shell ui.tsx PageFrame and friends; core/theme.ts v4 / v4c / v4type). The frame is the size
+ * container: its gutter is 40, 24 under 760; Home's rail drops under the main column under 900; Settings' two columns
+ * become one under 760. Hairlines between list rows and table rows; the hovered row loses its hairlines (Notion).
+ */
+.mg-v4-frame { container-type: inline-size; }
+@container (max-width: 759.98px) {
+  .mg-v4-frame > * { --v4-gutter: 24px; }
+}
+.mg-v4-two { display: grid; grid-template-columns: minmax(0, 1fr) 316px; column-gap: 40px; align-items: start; }
+.mg-v4-rail { border-left: 1px solid var(--v4-hair); padding: 0 0 48px 32px; }
+@container (max-width: 899.98px) {
+  .mg-v4-two { grid-template-columns: minmax(0, 1fr); }
+  .mg-v4-rail { border-left: 0; padding: 0; margin-top: 30px; border-top: 1px solid var(--v4-hair); }
+}
+.mg-v4-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 56px; align-items: start; }
+@container (max-width: 759.98px) {
+  .mg-v4-cols { grid-template-columns: minmax(0, 1fr); }
+}
+.mg-v4-rows > .mg-v4-row + .mg-v4-row { box-shadow: 0 -1px 0 var(--v4-hair); }
+.mg-v4-row-btn { transition: background-color 120ms ease; }
+.mg-v4-row-btn:hover, .mg-v4-row-on { background: var(--v4-hover); }
+.mg-v4-rows > .mg-v4-row-btn:hover, .mg-v4-rows > .mg-v4-row-btn:hover + .mg-v4-row,
+.mg-v4-rows > .mg-v4-row-on, .mg-v4-rows > .mg-v4-row-on + .mg-v4-row { box-shadow: none; }
+.mg-v4-row-btn:active { background: var(--v4-active); }
+.mg-v4-chev { transition: transform 160ms ease, color 120ms ease; }
+.mg-v4-row-btn:hover .mg-v4-chev { color: var(--c-label); transform: translateX(2px); }
+.mg-v4-link:hover { color: var(--c-text); }
+.mg-v4-tbl { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 20px; color: var(--c-text); }
+.mg-v4-tbl th { font-size: 12.5px; font-weight: 450; color: var(--c-label); height: 32px; padding: 0 8px; border-bottom: 1px solid var(--v4-hair); white-space: nowrap; }
+.mg-v4-tbl td { height: 46px; padding: 0 8px; border-bottom: 1px solid var(--v4-hair); vertical-align: middle; }
+.mg-v4-tbl td:first-child, .mg-v4-tbl th:first-child { padding-left: 0; }
+.mg-v4-tbl td:last-child, .mg-v4-tbl th:last-child { padding-right: 0; }
+.mg-v4-tbl-fx { table-layout: fixed; }
+.mg-v4-tbl-fx td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-v4-tr-btn { cursor: pointer; outline: none; }
+.mg-v4-tr-btn:hover td, .mg-v4-tr-on td { background: var(--v4-hover); }
+.mg-v4-tr-btn:focus-visible td { box-shadow: inset 0 2px 0 var(--c-focus), inset 0 -2px 0 var(--c-focus); }
+/* The shell's own (legacy) title hides on a page that renders its own v4 PageFrame (it owns its title then). */
+/* !important: this sits in @layer base, so the header's own Tailwind `flex` (a utility layer) would otherwise win. */
+.mg-page-frame:has([data-v4-frame]) > [data-legacy-header] { display: none !important; }
+/* The v4 sidebar's rows and the top bar's buttons: a wash on hover, a deeper one pressed. */
+.mg-v4-side-row { transition: background-color 120ms ease, color 120ms ease; }
+.mg-v4-side-row:hover { background: var(--v4-hover); }
+.mg-v4-side-row:active { background: var(--v4-active); }
+/*
+ * The sidebar's ready line (features/library Status.tsx, rendered in features/shell Sidebar.tsx): "Ready" is the
+ * engine's state, not a check that passed, and green only means passed (BRAND.md). In the sidebar the filled green
+ * tick becomes the neutral gray status dot (--sidebar-ready-dot, status.watching, set by the sidebar).
+ * A stopgap: it reaches into features/library's DOM. The fix is a `tone="neutral"` prop on StatusArea (asked of the
+ * library lane in agents/shell.md); drop these two rules when it lands.
+ */
+[data-sidebar-status] div[data-status-word="passed"] > [data-status-glyph="passed"] { display: none; }
+/* Every status glyph (14 + 4 margin = 18, then the row's 8 gap) puts the word at x 46 like the nav labels, centered on the nav icons. */
+[data-sidebar-status] [data-status-glyph] { margin: 0 3px 0 1px; }
+[data-sidebar-status] div[data-status-word="passed"]::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 6px 0 4px;
+  border-radius: 999px;
+  background: var(--sidebar-ready-dot);
+}
+
+/* Paper surfaces (Plan-Pricing, theme.paper) inside any window. */
+[data-surface="paper"] {
+  background: #F6F6F3;
+  color: #141414;
+}
+
+/* Text on a black scrim (video overlays, duration badges) stays white in light mode: Tailwind text-white follows the theme (--c-white), so pin it under any bg-black. */
+[class*="bg-black"] {
+  --color-white: #fff;
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -100,4 +246,307 @@ button {
 input {
   user-select: text;
 }
+}
+
+/*
+ * Polish (UI-POLISH-SPEC.md). Values mirror core/theme.ts `tint`, `focus`, `ease`; keep them in sync.
+ * Everything here animates opacity or transform only.
+ */
+:root {
+  --mg-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --mg-focus: var(--c-focus);
+}
+[data-surface="paper"] {
+  --mg-focus: rgba(20, 20, 20, 0.88);
+}
+/*
+ * Polish: a glass panel (drawer, flyout, concept, shortcut bar, player) sets the ring from the glass tokens, so every
+ * control on it gets an ink ring on light glass and a white one on dark glass. The island and the cards stay black, so
+ * this can't key off :root[data-appearance="light"] alone. A panel root opts in with data-glass. Until every root
+ * carries it, the glass roots are listed by the hooks they already have (never by scanning the inline style: that
+ * matched scrims, inset shadows and SVG strokes, and re-serialized every animating element's style each frame).
+ * TODO(drawer, shortcut-bar and player lanes): add data-glass to the Drawer root and tab, Flyout, Concept,
+ * SelectionExplain, ShortcutBar, PlayerPanel and the Teach footer, then drop the hook list below. SelectionExplain and
+ * PlayerPanel have no hook yet, so only their .mg-glass controls get the glass ring until then.
+ */
+[data-glass],
+[data-part="drawer"],
+[data-part="drawer-tab"],
+[data-part="diagram-flyout"],
+[data-part="drawer-concept"],
+[data-part="drawer-video-help"] {
+  --mg-focus: var(--glass-text);
+}
+
+@layer components {
+  /*
+   * Keyboard focus: a 2 px ring 2 px outside the control, only for keyboard focus (never after a click), following the
+   * control's radius (outline follows border-radius in Chromium). White on dark, ink on paper. Not a glow: no blur.
+   */
+  :focus-visible {
+    outline: 2px solid var(--mg-focus);
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 1px;
+  }
+
+  /*
+   * .mg-press: hover and press feedback for any control. A layer over the control (::after, inheriting its radius)
+   * fades in on hover and deepens on press. Its color comes from --mg-tint-* so a white or pastel control darkens
+   * (.mg-press-light) and a neutral one lightens. Only opacity animates; the scale dip is motion's whileTap (spring).
+   * Polish: the layer sits at z -1. The control isolates, so its own fill (class or inline) paints below the layer and
+   * its label and icon paint above it: the tint never washes over the text.
+   */
+  .mg-press {
+    position: relative;
+    isolation: isolate;
+  }
+  .mg-press::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--mg-tint-hover);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms var(--mg-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .mg-press:hover:not(:disabled)::after {
+      opacity: 1;
+    }
+  }
+  .mg-press:active:not(:disabled)::after {
+    background: var(--mg-tint-press);
+    opacity: 1;
+    transition-duration: 40ms;
+  }
+  /* A white or pastel fill darkens (both themes). */
+  .mg-press-light {
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
+  }
+  /* The accent fill is white on dark (darkens) and ink on light (lightens). */
+  .mg-press-accent {
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
+  }
+  /*
+   * Polish: a busy control holds its pressed tint (a busy option tile reads as pressed in, spec section 3). Enabled
+   * only: a control that is busy and disabled reads as plain disabled, with no tint.
+   */
+  .mg-press[aria-busy="true"]:not(:disabled)::after {
+    background: var(--mg-tint-press);
+    opacity: 1;
+  }
+
+  /*
+   * .mg-glass: a control on a glass panel (GlassPrimary = "mg-press mg-press-light mg-glass", GlassQuiet =
+   * "mg-press mg-glass"). Its focus ring and tints follow <html data-appearance>, not the dark HUD default.
+   * Dark glass: the defaults already fit (the white GlassPrimary darkens, the neutral GlassQuiet lightens).
+   * Light glass: the neutral GlassQuiet darkens (ink, like .mg-press-light) and the ink GlassPrimary lightens.
+   * Values mirror core/theme.ts `tint` (onLight, onInk).
+   */
+  .mg-glass {
+    --mg-focus: var(--glass-text);
+  }
+  :root[data-appearance="light"] .mg-glass {
+    --mg-tint-hover: var(--mg-tint-hover-fill);
+    --mg-tint-press: var(--mg-tint-press-fill);
+  }
+  :root[data-appearance="light"] .mg-glass.mg-press-light {
+    --mg-tint-hover: var(--mg-tint-hover-accent);
+    --mg-tint-press: var(--mg-tint-press-accent);
+  }
+
+  /*
+   * .mg-lift: an interactive surface moves ONE elevation level on hover (raised to overlay) and settles on press.
+   * Add it to a core/ui Surface or GlassCard with `lift`. The shadow swap is the one place a shadow animates (a short
+   * 160 ms ease-out, no glow); the rest of the app animates transform and opacity only. Reduced motion: no travel.
+   */
+  .mg-lift {
+    transition: transform 160ms var(--mg-ease-out), box-shadow 160ms var(--mg-ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .mg-lift:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--h-top), inset 0 0 0 1px var(--s-border), var(--e-overlay);
+    }
+  }
+  .mg-lift:active {
+    transform: translateY(0) scale(0.985);
+    box-shadow: var(--h-top-soft), inset 0 0 0 1px var(--s-border), var(--e-raised);
+    transition-duration: 60ms;
+  }
+
+  /*
+   * .mg-grain: a fine monochrome noise over a large dark surface (the lesson panel, sheets) so flat #1C1C1E reads as a
+   * material. Fixed (it never moves). No hue: the turbulence is desaturated. The card isolates, so the grain (z -1)
+   * paints over the card's own fill and under its content.
+   * Polish: the noise used to be invisible (fractalNoise also writes ~.5 into alpha, and overlay on a .11 base at .035
+   * moved each pixel by under 1/255). The filter now stretches the noise contrast (x3, -1) and forces alpha to 1, and
+   * the layer blends soft-light at .06 (under the spec's .12 "dirty" line): about +2 / -1 levels on #1C1C1E, mean
+   * unchanged, and next to nothing on a light surface. The card positions itself, so the grain never sizes to some
+   * other ancestor; an absolute or fixed utility still wins (utilities beat components).
+   */
+  .mg-grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .mg-grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0.06;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feColorMatrix type='matrix' values='3 0 0 0 -1 0 3 0 0 -1 0 0 3 0 -1 0 0 0 0 1'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    z-index: -1;
+  }
+
+  /*
+   * Thinking: three dots that breathe in turn (opacity only, 1.2 s, 160 ms apart). Calm, not a bounce or a spinner. The
+   * group fades in after 150 ms, so a quick answer never flashes it (Vercel: show-delay 150 to 300 ms).
+   * Skeleton: a block that pulses (MUI pulse: opacity 1 to .4, 2 s ease-in-out). No shimmer sweep: a sweep needs a
+   * gradient, and the brand has none.
+   */
+  .mg-thinking {
+    animation: mg-fade-in 320ms var(--mg-ease-out) 150ms both;
+  }
+  .mg-thinking-dot {
+    animation: mg-breathe 1.2s var(--mg-ease-out) infinite both;
+  }
+  .mg-thinking-dot:nth-child(2) {
+    animation-delay: 160ms;
+  }
+  .mg-thinking-dot:nth-child(3) {
+    animation-delay: 320ms;
+  }
+  .mg-skeleton {
+    animation: mg-pulse 2s ease-in-out 0.5s infinite both;
+  }
+}
+
+/*
+ * Polish: a disabled .mg-press shows the default cursor. It lives in the utilities layer because every caller also
+ * carries cursor-pointer, a utility, which beat it in components; here the :disabled selector is more specific.
+ */
+@layer utilities {
+  .mg-press:disabled {
+    cursor: default;
+  }
+}
+
+/* Spinner (core Spinner, GlassSpinner): one turn a second, linear. A progress indicator, so it never stops. */
+.mg-spin {
+  animation: mg-spin 1s linear infinite;
+}
+@keyframes mg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes mg-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes mg-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes mg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/*
+ * Reduced motion: nothing travels, but waiting never looks frozen (a frozen indicator reads as a hang). The dots pulse
+ * together, slower; the skeleton keeps its pulse (opacity only); the tint layer switches instantly. motion's own
+ * animations already follow MotionConfig reducedMotion="user" (main.tsx).
+ */
+@media (prefers-reduced-motion: reduce) {
+  .mg-spin {
+    animation-duration: 2s;
+  }
+  .mg-thinking-dot,
+  .mg-thinking-dot:nth-child(2),
+  .mg-thinking-dot:nth-child(3) {
+    animation: mg-pulse 2s ease-in-out infinite both;
+  }
+  .mg-press::after {
+    transition-duration: 0ms;
+  }
+  .mg-lift:hover,
+  .mg-lift:active {
+    transform: none;
+  }
+  /* No smooth scrolling (a scroll that glides is motion too). JS scrolls check prefersReduced() (core/ui/motion). */
+  html,
+  * {
+    scroll-behavior: auto;
+  }
+}
+
+/*
+ * Settings > Appearance > Reduce motion (features/settings/apply.ts sets <html data-reduce-motion>): the same softening
+ * as the OS setting above, for CSS transitions. motion's springs follow MotionConfig (features/settings Content.tsx).
+ */
+:root[data-stage-zoom] .mg-page-frame {
+  zoom: var(--mg-text-scale);
+}
+:root[data-reduce-motion] .mg-press::after {
+  transition-duration: 0ms;
+}
+:root[data-reduce-motion] .mg-lift:hover,
+:root[data-reduce-motion] .mg-lift:active {
+  transform: none;
+}
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  scroll-behavior: auto;
+  transition-duration: 0.01ms !important;
+}
+
+/*
+ * Settings > Editor (features/settings/apply.ts sets <html data-code-wrap, data-code-lines> and --mg-code-size): code
+ * samples in the steps panel can wrap long lines and number their lines. A [data-code-pre] is a code block.
+ */
+:root[data-code-wrap='on'] [data-code-pre] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+[data-code-pre] {
+  counter-reset: mg-line;
+}
+:root[data-code-lines='on'] [data-code-pre] [data-code-line] {
+  counter-increment: mg-line;
+  padding-left: 3em;
+  text-indent: -3em;
+}
+:root[data-code-lines='on'] [data-code-pre] [data-code-line]::before {
+  content: counter(mg-line);
+  display: inline-block;
+  width: 2.2em;
+  margin-right: 0.8em;
+  text-align: right;
+  text-indent: 0;
+  opacity: 0.45;
+  user-select: none;
 }
