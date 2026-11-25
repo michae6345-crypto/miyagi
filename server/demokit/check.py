@@ -23,6 +23,7 @@ from .common import (
     APP_PROC,
     ENGINE_PORT,
     FILE,
+    TOOL_ENV,
     Layout,
     pgrep,
     port_open,
@@ -97,7 +98,8 @@ class Probes:
 
     def on_battery(self) -> bool | None:
         try:
-            out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5, check=False).stdout
+            out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5, check=False,
+                                 env=TOOL_ENV).stdout
         except (OSError, subprocess.SubprocessError):
             return None
         return True if "Battery Power" in out else False if "AC Power" in out else None

@@ -30,6 +30,8 @@ FILE = "nn.py"
 APP_PROC = r"miyagi\.app/Contents/MacOS/miyagi"
 ENGINE_PROC = r"-m server\.orchestrator\.main"
 PGREP = ("pgrep", "-f", "--")  # `--`: ENGINE_PROC starts with a dash, which pgrep would read as an option (exit 2)
+# The system tools the kit runs (pgrep, pmset) get this, never the caller's environment (no keys, no tokens).
+TOOL_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C"}
 
 
 def slugify(text: str, max_len: int = 48) -> str:
@@ -142,7 +144,8 @@ def port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.4) -> bool:
 
 def pgrep(pattern: str) -> bool:
     try:
-        return subprocess.run([*PGREP, pattern], capture_output=True, timeout=5, check=False).returncode == 0
+        return subprocess.run([*PGREP, pattern], capture_output=True, timeout=5, check=False,
+                              env=TOOL_ENV).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
