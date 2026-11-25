@@ -160,8 +160,15 @@ _PKEY = r"(?:[Nn]umpad\s*\d|F1[0-2]|F[1-9]|[Tt]ab|[Ee]sc(?:ape)?|[Rr]eturn|[Ee]n
 _NOT_NUM = r"(?![\w+\-]|[.,]\d)"  # "0.5", "1,000": a number, never a key
 _ONE_KEY = re.compile(rf"(?<![\w]){_PKEY}{_NOT_NUM}")
 _SEP = r"(?:\s*,\s*(?i:then\s+|and\s+then\s+|and\s+)?|\s+(?i:then|and then|followed by|and)\s+)"
-_PRESS = re.compile(rf"\b((?i:press|hit|tap|type))\s+({_PKEY}){_NOT_NUM}((?:{_SEP}(?i:press\s+)?{_PKEY}{_NOT_NUM})*)")
+# a chained key without its own "press" is capitalized ("press X, then Delete"; "press X, then delete it" is a verb)
+_CKEY = r"(?:Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc(?:ape)?|Return|Enter|Space(?:bar)?|Delete|Backspace|[A-Z0-9])"
+_PRESS = re.compile(rf"\b((?i:press|hit|tap|type))\s+({_PKEY}){_NOT_NUM}"
+                    rf"((?:{_SEP}(?:(?i:press\s+){_PKEY}|{_CKEY}){_NOT_NUM})*)")
 _BARE = re.compile(r"\b(Numpad\s*\d|F1[0-2]|F[1-9])\b")
+# "Press Numpad 1 for front view, then Tab to enter Edit Mode": a named key (capitalized: "then delete it" is a verb)
+# after ", then" counts once a key was pressed before it in the instructions
+_THEN_KEY = re.compile(r",\s*(?i:and\s+)?(?i:then)\s+(Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc(?:ape)?|Return|Enter|"
+                       r"Space(?:bar)?|Delete|Backspace)(?![\w+\-])")
 
 
 def _key_label(k: str) -> str:
@@ -197,6 +204,9 @@ def keys(instructions: str) -> list[str]:
             add(off + k.start(), off + k.end(), _key_label(k.group(0)))
     for m in _BARE.finditer(text):
         add(m.start(), m.end(), _key_label(m.group(1)))
+    for m in _THEN_KEY.finditer(text):
+        if any(b <= m.start() for _, b, _ in found):
+            add(m.start(1), m.end(1), _key_label(m.group(1)))
     return [lb for _, _, lb in sorted(found)][:MAX_KEYS]
 
 
@@ -440,9 +450,8 @@ def where_phrases(text: str) -> list[app_target.Phrase] | None:
     out = [app_target.Phrase(what, "ui")]
     if (bare := _GENERIC.sub("", what)) and bare != what:
         out.append(app_target.Phrase(bare, "ui"))
-    for rx, area in app_target.AREA_WORDS:
-        if rx.search(what):
-            out.append(app_target.Phrase(area, "area"))
+    for area in app_target.area_types(what):
+        out.append(app_target.Phrase(area, "area"))
     return out
 
 

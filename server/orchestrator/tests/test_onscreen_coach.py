@@ -408,6 +408,10 @@ def test_the_onscreen_path_never_calls_a_model(rig, monkeypatch, fast):
     ("Type 0.5 in the Width field.", []),      # a typed value is never a keycap
     ("Type 2 and press Enter.", ["Return"]),
     ("Set the scale to 1,5 and press Tab.", ["Tab"]),
+    ("Press Numpad 1 for front view, then Tab to enter Edit Mode.", ["Numpad 1", "Tab"]),
+    ("Press G to grab it, then Esc to cancel.", ["G", "Esc"]),
+    ("Select the cube, then Tab into Edit Mode.", []),          # no key pressed before: not a shortcut
+    ("Press X, then delete the default light.", ["X"]),         # "delete" here is a verb
 ])
 def test_keys(text, want):
     assert OC.keys(text) == want

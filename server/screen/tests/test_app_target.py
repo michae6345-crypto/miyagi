@@ -80,11 +80,13 @@ def test_bridge_hit_is_via_bridge_and_ax_ocr_are_not_called(monkeypatch):
                                       "areas": [{"type": "PROPERTIES", "rect": {"x": 850, "y": 300, "w": 240, "h": 400}}],
                                       "objects": [{"name": "Torus", "x": 500, "y": 400, "w": 80, "h": 60}]})
     ax, ocr = Recorder(), Recorder()
-    t = T.resolve(step("In the Properties editor, open the Modifier tab."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=ocr)
-    assert t is not None and t.via == "bridge" and t.rect == Rect(850, 300, 240, 400) and t.label in ("Modifier", "Properties")
-    assert ax.calls == [] and ocr.calls == []
     t = T.resolve(step("Select the Torus in the viewport."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=ocr)
     assert t.via == "bridge" and t.label == "Torus" and t.rect == Rect(500, 400, 80, 60)
+    assert ax.calls == [] and ocr.calls == []  # a bridge object: AX / OCR never asked
+    # an area is the last resort: reached only after AX and OCR found no control
+    t = T.resolve(step("In the Properties editor, open the Modifier tab."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=ocr)
+    assert t is not None and t.via == "bridge" and t.rect == Rect(850, 300, 240, 400) and t.label == "Properties"
+    assert ax.calls and ocr.calls
     t = T.resolve(step("Add a Torus with Shift+A."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=Recorder())
     assert t is None or t.label != "Torus"  # an object the step ADDS is never the one circled
 
@@ -305,3 +307,70 @@ def test_raw_bridge_with_two_windows_of_one_shape_is_ambiguous(monkeypatch):
     fake_bridge(monkeypatch, lambda: {"origin": "bottom-left", "windows": [RAW_MAIN, {**RAW_MAIN, "x": 40}]})
     o = obs(windows=[Window("Blender", "donut.blend", Rect(100, 50, 1000, 678))])
     assert T.resolve(step("Rename it in the Outliner."), BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder()) is None
+
+
+# ------------------------------------------------------------------ review round 3: area words, area last
+
+# the bridge's real /ui shape (blender_ext.ui_rects): retina pixels, bottom-left origin, areas relative to the window
+RAW_UI = {"ok": True, "origin": "bottom-left", "pixel_size": 2.0, "windows": [
+    {"x": 0, "y": 0, "width": 2000, "height": 1300, "areas": [
+        {"type": "VIEW_3D", "ui_type": "VIEW_3D", "x": 0, "y": 0, "width": 1400, "height": 1300},
+        {"type": "OUTLINER", "ui_type": "OUTLINER", "x": 1400, "y": 900, "width": 600, "height": 400},
+        {"type": "PROPERTIES", "ui_type": "PROPERTIES", "x": 1400, "y": 0, "width": 600, "height": 900}]}]}
+MAIN = Rect(100, 50, 1000, 678)  # 2000 x 1300 px at 2 px / pt + a 28 pt title bar
+
+
+@pytest.mark.parametrize("instr,not_area", [
+    ("Type 2 in the Levels Viewport field.", "3D Viewport"),          # a field in the modifier panel
+    ("Press Ctrl+2 to add a Subdivision modifier", "Properties"),     # a key press in the viewport
+    ("Turn on Viewport Display > In Front.", "3D Viewport"),
+    ("Set the viewport value to 3.", "3D Viewport"),
+])
+def test_area_words_inside_a_ui_name_or_a_bare_modifier_never_circle_that_area(monkeypatch, instr, not_area):
+    fake_bridge(monkeypatch, lambda: RAW_UI)
+    t = T.resolve(step(instr), BLENDER, obs(windows=[Window("Blender", "donut.blend", MAIN)]), [],
+                  ax_fn=Recorder(), ocr_fn=Recorder())
+    assert t is None or t.label != not_area
+
+
+def test_area_types():
+    assert T.area_types("Type 2 in the Levels Viewport field.") == []
+    assert T.area_types("Press Ctrl+2 to add a Subdivision modifier") == []
+    assert T.area_types("Viewport Display settings") == []
+    assert T.area_types("Hover over the viewport and press G.") == ["VIEW_3D"]
+    assert T.area_types("Viewport: hover over it.") == ["VIEW_3D"]                  # starts the sentence
+    assert T.area_types("Look around the Blender viewport.") == ["VIEW_3D"]
+    assert T.area_types("Open the Modifier tab in the Properties editor.") == ["PROPERTIES"]
+    assert T.area_types("Open the modifiers panel.") == ["PROPERTIES"]
+    assert T.area_types("Rename it in the Outliner Tab, then in the 3D Viewport.") == ["VIEW_3D", "OUTLINER"]
+
+
+def test_a_ui_name_beats_a_bridge_area(monkeypatch):
+    fake_bridge(monkeypatch, lambda: RAW_UI)
+    o = obs([blk("Add Modifier", 900, 300, 120)], windows=[Window("Blender", "donut.blend", MAIN)])
+    t = T.resolve(step("click Add Modifier"), BLENDER, o, [], ax_fn=Recorder())
+    assert t is not None and t.via == "ocr" and t.rect == Rect(900, 300, 120, 16) and t.label == "Add Modifier"
+    # with the Properties editor named too: the button still wins; the area only when no control is found
+    st = step("In the Properties editor, click Add Modifier.")
+    t = T.resolve(st, BLENDER, o, [], ax_fn=Recorder())
+    assert t.via == "ocr" and t.label == "Add Modifier"
+    o = obs(windows=[Window("Blender", "donut.blend", MAIN)])
+    t = T.resolve(st, BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder())
+    assert t.via == "bridge" and t.label == "Properties" and t.rect == Rect(800, 278, 300, 450)
+
+
+def test_a_ui_phrase_is_never_mapped_to_the_area_it_contains(monkeypatch):
+    fake_bridge(monkeypatch, lambda: RAW_UI)
+    o = obs(windows=[Window("Blender", "donut.blend", MAIN)])
+    assert T.resolve(step("click Add Modifier"), BLENDER, o, [], ax_fn=Recorder(), ocr_fn=Recorder()) is None
+    assert T.bridge_rect("Add Modifier", T.bridge_shape(RAW_UI, MAIN)) is None
+    assert T.bridge_rect("Outliner", T.bridge_shape(RAW_UI, MAIN))[1] is True  # a phrase that IS an area name
+
+
+def test_the_bridge_is_asked_once_per_resolve(monkeypatch):
+    calls = []
+    fake_bridge(monkeypatch, lambda: calls.append(1) or RAW_UI)
+    o = obs(windows=[Window("Blender", "donut.blend", MAIN)])
+    T.resolve(step("In the Properties editor, click Add Modifier."), BLENDER, o, [], ax_fn=Recorder(),
+              ocr_fn=Recorder())
+    assert calls == [1]

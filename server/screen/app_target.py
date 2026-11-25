@@ -5,12 +5,14 @@ the control or area the step names and writes the step beside it (server/orchest
 circle never calls a model. The phrase comes from the step's own words; the rect from, in order:
 
   1. bridge  the app's own bridge (Blender: server.workspace.blender_ext.ui_rects, imported lazily inside the function;
-             absent, None, a raise or an unknown shape = skip). Area words ("viewport", "Properties", "Outliner",
-             "timeline", "shader editor") map to Blender area types; object names in the step match ui.objects.
+             absent, None, a raise or an unknown shape = skip): object names in the step match ui.objects.
   2. AX      a bounded walk (<= 2500 nodes) of the named app's Accessibility tree: a rect only when exactly ONE element's
              label equals the phrase (case and whitespace aside). server.screen.ax primitives, read-only.
   3. OCR     the latest frame's text in that app's window: equal to the phrase, or a fuzzy ratio >= 92 for phrases of
              4+ chars, confidence >= 0.5; exactly one candidate, or a best that beats the second by >= 8.
+  4. area    last, the bridge's area for an area word the step uses as an area ("in the viewport", "the Outliner",
+             "the Modifier tab"; never "the Levels Viewport field", "Viewport Display" or a bare "modifier"): a precise
+             control (AX / OCR) always beats a whole editor.
 
 Confidence gate (a wrong circle is worse than none): a rect outside the app's window, under miyagi's overlay, smaller
 than 6 pt on a side, larger than 40% of the window (a bridge area aside), off the primary display (marks carry no
@@ -43,10 +45,12 @@ TITLE_BAR_SLACK_PT = 24.0    # a Blender window fits the screen window when its 
 WINDOW_MATCH_MARGIN_PT = 12.0  # ... and the next best fit is at least this much worse (else ambiguous: no rects)
 OVERLAY_APPS = frozenset({"miyagi", "electron", "miyagi-overlay"})  # our own overlay in front is not "another app"
 
-# Blender area words -> area types (the bridge's area["type"]; a shader editor is a NODE_EDITOR)
+# Blender area words -> area types (the bridge's area["type"]; a shader editor is a NODE_EDITOR). "modifier" names the
+# Properties editor only as "modifier(s) tab / panel / properties": a bare "modifier" is the thing added, not a place.
+# Use area_types() on a sentence: it also skips an area word inside a capitalized UI name ("Levels Viewport").
 AREA_WORDS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\b(?:3d\s*view(?:port)?|viewport)\b", re.I), "VIEW_3D"),
-    (re.compile(r"\b(?:properties(?:\s+(?:editor|panel))?|modifiers?(?:\s+(?:tab|panel|properties))?)\b", re.I),
+    (re.compile(r"\b(?:modifiers?\s+(?:tab|panel|properties)|properties(?:\s+(?:editor|panel|tab))?)\b", re.I),
      "PROPERTIES"),
     (re.compile(r"\boutliner\b", re.I), "OUTLINER"),
     (re.compile(r"\btimeline\b", re.I), "TIMELINE"),
@@ -59,6 +63,12 @@ _CLICK = re.compile(r"\b(?i:click|choose|select|open|pick|tap)\s+(?i:on\s+)?(?i:
                     r"([A-Z][\w&-]*(?:[ \t]+[A-Z][\w&-]*){0,3})")
 _KEYISH = re.compile(r"^(?:[A-Z]|F\d{1,2}|Tab|Esc|Escape|Return|Enter|Space|Delete|Backspace|Shift|Ctrl|Control|"
                      r"Alt|Option|Cmd|Command)$")
+_FIELD_NOUN = re.compile(r"^\s+(?:field|value|setting|checkbox|check\s*box|slider)e?s?\b", re.I)
+_AREA_NOUN = re.compile(r"^\s+(?:tab|panel|editor|area|window|header)s?\b", re.I)
+_NEXT_CAP = re.compile(r"^[ \t]+[A-Z]")
+_PREV_WORD = re.compile(r"([A-Za-z][\w'’-]*)[ \t]+$")
+_SENTENCE_START = re.compile(r"(?:^|[.!?:;\n\"“(]\s*)$")
+_NOT_A_NAME = frozenset({"blender", "blender's", "blender’s"})  # "the Blender viewport" is the viewport
 _ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:a|an|new|another)\s+$", re.I)
 
 
@@ -108,9 +118,33 @@ def phrases(step: dict) -> list[Phrase]:
         add(m.group(1))
     for m in _CLICK.finditer(text):
         add(m.group(1))
+    for area in area_types(text):
+        add(area, "area")
+    return out
+
+
+def area_types(text: str) -> list[str]:
+    """The Blender area types the text names AS AN AREA. An area word is skipped when it is part of a capitalized UI
+    name (a capitalized word before it that doesn't start the sentence, "the Levels Viewport field"; or a capitalized
+    word after it, "Viewport Display") or names a control's value ("viewport field / value / setting / checkbox /
+    slider"). A wrong whole-editor circle is worse than none."""
+    text = str(text or "")
+    out: list[str] = []
     for rx, area in AREA_WORDS:
-        if rx.search(text):
-            add(area, "area")
+        for m in rx.finditer(text):
+            after = text[m.end():]
+            if _FIELD_NOUN.match(after):
+                continue
+            if _NEXT_CAP.match(after) and not _AREA_NOUN.match(after):
+                continue
+            before = text[:m.start()]
+            pw = _PREV_WORD.search(before)
+            if (pw and pw.group(1)[0].isupper() and pw.group(1).lower() not in _NOT_A_NAME
+                    and not _SENTENCE_START.search(before[:pw.start()])):
+                continue
+            if area not in out:
+                out.append(area)
+            break
     return out
 
 
@@ -300,31 +334,38 @@ def _fit_window(wins: list[dict], window: Rect) -> dict | None:
 
 
 def _area_type(phrase: str) -> str | None:
+    """The area type a phrase IS (an area phrase "VIEW_3D", or the whole phrase an area name: "Outliner", "3D
+    Viewport", "Modifier tab"); never one it merely contains ("Add Modifier", "Viewport Display")."""
     p = phrase.strip()
     if p in _AREA_LABEL:
         return p
     for rx, t in AREA_WORDS:
-        if rx.fullmatch(p) or (rx.search(p) and len(p.split()) <= 3):
+        if rx.fullmatch(p):
             return t
     return None
 
 
+def _bridge_area(want: str, ui: dict) -> Rect | None:
+    hits = [r for t, ut, r in ui.get("areas") or [] if t == want or (want == "NODE_EDITOR" and "shader" in ut.lower())]
+    return max(hits, key=lambda r: r.w * r.h) if hits else None
+
+
+def _bridge_object(phrase: str, ui: dict) -> Rect | None:
+    n = norm(phrase)
+    objs = [r for name, r in ui.get("objects") or [] if norm(name) == n]
+    return objs[0] if len(objs) == 1 else None
+
+
 def bridge_rect(phrase: str, ui: dict | None) -> tuple[Rect, bool] | None:
-    """(rect, is_area) for a phrase in a bridge_shape(): an area word -> the largest area of that type; an object name
-    (case aside) -> that object. None when it names neither."""
+    """(rect, is_area) for a phrase in a bridge_shape(): a phrase that IS an area name -> the largest area of that
+    type; an object name (case aside) -> that object. None when it names neither."""
     if not ui:
         return None
     want = _area_type(phrase)
-    if want:
-        hits = [r for t, ut, r in ui.get("areas") or []
-                if t == want or (want == "NODE_EDITOR" and "shader" in ut.lower())]
-        if hits:
-            return max(hits, key=lambda r: r.w * r.h), True
-    n = norm(phrase)
-    objs = [r for name, r in ui.get("objects") or [] if norm(name) == n]
-    if len(objs) == 1:
-        return objs[0], False
-    return None
+    if want and (r := _bridge_area(want, ui)) is not None:
+        return r, True
+    r = _bridge_object(phrase, ui)
+    return (r, False) if r is not None else None
 
 
 def _object_in(step: dict, ui: dict) -> tuple[str, Rect] | None:
@@ -337,22 +378,38 @@ def _object_in(step: dict, ui: dict) -> tuple[str, Rect] | None:
     return None
 
 
-def bridge_target(step: dict, app: dict, *, window: Rect | None = None, ui: dict | None = None,
-                  phrase_list: list[Phrase] | None = None) -> tuple[Target, Rect | None, bool] | None:
-    """(Target, the bridge's window, is_area) from the app's bridge (Blender only today), else None."""
-    if str(app.get("tool") or "").lower() != "blender" and norm(app.get("using")) != "blender":
+_UNSET = object()
+
+
+def _has_bridge(app: dict) -> bool:
+    return str(app.get("tool") or "").lower() == "blender" or norm(app.get("using")) == "blender"
+
+
+def bridge_target(step: dict, app: dict, *, window: Rect | None = None, ui=_UNSET,
+                  phrase_list: list[Phrase] | None = None, areas: bool = False
+                  ) -> tuple[Target, Rect | None, bool] | None:
+    """(Target, the bridge's window, is_area) from the app's bridge (Blender only today), else None.
+    areas=False: an object the step names, or a ui phrase that is an object's name (never an area: "Add Modifier" is
+    a button, not the Properties editor). areas=True: the largest area an area phrase names (kind "area", or a phrase
+    that IS an area name), the chain's last resort. ui: the bridge's reply when the caller already has it."""
+    if not _has_bridge(app):
         return None
-    raw = ui if ui is not None else _bridge_ui()
-    shape = bridge_shape(raw, window)
+    shape = bridge_shape(_bridge_ui() if ui is _UNSET else ui, window)
     if not shape:
         return None
-    if (hit := _object_in(step, shape)) is not None:
-        return Target(hit[1], "bridge", hit[0]), shape.get("window"), False
-    for ph in phrase_list if phrase_list is not None else phrases(step):
-        got = bridge_rect(ph.text, shape)
-        if got is not None:
-            label = ph.text if ph.kind == "ui" else _AREA_LABEL.get(ph.text, ph.text)
-            return Target(got[0], "bridge", label), shape.get("window"), got[1]
+    plist = phrase_list if phrase_list is not None else phrases(step)
+    win = shape.get("window")
+    if not areas:
+        if (hit := _object_in(step, shape)) is not None:
+            return Target(hit[1], "bridge", hit[0]), win, False
+        for ph in plist:
+            if ph.kind == "ui" and (r := _bridge_object(ph.text, shape)) is not None:
+                return Target(r, "bridge", ph.text), win, False
+        return None
+    for ph in plist:
+        want = _area_type(ph.text)
+        if want and (r := _bridge_area(want, shape)) is not None:
+            return Target(r, "bridge", _AREA_LABEL.get(want, ph.text)), win, True
     return None
 
 
@@ -493,8 +550,10 @@ def ocr_target(obs, phrase: str, window_app: str | list[str], *, window: Rect | 
 def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: str | None = None,
             now: float | None = None, bridge: Callable | None = None, ax_fn: Callable | None = None,
             ocr_fn: Callable | None = None, phrase_list: list[Phrase] | None = None) -> Target | None:
-    """Bridge, then AX, then OCR, then None; each hit through gate(). front: the app in front now ('' / None: unknown,
-    then the frame's). bridge / ax_fn / ocr_fn: test seams (default: bridge_target / ax_target / ocr_target)."""
+    """Bridge objects, then AX, then OCR, then a bridge area, then None; each hit through gate(). A precise control
+    always beats a whole editor: "click Add Modifier" circles the button (AX / OCR), never the Properties area.
+    front: the app in front now ('' / None: unknown, then the frame's). bridge / ax_fn / ocr_fn: test seams (default:
+    bridge_target, called with areas=False then areas=True / ax_target / ocr_target). The bridge is asked once."""
     if not isinstance(step, dict) or not isinstance(app, dict):
         return None
     names = _names(app)
@@ -517,11 +576,26 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
             return None
         return r
 
-    got = (bridge or bridge_target)(step, app, window=win, phrase_list=plist)
-    if got is not None:
-        t, bwin, area = got
-        if (r := ok(gate(t.rect, bwin or win, overlay, area=area))) is not None:
-            return Target(r, "bridge", t.label)
+    raw = _UNSET
+
+    def from_bridge(areas: bool) -> Target | None:
+        nonlocal raw
+        if bridge is not None:
+            got = bridge(step, app, window=win, phrase_list=plist, areas=areas)
+        else:
+            if not _has_bridge(app):
+                return None
+            if raw is _UNSET:
+                raw = _bridge_ui()  # one bridge round trip for both passes
+            got = bridge_target(step, app, window=win, ui=raw, phrase_list=plist, areas=areas)
+        if got is None:
+            return None
+        t, bwin, is_area = got
+        r = ok(gate(t.rect, bwin or win, overlay, area=is_area))
+        return Target(r, "bridge", t.label) if r is not None else None
+
+    if (t := from_bridge(False)) is not None:
+        return t
     ui = [p for p in plist if p.kind == "ui"]
     for ph in ui:
         hit = (ax_fn or ax_target)(names, ph.text)
@@ -529,10 +603,9 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
             r, awin = hit
             if (r := ok(gate(r, awin or win, overlay))) is not None:
                 return Target(r, "ax", ph.text)
-    if not fresh or win is None:
-        return None
-    for ph in ui:
-        r = (ocr_fn or ocr_target)(obs, ph.text, names, window=win)
-        if (r := ok(gate(r, win, overlay))) is not None:
-            return Target(r, "ocr", ph.text)
-    return None
+    if fresh and win is not None:
+        for ph in ui:
+            r = (ocr_fn or ocr_target)(obs, ph.text, names, window=win)
+            if (r := ok(gate(r, win, overlay))) is not None:
+                return Target(r, "ocr", ph.text)
+    return from_bridge(True)

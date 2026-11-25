@@ -273,14 +273,19 @@ finds it for free, with no model call:
 
 - **Phrase** (from the step's own words, in order): `step.targets[].match` when it is not regex-like and <= 40 chars,
   quoted UI names in the instructions, the first segment of a menu path ("Add > Mesh > Torus" gives "Add"),
-  "Click <Name>", then Blender area words.
+  "Click <Name>", then Blender area words used as areas.
 - **Bridge**: `server.workspace.blender_ext.ui_rects()`, imported inside the function only (absent, missing, None, a
   raise or an unknown shape: skip). Blender's raw `/ui` (pixels, origin bottom-left, areas relative to their window)
   is placed on the app's window from the frame, bottom-aligned; with several Blender windows (Preferences, a pop-out
   editor) only the one whose shape fits the front window (width-scaled height + a ~28 pt title bar), and none when two
   fit alike. A points shape `{window, areas, objects}` is taken as
-  is. Area words: viewport / 3D view `VIEW_3D`, properties / modifier `PROPERTIES`, outliner `OUTLINER`, timeline
-  `TIMELINE`, shader editor `NODE_EDITOR`; object names in the step match `objects` (never one the step adds).
+  is. Object names in the step (or a UI phrase equal to one) match `objects` (never one the step adds); a UI
+  phrase never becomes an area ("Add Modifier" is a button, not the Properties editor).
+- **Order**: bridge objects, then AX, then OCR, then a bridge area last: a precise control beats a whole editor.
+  Area words (`area_types`): viewport / 3D view `VIEW_3D`, properties / modifier(s) tab, panel or properties
+  `PROPERTIES` (a bare "modifier" is not a place), outliner `OUTLINER`, timeline `TIMELINE`, shader editor
+  `NODE_EDITOR`. An area word inside a capitalized UI name ("the Levels Viewport field", "Viewport Display") or before
+  field / value / setting / checkbox / slider is skipped.
 - **AX**: a bounded walk (<= 2500 nodes) of the named app's focused window (`ax.attr`, `ax.rect_of`, `ax._labels`,
   read-only; `ax.find_ui` stays VS Code-only). A rect only when exactly one element's label equals the phrase.
 - **OCR**: the frame's blocks in that app's window equal to the phrase (or a word run inside a block), or a fuzzy ratio
