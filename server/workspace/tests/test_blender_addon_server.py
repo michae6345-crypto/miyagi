@@ -332,6 +332,78 @@ def test_ops_capped_at_200(server):
     assert body["ops"][0]["seq"] == 51
 
 
+def test_ops_reused_pointer_in_one_poll_is_reported(server):
+    """Blender frees the oldest registered op when a new one comes in; a new op can land on that address."""
+    full = [FakeOp() for _ in range(32)]
+    server.poll_ops(full)
+    reused = FakeOp()
+    reused.ptr = full[0].ptr  # same address and same idname as the op that was just freed
+    assert server.poll_ops([*full[1:], reused]) == 1
+    body = server.handle("GET", "/ops?since=32", LOCAL)[1]
+    assert [o["seq"] for o in body["ops"]] == [33] and body["last_seq"] == 33
+    assert server.poll_ops([*full[1:], reused]) == 0
+
+
+def test_ops_two_new_in_one_poll_with_a_full_list(server):
+    full = [FakeOp() for _ in range(32)]
+    server.poll_ops(full)
+    a, b = FakeOp("OBJECT_OT_delete", "Delete"), FakeOp("TRANSFORM_OT_resize", "Resize")
+    b.ptr = full[0].ptr
+    assert server.poll_ops([*full[2:], a, b]) == 2
+    body = server.handle("GET", "/ops?since=32", LOCAL)[1]
+    assert [(o["seq"], o["idname"]) for o in body["ops"]] == [(33, "object.delete"), (34, "transform.resize")]
+
+
+def test_ops_cleared_list_reports_everything_new(server):
+    server.poll_ops([FakeOp(), FakeOp()])
+    assert server.poll_ops([FakeOp()]) == 1
+    assert server.handle("GET", "/ops", LOCAL)[1]["last_seq"] == 3
+
+
+class BrokenProps(FakeOp):
+    @property
+    def properties(self):
+        raise ReferenceError("StructRNA of type Operator has been removed")
+
+    @properties.setter
+    def properties(self, value):
+        pass
+
+
+class BrokenIdname(FakeOp):
+    @property
+    def bl_idname(self):
+        raise ReferenceError("StructRNA of type Operator has been removed")
+
+    @bl_idname.setter
+    def bl_idname(self, value):
+        pass
+
+
+@pytest.mark.parametrize("broken", [BrokenProps, BrokenIdname])
+def test_an_unreadable_op_is_skipped_and_nothing_repeats(server, broken):
+    good1, bad, good2 = FakeOp(), broken("OBJECT_OT_delete", "Delete"), FakeOp("TRANSFORM_OT_translate", "Move")
+    assert server.poll_ops([good1, bad, good2]) == 2
+    assert server.poll_ops([good1, bad, good2]) == 0
+    good3 = FakeOp("OBJECT_OT_shade_smooth", "Shade Smooth")
+    assert server.poll_ops([good1, bad, good2, good3]) == 1
+    body = server.handle("GET", "/ops", LOCAL)[1]
+    assert [(o["seq"], o["idname"]) for o in body["ops"]] == [
+        (1, "mesh.primitive_torus_add"), (2, "transform.translate"), (3, "object.shade_smooth")]
+
+
+def test_an_unlistable_operators_value_keeps_the_snapshot(server):
+    class Unlistable:
+        def __iter__(self):
+            raise ReferenceError("window manager freed")
+
+    ops = [FakeOp(), FakeOp()]
+    server.poll_ops(ops)
+    assert server.poll_ops(Unlistable()) == 0
+    assert server.poll_ops(ops) == 0
+    assert server.handle("GET", "/ops", LOCAL)[1]["last_seq"] == 2
+
+
 def test_py_idname():
     from importlib.util import module_from_spec, spec_from_file_location
 
@@ -444,6 +516,11 @@ def test_bl_info_and_manifest(addon):
         return
     data = tomllib.loads(text)
     assert set(data["permissions"]) == {"network", "files"}
+    # Blender's extension check: each permission reason and the tagline are at most 64 characters and end in a
+    # letter or digit, else the add-on cannot be built or installed as an extension.
+    for value in [*data["permissions"].values(), data["tagline"]]:
+        assert len(value) <= 64, value
+        assert value[-1].isalnum(), value
 
 
 # ------------------------------------------------------------------ acceptance 10: no bpy at import, no UI
@@ -570,3 +647,21 @@ def test_real_blender_smoke(tmp_path):
     assert st["active"] == "Cube" and st["frame_current"] == 1
     status, ui = res["ui"]
     assert status == 200 and ui["origin"] == "bottom-left" and isinstance(ui["windows"], list)
+
+
+def _blender_ext_cli() -> Path | None:
+    """Blender's bundled extension tool (bl_pkg/cli/blender_ext.py); it runs on plain Python, no Blender."""
+    exe = _blender()
+    if exe is None:
+        return None
+    hits = sorted(Path(exe).resolve().parents[1].glob("Resources/*/scripts/addons_core/bl_pkg/cli/blender_ext.py"))
+    return hits[-1] if hits else None
+
+
+@pytest.mark.skipif(_blender_ext_cli() is None or sys.version_info < (3, 11), reason="Blender is not installed")
+def test_manifest_passes_blenders_own_check():
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY")}
+    out = subprocess.run([sys.executable, "-I", str(_blender_ext_cli()), "validate", str(PKG_DIR)],
+                         capture_output=True, text=True, timeout=60, env=env, check=False)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "Success" in out.stdout

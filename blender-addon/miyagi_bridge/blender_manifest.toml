@@ -10,5 +10,5 @@ blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
-network = "Local HTTP server on 127.0.0.1 so the miyagi tutor can read the scene"
+network = "Local HTTP server on 127.0.0.1 for the miyagi tutor"
 files = "Reads the miyagi engine token in ~/.miyagi/engine-tokens"

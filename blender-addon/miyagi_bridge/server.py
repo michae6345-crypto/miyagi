@@ -64,7 +64,7 @@ _jobs: queue.Queue = queue.Queue()
 _cache: dict = {"blender": "", "file": ""}
 _ops: deque = deque(maxlen=OPS_MAX)
 _op_seq = 0
-_op_seen: set[int] = set()
+_op_seen: list[tuple[int, str]] = []  # the previous poll's (as_pointer, bl_idname), oldest first
 _last_ops_poll = 0.0
 _tokens: tuple[float, str, list[str]] = (0.0, "", [])
 
@@ -340,26 +340,54 @@ def _op_props(op) -> dict:
     return out
 
 
+def _new_tail(prev: list, cur: list) -> list:
+    """The entries of `cur` that came after `prev`. Blender keeps window_manager.operators as an append-only list
+    that drops its oldest entries (about 32 are kept), so `cur` is a tail of `prev` plus new ones: the new ones are
+    what follows the longest start of `cur` that matches the end of `prev`, or all of `cur` when nothing matches
+    (the list was cleared, or more ops ran than it holds). Matching the order, not a set of pointers, keeps an op
+    whose memory reuses a just-freed op's address."""
+    for m in range(min(len(prev), len(cur)), 0, -1):
+        if cur[:m] == prev[-m:]:
+            return cur[m:]
+    return cur
+
+
+def _op_entry(op) -> dict:
+    return {"idname": py_idname(str(op.bl_idname)), "name": str(getattr(op, "name", "")), "props": _op_props(op),
+            "t": time.time()}
+
+
 def poll_ops(operators) -> int:
-    """Append operators not seen in the previous poll to the ops deque. Returns how many were new."""
+    """Append the operators registered since the previous poll to the ops deque. Returns how many were added.
+    An unreadable op (for example a freed RNA struct raising ReferenceError) is skipped, never reported twice."""
     global _op_seq, _op_seen
-    current: set[int] = set()
-    new = 0
-    for op in list(operators or []):
+    try:
+        listed = list(operators or [])
+    except Exception:  # noqa: BLE001 - keep the previous snapshot; try again next poll
+        return 0
+    ops, snap = [], []
+    for op in listed:
         try:
-            ptr = int(op.as_pointer())
-        except Exception:  # noqa: BLE001, S112 - not an operator
+            key = (int(op.as_pointer()), str(op.bl_idname))
+        except Exception:  # noqa: BLE001, S112 - not an operator, or already freed
             continue
-        current.add(ptr)
-        if ptr in _op_seen:
-            continue
-        with _lock:
-            _op_seq += 1
-            _ops.append({"seq": _op_seq, "idname": py_idname(str(getattr(op, "bl_idname", ""))),
-                         "name": str(getattr(op, "name", "")), "props": _op_props(op), "t": time.time()})
-        new += 1
-    _op_seen = current
-    return new
+        ops.append(op)
+        snap.append(key)
+    added = 0
+    try:
+        fresh = len(_new_tail(_op_seen, snap))
+        for op in ops[len(ops) - fresh:] if fresh else []:
+            try:
+                entry = _op_entry(op)
+            except Exception:  # noqa: BLE001, S112 - freed while we read it: left out
+                continue
+            with _lock:
+                _op_seq += 1
+                _ops.append({"seq": _op_seq, **entry})
+            added += 1
+    finally:
+        _op_seen = snap
+    return added
 
 
 def ops_since(since: int) -> dict:
@@ -373,7 +401,7 @@ def reset_ops() -> None:
     with _lock:
         _ops.clear()
         _op_seq = 0
-        _op_seen = set()
+        _op_seen = []
         _last_ops_poll = 0.0
 
 
