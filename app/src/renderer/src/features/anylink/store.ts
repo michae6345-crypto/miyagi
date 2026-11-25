@@ -3,7 +3,10 @@
  * notch's drop zone (each window has its own copy: the store is per renderer, the engine answers either).
  *
  *   askLink(url)      link.get {url, reqId} once per link (a repeat paste reuses the answer); only when the engine
- *                     lists "link.any" and link.get in engine.hello.
+ *                     lists "link.any" and link.get in engine.hello. For a paste, a drop or Enter.
+ *   askLinkSoon(url)  the same for a link being typed: asked only once it has settled for LINK_SETTLE_MS, and a newer
+ *                     link replaces the waiting one, so typing a URL key by key sends one link.get, not one per prefix
+ *                     (each link.get is a page fetch, a robots.txt fetch and a model call on the engine).
  *   usePreview(url)   the latest answer for that link: the fast pending one (title and site), then the full one.
  *
  * A preview is matched to the link that asked by its reqId, else by the link itself (url or finalUrl, compared with
@@ -41,6 +44,9 @@ export const canLinkAny = (): boolean => canSend(LINK_ANY) && canSend('link.get'
 
 let seq = 0
 
+/** How many links the store remembers (asked and their previews); the oldest go first. */
+export const MAX_LINKS = 24
+
 /** Ask the engine about a page once (repeat calls are free). false when this engine can't. */
 export function askLink(url: string): boolean {
   const key = linkKey(url)
@@ -49,9 +55,45 @@ export function askLink(url: string): boolean {
   if (s.asked[key] && !s.previews[key]?.error) return true
   // A link that failed (offline, busy) is asked again on the next paste.
   const reqId = `any-${Date.now().toString(36)}-${++seq}`
-  useAnyLink.setState({ asked: { ...s.asked, [key]: reqId }, previews: Object.fromEntries(Object.entries(s.previews).filter(([k]) => k !== key)) })
+  // Newest last (re-asking moves a link to the end), then only the newest MAX_LINKS stay, plus the dropped link.
+  const asked = Object.entries(s.asked).filter(([k]) => k !== key)
+  asked.push([key, reqId])
+  const dropped = linkKey(s.dropped)
+  const kept = new Set(asked.slice(-MAX_LINKS).map(([k]) => k))
+  if (dropped && s.asked[dropped]) kept.add(dropped)
+  useAnyLink.setState({
+    asked: Object.fromEntries(asked.filter(([k]) => kept.has(k))),
+    previews: Object.fromEntries(Object.entries(s.previews).filter(([k]) => k !== key && kept.has(k)))
+  })
   bridge.send(cmd('link.get', { url, reqId }))
   return true
+}
+
+/** How long a typed link must stay unchanged before it is asked about. */
+export const LINK_SETTLE_MS = 500
+let settle: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * A link being typed: ask about it once it has stayed the same for LINK_SETTLE_MS. Each call replaces the link
+ * waiting before it (older prefixes are never sent); undefined just cancels. A link already asked is not asked again.
+ */
+export function askLinkSoon(url: string | undefined): void {
+  clearTimeout(settle)
+  settle = undefined
+  const key = linkKey(url)
+  if (!url || !key) return
+  const s = useAnyLink.getState()
+  if (s.asked[key] && !s.previews[key]?.error) return
+  settle = setTimeout(() => {
+    settle = undefined
+    askLink(url)
+  }, LINK_SETTLE_MS)
+}
+
+/** Ask now (a paste, a drop, Enter on a typed link): cancels any typed link still waiting. */
+export function askLinkNow(url: string): boolean {
+  askLinkSoon(undefined)
+  return askLink(url)
 }
 
 export function usePreview(url: string | undefined): LinkPreview | undefined {

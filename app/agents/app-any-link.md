@@ -37,6 +37,12 @@ Done for the mock, merged up to michael/app-ui-v4 a12a7873 (ambient help in the 
 ambient rows like a YouTube link). Shots re-taken after the merge (light and dark). Not checked in Electron. The mock answers by order, not by URL (`link.get` cycles), so a card for a
 link pasted out of order stays on "Reading the page…" in the stage.
 
+Review fix (Nov 24): link.get is sent once per link, not per keystroke. A paste, a drop or Enter asks at once
+(`askLinkNow`); a typed link is asked only after 500 ms without a change (`askLinkSoon`), and a newer link replaces the
+waiting one. Headless, typing `docs.python.org/3/tutorial/venv.html` key by key now sends 1 link.get (was 19). The
+store keeps at most 24 links (plus the dropped one). Bare `x.sh`, `x.app`, `x.me` stay typed goals (a path, `www.` or
+a scheme still makes them a link). Tests: test/anyLinkAsk.test.ts.
+
 ## Core requests
 
 None. Home's "Up next" rows and the launcher's Ready rows still draw the tool art for a page lesson (left as is to keep

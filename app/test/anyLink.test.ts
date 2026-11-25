@@ -15,8 +15,12 @@ test('a pasted page is a link: docs, articles, GitHub repos, with or without htt
 })
 
 test('typed goals with a dot stay goals, and YouTube stays with the video flow', () => {
-  for (const t of ['numpy.array', 'node.js', 'learn pandas', 'pd.read_csv', 'fix my code.', '3.14'])
+  for (const t of ['numpy.array', 'node.js', 'learn pandas', 'pd.read_csv', 'fix my code.', '3.14', 'install.sh', 'deploy.sh', 'Notes.app', 'about.me'])
     assert.equal(parseWebLink(t), null, t)
+  // Those TLDs still count with a path, a "www." or a scheme.
+  assert.equal(parseWebLink('bun.sh/docs')?.url, 'https://bun.sh/docs')
+  assert.equal(parseWebLink('www.vercel.app')?.kind, 'web')
+  assert.equal(parseWebLink('https://deno.sh')?.url, 'https://deno.sh/')
   for (const t of ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'youtu.be/dQw4w9WgXcQ', 'https://m.youtube.com/playlist?list=x'])
     assert.equal(parseWebLink(t), null, t)
 })

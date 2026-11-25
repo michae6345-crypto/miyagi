@@ -29,8 +29,11 @@ export type WebLink = {
 }
 
 const MAX_URL = 2048
-/** Bare text (no scheme) reads as a link only with one of these TLDs, a "www." or a path. */
-const COMMON_TLDS = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'edu', 'gov', 'co', 'app', 'me', 'sh', 'so', 'info', 'tech', 'blog', 'page', 'site', 'xyz', 'uk', 'de', 'fr', 'ca', 'au', 'in', 'jp'])
+/**
+ * Bare text (no scheme) reads as a link only with one of these TLDs, a "www." or a path. Not "sh", "app" or "me":
+ * typed goals end in those as file names ("install.sh", "deploy.sh", "Notes.app"); "x.sh/docs" or "www.x.app" still count.
+ */
+const COMMON_TLDS = new Set(['com', 'org', 'net', 'io', 'dev', 'ai', 'edu', 'gov', 'co', 'so', 'info', 'tech', 'blog', 'page', 'site', 'xyz', 'uk', 'de', 'fr', 'ca', 'au', 'in', 'jp'])
 const YOUTUBE = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i
 /** Hosts the engine refuses anyway (ANY-LINK.md "Fetch safely"): the app doesn't offer them as a page either. */
 const LOCAL = /^(localhost|.*\.local|.*\.localhost|.*\.internal)$/i

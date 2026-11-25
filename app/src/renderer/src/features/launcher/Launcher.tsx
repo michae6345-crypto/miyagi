@@ -115,7 +115,7 @@ import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 import { LinkCard } from '../anylink/Card'
 import { pageAction, parseWebLink } from '../anylink/link'
-import { askLink, useLinkAny, usePreview } from '../anylink/store'
+import { askLinkNow, askLinkSoon, useLinkAny, usePreview } from '../anylink/store'
 import { beat, ease, fade, instant } from '../../core/ui/motion'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -548,9 +548,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const page = mode === 'search' && !link && linkAny ? parseWebLink(query) : null
   const pagePreview = usePreview(page?.url)
   const pageAct = pageAction(pagePreview, HOW_LABEL.lesson)
-  useEffect(() => {
-    if (page) askLink(page.url)
-  }, [page?.url])
+  /**
+   * link.get costs a page fetch and a model call on the engine: a pasted link is asked at once (onPaste), a typed one
+   * only once it has settled (askLinkSoon), so typing "docs.python.org/3/…" key by key never asks about each prefix.
+   */
+  useEffect(() => askLinkSoon(page?.url), [page?.url])
+  useEffect(() => () => askLinkSoon(undefined), [])
   const view: View =
     mode === 'ask'
       ? 'idle'
@@ -752,6 +755,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** A pasted page: build it (learn_url), or "Just teach me" on its title when it isn't teachable (ANY-LINK.md). */
   const runPage = (): void => {
     if (!page || phaseRef.current !== 'open') return
+    // Enter on a typed link that hasn't settled yet: ask now instead of waiting out the pause.
+    if (pageAct.kind === 'wait' && !pagePreview) return void askLinkNow(page.url)
     if (pageAct.kind === 'teach') return teach(pageAct.goal)
     if (pageAct.kind !== 'build') return
     lastPick.current = undefined
@@ -1032,10 +1037,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const onPaste = (e: ClipboardEvent<HTMLInputElement>): void => {
     if (mode !== 'search') return
     const text = e.clipboardData.getData('text')
-    if (!parseYouTube(text) && !(linkAny && parseWebLink(text))) return
+    const pasted = parseYouTube(text) ? undefined : linkAny ? parseWebLink(text) : null
+    if (pasted === null) return
     e.preventDefault()
     setQuery(text.trim())
     setSel(0)
+    // A pasted page is asked about at once (the settle pause is for typing); the effect then finds it asked.
+    if (pasted) askLinkNow(pasted.url)
   }
 
   if (phase === 'closed') return null
