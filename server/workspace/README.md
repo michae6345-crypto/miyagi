@@ -154,6 +154,35 @@ row now has a `setupKind` (`apps.classify`):
   `on_front` re-checks a row when its app comes to the front). App lessons' wording and checks:
   `server/lesson/app_lesson.py` ("in AutoCAD", screen checks scoped to the app, no file / command checks).
 
+## Set up this project: `setup.scan` / `setup.fix` outside a lesson (project.py)
+
+Ambient help (shared/contracts/AMBIENT-HELP.md section 2). Answered by `server/ambient/assist.py`.
+
+```python
+from server.workspace import project
+rep = project.scan(path)               # setup.report payload; no model call, never runs a project script
+quick = project.scan(path, quick=True) # {scanning: true}: the manifests only, no subprocess
+res = project.fix(tool, root, on_line=cb)  # ONLY on the row's Install press: setup.install / npm install
+```
+
+- **Which folder.** `path`, else `open_folder()`: the front terminal's shell folder (`ps` + `lsof`), else VS Code's front
+  window (`active_editor`), else the newest terminal shell. `find_root` walks up (4 levels, never above home) to the folder
+  holding a manifest. Home itself or `/` is `no_project`.
+- **What it reads.** requirements*.txt (requirements-dev.txt rows are optional), pyproject.toml (PEP 621, Poetry, uv),
+  Pipfile, environment.yml, .python-version, package.json (+ engines.node), .nvmrc / .node-version, Dockerfile /
+  compose files, Makefile (which CLIs its recipes call: uv, poetry, yarn, docker...), yarn.lock / pnpm-lock / uv.lock.
+  A file over 256 KB or more than 300 packages is `too_big`.
+- **What it checks.** The project's Python: its `.venv` / `venv` / `env` when there is one, else `best_python()` (what a new
+  .venv would be made from); every package in ONE import probe (`check_python_packages`); `node --version`; node_modules
+  against package.json's dependencies (one `node_package` row); CLIs with `which` (never Apple's `/usr/bin/make` or `git`
+  stub without the Command Line Tools: `xcode-select -p` first, the row then says `xcode-select --install`).
+- **Rows.** `setup._row` plus `from` ("requirements.txt:3", ".nvmrc"). Missing first, at most 20 rows, `more` counts the rest.
+  `env` names the interpreters. `next` (additive, not in the TS type yet) is one plain sentence: what to do first.
+- **fix.** Re-reads the project and installs only a row its own files ask for: pip into the project's own interpreter
+  (`setup.install(python=...)`, else `<root>/.venv` made as for a lesson), brew / allowlisted casks, `npm install --prefix
+  <root>` with `child_env()` (no keys). A yarn / pnpm project's row shows its command; the learner runs it. An off-list pip
+  package installs on that row's second press within 3 minutes (setup.install's confirm).
+
 ## Editor: VS Code, frontmost, room for the video (editor.py)
 
 - **Which editor:** VS Code (`com.microsoft.VSCode`, `code`); Miyagi only ever opens, names or offers VS Code
