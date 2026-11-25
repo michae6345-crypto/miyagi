@@ -1,0 +1,14 @@
+{
+  "id": 123456,
+  "name": "tinyhttp",
+  "full_name": "acme-labs/tinyhttp",
+  "private": false,
+  "owner": {"login": "acme-labs", "type": "Organization"},
+  "html_url": "https://github.com/acme-labs/tinyhttp",
+  "description": "A small, friendly HTTP client for Python",
+  "language": "Python",
+  "default_branch": "main",
+  "topics": ["http", "python", "client"],
+  "archived": false,
+  "stargazers_count": 1234
+}
