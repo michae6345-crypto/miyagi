@@ -7,7 +7,8 @@
  *   - The buddy: a character of its own (Character.tsx), not the logo. It comes out of the island, flies to what the
  *     coach points at, circles it, says what it is, listens, thinks and answers (Companion.tsx, talk.ts, wire.ts,
  *     trip.ts), and draws its loops (Reach.tsx, pointing.ts, marks.ts).
- * Both overlay layers draw nothing while features/annotate is mounted (Reach.tsx), so a mark is never circled twice.
+ * bon draws the marks: features/annotate yields to it (yieldsToBuddy), so a mark is circled once, by bon, in its color.
+ * Both of its layers would stand down only for a cut of features/annotate that still draws (Reach.tsx useStandDown).
  * Previews, only in the browser stage: ?buddy (every state of the living mark), ?buddy=point (try the buddy),
  * ?buddy=cast (the character sheet), ?buddy=colors (the color sheet) and ?buddy=pick (the setup step where the
  * learner picks its color) and ?buddy=grow (its eight levels). ?skin=<name> puts the buddy in one color, ?level=<1-8>

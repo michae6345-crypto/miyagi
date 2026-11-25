@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { dispatch, emitUi } from '../src/renderer/src/core/bus'
 import { HOLD, standsDown, type Registered } from '../src/renderer/src/features/buddy/marks'
-import { reached, spotlit, usePointing } from '../src/renderer/src/features/buddy/pointing'
+import { reached, SPOT_HOLD_MS, spotlit, usePointing } from '../src/renderer/src/features/buddy/pointing'
 
 const buddy: Registered = { id: 'buddy', overlayLayers: [{ id: 'buddy-reach' }, { id: 'buddy' }] }
 const send = (type: string, payload: unknown = {}): void => dispatch({ type, payload } as never)
@@ -46,7 +46,7 @@ describe('today’s pointing: the spotlight’s boxes (pointing.ts spotlit)', ()
   test('a spotlight box gets a mark: a point, with no label (the spotlight says its own words)', () => {
     spotlit(box)
     assert.deepEqual(shown(), [{ ...box, why: 'point', label: undefined }])
-    // The spotlight rings its own box: the layers read this to draw no second ring and to sit on the left.
+    // The spotlight's caption is on the right of its box: the buddy reads this to sit on the left.
     assert.equal(usePointing.getState().bridged, true)
   })
 
@@ -67,6 +67,17 @@ describe('today’s pointing: the spotlight’s boxes (pointing.ts spotlit)', ()
     assert.equal(shown().length, 1)
   })
 
+  test('the spotlight fading on its own (calm) leaves bon pointing until its hold is up', () => {
+    spotlit(box)
+    mock.timers.tick(4000)
+    spotlit(undefined, false, true)
+    assert.equal(shown().length, 1)
+    spotlit(box) // the engine re-sends the same box: still one mark, same deadline
+    assert.equal(usePointing.getState().marks.length, 1)
+    mock.timers.tick(SPOT_HOLD_MS - 4000 + 10)
+    assert.equal(shown().length, 0)
+  })
+
   test('a box the learner reached stays gone when the spotlight shows it again, until Show me asks for it', () => {
     spotlit(box)
     reached(usePointing.getState().marks.map((m) => m.key))
@@ -78,15 +89,16 @@ describe('today’s pointing: the spotlight’s boxes (pointing.ts spotlit)', ()
     assert.equal(shown().length, 1)
   })
 
-  test('the mark goes after the usual hold', () => {
+  test('the mark holds long enough to be seen (longer than the 6 s default), then goes', () => {
+    assert.ok(SPOT_HOLD_MS > HOLD.base)
     spotlit(box)
-    mock.timers.tick(HOLD.base - 10)
+    mock.timers.tick(SPOT_HOLD_MS - 10)
     assert.equal(shown().length, 1)
     mock.timers.tick(20)
     assert.equal(shown().length, 0)
   })
 
-  test('once the engine sends annotate it owns the pointing: spotlight boxes are no longer marked', () => {
+  test('the engine’s own marks win while they are up: spotlight boxes wait', () => {
     send('annotate', { marks: [{ id: 'a', x: 600, y: 200, w: 80, h: 20, why: 'answer', label: 'Here' }] })
     spotlit(box)
     assert.deepEqual(
@@ -99,12 +111,20 @@ describe('today’s pointing: the spotlight’s boxes (pointing.ts spotlit)', ()
     assert.equal(shown().length, 1)
   })
 
-  test('a reset gives the pointing back to the spotlight', () => {
-    send('annotate', { clear: true })
+  test('once the engine’s marks are gone, spotlight boxes are marked again (a circle-to-ask does not end the pointing)', () => {
+    send('annotate', { marks: [{ id: 'a', x: 600, y: 200, w: 80, h: 20, why: 'answer', label: 'Here' }], holdMs: 2000 })
     spotlit(box)
+    assert.deepEqual(
+      shown().map((m) => m.label),
+      ['Here']
+    )
+    mock.timers.tick(2100)
     assert.equal(shown().length, 0)
-    emitUi('reset')
     spotlit(box)
+    assert.equal(shown().length, 1)
+    assert.equal(usePointing.getState().bridged, true)
+    send('annotate', { clear: true })
+    spotlit({ ...box, x: box.x + 200 })
     assert.equal(shown().length, 1)
   })
 
