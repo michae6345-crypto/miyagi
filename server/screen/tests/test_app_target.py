@@ -959,3 +959,39 @@ def test_a_menu_path_head_still_finds_its_menu_in_a_header_row(no_bridge):
     row = blk("View Select Add Object", 200, 60, 220)
     t = T.resolve(step("In the header, use Object > Apply > Scale."), BLENDER, obs([row]), [], ax_fn=Recorder())
     assert t is not None and t.via == "ocr" and t.label == "Object" and t.rect.x > row.rect.x
+
+
+# ---------------------------------------------------------------- Retina units (Nov 24, review leftover)
+
+
+def _points_window(ui: dict, scale: float = 2.0) -> dict:
+    """The same /ui with the window's own width / height in points (areas stay in pixels): what a Retina Blender may
+    report if Window.width is the Cocoa size."""
+    w = ui["windows"][0]
+    w["width"], w["height"] = int(w["width"] / scale), int(w["height"] / scale)
+    return ui
+
+
+def test_a_window_in_points_with_areas_in_pixels_still_places_the_object_right():
+    # the window says 1000 x 650 (points), its areas span 2000 px: never the 2x rect
+    t = run("Select the Donut", _points_window(raw_v2()))
+    assert t == T.Target(Rect(400, 428, 100, 50), "bridge", "Donut")
+
+
+def test_unknown_units_give_no_bridge_rects():
+    ui = _points_window(raw_v2(), scale=1.5)   # areas span 1.5x the window: neither 1x nor 2x
+    assert T.bridge_shape(ui, RETINA) is None
+    assert run("Select the Donut", ui) is None
+
+
+def test_same_units_with_a_border_still_fit():
+    ui = raw_v2()
+    ui["windows"][0]["width"] = 2004          # areas end at 2000: a 4 px border, same units
+    assert T.bridge_shape(ui, Rect(100, 50, 1002, 678)) is not None
+
+
+@pytest.mark.parametrize("instr", ["Click Object > Apply > Scale.", "Choose Object → Apply → All Transforms."])
+def test_a_menu_path_head_is_not_the_object(instr):
+    objs = [{"name": "Object", "x": 600, "y": 500, "width": 200, "height": 100}]
+    t = run(instr, raw_v2(objects=objs))
+    assert t is None or t.via != "bridge" or t.label != "Object"
