@@ -44,6 +44,8 @@ import { artForState, PlanPage, planTrail } from '../plans/PlanPage'
 import { PlansPage } from '../plans/PlansPage'
 import { loadPlans, openDialog, showLibrary, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
 import { artFor, Thumb, type Art } from '../plans/Thumb'
+import { SOURCE_ICON, SourceTile } from '../anylink/Card'
+import { pageSource } from '../anylink/link'
 import { CardGrid, EntryCards, meta, MoreLink, PlanCard, RowStyle, SectionLabel, SkillChip, TableHead, TableRow, Tabs, useWidth, type Tab } from '../plans/ui'
 
 /** New lesson: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
@@ -205,7 +207,7 @@ function measureCols(items: Item[], width: number, known: Map<string, string>): 
     const m = items.reduce((n, i) => Math.max(n, cell(i)), 0)
     return m > 0 ? Math.max(m, metaWidth(HEAD[k])) + 2 : 0
   }
-  const title = items.reduce((m, i) => Math.max(m, textWidth(i.title, type2.md, 600)), 0) + 56 + 12 + 4
+  const title = items.reduce((m, i) => Math.max(m, textWidth(i.title, type2.md, 600) + siteWidth(i)), 0) + 56 + 12 + 4
   return layoutCols({
     width,
     gap: GAP,
@@ -225,6 +227,29 @@ function measureCols(items: Item[], width: number, known: Map<string, string>): 
       opened: max('opened', (i) => metaWidth(openedOf(i)))
     }
   })
+}
+
+/** A page lesson's site badge after its title (icon, gap, text, the gap before it), 0 for any other lesson. */
+function siteWidth(i: Item): number {
+  const site = pageSource(i.source)?.site
+  return site ? Math.min(SITE_MAX, metaWidth(site) + 12 + 4) + 10 : 0
+}
+const SITE_MAX = 200
+
+/**
+ * Any link: where a page lesson came from, after its title ("docs.python.org", "github.com/pallets/flask"): the kind's
+ * glyph and the site in the meta gray. Neutral (a source, not a status); the row's tile carries the kind's pastel.
+ */
+function SiteBadge({ item }: { item: Item }): ReactNode {
+  const page = pageSource(item.source)
+  if (!page?.site) return null
+  const I = SOURCE_ICON[page.kind]
+  return (
+    <span data-site-badge={page.kind} title={page.site} className="flex min-w-0 shrink items-center gap-[4px]" style={{ ...meta, maxWidth: SITE_MAX }}>
+      <I aria-hidden size={12} strokeWidth={1.8} className="shrink-0" />
+      <span className="truncate">{page.site}</span>
+    </span>
+  )
 }
 
 /** A Grows chip in a table cell: SkillChip's look, but it truncates instead of spilling over the next column. */
@@ -272,6 +297,7 @@ function LessonTable({ label, items, layout, head }: { label: string; items: Ite
 
 function LessonRow({ item, layout }: { item: Item; layout: ColsLayout }): ReactNode {
   const known = useKnownSkills()
+  const page = pageSource(item.source)
   const done = finished(item)
   const going = inProgress(item)
   const cell = (c: { key: ColKey; width: number }): ReactNode => {
@@ -308,9 +334,12 @@ function LessonRow({ item, layout }: { item: Item; layout: ColsLayout }): ReactN
   return (
     <TableRow template={layout.template} gap={GAP} onClick={() => openDetail(item.id)} label={`${item.title}. Open its preview.`} height={48} data={{ 'data-lesson': item.id }}>
       <span className="flex min-w-0 items-center gap-[12px]">
-        <Thumb art={artOf(item)} w={56} h={32} radius={radius2.keycap} />
-        <span className="truncate" style={{ fontWeight: 600 }} title={layout.titleFits ? undefined : item.title}>
-          {item.title}
+        {page ? <SourceTile kind={page.kind} w={56} h={32} radius={radius2.keycap} glyph={15} /> : <Thumb art={artOf(item)} w={56} h={32} radius={radius2.keycap} />}
+        <span className="flex min-w-0 items-center gap-[10px]">
+          <span className="truncate" style={{ fontWeight: 600 }} title={layout.titleFits ? undefined : item.title}>
+            {item.title}
+          </span>
+          <SiteBadge item={item} />
         </span>
       </span>
       {layout.cols.map((c) => (

@@ -112,6 +112,9 @@ import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from
 import { isDuplicateToggle } from './guard'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
+import { LinkCard } from '../anylink/Card'
+import { pageAction, parseWebLink } from '../anylink/link'
+import { askLink, useLinkAny, usePreview } from '../anylink/store'
 import { beat, ease, fade, instant } from '../../core/ui/motion'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -120,7 +123,7 @@ type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 /** `notch`: the island lives in the notch (place 'notch'): the shape starts flat on the display top with these radii. */
 type Size = { w: number; h: number; notch?: { top: number; bottom: number } }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'open' | 'start' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'resume' | 'open' | 'start' | 'ask' | 'build' | 'page' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 /** One line of the idle list (nothing typed): what ↑↓ walk and ↵ runs. */
 type IdleItem =
   | { kind: 'continue' }
@@ -535,10 +538,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const results = search.results
   const visible = results.slice(0, MAX_ROWS)
   const link = mode === 'search' ? parseYouTube(query) : null
+  /** Any link (ANY-LINK.md): a pasted page (an article, a docs page, a GitHub repo) once the engine says link.any. */
+  const linkAny = useLinkAny()
+  const page = mode === 'search' && !link && linkAny ? parseWebLink(query) : null
+  const pagePreview = usePreview(page?.url)
+  const pageAct = pageAction(pagePreview, HOW_LABEL.lesson)
+  useEffect(() => {
+    if (page) askLink(page.url)
+  }, [page?.url])
   const view: View =
     mode === 'ask'
       ? 'idle'
-      : link
+      : link || page
         ? 'link'
         : search.error && !results.length
           ? 'error'
@@ -557,8 +568,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * run, the rows take over (videos under "Build a lesson from the internet"), also when it found no video.
    */
   /** The typed text is a settings word: a single "Settings" row replaces everything else. */
-  const settingsRow = !link && isSettingsQuery(typed)
-  const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
+  const settingsRow = !link && !page && isSettingsQuery(typed)
+  const choosing = !settingsRow && mode === 'search' && !link && !page && !!typed && (typed !== search.query || view === 'idle')
   /** The highlighted way: the learner's Tab pick, else "Just teach me" for a goal that reads like building something. */
   const how: How = howPicked ?? (isBuildGoal(typed) ? 'lesson' : 'video')
   /** ⌘↵ / Ctrl↵: the modifier comes from the platform's own keys (parts modKey), never typed here. */
@@ -576,7 +587,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * "Build a lesson from the internet": the fixed first row over a search's rows (not while the two ways are offered,
    * not for a settings word or a pasted link, not in ask mode, not under Continue). Same request as "Just teach me".
    */
-  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing && !resumeRows
+  const lessonRow = mode === 'search' && !link && !page && !settingsRow && !!goal && !choosing && !resumeRows
   /** Video rows (and skeletons, the empty / error row) sit one slot lower under the lesson row. */
   const off = lessonRow ? 1 : 0
   const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
@@ -722,6 +733,19 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('building')
   }
 
+  /** A pasted page: build it (learn_url), or "Just teach me" on its title when it isn't teachable (ANY-LINK.md). */
+  const runPage = (): void => {
+    if (!page || phaseRef.current !== 'open') return
+    if (pageAct.kind === 'teach') return teach(pageAct.goal)
+    if (pageAct.kind !== 'build') return
+    lastPick.current = undefined
+    topic.current = pagePreview?.title
+    clearResults()
+    noteLearnMode(undefined)
+    bridge.send(cmd('learn_url', { url: page.url }))
+    setPhase('building')
+  }
+
   /**
    * Start a cached lesson (Continue / Ready to run): library.start, zero model calls; the engine answers lesson.ready.
    * The panel goes into the pill like Build lesson. A click only during a lesson (no key reaches these rows then).
@@ -831,6 +855,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (resumeRows) return continueLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
+    if (page) return runPage()
     if (onLesson) return teach(goal)
     const q = query.trim()
     if (!q) return
@@ -929,7 +954,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       e.preventDefault()
       if (e.nativeEvent.isComposing) return
       // ⌘Enter (Ctrl+Enter on Windows) = "Just teach me" straight away, whichever way is highlighted.
-      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && !settingsRow && typed) return teach(typed)
+      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && !page && !settingsRow && typed) return teach(typed)
       return submit()
     }
     if (e.key === 'Tab') {
@@ -957,7 +982,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const onPaste = (e: ClipboardEvent<HTMLInputElement>): void => {
     if (mode !== 'search') return
     const text = e.clipboardData.getData('text')
-    if (!parseYouTube(text)) return
+    if (!parseYouTube(text) && !(linkAny && parseWebLink(text))) return
     e.preventDefault()
     setQuery(text.trim())
     setSel(0)
@@ -1043,7 +1068,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       ? typed
         ? 'ask'
         : 'none'
-      : link
+      : page
+        ? pageAct.kind === 'none'
+          ? 'none'
+          : 'page'
+        : link
         ? 'build'
         : onLesson
           ? 'teach'
@@ -1073,6 +1102,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     ask: 'Ask',
     // A link that is already a cached lesson builds nothing: Enter starts it (library.start).
     build: linkMatch ? 'Start lesson' : 'Build lesson',
+    page: pageAct.label,
     teach: HOW_LABEL.lesson,
     // The one exception to "the chip's own name" (#121): a bare "Demo" button doesn't say what Enter does.
     demo: 'Start demo',
@@ -1302,6 +1332,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   </Rise>
                 )}
               </>
+            ) : view === 'link' && page ? (
+              // A pasted page (any link): the card says what it is and whether miyagi can teach it.
+              <Rise key={`page:${page.url}`} i={2}>
+                <SectionLabel first>From your link</SectionLabel>
+                <LinkCard link={page} preview={pagePreview} teachLabel={HOW_LABEL.lesson} onPick={runPage} />
+              </Rise>
             ) : view === 'link' && link ? (
               // A pasted link: one clear preview (thumbnail, start time, what Enter does), already the active row.
               <Rise key={`link:${link.videoId}`} i={2}>
@@ -1368,7 +1404,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   !typed &&
                   !lesson.hasLesson && (
                     <>
-                      <span className="truncate">Paste a YouTube link or type a goal</span>
+                      <span className="truncate">{linkAny ? 'Paste any link or type a goal' : 'Paste a YouTube link or type a goal'}</span>
                       {/* Only when Enter has nothing else to run: with an idle line active, ↵ belongs to that line
                           and the footer's primary, so a second ↵ here would read as "submit my goal". */}
                       {!activeItem && <NavKey>{navKey('enter')}</NavKey>}
@@ -1384,7 +1420,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   {how !== 'lesson' && <Hint label={HOW_LABEL.lesson} keycap={teachKey} />}
                 </>
               )}
-              {act !== 'none' && <Action label={actLabel} keycap={navKey('enter')} enabled={act !== 'searching'} strong onClick={submit} />}
+              {act !== 'none' && <Action label={actLabel} keycap={navKey('enter')} enabled={act !== 'searching' && !(act === 'page' && pageAct.kind === 'wait')} strong onClick={submit} />}
             </div>
           </Rise>
         </motion.div>
