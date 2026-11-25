@@ -19,7 +19,7 @@ import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLo
 import { serveRenderer } from './serve'
 import { servePlayerHost } from './playerHost'
 import playerHostScript from './playerHost.page.js?raw'
-import { setupAppWindows, type AppWindows } from './appWindows'
+import { appWindowFrame, setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
@@ -805,10 +805,10 @@ app.whenReady().then(async () => {
     appWindow: (route) => appWindows?.get(route)
   })
   setupMenu()
-  // A cold launch opens on the splash (main/splash.ts); home opens and paints underneath it. Not when started at login
+  // A cold launch opens on the splash (main/splash.ts), in home's own frame; home opens and paints underneath it. Not when started at login
   // or for recordings (MIYAGI_QUIET_LAUNCH=1, the same switch features/launch.ts reads), not with MIYAGI_NO_SPLASH=1,
   // and not in a second copy that features/launch.ts is about to quit.
-  if (wantsSplash()) showSplash(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds)
+  if (wantsSplash()) showSplash(appWindowFrame('library'))
   else skipSplash()
 })
 

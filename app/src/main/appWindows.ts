@@ -42,6 +42,18 @@ function cleanArgs(raw: unknown): Record<string, string | number | boolean> | un
   return JSON.stringify(out).length <= MAX_ARGS ? out : undefined
 }
 
+/**
+ * Where an app window opens: its size, capped to the work area of the display under the pointer, centered there. The
+ * launch splash (main/splash.ts) takes the home window's frame from here, so it sits exactly where home will appear.
+ */
+export function appWindowFrame(route: AppRoute): { x: number; y: number; width: number; height: number } {
+  const size = APP_ROUTES[route]
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(size.w, area.width - 32)
+  const height = Math.min(size.h, area.height - 32)
+  return { x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2), width, height }
+}
+
 export type AppWindows = {
   open(route: string, args?: unknown): BrowserWindow | undefined
   close(route: string): void
@@ -81,18 +93,12 @@ export function setupAppWindows(deps: {
         have.focus()
         return have
       }
-      const size = APP_ROUTES[route]
-      const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
-      const w = Math.min(size.w, area.width - 32)
-      const h = Math.min(size.h, area.height - 32)
+      const frame = appWindowFrame(route)
       const win = deps.create(route, {
         ...appWindowOptions(windowBackground()),
-        width: w,
-        height: h,
-        minWidth: Math.min(w, 560),
-        minHeight: Math.min(h, 420),
-        x: Math.round(area.x + (area.width - w) / 2),
-        y: Math.round(area.y + (area.height - h) / 2),
+        ...frame,
+        minWidth: Math.min(frame.width, 560),
+        minHeight: Math.min(frame.height, 420),
         title: 'miyagi'
       })
       open.set(route, win)
