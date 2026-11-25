@@ -1913,10 +1913,12 @@ def _publish_token(port: int) -> str:
     import secrets
 
     from server import engine_token
+    from server.checks import scene_refresh
     from server.workspace import vscode_ext
 
     link = ENGINE_TOKEN or secrets.token_urlsafe(32)
     vscode_ext.set_link_token(link)
+    scene_refresh.enable()  # Blender checks read mug.scene.json fresh from the learner's Blender (off in evals/tests)
     if engine_token.write(link, port) is None:
         log.warning("could not write the engine token to %s: the VS Code companion and `tut run` go without it",
                     engine_token.token_dir())
