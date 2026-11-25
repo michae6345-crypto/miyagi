@@ -48,6 +48,7 @@ from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
+from . import onscreen_coach  # Nov 24: an app lesson's step circled on screen, its words beside it (free)
 from . import skill_hooks  # skill tree (server/skilltree): assisted steps, passes, proofs; never breaks the lesson
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
 from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
@@ -104,7 +105,8 @@ THINKING_MAX_S = 60.0  # a "thinking" status that nothing resolved by then is en
 # any ANSWER_EVENTS looks dead on screen (status / check.updated alone), so it gets a short notice card instead.
 _ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("action_answered", default=None)
 ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
-                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress", "lesson.paused", "blocker"}
+                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress", "lesson.paused", "blocker",
+                 "annotate"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
 QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser",
                  "have_it", "get_it", "alternative"}
@@ -2203,6 +2205,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.cancel_build()
         self._metrics("cancel", reason)  # a build still on its way to step 1: logged as cancelled
         self.m.cancel_coach()
+        await onscreen_coach.clear(self)  # before the epoch moves on: the mark's clear still belongs to this lesson
         if self.screen is not None:
             self.screen.unwatch()
         if had_lesson:
@@ -3490,6 +3493,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("idle" if self.graph is None else "watching")
 
     async def load_graph(self, graph: dict) -> None:
+        await onscreen_coach.clear(self)  # the last lesson's on-screen mark, if one is up
         self.lesson_epoch += 1
         self._no_editor = False  # "VS Code not found" belongs to the lesson that asked
         self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
@@ -3603,6 +3607,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         origin = lesson.get("origin")  # any link (ANY-LINK.md): the BuildSource a web / github lesson was built from
         if isinstance(origin, dict) and origin.get("kind") in ("web", "github") and isinstance(origin.get("title"), str):
             info["origin"] = {k: origin[k] for k in ("kind", "title", "url", "site", "author") if isinstance(origin.get(k), str)}
+        if isinstance(lesson.get("app"), dict) and lesson["app"].get("tool"):  # on-screen coach: the desktop app
+            info["app"] = {k: lesson["app"][k] for k in ("tool", "label", "using") if lesson["app"].get(k)}
         if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
             info["primer"] = [
                 {k: v for k, v in item.items() if k in ("id", "title", "body", "code", "diagramPrompt") and v}
@@ -3827,6 +3833,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
             if self._run_command(step):  # the terminal panel open, the window beside the drawer
                 self._spawn(self._ready_run_step(self.step_gen, step), timer=True)
+        if onscreen_coach.is_app_lesson(self):  # Nov 24: circle the step's target in the app, its words beside it
+            self._spawn(onscreen_coach.on_step(self, self.step_gen, step), timer=True)
 
     MIN_SEGMENT_S = 3.0
 
@@ -4126,6 +4134,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._spot_frozen():
             log.info("no box for %r: the lesson is paused (resume card up / no app)", spot.get("caption"))
             return
+        if onscreen_coach.holds_spot(self):  # Nov 24: the step's on-screen mark is the one pointer
+            log.info("no box for %r: the step's on-screen mark is up", spot.get("caption"))
+            return
         if not self._spot_rank_ok(owner):
             log.info("no %s box for %r: the %s box is up", owner, spot.get("caption"), self._spot_held_by())
             return
@@ -4374,6 +4385,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # ui-v4 skill tree: key, assisted, skillIds, proofId; records mastery / review rounds and the proof (local only)
         payload.update(await skill_hooks.on_pass(self, step, skipped))
         await self.emit("step.passed", payload)
+        await onscreen_coach.clear(self)  # the step's on-screen mark goes with it
         if not skipped:
             self._say("step.passed", payload)
             await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
@@ -6220,6 +6232,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
                 await self.emit("video.play", {})
             gen = self.step_gen
+            if onscreen_coach.is_app_lesson(self) and await onscreen_coach.on_where(self, step):
+                skill_hooks.note_assist(self, "show_me", step)  # an app lesson: circled on screen, the step beside it
+                return
             if reason := self.screen_down_reason(include_ax=False):  # say at once why there's no spotlight (no capture attempt)
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
                                        "body": self.screen_down_message(reason)})
@@ -6265,6 +6280,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._emit_card(self._where_card(step))
             return
         if kind in ("explain", "ask"):
+            if kind == "ask" and region is None and await onscreen_coach.on_where_ask(self, step, text):
+                return  # an app lesson's "where is X?": circled on screen like Show me
             self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
             await self._status("thinking", detail="Writing an answer" if kind == "ask" else "Writing an explanation")
             gen = self.step_gen
@@ -6736,6 +6753,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
         covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
                   or (self._nudge is not None and card is self._nudge.get("card")))
+        onscreen_coach.not_yet_card(self, card, pressed=_ANSWERED.get() is not None)  # an app lesson: circle it again
         if covers:  # card.closed lifts the hold only for THIS card (another card's close must not: Test 2, 01:09)
             self._carded_title = card.get("title") or ""
         elif self._carded_checks:  # E14: the app has ONE card slot: this card took the place of the one

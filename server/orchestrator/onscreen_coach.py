@@ -1,0 +1,362 @@
+"""On-screen coach (Nov 24): in a desktop-app lesson, miyagi circles the thing to act on and writes the step there.
+
+Michael: "i just really want it to be able to see and circle shit on screen and type there; it would remove the
+complexity of the interface on the side". In an app lesson (graph.lesson.app set by server.lesson.app_lesson: Blender,
+AutoCAD...; never VS Code or a code lesson) the engine sends ONE annotate mark
+
+    {id: "os-<stepId>-<n>", why: "point", stepId, label (<= 4 words), text (<= 12 words), keys (<= 3), x, y, w, h}
+
+at a step start, on a "Not yet" for the current step, and on Show me (the "where?" ask, and a short typed "where ...?").
+Placing it is free: server.screen.app_target finds the rect (the app's bridge, then AX, then OCR) with no model call,
+off the event loop. No rect -> no mark (a wrong circle is worse than none); Show me then sends its where card (words).
+
+Rules: one mark per annotate; never from idle, the evaluate loop or ticks; never the same mark twice in a row (same
+step + rect within 12 pt + same text is skipped on a step-start retry, and on a Not yet within 8 s of the last send);
+where? always re-sends with a new id. annotate {clear} goes once, only while a mark is up, on step.passed / a skip /
+lesson.ended / a new lesson. While a step's mark is up the session sends no spotlight rect for it (one pointer).
+
+Hooks in LessonSession (each 1-3 lines, like ui_targets): _lesson_ready_payload (lesson.app), start_step (on_step),
+_emit_card (not_yet_card), the show_me branch (on_where), the ask branch (on_where_ask), _pass_step / _end_lesson /
+load_graph (clear), _show_spot (holds_spot).
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from typing import Any
+
+from server.screen import app_target
+
+log = logging.getLogger("orchestrator.session")
+
+FIRST_TRY_S = 0.8            # the first look, after the step's own events went out
+STEP_DELAYS_S = (FIRST_TRY_S, 1.0, 1.0, 1.2)   # the first try + 3 retries, ~4 s in all
+HOLD_POLL_S = 0.5            # "Before you start" / "Continue?" up: wait for it to go, then look
+HOLD_WAIT_MAX_S = 600.0
+SAME_PT = 12.0               # a rect within this of the last one is the same mark
+NOT_YET_REPEAT_S = 8.0       # a Not yet re-sends the identical mark only after this
+TEXT_WORDS = 12
+LABEL_WORDS = 4
+MAX_KEYS = 3
+CODE_TOOLS = frozenset({"vscode", "code", "vs code", "visual studio code", "vscodium", "xcode", "pycharm", "jupyter",
+                        "jupyterlab", "colab", "terminal", "iterm", "arduino-ide"})
+
+
+# ------------------------------------------------------------------ state
+
+def _state(s) -> dict:
+    st = getattr(s, "_onscreen", None)
+    if not isinstance(st, dict):
+        st = {"live": None, "last": None, "n": 0}
+        s._onscreen = st
+    return st
+
+
+def _app(s) -> dict | None:
+    app = ((getattr(s, "graph", None) or {}).get("lesson") or {}).get("app")
+    return app if isinstance(app, dict) and str(app.get("tool") or "").strip() else None
+
+
+def is_app_lesson(s) -> bool:
+    """graph.lesson.app is a dict with a tool, the tool is no code / VS Code app, and no step writes or runs code."""
+    app = _app(s)
+    if app is None:
+        return False
+    names = {str(app.get(k) or "").strip().lower() for k in ("tool", "label", "using")} - {""}
+    try:
+        from .session import CODE_APP_NAMES
+    except Exception:  # noqa: BLE001
+        CODE_APP_NAMES = set()  # noqa: N806
+    if names & (CODE_TOOLS | set(CODE_APP_NAMES)):
+        return False
+    try:
+        from server.lesson import app_lesson
+
+        return not app_lesson.has_code(getattr(s, "graph", None) or {})
+    except Exception:  # noqa: BLE001 - unsure: no circles (the words still come)
+        return False
+
+
+def holds_spot(s) -> bool:
+    """A mark is up for the current step: the session sends no spotlight rect for it (one pointer at a time)."""
+    live = _state(s)["live"]
+    step = getattr(s, "step", None)
+    return bool(live) and step is not None and live.get("stepId") == step.get("id") \
+        and live.get("gen") == getattr(s, "step_gen", None)
+
+
+# ------------------------------------------------------------------ copy: text, label, keys
+
+def short_text(instructions: str) -> str:
+    """The step's action in <= 12 words, cut at a clause boundary when it is longer."""
+    s = " ".join(str(instructions or "").split())
+    if not s:
+        return ""
+    first = re.split(r"(?<=[.!?])\s+(?=[A-Z])", s)[0]
+    words = first.split()
+    if len(words) <= TEXT_WORDS:
+        return first.rstrip(" ,;:-")
+    head = " ".join(words[:TEXT_WORDS])
+    floor = len(" ".join(words[:4]))
+    cut = max(head.rfind(", "), head.rfind("; "), head.rfind(": "), head.rfind(" - "), head.rfind(" then "),
+              head.rfind(" and "), head.rfind(" to "))
+    if cut >= floor:
+        head = head[:cut]
+    return head.rstrip(" ,;:-")
+
+
+def short_label(phrase: str) -> str:
+    return " ".join(str(phrase or "").split()[:LABEL_WORDS])
+
+
+_MODS = {"ctrl": "⌃", "control": "⌃", "alt": "⌥", "option": "⌥", "opt": "⌥", "shift": "⇧", "cmd": "⌘",
+         "command": "⌘"}
+_ORDER = "⌃⌥⇧⌘"
+_NAMED = {"tab": "Tab", "esc": "Esc", "escape": "Esc", "return": "Return", "enter": "Return", "space": "Space",
+          "spacebar": "Space", "delete": "Delete", "backspace": "Delete", "del": "Delete"}
+_KEY = r"(?:numpad\s*\d|f1[0-2]|f[1-9]|tab|escape|esc|return|enter|spacebar|space|delete|backspace|del|[a-z0-9])"
+_CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s*[+\-]\s*)+)({_KEY})(?![\w])", re.I)
+_GLYPH = re.compile(r"[⌃⌥⇧⌘]+\s*(?:Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc|Return|Space|Delete|[←→↑↓]|[A-Za-z0-9])(?![a-z])")
+_PKEY = r"(?:[Nn]umpad\s*\d|F1[0-2]|F[1-9]|[Tt]ab|[Ee]sc(?:ape)?|[Rr]eturn|[Ee]nter|[Ss]pace(?:bar)?|[Dd]elete|" \
+        r"[Bb]ackspace|[A-Z0-9])"
+_ONE_KEY = re.compile(rf"(?<![\w]){_PKEY}(?![\w+\-])")
+_SEP = r"(?:\s*,\s*(?i:then\s+|and\s+then\s+|and\s+)?|\s+(?i:then|and then|followed by|and)\s+)"
+_PRESS = re.compile(rf"\b(?i:press|hit|tap|type)\s+({_PKEY})(?![\w+\-])((?:{_SEP}(?i:press\s+)?{_PKEY}(?![\w+\-]))*)")
+_BARE = re.compile(r"\b(Numpad\s*\d|F1[0-2]|F[1-9])\b")
+
+
+def _key_label(k: str) -> str:
+    k = " ".join(k.split())
+    low = k.lower().replace(" ", "")
+    if low.startswith("numpad"):
+        return f"Numpad {low[6:]}"
+    if re.fullmatch(r"f\d{1,2}", low):
+        return low.upper()
+    return _NAMED.get(low, k.upper() if len(k) == 1 else k)
+
+
+def keys(instructions: str) -> list[str]:
+    """The shortcut, one keycap label per key pressed, in order, <= 3, spelled as bridge.platform.keys spells Mac keys:
+    "Shift+A" -> "⇧A", "Ctrl+Shift+Z" -> "⌃⇧Z", "⌘S" stays, "press G then Z" -> ["G", "Z"], "Numpad 1", Tab, F12."""
+    text = str(instructions or "")
+    found: list[tuple[int, int, str]] = []
+
+    def add(a: int, b: int, label: str) -> None:
+        if not any(a < y and x < b for x, y, _ in found):
+            found.append((a, b, label))
+
+    for m in _CHORD.finditer(text):
+        mods = {_MODS[x.lower()] for x in re.findall(r"[A-Za-z]+", m.group(1))}
+        add(m.start(), m.end(), "".join(g for g in _ORDER if g in mods) + _key_label(m.group(2)))
+    for m in _GLYPH.finditer(text):
+        add(m.start(), m.end(), re.sub(r"^([⌃⌥⇧⌘]+)\s+", r"\1", m.group(0).strip()))
+    for m in _PRESS.finditer(text):
+        add(m.start(1), m.end(1), _key_label(m.group(1)))
+        off = m.start(2)
+        for k in _ONE_KEY.finditer(m.group(2)):
+            add(off + k.start(), off + k.end(), _key_label(k.group(0)))
+    for m in _BARE.finditer(text):
+        add(m.start(), m.end(), _key_label(m.group(1)))
+    return [lb for _, _, lb in sorted(found)][:MAX_KEYS]
+
+
+# ------------------------------------------------------------------ resolving (free, off the loop)
+
+def _observe(s) -> tuple[Any, list, str]:
+    """(latest frame, miyagi's overlay rects, the app in front now) from the session's reader; missing parts empty."""
+    reader = getattr(getattr(s, "screen", None), "reader", None)
+    obs = None
+    overlay: list = []
+    try:
+        obs = reader.latest() if reader is not None and hasattr(reader, "latest") else None
+    except Exception:  # noqa: BLE001
+        obs = None
+    if obs is None or not hasattr(obs, "blocks"):
+        obs = getattr(s, "last_obs", None) if hasattr(getattr(s, "last_obs", None), "blocks") else None
+    try:
+        overlay = list(reader.overlay_rects()) if reader is not None and hasattr(reader, "overlay_rects") else []
+    except Exception:  # noqa: BLE001
+        overlay = []
+    front = ""
+    try:
+        front = s._live_front() if hasattr(s, "_live_front") else ""
+    except Exception:  # noqa: BLE001
+        front = ""
+    return obs, overlay, front
+
+
+async def _resolve(s, step: dict, phrase_list: list | None = None) -> app_target.Target | None:
+    app = _app(s)
+    if app is None:
+        return None
+    obs, overlay, front = _observe(s)
+    try:
+        return await asyncio.to_thread(app_target.resolve, step, dict(app), obs, overlay, front=front,
+                                       phrase_list=phrase_list)
+    except Exception:  # noqa: BLE001 - no circle, never a crash
+        log.exception("on-screen coach: resolve failed")
+        return None
+
+
+def _current(s, gen: int, step: dict) -> bool:
+    return getattr(s, "step_gen", None) == gen and getattr(s, "step", None) is step \
+        and not getattr(s, "passed", False) and is_app_lesson(s)
+
+
+def _held(s) -> bool:
+    return bool(getattr(s, "awaiting_start", False) or getattr(s, "awaiting_resume", False))
+
+
+def _mark(s, step: dict, t: app_target.Target) -> dict:
+    st = _state(s)
+    st["n"] += 1
+    r = t.rect.rounded()
+    m: dict[str, Any] = {"id": f"os-{step.get('id')}-{st['n']}", "why": "point", "stepId": step.get("id"),
+                         "x": r.x, "y": r.y, "w": r.w, "h": r.h}
+    if label := short_label(t.label):
+        m["label"] = label
+    if text := short_text(step.get("instructions") or step.get("title") or ""):
+        m["text"] = text
+    if ks := keys(" ".join(str(step.get(k) or "") for k in ("instructions",))):
+        m["keys"] = ks
+    return m
+
+
+def _same(last: dict | None, step: dict, mark: dict) -> bool:
+    if not last or last.get("stepId") != step.get("id") or last.get("text") != mark.get("text"):
+        return False
+    return all(abs(float(last[k]) - float(mark[k])) <= SAME_PT for k in ("x", "y", "w", "h"))
+
+
+async def _send(s, step: dict, mark: dict, why: str, t: app_target.Target) -> None:
+    st = _state(s)
+    await s.emit("annotate", {"marks": [mark]})
+    now = s.clock() if callable(getattr(s, "clock", None)) else 0.0
+    st["live"] = {**mark, "gen": getattr(s, "step_gen", None)}
+    st["last"] = {**mark, "gen": getattr(s, "step_gen", None), "t": now}
+    log.info("on-screen coach (%s): circled %r via %s at %s", why, mark.get("label"), t.via,
+             {k: mark[k] for k in ("x", "y", "w", "h")})
+
+
+# ------------------------------------------------------------------ triggers
+
+async def on_step(s, gen: int, step: dict) -> None:
+    """A step start: look ~0.8 s in, retry up to 3 times within ~4 s; stop once the step changes or passes. Never for
+    a replay or a restore; under "Before you start" / "Continue?" it waits for the learner first."""
+    st = _state(s)
+    if st["live"] and st["live"].get("stepId") != step.get("id"):
+        st["live"] = None  # the app fades marks on a step change
+    if getattr(s, "restoring", False) or step.get("replay"):
+        return
+    waited = 0.0
+    while _held(s):
+        if not _current(s, gen, step) or waited >= HOLD_WAIT_MAX_S:
+            return
+        await asyncio.sleep(HOLD_POLL_S)
+        waited += HOLD_POLL_S
+    for delay in STEP_DELAYS_S:
+        await asyncio.sleep(delay)
+        if not _current(s, gen, step) or _held(s):
+            return
+        t = await _resolve(s, step)
+        if not _current(s, gen, step):
+            return
+        if t is None:
+            continue
+        mark = _mark(s, step, t)
+        last = st["last"]
+        if last is not None and last.get("gen") == gen and _same(last, step, mark):
+            return
+        await _send(s, step, mark, "step", t)
+        return
+
+
+def not_yet_card(s, card: dict, pressed: bool) -> None:
+    """_emit_card hook: a "Not yet" for the current step, answering a learner's press (never the idle / evaluate /
+    tick paths), re-circles the step's target in the background."""
+    if not pressed or not isinstance(card, dict):
+        return
+    if card.get("title") != "Not yet" and card.get("verdict") != "not_done":
+        return
+    step = getattr(s, "step", None)
+    if step is None or card.get("stepId") not in (None, step.get("id")) or not is_app_lesson(s):
+        return
+    s._spawn(on_not_yet(s, step))
+
+
+async def on_not_yet(s, step: dict) -> bool:
+    gen = getattr(s, "step_gen", None)
+    if not _current(s, gen, step):
+        return False
+    t = await _resolve(s, step)
+    if t is None or not _current(s, gen, step):
+        return False
+    mark = _mark(s, step, t)
+    last = _state(s)["last"]
+    now = s.clock() if callable(getattr(s, "clock", None)) else 0.0
+    if last is not None and _same(last, step, mark) and now - float(last.get("t") or 0.0) < NOT_YET_REPEAT_S:
+        return True  # the identical mark went out moments ago: it is still the answer
+    await _send(s, step, mark, "not yet", t)
+    return True
+
+
+async def on_where(s, step: dict, phrase_list: list | None = None) -> bool:
+    """Show me / "where?": circle it now, always with a new id. False: nothing found (the where card goes instead)."""
+    if step is None or not is_app_lesson(s):
+        return False
+    gen = getattr(s, "step_gen", None)
+    t = await _resolve(s, step, phrase_list)
+    if t is None or getattr(s, "step_gen", None) != gen or getattr(s, "step", None) is not step:
+        return False
+    await _send(s, step, _mark(s, step, t), "where", t)
+    return True
+
+
+_WHERE = re.compile(r"^\s*where(?:'s|\s+is|\s+are|\s+do\s+i\s+(?:find|click|go)|\s+can\s+i\s+find|\s+should\s+i\s+"
+                    r"(?:click|look))?\b\s*(.*?)\s*\??\s*$", re.I)
+_VAGUE = re.compile(r"^(?:it|this|that|they|them|there|i|to|do i|i click|to click|i go|is it|now|next|the thing)?$",
+                    re.I)
+_GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setting|tool)s?$", re.I)
+
+
+def where_phrases(text: str) -> list[app_target.Phrase] | None:
+    """A short typed "where ...?" ask (<= 8 words) -> the phrases to find: what it names ("where is the Add menu?" ->
+    "Add menu", "Add"), or [] for a vague one ("where?", "where do I click?": the step's own target). None: not a
+    where ask."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t.split()) > 8:
+        return None
+    m = _WHERE.match(t)
+    if m is None:
+        return None
+    what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.I)
+    if _VAGUE.match(what):
+        return []
+    out = [app_target.Phrase(what, "ui")]
+    if (bare := _GENERIC.sub("", what)) and bare != what:
+        out.append(app_target.Phrase(bare, "ui"))
+    for rx, area in app_target.AREA_WORDS:
+        if rx.search(what):
+            out.append(app_target.Phrase(area, "area"))
+    return out
+
+
+async def on_where_ask(s, step: dict | None, text: str | None) -> bool:
+    """The ask branch: a short typed "where ...?" in an app lesson circles it like Show me. False: not one / not found
+    (the ask is answered as before)."""
+    if step is None or not is_app_lesson(s):
+        return False
+    plist = where_phrases(text or "")
+    if plist is None:
+        return False
+    return await on_where(s, step, plist or None)
+
+
+async def clear(s) -> None:
+    """step.passed / a skip / lesson.ended / a new lesson: annotate {clear} once, only while a mark is up."""
+    st = _state(s)
+    if not st["live"]:
+        return
+    st["live"] = None
+    await s.emit("annotate", {"clear": True})

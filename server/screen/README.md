@@ -264,3 +264,26 @@ rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | move
 - **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
 - **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.
 - **Tests:** `tests/test_target.py`, offline with a stub client: 17 labelled cases over 6 fixtures. The fixture `vscode_lesson_calculator` is Michael's real screen: no line numbers OCR'd, Chat panel, run icon. Known gap (xfail): line 1 of an EMPTY file under the inline chat widget is not a mark.
+
+## App targets (`app_target.py`): the on-screen coach's circle
+
+In an app lesson (`graph.lesson.app`: Blender, AutoCAD...; never VS Code or a code lesson) the on-screen coach
+(`server/orchestrator/onscreen_coach.py`) circles the ONE thing a step acts on. `resolve(step, app, obs, overlay_rects)`
+finds it for free, with no model call:
+
+- **Phrase** (from the step's own words, in order): `step.targets[].match` when it is not regex-like and <= 40 chars,
+  quoted UI names in the instructions, the first segment of a menu path ("Add > Mesh > Torus" gives "Add"),
+  "Click <Name>", then Blender area words.
+- **Bridge**: `server.workspace.blender_ext.ui_rects()`, imported inside the function only (absent, missing, None, a
+  raise or an unknown shape: skip). Blender's raw `/ui` (pixels, origin bottom-left, areas relative to their window)
+  is placed on the app's window from the frame, bottom-aligned. A points shape `{window, areas, objects}` is taken as
+  is. Area words: viewport / 3D view `VIEW_3D`, properties / modifier `PROPERTIES`, outliner `OUTLINER`, timeline
+  `TIMELINE`, shader editor `NODE_EDITOR`; object names in the step match `objects` (never one the step adds).
+- **AX**: a bounded walk (<= 2500 nodes) of the named app's focused window (`ax.attr`, `ax.rect_of`, `ax._labels`,
+  read-only; `ax.find_ui` stays VS Code-only). A rect only when exactly one element's label equals the phrase.
+- **OCR**: the frame's blocks in that app's window equal to the phrase (or a word run inside a block), or a fuzzy ratio
+  >= 92 for 4+ char phrases, confidence >= 0.5. Exactly one candidate, or a best that beats the second by >= 8.
+- **Gate** (a wrong circle is worse than none): outside the app's window, under miyagi's overlay, under 6 pt a side,
+  over 40% of the window (a bridge area aside), a frame older than 2 s, or another app in front: no rect.
+
+Tests: `server/screen/tests/test_app_target.py` (fake bridge module, fake AX tree, fake frames).
