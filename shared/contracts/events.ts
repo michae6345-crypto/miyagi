@@ -37,15 +37,22 @@ export interface LearnFirstItem { title: string; minutes: number; kind: "noteboo
 export interface ScreenRegion { x: number; y: number; w: number; h: number; displayId: number; scale: number }
 /** Where an ask came from. Absent: typed (or an older app). "circle": a circled region (action ask with region). */
 export type AskSource = "typed" | "voice" | "circle"
+/** On-screen coach (Nov 24): the desktop app a no-code lesson is done in (server/lesson/app_lesson.py: Blender, AutoCAD,
+ *  Photoshop...). tool: the server.workspace.apps id ("blender"); label: its name ("Blender"); using: the app the learner
+ *  really works in when it isn't the one the lesson names ("FreeCAD" for AutoCAD). Never set for a code or VS Code lesson. */
+export interface LessonApp { tool: string; label: string; using?: string }
 /** Buddy draws (Nov 22): one thing the app circles on screen with a hand-drawn stroke grown from the island (event `annotate`).
  *  x / y / w / h: screen points, the ScreenRegion space. displayId absent = the primary display (the spotlight.rect convention).
- *  why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask). The engine sends only
- *  "answer" marks today. why "point" is reserved: the coach's pointing already reaches the app as spotlight {rect, caption},
- *  card.targets and offtrack targets, and the buddy draws from those on the app side; the engine does not repeat them as annotate.
+ *  why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask).
+ *  why "point" (Nov 24, on-screen coach): only in an app lesson (lesson.app), ONE mark at a step start, a "Not yet" or Show me
+ *  ("where?"), with text (+ keys). A mark with text is not timed (holdMs does not apply to it): it stays until the step passes
+ *  or changes, the learner reaches it, Esc, lesson.ended or annotate {clear}. Other pointing still reaches the app as
+ *  spotlight {rect, caption}, card.targets and offtrack targets, and is not repeated as annotate.
  *  label: <= 4 words, optional; the app may show it by the circle.
  *  id: stable per mark, so a re-sent annotate can keep a circle still drawn instead of drawing it again. */
 export interface Annotation { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string;
-                              why: "point" | "answer"; askId?: string; stepId?: string }
+                              why: "point" | "answer"; askId?: string; stepId?: string;
+                              text?: string; keys?: string[] }   // on-screen coach (Nov 24), why "point" only: text = the step's action (<= 12 words), drawn next to the circle; keys = the shortcut, one keycap label per key pressed, in order (<= 3), spelled as bridge.platform.keys spells keys on this platform (Mac: modifier glyphs + key, e.g. "⇧A", "⌘S", "Tab", "G", "Numpad 1")
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
@@ -64,7 +71,8 @@ export interface EngineEvents {
                               goalMatch?: { score: number | null; note: string };
                               mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string;
                               build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[];
-                              outline?: LessonOutline; origin?: BuildSource }; steps: StepSummary[]; replay?: boolean; buildS?: number };   // origin (any link, Nov 24): what the lesson was built from (kind "web" / "github": mode "lesson", no video; the app may show "From <site>" with an Open link)   // buildS: seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready, only on a build's first lesson.ready (engine build metrics; optional, the app may ignore it)   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              outline?: LessonOutline; origin?: BuildSource; app?: LessonApp };   // app (Nov 24): the desktop app of a no-code lesson, for the on-screen coach (absent: a code / VS Code lesson)
+                   steps: StepSummary[]; replay?: boolean; buildS?: number };   // origin (any link, Nov 24): what the lesson was built from (kind "web" / "github": mode "lesson", no video; the app may show "From <site>" with an Open link)   // buildS: seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready, only on a build's first lesson.ready (engine build metrics; optional, the app may ignore it)   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number; replay?: boolean;
@@ -96,7 +104,8 @@ export interface EngineEvents {
   /** Buddy draws (Nov 22): circle these on screen. The app draws a thin stroke from the island to each mark and a loose circle
    *  around it; the overlay stays click-through. A new annotate replaces the marks drawn before. The app fades them when the
    *  learner clicks inside one, the step changes, lesson.ended, or after holdMs (absent: the app's default, a few seconds).
-   *  { clear: true }: fade every mark now. An app that ignores this event loses nothing (spotlight / targets still come). */
+   *  { clear: true }: fade every mark now. An app that ignores this event loses nothing (spotlight / targets still come).
+   *  A mark with text (on-screen coach) ignores holdMs (see Annotation). */
   "annotate": { marks: Annotation[]; holdMs?: number } | { clear: true };
   /** Circle to ask, streamed (Nov 22; fast circle to ask, server/coach/fast_ask.py): the answer to action ask {askId} as the model
    *  writes it, so the first words show about 1 s after release. answer.delta: text = the NEW text to append to what came before
