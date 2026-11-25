@@ -185,7 +185,7 @@ out = await coach.circle_ask(step, "What is this?", region, obs=obs, image=pil,
 - **Before you start.** A circle ask while the "Before you start" sheet is up does not begin the lesson: circling the screen is not a step control.
 - **Typed and voice asks** with an `askId` get it echoed on their answer card. Nothing else changes for them.
 - **Keystrokes stay work.** Only a typed ask marks the learner's recent keys as typed into miyagi (E5 `inputs.mark_foreign`). A circle ask (with a region) or a voice ask types nothing there, so their VS Code keys still count as lesson work.
-- **`why: "point"` marks** are reserved in the contract. The engine sends only `"answer"` marks. The coach's pointing reaches the app through `spotlight`, `card.targets` and `offtrack` targets, and the buddy draws from those on the app side.
+- **`why: "point"` marks** come only from the on-screen coach (`server/orchestrator/onscreen_coach.py`, Nov 24), in an app lesson (`lesson.ready lesson.app`: Blender, AutoCAD...), with `text` (the step, <= 12 words) and `keys`. Every other kind of pointing still reaches the app through `spotlight`, `card.targets` and `offtrack` targets, and is not repeated as `annotate`.
 
 **Not verified yet.** Everything above ran only in offline tests with fakes (`server/coach/tests/test_circle.py`, `server/orchestrator/tests/test_circle_ask.py`, `server/screen/tests/test_capture_once.py`). Nothing ran in Electron, against a real multi-monitor setup, or against a live model. Still open:
 - whether Electron's `Display.id` equals the CGDirectDisplayID on every Mac setup (mirrored displays, Sidecar);

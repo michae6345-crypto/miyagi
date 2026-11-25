@@ -264,3 +264,39 @@ rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | move
 - **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
 - **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.
 - **Tests:** `tests/test_target.py`, offline with a stub client: 17 labelled cases over 6 fixtures. The fixture `vscode_lesson_calculator` is Michael's real screen: no line numbers OCR'd, Chat panel, run icon. Known gap (xfail): line 1 of an EMPTY file under the inline chat widget is not a mark.
+
+## App targets (`app_target.py`): the on-screen coach's circle
+
+In an app lesson (`graph.lesson.app`: Blender, AutoCAD...; never VS Code or a code lesson) the on-screen coach
+(`server/orchestrator/onscreen_coach.py`) circles the ONE thing a step acts on. `resolve(step, app, obs, overlay_rects)`
+finds it for free, with no model call:
+
+- **Phrase** (from the step's own words, in order): `step.targets[].match` when it is not regex-like and <= 40 chars,
+  quoted UI names in the instructions, the first segment of a menu path ("Add > Mesh > Torus" gives "Add"),
+  "Click <Name>", then Blender area words used as areas.
+- **Bridge**: `server.workspace.blender_ext.ui_rects()`, imported inside the function only (absent, missing, None, a
+  raise or an unknown shape: skip). Blender's raw `/ui` (pixels, origin bottom-left, areas relative to their window)
+  is placed on the app's window from the frame, bottom-aligned; with several Blender windows (Preferences, a pop-out
+  editor) only the one whose shape fits the front window (width-scaled height + a ~28 pt title bar), and none when two
+  fit alike. A points shape `{window, areas, objects}` is taken as
+  is. Object names in the step (or a UI phrase equal to one) match `objects` (never one the step adds); a UI
+  phrase never becomes an area ("Add Modifier" is a button, not the Properties editor).
+- **Order**: bridge objects, then AX, then OCR, then a bridge area last: a precise control beats a whole editor.
+  Area words (`area_types`): viewport / 3D view `VIEW_3D`, properties / modifier(s) tab, panel or properties
+  `PROPERTIES` (a bare "modifier" is not a place), outliner `OUTLINER`, timeline `TIMELINE`, shader editor
+  `NODE_EDITOR`. An area word inside a capitalized UI name ("the Levels Viewport field", "Viewport Display") or before
+  field / value / setting / checkbox / slider is skipped.
+- **AX**: a bounded walk (<= 2500 nodes) of the named app's focused window (`ax.attr`, `ax.rect_of`, `ax._labels`,
+  read-only; `ax.find_ui` stays VS Code-only). A rect only when exactly one element's label equals the phrase.
+- **OCR**: the frame's blocks in that app's window equal to the phrase (or a word run inside a block), or a fuzzy ratio
+  >= 92 for 4+ char phrases, confidence >= 0.5. Exactly one candidate, or a best that beats the second by >= 8.
+- **Gate** (a wrong circle is worse than none): outside the app's window, under miyagi's overlay, under 6 pt a side,
+  over 40% of the window (a bridge area aside), a centre off the primary display (`obs.screen`; marks carry no
+  displayId), a frame older than 2 s, or another app in front: no rect.
+- **Frame**: the coach reads it with `ScreenBridge.fresh(2.0)` in its worker thread. The reader keeps its latest frame
+  until the screen changes, so on a still screen `latest()` is often older than 2 s; `fresh` captures + OCRs a new one
+  (None while capture is paused or down).
+- **Web apps** (`apps.WEB_APPS`: Tinkercad, Onshape, Photopea, as the lesson's tool or its `using` alternative) are
+  never app lessons: their window is the browser's, so nothing can be circled and lesson.ready carries no `app`.
+
+Tests: `server/screen/tests/test_app_target.py` (fake bridge module, fake AX tree, fake frames).
