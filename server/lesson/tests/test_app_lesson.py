@@ -136,3 +136,79 @@ def test_a_text_file_a_check_reads_is_never_stripped():
     g["steps"][0]["checks"].append({"type": "file_contains", "file": "toy_car.dwg", "needle": "wheel"})
     assert app_lesson.adapt(g)["lesson"]["app"]["tool"] == "autocad"
     assert not any(c["type"].startswith("file_") for s in g["steps"] for c in s["checks"])
+
+
+# ------------------------------------------------------------------ Blender scene checks (Nov 24)
+
+def blender_donut() -> dict:
+    return json.loads((FIX / "blender_donut.json").read_text(encoding="utf-8"))
+
+
+def _with_scene_checks(g: dict) -> dict:
+    """The donut lesson with step 3 graded from the scene dump, plus file / command / output checks to strip."""
+    s3 = g["steps"][2]
+    s3["file"] = "donut.blend"
+    s3["checks"] += [{"id": "s3c2", "type": "file_contains", "label": "Subsurf added", "file": "donut.scene.json",
+                      "pattern": r'"type":\s*"SUBSURF"'},
+                     {"id": "s3c3", "type": "file_exists", "label": "Dump saved", "file": "donut.scene.json"},
+                     {"id": "s3c4", "type": "command_exit_ok", "label": "Runs", "command": "python3 x.py"},
+                     {"id": "s3c5", "type": "output_contains", "label": "Prints", "pattern": "done"}]
+    s3["precision_checks"] = [{"id": "s3p1", "type": "file_contains", "label": "Demo name", "file": "donut.scene.json",
+                               "pattern": r'"name":\s*"Donut"'},
+                              {"id": "s3p2", "type": "file_contains", "label": "Blend", "file": "donut.blend",
+                               "pattern": "x"}]
+    return g
+
+
+def test_blender_lessons_keep_scene_dump_checks_and_strip_other_file_checks():
+    g = app_lesson.adapt(_with_scene_checks(blender_donut()))
+    assert g["lesson"]["app"] == {"tool": "blender", "label": "Blender"}
+    s3 = g["steps"][2]
+    assert [c["id"] for c in s3["checks"]] == ["s3c1", "s3c2"]  # screen + scene dump; file_exists / command / output gone
+    assert [c["id"] for c in s3["precision_checks"]] == ["s3p1"]
+    assert "app" not in s3["checks"][1]  # a file check is never pinned to a window
+    assert all(c["app"] == "Blender" for s in g["steps"] for c in s["checks"] if c["type"] == "screen_contains")
+
+
+def test_blender_donut_screen_checks_still_get_the_blender_window():
+    g = app_lesson.adapt(blender_donut())
+    assert g["lesson"]["app"]["tool"] == "blender"
+    assert [c["app"] for s in g["steps"] for c in s["checks"]] == ["Blender"] * 4
+
+
+def test_other_apps_strip_dump_like_checks_as_before():
+    g = autocad()
+    g["steps"][0]["checks"] += [{"type": "file_contains", "file": "toy_car.dxf", "pattern": "WHEEL"},
+                                {"type": "file_contains", "file": "toy_car.scene.json", "pattern": "x"}]
+    g = app_lesson.adapt(g)
+    assert g["lesson"]["app"]["tool"] == "autocad"
+    assert not any(c["type"].startswith("file_") for s in g["steps"] for c in s["checks"])
+
+
+def test_a_scene_dump_check_is_no_code():
+    g = _with_scene_checks(blender_donut())
+    for s in g["steps"]:  # only the screen and scene dump checks are left
+        s["checks"] = [c for c in s["checks"] if c["type"] in ("screen_contains", "file_contains")]
+        s.pop("precision_checks", None)
+    assert app_lesson.has_code(g) is False
+    py = copy.deepcopy(g)
+    py["steps"][0]["file"] = "make_donut.py"
+    assert app_lesson.has_code(py) is True
+    run = copy.deepcopy(g)
+    run["steps"][1]["run_command"] = "python3 make_donut.py"
+    assert app_lesson.has_code(run) is True
+    js = copy.deepcopy(g)  # a real JSON file the learner edits is still code
+    js["steps"][0]["checks"].append({"type": "file_contains", "file": "settings.json", "pattern": "x"})
+    assert app_lesson.has_code(js) is True
+
+
+def test_scene_guide_only_for_blender_titles():
+    text = app_lesson.scene_guide("Beginner Blender 4.0 Tutorial")
+    assert ".scene.json" in text and r'"type":\s*"SUBSURF"' in text and "screen_contains" in text
+    assert "precision_checks" in text and r"BLENDER_EEVEE\w*" in text and "radians" in text
+    assert "EEVEE_NEXT" not in text
+    # the dump is made only from <stem>.blend in the lesson folder: the first scene step must say to save there
+    assert "FIRST step that" in text and "File > Save As" in text and '"<stem>.blend" in the lesson folder' in text
+    assert "same name" in text
+    assert app_lesson.scene_guide("Python pandas basics") == ""
+    assert app_lesson.scene_guide("") == ""

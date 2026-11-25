@@ -164,6 +164,19 @@ def _resolve(workdir: str, rel: str) -> str:
     return os.path.normpath(os.path.join(workdir, rel))
 
 
+def _refresh_scene(rel: str, path: str) -> None:
+    """A Blender scene dump (mug.scene.json) is brought up to date from the learner's Blender before a check reads it
+    (server/checks/scene_refresh.py; off unless the engine turned it on). Any other file is read as it is."""
+    if not str(rel or "").strip().lower().endswith(".scene.json"):
+        return
+    try:
+        from server.checks import scene_refresh
+
+        scene_refresh.refresh(os.path.abspath(path))
+    except Exception:  # noqa: BLE001  refresh never raises; whatever happens, the check reads what is on disk
+        pass
+
+
 def _compile(pattern: str) -> re.Pattern[str]:
     return safe_compile(pattern, re.MULTILINE)  # re.error for a refused (catastrophic / too long) pattern
 
@@ -351,6 +364,7 @@ def _file_exists(check: dict, ctx: RunContext) -> CheckResult:
     if not _resolve(ctx.workdir, rel):
         return _result(check, "fail", f"{rel} is outside the lesson folder")
     path = _resolve(ctx.workdir, rel)
+    _refresh_scene(rel, path)
     if os.path.exists(path):
         # an export with nothing in it, or an open shell where the step prints it, is not the model saved
         if why := model_files.empty_mesh(path) or (check.get("_print") and model_files.open_mesh(path)):
@@ -580,6 +594,7 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     path = _resolve(ctx.workdir, rel)
     if not path:
         return _result(check, "fail", f"{rel} is outside the lesson folder")
+    _refresh_scene(rel, path)
     if rel.strip().lower().endswith(".ipynb") and not os.path.exists(path) and os.path.isabs(str(ctx.workdir or "")):
         # t10: the video's Untitled.ipynb is the learner's mnist.ipynb ("Still to do: evaluate saved in notebook")
         if (found := find_notebook(ctx.workdir, [rel])) is not None:
