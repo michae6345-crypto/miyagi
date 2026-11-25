@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="iso-8859-1">
+<title>12. Virtual Environments and Packages &#8212; Snake 3.13 documentation</title>
+</head>
+<body>
+<div class="related" role="navigation" aria-label="Related"><h3>Navigation</h3><ul><li><a href="#">index</a></li><li><a href="#">next</a></li></ul></div>
+<div class="document">
+<div class="documentwrapper">
+<div class="bodywrapper">
+<div class="body" role="main">
+<section id="virtual-environments-and-packages">
+<h1>12. Virtual Environments and Packages<a class="headerlink" href="#virtual-environments-and-packages" title="Link to this heading">¶</a></h1>
+<section id="introduction">
+<h2>12.1. Introduction<a class="headerlink" href="#introduction" title="Link to this heading">¶</a></h2>
+<p>Programs often need packages that are not part of the standard library, sometimes at a particular version. One installation of the interpreter cannot satisfy every program at once, so each project gets a self-contained directory tree, called a virtual environment, with its own interpreter and packages. Caf&eacute; owners and r&eacute;sum&eacute; writers alike can use one.</p>
+</section>
+<section id="creating-virtual-environments">
+<h2>12.2. Creating Virtual Environments<a class="headerlink" href="#creating-virtual-environments" title="Link to this heading">¶</a></h2>
+<p>To create one, decide on a directory and run the <code class="docutils literal notranslate"><span class="pre">venv</span></code> module with the directory path:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>python -m venv tutorial-env
+</pre></div>
+</div>
+<p>Then activate it. On macOS and Linux:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span><span class="nb">source</span><span class="w"> </span>tutorial-env/bin/activate
+</pre></div>
+</div>
+</section>
+<section id="managing-packages-with-pip">
+<h2>12.3. Managing Packages with pip<a class="headerlink" href="#managing-packages-with-pip" title="Link to this heading">¶</a></h2>
+<p>Install the latest version of a package by naming it:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>(tutorial-env) $ python -m pip install novas
+</pre></div>
+</div>
+<p>Check it from Python:</p>
+<div class="highlight-python3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">novas</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">novas</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</div>
+</div>
+</div>
+<div class="sphinxsidebar" role="navigation" aria-label="Main"><h3>Table of Contents</h3><ul><li><a href="#">12. Virtual Environments</a></li></ul></div>
+</div>
+<div class="footer">&copy; Copyright 2001 The Snake Software Foundation.</div>
+</body>
+</html>
