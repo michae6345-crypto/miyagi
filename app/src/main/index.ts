@@ -460,6 +460,8 @@ const shortcutKeys = createShortcutKeys({
   overrides: () => getPrefs().shortcuts,
   live: shortcutLive,
   press: (kind) => (kind === 'launcher' ? onLauncherKey() : send(overlay, 'shortcut', kind)),
+  // A saved key another app owns fell back to the default (or to none): every keycap shows the key really bound.
+  onTaken: (taken) => forEachWindow((w) => w.webContents.send('feat:shortcuts:taken', taken)),
   warn: (m) => console.warn(`[tut] ${m}`)
 })
 
@@ -785,6 +787,8 @@ app.whenReady().then(async () => {
     return accepted
   })
   onPrefsChange(() => void shortcutKeys.sync())
+  // Which saved keys fell back (another app owns them), for a window that opens after the broadcast (core/keys.ts).
+  ipcMain.handle('feat:shortcuts:taken', (e) => (trustedSender(e) ? shortcutKeys.taken() : undefined))
   shortcutKeys.sync()
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
   // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
