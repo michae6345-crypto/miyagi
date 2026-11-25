@@ -20,11 +20,6 @@ type Box = { x: number; y: number; w: number; h: number }
 export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 12, bottom: 24, taper: 0 }, peek: { top: 8, bottom: 18, taper: 0 } } as const
 /** An open shape shorter than this uses the gentler peek radii: the big radii on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
 export const SHORT_OPEN_H = 120
-/**
- * Whether the shape paints the pastel green gradient (hud.notchGradient) over its black: only open and tall (the
- * open island, cards, the hover panel). Closed, ears and the short peek stay plain notch black.
- */
-export const gradientOn = (open: boolean, h: number): boolean => open && h >= SHORT_OPEN_H
 /** `taper`: how far each side leans in from top to bottom (0 = straight sides, like the hardware notch). */
 export type Radii = { top: number; bottom: number; taper: number }
 

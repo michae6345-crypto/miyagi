@@ -1,5 +1,12 @@
 # Notch: Adrian's MIC-83 fixes + slanted sides + pastel green gradient (Nov 25)
 
+> **Later on Nov 25 (Adrian's call, MIC-83): the look described below is no longer on main.** Open shapes have straight
+> sides and a smaller flare (`NOTCH_RADII.open` 12 / 24 / taper 0, `peek` 8 / 18 / 0) and no gradient: `hud.notchGradient`,
+> `gradientOn` and the layer are removed, and the tests pin the straight shape. The five fixes under "What came in" are
+> unchanged. The `notch-gradient-*` shots listed at the end show the gradient look, not what ships. Why: the gradient put
+> green under Not yet and the error cards, the island's faint grey text (`#858480`) fell to 3.1:1 on it, and BRAND.md
+> rule 6 allows no gradient.
+
 Branch `michael/app-notch-gradient`, cut from `michael/app-ui-v4`. Michael's call: take everything Adrian shipped for
 the app except his straight-sides look.
 

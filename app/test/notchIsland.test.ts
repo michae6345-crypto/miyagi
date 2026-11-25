@@ -5,7 +5,6 @@ import type { NotchLayout } from '../src/common/notch'
 import {
   EAR_W,
   GRAB,
-  gradientOn,
   islandBottomAt,
   islandTopAt,
   isOpenView,
@@ -16,11 +15,9 @@ import {
   PEEK,
   NOTCH_RADII,
   radiiFor,
-  SHORT_OPEN_H,
   viewWith,
   withinGrab
 } from '../src/renderer/src/core/notchGeometry'
-import { hud } from '../src/renderer/src/core/theme'
 import { NO_ACTION, OWNERLESS_GRACE_MS, WATCH_REST, watchdogStep } from '../src/renderer/src/core/islandState'
 
 const real: NotchLayout = { hasNotch: true, x: 267.5, width: 189, height: 32, place: 'notch' }
@@ -172,37 +169,4 @@ test('the path can lean (taper): the bottom edge is narrower than the top by the
   // bottom straight edge runs from x = 19 + 16 + 24 to 600 - 19 - 16 - 24
   assert.match(d, /L59 190 /)
   assert.ok(d.includes('Q565 190 541 190'))
-})
-
-describe('the pastel green gradient', () => {
-  test('only the open, tall island paints it; closed and the short peek stay plain black', () => {
-    assert.equal(gradientOn(true, 194), true)
-    assert.equal(gradientOn(true, SHORT_OPEN_H), true)
-    assert.equal(gradientOn(true, 74), false)
-    assert.equal(gradientOn(false, 194), false)
-    assert.equal(gradientOn(false, 32), false)
-  })
-  const stops = [...hud.notchGradient.matchAll(/rgba\((\d+),(\d+),(\d+),([\d.]+)\) (\d+)%/g)].map((m) => ({ rgb: [+m[1], +m[2], +m[3]], a: +m[4], at: +m[5] }))
-  test('black at the top (melts into the hardware notch), a pastel mint at the bottom, never fading back', () => {
-    assert.match(hud.notchGradient, /^linear-gradient\(180deg,/)
-    assert.ok(stops.length >= 3)
-    assert.equal(stops[0].at, 0)
-    assert.equal(stops[stops.length - 1].at, 100)
-    for (const s of stops.filter((x) => x.at <= 35)) assert.equal(s.a, 0)
-    for (let i = 1; i < stops.length; i++) assert.ok(stops[i].a >= stops[i - 1].a && stops[i].at > stops[i - 1].at)
-    const last = stops[stops.length - 1]
-    assert.ok(last.a >= 0.2 && last.a <= 0.45)
-    // pastel: every channel high, green the strongest
-    assert.ok(Math.min(...last.rgb) >= 140 && last.rgb[1] === Math.max(...last.rgb))
-  })
-  test('white text and the muted white (60%) keep >= 4.5:1 on the brightest stop over the notch black', () => {
-    const lin = (c: number): number => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
-    const lum = ([r, g, b]: number[]): number => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-    const over = (fg: number[], a: number, bg: number[]): number[] => fg.map((c, i) => c * a + bg[i] * (1 - a))
-    const ratio = (x: number[], y: number[]): number => { const [l1, l2] = [lum(x), lum(y)].sort((p, q) => q - p); return (l1 + 0.05) / (l2 + 0.05) }
-    const last = stops[stops.length - 1]
-    const bg = over(last.rgb, last.a, [0, 0, 0])
-    assert.ok(ratio([255, 255, 255], bg) >= 4.5)
-    assert.ok(ratio(over([255, 255, 255], 0.6, bg), bg) >= 4.5)
-  })
 })
