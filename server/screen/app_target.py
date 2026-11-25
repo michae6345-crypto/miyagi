@@ -60,6 +60,7 @@ FULLSCREEN_SLACK_PT = 4.0    # ... or within this of 0 (a full-screen window has
 WINDOW_MATCH_MARGIN_PT = 12.0  # ... and the next best fit is at least this much worse (else ambiguous: no rects)
 BACKING_SCALES = (0.5, 1.0)  # k = screen pt / Blender px: Retina (2 px per pt) or not; anything else is a miscalibration
 SCALE_TOLERANCE = 0.03       # k within 3% of one of them
+UNITS_TOLERANCE = 0.03  # areas' right edge vs the window width: within 3% of 1x or 2x (a border of a few px)
 MIN_OBJECT_NAME = 3          # object names shorter than this are never matched in a step's words
 OVERLAY_APPS = frozenset({"miyagi", "electron", "miyagi-overlay"})  # our own overlay in front is not "another app"
 
@@ -101,8 +102,8 @@ _ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:(?:a|an|new|another)(?:[ \t
 _DETERMINER = re.compile(r"\b(?:the|your|this|that)[ \t]+$", re.IGNORECASE)
 # an object's name used as the head of a UI place or another name ("the Light properties", "Camera view", "the Light
 # settings", "Cube Mesh"): not the object itself
-_NAME_AS_HEAD = re.compile(r"^(?:['’]s)?[ \t]+(?:(?:properties|property|tabs?|panels?|editors?|views?|settings?|data|"
-                           r"menus?)\b|[A-Z])")
+_NAME_AS_HEAD = re.compile(r"^(?:['’]s)?(?:[ \t]*[>→›»]|[ \t]+(?:(?:properties|property|tabs?|panels?|editors?|views?|"
+                           r"settings?|data|menus?)\b|[A-Z]))")  # "Object > Apply > Scale": a menu path, not the object
 # words that may follow an object the step only names (not acts on): "the Donut is", "the Donut from the side"; any
 # other word makes the name an attribute's head ("the Light power", "the Cube scale"), not the object
 _AFTER_NAMED = frozenset({
@@ -551,7 +552,9 @@ def _raw_shape(ui: dict, window: Rect | None) -> dict | None:
     bw = _fit_window(wins, window)
     if bw is None:
         return None
-    braw = _rect(bw)
+    braw = _units_match(bw, _rect(bw))
+    if braw is None:
+        return None
     k = window.w / braw.w
     bottom = window.y + window.h
     bottom_left = str(ui.get("origin") or "bottom-left") == "bottom-left"
@@ -598,6 +601,22 @@ def _raw_shape(ui: dict, window: Rect | None) -> dict | None:
         context, contexts = _str(p.get("context")), _strs(p.get("contexts"))
     return {"window": window, "areas": areas, "regions": regions, "objects": objects, "tabs": tabs,
             "context": context, "contexts": contexts, "mode": _str(ui.get("mode")), "active": _str(ui.get("active"))}
+
+
+def _units_match(bw: dict, braw: Rect) -> Rect | None:
+    """The Blender window's rect in the same units as its areas. On a Retina Mac, Window.width / height can be in points
+    while areas, regions and object boxes are in native pixels (2x). The areas span the window less a border of a few
+    px, so the widest area's right edge over the window width says which: about 1 = same units, about 2 = the window is
+    in points (scale it by 2). Anything else: unknown units, None (no bridge rects; a wrong circle is worse than none)."""
+    edges = [r.x + r.w for r in (_rect(a) for a in bw.get("areas") or [] if isinstance(a, dict)) if r is not None]
+    if not edges or braw.w <= 0:
+        return braw
+    ratio = max(edges) / braw.w
+    for s in (1.0, 2.0):
+        if abs(ratio - s) <= UNITS_TOLERANCE * s:
+            return braw if s == 1.0 else Rect(braw.x * s, braw.y * s, braw.w * s, braw.h * s)
+    log.info("on-screen coach: Blender areas span %.2fx the window width: unknown units, no bridge rects", ratio)
+    return None
 
 
 def _fit_window(wins: list[dict], window: Rect) -> dict | None:
