@@ -572,12 +572,44 @@ def test_object_mapping_at_k_1():
     assert t == T.Target(Rect(700, 778, 200, 100), "bridge", "Donut")  # (100 + 600, 1378 - 600, 200, 100)
 
 
-@pytest.mark.parametrize("instr", ["Add a Donut", "add a torus", "Add another Donut with Shift+A."])
+@pytest.mark.parametrize("instr", ["Add a Donut", "add a torus", "Add another Donut with Shift+A.",
+                                   "Add a second Cube", "Add another mesh Cube", "Add a UV Sphere",
+                                   "Add a new UV Sphere next to the Cube."])
 def test_an_added_object_is_never_circled(instr):
     objs = [{"name": "Donut", "x": 600, "y": 500, "width": 200, "height": 100},
-            {"name": "Torus", "x": 900, "y": 500, "width": 200, "height": 100}]
+            {"name": "Torus", "x": 900, "y": 500, "width": 200, "height": 100},
+            {"name": "Sphere", "x": 200, "y": 200, "width": 200, "height": 100},
+            {"name": "Cube", "x": 200, "y": 800, "width": 200, "height": 100}]
     t = run(instr, raw_v2(objects=objs))
-    assert t is None or t.label not in ("Donut", "Torus")
+    if instr == "Add a new UV Sphere next to the Cube.":  # never the Sphere; the Cube it only names may be circled
+        assert t is not None and t.label == "Cube"
+    else:
+        assert t is None or t.label not in ("Donut", "Torus", "Sphere", "Cube")
+
+
+LCC = [{"name": "Light", "type": "LIGHT", "x": 900, "y": 1000, "width": 48, "height": 48},
+       {"name": "Camera", "type": "CAMERA", "x": 300, "y": 900, "width": 48, "height": 48},
+       {"name": "Cube", "type": "MESH", "x": 600, "y": 500, "width": 200, "height": 100}]
+
+
+@pytest.mark.parametrize("instr", ["Open the Light properties", "Open the Camera properties",
+                                   "Press Numpad 0 for Camera view.",
+                                   "Set the Light power to 1000 W in the Light settings",
+                                   "Check the Cube scale.", "Look at the Cube's modifiers.",
+                                   "Rename the Cube Mesh data."])
+def test_must_not_circle_an_object_whose_name_heads_a_place(instr):
+    t = run(instr, raw_v2(objects=LCC))
+    assert t is None or t.label not in ("Light", "Camera", "Cube"), (instr, t)
+
+
+def test_light_and_camera_properties_are_the_object_data_tab():
+    assert T.place_phrases("Light properties") == [T.Phrase("DATA", "tab")]
+    assert T.tab_contexts("Open the Camera properties") == ["DATA"]
+    t = run("Open the Light properties", raw_v2(objects=LCC))
+    assert t == T.Target(Rect(800, 302, 29, 426), "bridge", "Object Data tab")
+    # the object itself, when the step acts on it or only names it
+    assert run("Select the Light", raw_v2(objects=LCC)).label == "Light"
+    assert run("Look at the Camera from above.", raw_v2(objects=LCC)).label == "Camera"
 
 
 def test_two_objects_with_one_casefolded_name_is_none():
@@ -608,6 +640,26 @@ def test_an_object_only_when_acted_on_while_a_control_is_named():
     assert run("With the Donut selected, click Shade Smooth.", raw_v2()) is None
     # no control or tab named: an object the step names is circled
     assert run("Look at the Donut from the side.", raw_v2()).label == "Donut"
+
+
+CUBE = [{"name": "Cube", "type": "MESH", "x": 600, "y": 500, "width": 200, "height": 100}]
+
+
+@pytest.mark.parametrize("plist,label", [
+    ([T.Phrase("MODIFIER", "tab"), T.Phrase("PROPERTIES", "area")], "Modifier tab"),   # where is the Modifier tab?
+    ([T.Phrase("Add menu", "ui"), T.Phrase("Add", "ui")], None),                       # where is the Add menu?
+    ([T.Phrase("OUTLINER", "area")], "Outliner"),                                      # where is the outliner?
+])
+def test_must_not_circle_the_steps_object_for_a_where_ask(plist, label):
+    for instr in ("Select the Cube, then open the Modifier tab.", "Select the Cube"):
+        t = run(instr, raw_v2(objects=CUBE), phrase_list=plist)
+        assert (t.label if t else None) == label, (instr, plist, t)
+
+
+def test_a_where_ask_for_an_object_circles_that_object():
+    t = run("Open the Modifier tab.", raw_v2(objects=CUBE), phrase_list=[T.Phrase("Cube", "ui")])
+    assert t == T.Target(Rect(400, 428, 100, 50), "bridge", "Cube")
+    assert run("Open the Modifier tab.", raw_v2(objects=CUBE), phrase_list=[T.Phrase("cube", "ui")]).label == "Cube"
 
 
 def test_select_in_the_outliner_reads_the_outliner_text():
@@ -661,9 +713,19 @@ def test_fullscreen_blender_is_accepted():
     full = Rect(0, 0, 1000, 650)                   # 2000 x 1300 px at 2 px / pt, no title bar
     t = run("Select the Donut", raw_v2(), bobs(win=full))
     assert t == T.Target(Rect(300, 350, 100, 50), "bridge", "Donut")   # (600/2, 650 - (500 + 100)/2, ...)
-    prefs = {"x": 0, "y": 0, "width": 1400, "height": 1100, "areas": []}
-    t = run("Select the Donut", raw_v2(extra_windows=[prefs]), bobs(win=full))
-    assert t is not None and t.rect == Rect(300, 350, 100, 50)
+    # a second window of another shape at a sane scale (1000 x 500 px, k = 1.0: an implied 150 pt title bar): the
+    # title-bar / full-screen scoring picks the full-screen main window
+    other = {"x": 0, "y": 0, "width": 1000, "height": 500, "areas": []}
+    assert T._sane_scale(full.w / other["width"])
+    t = run("Select the Donut", raw_v2(extra_windows=[other]), bobs(win=full))
+    assert t == T.Target(Rect(300, 350, 100, 50), "bridge", "Donut")
+    # ... and beside a windowed one (RETINA: 28 pt title bar, k = 0.5) the other shape is rejected by the scoring
+    other = {"x": 0, "y": 0, "width": 1000, "height": 560, "areas": []}   # k = 1.0, implied title 118 pt
+    t = run("Select the Donut", raw_v2(extra_windows=[other]), bobs(win=RETINA))
+    assert t == T.Target(Rect(400, 428, 100, 50), "bridge", "Donut")
+    # a second window that fits exactly as well (full screen at k = 1.0 vs windowed at 0.5): ambiguous, no rects
+    other = {"x": 0, "y": 0, "width": 1000, "height": 678, "areas": []}
+    assert run("Select the Donut", raw_v2(extra_windows=[other]), bobs(win=RETINA)) is None
 
 
 def test_two_same_shaped_blender_windows_give_none():
@@ -685,7 +747,7 @@ def test_every_bridge_source_passes_the_gate_and_the_primary_display():
                      bridge=lambda: raw_v2(), ax_fn=Recorder()) is None
     t = T.resolve(step(MODIFIER_TAB), BLENDER, bobs(), [Rect(780, 280, 60, 460)], bridge=lambda: raw_v2(),
                   ax_fn=Recorder())
-    assert t is None or t.label == "Properties"  # never the covered tab column
+    assert t is not None and t.via == "bridge" and t.label == "Properties"  # the editor, never the covered column
     # a Blender window on another display: refused (marks carry no displayId)
     off = Rect(1500, 50, 1000, 678)
     for instr in ("Select the Donut", MODIFIER_TAB, "Press N to open the sidebar."):

@@ -450,6 +450,23 @@ def test_where_a_place_is_its_tab_area_or_region_never_the_bare_word(ask, want):
     assert not any(kind == "ui" and text.lower() in ("modifier", "material", "properties") for text, kind in got)
 
 
+@pytest.mark.parametrize("ask,label", [
+    ("where is the Modifier tab?", "Modifier tab"),   # the tab column, never the step's Cube
+    ("where is the Add menu?", None),                  # not on screen: nothing, never the step's Cube
+    ("where is the outliner?", "Outliner"),
+    ("where is the Cube?", "Cube"),                    # an object the ask itself names
+])
+def test_a_where_ask_never_circles_the_steps_object(ask, label):
+    from server.screen.tests.test_app_target import CUBE, Recorder, bobs, raw_v2
+
+    for instr in ("Select the Cube, then open the Modifier tab.", "Select the Cube"):
+        t = app_target.resolve({"id": "s1", "instructions": instr}, {"tool": "blender", "label": "Blender"}, bobs(),
+                               [], bridge=lambda: raw_v2(objects=CUBE), ax_fn=Recorder(),
+                               phrase_list=OC.where_phrases(ask))
+        assert (t.label if t else None) == label, (ask, instr, t)
+        assert t is None or t.via == "bridge"
+
+
 def test_where_an_unknown_place_is_not_a_where_ask():
     assert OC.where_phrases("where is the Transform panel?") is None  # never the bare "Transform"
 

@@ -88,7 +88,7 @@ def is_app_lesson(s) -> bool:
     try:
         from .session import CODE_APP_NAMES
     except Exception:  # noqa: BLE001
-        CODE_APP_NAMES = set()  # noqa: N806
+        CODE_APP_NAMES = set()
     if names & (CODE_TOOLS | set(CODE_APP_NAMES)):
         return False
     if _web_app(app) or not app_target._names(app):
@@ -160,7 +160,7 @@ _ORDER = "⌃⌥⇧⌘"
 _NAMED = {"tab": "Tab", "esc": "Esc", "escape": "Esc", "return": "Return", "enter": "Return", "space": "Space",
           "spacebar": "Space", "delete": "Delete", "backspace": "Delete", "del": "Delete"}
 _KEY = r"(?:numpad\s*\d|f1[0-2]|f[1-9]|tab|escape|esc|return|enter|spacebar|space|delete|backspace|del|[a-z0-9])"
-_CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s*[+\-]\s*)+)({_KEY})(?![\w])", re.I)
+_CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s*[+\-]\s*)+)({_KEY})(?![\w])", re.IGNORECASE)
 _GLYPH = re.compile(r"[⌃⌥⇧⌘]+\s*(?:Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc|Return|Space|Delete|[←→↑↓]|[A-Za-z0-9])(?![a-z])")
 _PKEY = r"(?:[Nn]umpad\s*\d|F1[0-2]|F[1-9]|[Tt]ab|[Ee]sc(?:ape)?|[Rr]eturn|[Ee]nter|[Ss]pace(?:bar)?|[Dd]elete|" \
         r"[Bb]ackspace|[A-Z0-9])"
@@ -230,7 +230,7 @@ def _frame(s) -> Any:
     if scr is not None and callable(getattr(scr, "fresh", None)):
         try:
             obs = scr.fresh(app_target.MAX_FRAME_AGE_S)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("on-screen coach: fresh frame failed")
             return None
         return obs if hasattr(obs, "blocks") else None
@@ -272,7 +272,7 @@ async def _resolve(s, step: dict, phrase_list: list | None = None) -> app_target
 
     try:
         return await asyncio.to_thread(work)
-    except Exception:  # noqa: BLE001 - no circle, never a crash
+    except Exception:
         log.exception("on-screen coach: resolve failed")
         return None
 
@@ -437,10 +437,10 @@ def where_card(s, step: dict) -> dict:
 
 
 _WHERE = re.compile(r"^\s*where(?:'s|\s+is|\s+are|\s+do\s+i\s+(?:find|click|go)|\s+can\s+i\s+find|\s+should\s+i\s+"
-                    r"(?:click|look))?\b\s*(.*?)\s*\??\s*$", re.I)
+                    r"(?:click|look))?\b\s*(.*?)\s*\??\s*$", re.IGNORECASE)
 _VAGUE = re.compile(r"^(?:it|this|that|they|them|there|i|to|do i|i click|to click|i go|is it|now|next|the thing)?$",
-                    re.I)
-_GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setting|tool)s?$", re.I)
+                    re.IGNORECASE)
+_GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setting|tool)s?$", re.IGNORECASE)
 
 
 def where_phrases(text: str) -> list[app_target.Phrase] | None:
@@ -454,7 +454,7 @@ def where_phrases(text: str) -> list[app_target.Phrase] | None:
     m = _WHERE.match(t)
     if m is None:
         return None
-    what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.I)
+    what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.IGNORECASE)
     if _VAGUE.match(what):
         return []
     placed = app_target.place_phrases(what)

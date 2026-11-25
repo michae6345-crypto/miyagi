@@ -7,8 +7,10 @@ a Properties tab, "area" an editor, "region" a sidebar / toolbar / header); the 
 
   1. object  the app's own bridge (Blender: server.workspace.blender_ext.ui_rects, imported lazily inside the function,
              asked once per resolve; absent, None, a raise or an unknown shape = skip): an object the step acts on by
-             name ("Select the Donut", case aside; never "add a Donut"), or names at all when the step has no ui / tab
-             phrase. "the Donut in the Outliner": OCR of the name inside the Outliner's rect, else the viewport box.
+             name ("Select the Donut", case aside; never "add a Donut" / "Add a second Donut", never a name heading a
+             place: "the Light properties", "Camera view"), or names at all when the step has no ui / tab phrase. "the
+             Donut in the Outliner": OCR of the name inside the Outliner's rect, else the viewport box. A where ask
+             (phrase_list) circles only an object the ask names ("where is the Cube?"), never the step's.
   2. AX      a bounded walk (<= 2500 nodes) of the named app's Accessibility tree: a rect only when exactly ONE element's
              label equals the phrase (case and whitespace aside). server.screen.ax primitives, read-only.
   3. OCR     the latest frame's text in that app's window: equal to the phrase, or a fuzzy ratio >= 92 for phrases of
@@ -89,7 +91,22 @@ _NEXT_CAP = re.compile(r"^[ \t]+[A-Z]")
 _PREV_WORD = re.compile(r"([A-Za-z][\w'’-]*)[ \t]+$")
 _SENTENCE_START = re.compile(r"(?:^|[.!?:;\n\"“(]\s*)$")
 _NOT_A_NAME = frozenset({"blender", "blender's", "blender’s"})  # "the Blender viewport" is the viewport
-_ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:a|an|new|another)\s+$", re.IGNORECASE)
+# "add a Donut", "Add a second Cube", "Add another mesh Cube", "Add a UV Sphere": up to two words between the article
+# and the name (the new object's kind / ordinal), never the existing object of that name
+_ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:a|an|new|another)(?:[ \t]+[\w.-]+){0,2}[ \t]+$", re.IGNORECASE)
+# an object's name used as the head of a UI place or another name ("the Light properties", "Camera view", "the Light
+# settings", "Cube Mesh"): not the object itself
+_NAME_AS_HEAD = re.compile(r"^(?:['’]s)?[ \t]+(?:(?:properties|property|tabs?|panels?|editors?|views?|settings?|data|"
+                           r"menus?)\b|[A-Z])")
+# words that may follow an object the step only names (not acts on): "the Donut is", "the Donut from the side"; any
+# other word makes the name an attribute's head ("the Light power", "the Cube scale"), not the object
+_AFTER_NAMED = frozenset({
+    "in", "on", "at", "to", "into", "onto", "from", "with", "without", "within", "near", "behind", "below", "above",
+    "under", "over", "and", "or", "but", "nor", "is", "are", "was", "were", "be", "should", "will", "would", "can",
+    "could", "must", "may", "might", "has", "have", "had", "now", "so", "then", "until", "while", "when", "by",
+    "for", "of", "as", "up", "down", "back", "again", "too", "that", "which", "you", "it", "its", "looks", "look",
+    "appears", "appear", "seems", "seem", "sits", "stays"
+})
 
 # Properties tabs (SpaceProperties.context) by the words a step uses for them: "the Modifier tab", "Material
 # properties", "Object Data properties", the wrench.
@@ -105,6 +122,8 @@ TAB_NAMES: dict[str, str] = {
     "particle systems": "PARTICLES",
     "scene": "SCENE", "view layer": "VIEW_LAYER", "texture": "TEXTURE", "textures": "TEXTURE",
     "collection": "COLLECTION", "collections": "COLLECTION",
+    # a light's / camera's Object Data tab is called its Light / Camera properties
+    "light": "DATA", "camera": "DATA",
 }
 TAB_LABEL: dict[str, str] = {"MODIFIER": "Modifier tab", "MATERIAL": "Material tab", "OBJECT": "Object tab",
                              "DATA": "Object Data tab", "RENDER": "Render tab", "OUTPUT": "Output tab",
@@ -593,9 +612,11 @@ class ObjectHit:
 
 def _object_in(step: dict, ui: dict, *, acting: bool) -> ObjectHit | None:
     """The bridge object the step names: whole word, case aside, names of MIN_OBJECT_NAME+ chars unique among the
-    objects (two that differ only in case: neither); never one it adds ("add a Donut"). acting: only one the step acts
-    on ("Select the Donut"); else any it names. The longest name first ("Cube.001" before "Cube")."""
-    text = " ".join(str(step.get(k) or "") for k in ("instructions", "title"))
+    objects (two that differ only in case: neither); never one it adds ("add a Donut", "Add a second Cube") and never a
+    name that heads a UI place or another name ("the Light properties", "Camera view", "Cube Mesh"). acting: only one
+    the step acts on ("Select the Donut"); else any it names, followed by nothing or a function word ("the Donut is",
+    never "the Light power"). The longest name first ("Cube.001" before "Cube")."""
+    text = "\n".join(str(step.get(k) or "") for k in ("instructions", "title"))  # a line apart: no name runs on
     counts: dict[str, int] = {}
     for name, _ in ui.get("objects") or []:
         counts[name.casefold()] = counts.get(name.casefold(), 0) + 1
@@ -606,8 +627,27 @@ def _object_in(step: dict, ui: dict, *, acting: bool) -> ObjectHit | None:
             before = text[:m.start()]
             if _ADD_NEW.search(before) or (acting and not _ACTS.search(before)):
                 continue
-            outliner = bool(re.match(r"\s+(?:in|from)\s+the\s+outliner\b", text[m.end():], re.IGNORECASE))
+            after = text[m.end():]
+            if _NAME_AS_HEAD.match(after):
+                continue
+            nxt = re.match(r"(?:['’]s)?[ \t]+([A-Za-z]+)", after)  # "the Donut's icing": an attribute too
+            if not acting and nxt and nxt.group(1).lower() not in _AFTER_NAMED:
+                continue
+            outliner = bool(re.match(r"\s+(?:in|from)\s+the\s+outliner\b", after, re.IGNORECASE))
             return ObjectHit(name, r, outliner)
+    return None
+
+
+def _object_asked(plist: list[Phrase], ui: dict) -> ObjectHit | None:
+    """A where ask's own object ("where is the Cube?" -> ui phrase "Cube"): a ui phrase that IS one object's name
+    (case aside, MIN_OBJECT_NAME+ chars, unique among the objects). Never an object the step itself names."""
+    for ph in plist:
+        if ph.kind != "ui" or len(ph.text) < MIN_OBJECT_NAME:
+            continue
+        want = ph.text.casefold()
+        hits = [(name, r) for name, r in ui.get("objects") or [] if name.casefold() == want]
+        if len(hits) == 1:
+            return ObjectHit(hits[0][0], hits[0][1], False)
     return None
 
 
@@ -837,8 +877,13 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
         r = ok(gate(r, bwin, overlay, area=area))
         return Target(r, "bridge", label) if r is not None else None
 
-    # 1. an object the step acts on (or names, when it names no control or tab)
-    if shape and (hit := _object_in(step, shape, acting=bool(ui or tabs))) is not None:
+    # 1. an object the step acts on (or names, when it names no control or tab); for a where ask (phrase_list), only
+    # an object the ask itself names, never the step's ("Select the Cube" + "where is the Modifier tab?": the tab)
+    hit = None
+    if shape:
+        hit = (_object_asked(plist, shape) if phrase_list is not None
+               else _object_in(step, shape, acting=bool(ui or tabs)))
+    if hit is not None:
         outliner = _bridge_area("OUTLINER", shape) if hit.outliner else None
         if outliner is not None and fresh and win is not None and (r := ocr(hit.name, outliner)) is not None:
             return Target(r, "ocr", hit.name)
