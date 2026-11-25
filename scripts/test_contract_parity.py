@@ -9,6 +9,8 @@ Offline, no engine, no network. Run: python3 scripts/test_contract_parity.py (or
   - the ui-v4 mock scenario (app/mock/scenarios/ui-v4.json) only uses known events and commands, every payload in it
     validates against events.py, and it shows every ui-v4 event at least once
   - shared/contracts/UI-V4.md documents every ui-v4 event and command
+  - any link (Nov 24): the "link.any" flag and the new kinds are the same on both sides, ANY-LINK.md documents them, the
+    any-link mock scenario validates, and the link cache key helpers in events.py normalize the way ANY-LINK.md says
 
 The events.py checks need pydantic (the engine's venv has it); without it they are skipped, the text checks still run.
 """
@@ -25,6 +27,9 @@ TS = ROOT / "shared/contracts/events.ts"
 PY = ROOT / "shared/contracts/events.py"
 DOC = ROOT / "shared/contracts/UI-V4.md"
 MOCK = ROOT / "app/mock/scenarios/ui-v4.json"
+ANY_LINK_DOC = ROOT / "shared/contracts/ANY-LINK.md"
+ANY_LINK_MOCK = ROOT / "app/mock/scenarios/any-link.json"
+ANY_LINK_FIELDS = ("site", "author", "estMinutes", "teachable", "teach", "why", "tools", "cached", "finalUrl", "pageRef", "origin")
 
 UI_V4_EVENTS = ("activity", "bon", "plans", "playlist", "plan.proposal", "link.preview", "proof", "data")
 UI_V4_COMMANDS = ("activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get", "plan.propose",
@@ -217,6 +222,114 @@ class ModelParity(unittest.TestCase):
         contract.engine_message("status", {"state": "busy", "retryInS": 5, "epoch": 2, "gen": 7})
         contract.engine_message("step.passed", {"stepId": "s1", "nextStepId": "s2", "summary": "Loaded the data"})
         contract.engine_message("lesson.ready", {"lesson": {"id": "l", "title": "t", "sources": []}, "steps": [], "buildS": 41.5})
+
+
+def _ts_union(src: str, name: str) -> set[str]:
+    m = re.search(rf"export type {name} = ([^\n;]+)", src)
+    assert m, f"events.ts has no export type {name}"
+    return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+
+class AnyLinkText(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.ts = _strip_comments(TS.read_text(encoding="utf-8"))
+        cls.doc = ANY_LINK_DOC.read_text(encoding="utf-8")
+
+    def test_ts_has_the_new_kinds(self) -> None:
+        self.assertEqual(_ts_union(self.ts, "LinkKind"), {"video", "playlist", "unsupported", "web", "github"})
+        self.assertEqual(_ts_union(self.ts, "BuildSourceKind"), {"youtube", "goal", "library", "web", "github"})
+        self.assertIn("blocked", _ts_union(self.ts, "LookupError"))
+        self.assertTrue({"no_content", "blocked"} <= _ts_union(self.ts, "BuildFailCode"))
+        self.assertEqual(_ts_const(self.ts, "LINK_ANY_CAPABILITY"), '"link.any"')
+
+    def test_doc_covers_the_fields(self) -> None:
+        for name in ("link.any", "link.get", "link.preview", "learn_url", "lesson.building", "lesson.ready", "web", "github",
+                     "blocked", "no_content", "normalize_link_url", "link_cache_key", "link_content_hash") + ANY_LINK_FIELDS:
+            self.assertTrue(f"`{name}`" in self.doc or f'"{name}"' in self.doc, f"ANY-LINK.md does not document {name}")
+        for name in ANY_LINK_FIELDS:
+            self.assertIn(f"{name}?", self.ts, f"events.ts has no optional {name}")
+
+
+@unittest.skipIf(contract is None, "pydantic is not installed: the events.py checks need it")
+class AnyLinkModels(unittest.TestCase):
+    def test_python_matches_ts(self) -> None:
+        ts = _strip_comments(TS.read_text(encoding="utf-8"))
+        self.assertEqual(f'"{contract.LINK_ANY_CAPABILITY}"', _ts_const(ts, "LINK_ANY_CAPABILITY"))
+        self.assertEqual(set(contract.LinkKind.__args__), _ts_union(ts, "LinkKind"))
+        self.assertEqual(set(contract.BuildSourceKind.__args__), _ts_union(ts, "BuildSourceKind"))
+        self.assertEqual(set(contract.LookupError_.__args__), _ts_union(ts, "LookupError"))
+        self.assertEqual(set(contract.BuildFailCode.__args__), _ts_union(ts, "BuildFailCode"))
+        for model, fields in ((contract.LinkPreview, ("site", "author", "estMinutes", "teachable", "teach", "why", "tools", "cached", "finalUrl")),
+                              (contract.BuildSource, ("site", "author")), (contract.StepSummary, ("pageRef",)), (contract.LessonInfo, ("origin",))):
+            for f in fields:
+                self.assertIn(f, model.model_fields, f"{model.__name__}.{f}")
+
+    def test_mock_scenario_validates(self) -> None:
+        s = json.loads(ANY_LINK_MOCK.read_text(encoding="utf-8"))
+        kinds, sources, errors = set(), set(), set()
+        for seg, items in s["segments"].items():
+            for it in items:
+                if "goto" in it:
+                    self.assertIn(it["goto"], s["segments"], f"{seg}: goto {it['goto']!r}")
+                if "type" not in it:
+                    continue
+                try:
+                    msg = contract.engine_message(it["type"], it.get("payload"))
+                except Exception as e:  # noqa: BLE001 - name the item that failed
+                    self.fail(f"{seg} {it['type']}: {e}")
+                p = msg["payload"]
+                if it["type"] == "link.preview":
+                    kinds.add(p["kind"])
+                    if "error" in p:
+                        errors.add(p["error"])
+                    if p.get("teachable") is False:
+                        errors.add("not_teachable")
+                if it["type"] == "lesson.ready":
+                    sources.add(p["lesson"]["origin"]["kind"])
+                    self.assertEqual(p["lesson"]["mode"], "lesson")
+                    self.assertTrue(all("pageRef" in st and "video" not in st for st in p["steps"]))
+                if it["type"] == "engine.hello":
+                    self.assertIn(contract.LINK_ANY_CAPABILITY, p["capabilities"])
+        self.assertEqual(kinds, {"web", "github"})
+        self.assertEqual(sources, {"web", "github"})
+        self.assertEqual(errors, {"blocked", "not_teachable"})
+        for trigger, seg in s["on"].items():
+            self.assertIn(seg, s["segments"], trigger)
+            cmd = trigger.split("@")[0]
+            if cmd != "connect":
+                self.assertIn(cmd, contract.APP_COMMANDS, trigger)
+
+    def test_normalize_link_url(self) -> None:
+        n = contract.normalize_link_url
+        same = ["https://docs.python.org/3/tutorial/venv.html", "http://docs.python.org/3/tutorial/venv.html",
+                "https://www.docs.python.org/3/tutorial/venv.html#creating", "https://DOCS.python.org:443/3/tutorial/venv.html/",
+                "https://docs.python.org/3//tutorial/venv.html?utm_source=x&fbclid=y", " https://user:pw@docs.python.org./3/tutorial/venv.html "]
+        self.assertEqual({n(u) for u in same}, {"https://docs.python.org/3/tutorial/venv.html"})
+        self.assertEqual(n("https://example.com"), "https://example.com/")
+        self.assertEqual(n("https://example.com:8443/a?b=2&a=1&ref=hn"), "https://example.com:8443/a?a=1&b=2")
+        self.assertEqual(n("https://github.com/Pallets/Flask.git"), "https://github.com/pallets/flask")
+        self.assertEqual(n("https://github.com/Pallets/Flask/tree/main/docs/Tutorial"), "https://github.com/pallets/flask/tree/main/docs/Tutorial")
+        self.assertNotEqual(n("https://example.com/a?page=1"), n("https://example.com/a?page=2"))
+        for bad in ("ftp://example.com/x", "file:///etc/hosts", "javascript:alert(1)", "https://", "not a url"):
+            with self.assertRaises(ValueError, msg=bad):
+                n(bad)
+
+    def test_link_cache_key(self) -> None:
+        h = contract.link_content_hash("Make a  venv\n\nthen pip install")
+        self.assertEqual(h, contract.link_content_hash("Make a venv then pip install"))
+        k = contract.link_cache_key("web", "http://www.example.com/a/#x", h)
+        self.assertRegex(k, contract.LINK_CACHE_KEY_RE)
+        self.assertTrue(k.startswith("w_"))
+        self.assertEqual(k, contract.link_cache_key("web", "https://example.com/a", h))
+        self.assertNotEqual(k, contract.link_cache_key("web", "https://example.com/a", contract.link_content_hash("edited")))
+        self.assertTrue(contract.link_cache_key("github", "https://github.com/a/b", h).startswith("g_"))
+        with self.assertRaises(ValueError):
+            contract.link_cache_key("youtube", "https://example.com/a", h)  # type: ignore[arg-type]
+
+    def test_old_link_preview_still_validates(self) -> None:
+        contract.engine_message("link.preview", {"url": "https://www.youtube.com/watch?v=YYXdXT2l-Gg", "kind": "video", "title": "x"})
+        contract.engine_message("lesson.building", {"message": "m", "progress": 0.1, "source": {"kind": "youtube", "title": "t"}})
 
 
 if __name__ == "__main__":

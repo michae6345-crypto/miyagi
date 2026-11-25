@@ -140,7 +140,8 @@ const LOOKUP_LINE: Record<LookupError, string> = {
   offline: 'miyagi is offline. Try again when it connects.',
   too_long: 'That playlist is too long for one plan.',
   busy: 'miyagi is busy. Try again in a moment.',
-  unknown: 'That didn’t work. Try again.'
+  unknown: 'That didn’t work. Try again.',
+  blocked: 'That site won’t let miyagi read it.'
 }
 
 // ---- from a playlist ------------------------------------------------------------------------------------------------
