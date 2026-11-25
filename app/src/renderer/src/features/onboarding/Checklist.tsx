@@ -1,91 +1,74 @@
 /**
- * Feature: onboarding. Review setup (Onb-Checklist-Mixed): every setup row on one sheet, each with its own button.
- * Settings ("Open setup") and any open after setup is done land here; guided setup is one click away ("Walk me
- * through it"). One bar per row: green only for a row that is done, the track otherwise. The rows rise in, 35 ms apart.
+ * Feature: onboarding. Review setup (Onb-Checklist-Mixed): every setup row on one page, each with its live check once
+ * it is on or, while it is not, its own quiet button (the row miyagi is watching is washed). Settings ("Open setup") and any open after setup is done land here; guided
+ * setup is one click away ("Walk me through it"). v4 (Nov 24, v4.tsx): the title with what is left as its one line,
+ * one hairline group of rows, then the ONE primary (Start learning, or Done when opened again over home). The rows
+ * rise in, 35 ms apart.
  */
-import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { color, fill, font, highlight, radius2, spring, status as tone, surface, type2 } from '../../core/theme'
-import { QuietButton } from '../../core/ui/buttons'
+import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { Footer, ReadyCount, rise, stagger } from './parts'
-import { Row } from './Row'
 import type { Row as RowData, Summary } from './rows'
+import { statusLine } from './steps'
+import { startLearning, runAction } from './store'
+import { Actions, FLOW_TOP, LiveState, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
 
-export function Bars({ rows }: { rows: RowData[] }): ReactNode {
+/** A row's own fix: its quiet button (and the engine's Copy details beside Retry). */
+function RowFix({ row }: { row: RowData }): ReactNode {
+  const a = row.action
+  if (!a || row.state === 'passed') return null
+  const alt = row.alt
   return (
-    <div aria-hidden className="flex gap-[4px]">
-      {rows.map((r) => (
-        <span key={r.id} className="relative block h-[4px] w-[24px] overflow-hidden rounded-[2px]" style={{ background: fill.trackNext }}>
-          <motion.span className="absolute inset-0 block" style={{ background: tone.passed, originX: 0 }} initial={false} animate={{ scaleX: r.state === 'passed' ? 1 : 0 }} transition={spring} />
+    <span data-onb-action={a.id} className="flex items-center gap-[6px]">
+      {alt && (
+        <span data-onb-alt={alt.id}>
+          <QuietButton label={alt.label} onClick={() => void runAction(alt.id)} />
         </span>
-      ))}
-    </div>
-  )
-}
-
-/** `mark={false}`: the one-window flow already shows the bonsai in its step strip. */
-export function SheetHeader({ title, rows, sum, brand, mark = true }: { title: string; rows: RowData[]; sum: Summary; brand?: boolean; mark?: boolean }): ReactNode {
-  return (
-    <div data-drag className="flex items-center justify-between">
-      <div className="flex items-center gap-[12px]">
-        {mark && <MiyagiMark size={brand ? 32 : 24} />}
-        <h2
-          id="onb-title"
-          className="m-0"
-          style={{ fontFamily: brand ? font.brand : undefined, fontSize: brand ? type2.xxl : type2.lg, lineHeight: brand ? '34px' : '24px', fontWeight: brand ? 500 : 600, letterSpacing: brand ? '-0.4px' : undefined, color: color.text }}
-        >
-          {title}
-        </h2>
-      </div>
-      <div className="flex items-center gap-[8px]">
-        <Bars rows={rows} />
-        <ReadyCount sum={sum} />
-      </div>
-    </div>
+      )}
+      <QuietButton label={a.label} busy={row.state === 'checking'} disabled={row.state === 'checking'} onClick={() => void runAction(a.id, a.item)} />
+    </span>
   )
 }
 
 /** `again`: setup opened again over home (features/shell/flow); the primary is Done, which is always allowed (back to home). */
-export function Checklist({ rows, sum, onGuide, onStart, mark, again }: { rows: RowData[]; sum: Summary; onGuide?: () => void; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
+export function Checklist({ rows, sum, onGuide, onStart, mark = true, again }: { rows: RowData[]; sum: Summary; onGuide?: () => void; onStart?: () => void; mark?: boolean; again?: boolean }): ReactNode {
+  const start = onStart ?? startLearning
+  const can = again || sum.canStart
   return (
-    <div data-onb-view="checklist" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
-      <SheetHeader title="Review setup" rows={rows} sum={sum} mark={mark} />
-      <motion.div
-        role="list"
-        className="mt-[24px] flex flex-col overflow-hidden"
-        style={{ borderRadius: radius2.chip, background: surface.row, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${fill.hairline}` }}
-        variants={stagger(0.04)}
-        initial="hidden"
-        animate="shown"
-      >
-        {rows.map((r, i) => (
-          <motion.div key={r.id} role="none" variants={rise}>
-            <Row row={r} variant="card" last={i === rows.length - 1} />
-          </motion.div>
-        ))}
-      </motion.div>
-      {/* The footer follows the list (32 under it, top-anchored), not the window's bottom edge: full screen, it used to sit
-          600 px below the rows it acts on. */}
-      <div className="shrink-0" style={{ height: 8 }} />
-      <Footer
-        sum={sum}
-        border={false}
-        onStart={onStart}
-        {...(again ? { label: 'Done', always: true } : {})}
-        left={
-          <div className="flex min-w-0 items-center gap-[16px]">
-            {onGuide && !sum.allOk && (
-              <span data-onb-guide>
-                <QuietButton size="lg" label="Walk me through it" onClick={onGuide} />
-              </span>
-            )}
-            <span data-onb-hint style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>
-              {sum.hint}
+    <div className="relative h-full w-full">
+      <SetupPage view="checklist" top={mark ? 'clamp(24px, 6vh, 64px)' : FLOW_TOP}>
+        {mark && (
+          <Rise data={{ 'data-drag': true }} style={{ marginBottom: 18 }}>
+            <MiyagiMark size={32} />
+          </Rise>
+        )}
+        <SetupTitle title="Review setup" lede={<span data-onb-hint>{sum.hint}</span>} />
+        <Rise style={{ marginTop: 26 }}>
+          <SetupGroup label="Setup">
+            {rows.map((r) => (
+              <SetupRow
+                key={r.id}
+                current={r.state === 'watching'}
+                name={r.label}
+                line={r.state === 'passed' ? r.why : statusLine(r)}
+                // Like the mock's setup rows: the live check once it is on (or nothing to press), else the row's own fix.
+                right={r.action && r.state !== 'passed' ? <RowFix row={r} /> : <LiveState state={r.state} word={r.word} />}
+                data={{ 'data-onb-row': r.id, 'data-state': r.state }}
+              />
+            ))}
+          </SetupGroup>
+        </Rise>
+        <Actions>
+          <span data-onb-primary>
+            <PrimaryButton label={again ? 'Done' : 'Start learning'} disabled={!can} onClick={start} />
+          </span>
+          {onGuide && !sum.allOk && (
+            <span data-onb-guide>
+              <QuietButton label="Walk me through it" onClick={onGuide} />
             </span>
-          </div>
-        }
-      />
+          )}
+        </Actions>
+      </SetupPage>
     </div>
   )
 }
