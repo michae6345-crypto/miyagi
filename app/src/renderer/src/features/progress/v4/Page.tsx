@@ -507,9 +507,12 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <div className="mg-v4-rows">
             {near.map((s) => (
               <RRow key={s.label}>
-                <span style={{ ...rl, ...clamp2, padding: '6px 0' }}>{s.label}</span>
-                <Meter done={s.done} total={s.need} width={48} />
-                <span style={{ ...rr, width: 74, textAlign: 'right' }}>
+                {/* Margin, not padding: a line clamp clips at the padding box, so padding let half of a third line show (Progress clip). */}
+                <span title={s.label} style={{ ...rl, ...clamp2, lineHeight: '18px', margin: '6px 0' }}>
+                  {s.label}
+                </span>
+                <Meter done={s.done} total={s.need} width={36} />
+                <span style={{ ...rr, flex: 'none', textAlign: 'right' }}>
                   {s.done} of {s.need} steps
                 </span>
               </RRow>
@@ -525,7 +528,9 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <div className="mg-v4-rows">
             {v4.plans.map((p) => (
               <RRow key={p.id ?? p.title}>
-                <span style={rl}>{p.title}</span>
+                <span title={p.title} style={rl}>
+                  {p.title}
+                </span>
                 <span style={rr}>
                   {p.done} of {p.total}
                 </span>
@@ -546,7 +551,9 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
             {fresh.map((r) => (
               <RRow key={r.key}>
                 <RefreshCw size={15} strokeWidth={1.8} style={{ ...muted, flex: 'none' }} />
-                <span style={rl}>{plain(r.label)}</span>
+                <span title={plain(r.label)} style={rl}>
+                  {plain(r.label)}
+                </span>
                 <span style={rr}>{freshLabel(r, now)}</span>
               </RRow>
             ))}
