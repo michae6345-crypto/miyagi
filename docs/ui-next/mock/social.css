@@ -1,0 +1,117 @@
+/* social (Nov 24): Friends and the leaderboard (MIC-84, MIC-85). Same tokens as app.css. Every rule here is for a
+   class the social screens add; nothing restyles an existing screen. */
+.bon { display: block; flex: none; overflow: visible; }
+.who { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.who b { font-weight: 550; color: var(--ink); white-space: nowrap; }
+.who .you { font-size: 12px; font-weight: 450; color: var(--faint); margin-left: -4px; }
+
+/* the board: a place, who, the week as a bar and a number, today */
+.tbl.lb td { height: 52px; }
+.tbl.lb td.rk, .tbl.lb th.rk { width: 34px; }
+.tbl.lb td.rk { font-size: 14px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tbl.lb td.rk.no { color: var(--ghost); font-weight: 450; }
+.tbl.lb tr.me td { background: var(--hover); }
+.tbl.lb tr.rest td { color: var(--muted); }
+.tbl.lb tr.rest .who b { color: var(--muted); font-weight: 500; }
+.wkb { display: flex; align-items: center; gap: 12px; }
+.wkb .bar { width: 168px; flex: none; height: 6px; border-radius: 3px; }
+.wkb .bar i { border-radius: 3px; }
+.wkb b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tbl.lb td.td { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tbl.lb.fin td { height: 42px; }
+.tbl.lb.fin .wkb .bar { height: 4px; }
+
+/* the rail: your own bon, then rows */
+.mybon { display: flex; align-items: center; gap: 16px; margin-top: 2px; }
+.mybon > div { min-width: 0; flex: 1; }
+.mybon b { display: block; font-size: 15px; font-weight: 620; color: var(--ink); }
+.mybon span { display: block; font-size: 13px; color: var(--muted); margin-top: 1px; }
+.mybon .bar { margin-top: 10px; }
+.rrow .bon { margin: 0 -1px; }
+.rrow .acts { display: inline-flex; gap: 6px; flex: none; }
+.rrow .rk { width: 14px; flex: none; font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rrow.me .l { font-weight: 620; }
+.fcode { font: 600 13.5px var(--mono); letter-spacing: .05em; color: var(--ink); white-space: nowrap; }
+.rrow .tbtn { height: 26px; padding: 0 6px; margin-right: -6px; }
+
+/* requests and friends as rows with actions on the right */
+.frq { display: flex; align-items: center; gap: 14px; min-height: 60px; border-bottom: 1px solid var(--hair); }
+.frq .who { flex: 1; }
+.frq .who div b { display: block; }
+.frq .who div span { display: block; font-size: 13px; color: var(--muted); }
+.frq .m { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.frq .acts { display: inline-flex; gap: 8px; flex: none; }
+.frq .tbtn { padding: 0 6px; }
+.tbl td.more { width: 30px; text-align: right; color: var(--faint); }
+.tbl td.more .ic { vertical-align: middle; }
+.tbl tr.pick td { background: var(--hover); }
+
+/* the small menu on a friend's row */
+.tbl td.more { position: relative; }
+.tbl td.more .menu { right: 0; top: 38px; text-align: left; }
+.sgrid.rq > div > .sec:first-child { margin-top: 22px; }
+.sgrid.rq .frq:last-child { border-bottom: 0; }
+.menu { position: absolute; width: 208px; padding: 5px; border-radius: 10px; background: var(--card); box-shadow: var(--e3); font-size: 14px; z-index: 3; }
+.menu div { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; border-radius: 6px; color: var(--text); font-weight: 500; }
+.menu div .ic { width: 15px; height: 15px; color: var(--muted); }
+.menu div.hov { background: var(--hover); }
+.menu hr { border: 0; height: 1px; background: var(--hair); margin: 5px 0; }
+
+/* add a friend: your code on the left, theirs on the right */
+.modal.add { width: 720px; padding: 22px 24px 20px; }
+.addgrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; margin-top: 18px; }
+.addgrid > div + div { border-left: 1px solid var(--hair); padding-left: 28px; }
+.addgrid .lab { margin: 0 0 10px; }
+.bigcode { display: flex; align-items: center; height: 56px; padding: 0 16px; border-radius: 10px; background: var(--fill); font: 600 24px var(--mono); letter-spacing: .08em; color: var(--ink); }
+.bigcode.in { background: var(--card); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.bigcode.blank { background: var(--card); box-shadow: inset 0 0 0 1px var(--hair2); color: var(--ghost); }
+.bigcode .caret { height: 26px; margin-left: 3px; }
+.addgrid .btns { display: flex; gap: 8px; margin-top: 12px; }
+.addgrid .note { margin-top: 12px; line-height: 1.45; }
+.addgrid .note a { color: var(--text); text-decoration: underline; text-decoration-color: var(--track); text-underline-offset: 3px; }
+.found { display: flex; align-items: center; gap: 12px; margin-top: 12px; min-height: 50px; }
+.found .who { flex: 1; }
+.found .who div b { display: block; }
+.found .who div span { display: block; font-size: 13px; color: var(--muted); }
+.linkrow { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--hair2); font-size: 13.5px; color: var(--text); margin-top: 10px; }
+.linkrow .ic { color: var(--muted); }
+.linkrow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linkrow em { font-style: normal; font-size: 12.5px; color: var(--muted); }
+
+/* confirm: one question, what happens, two buttons */
+.modal.ask2 { width: 440px; padding: 22px 24px 20px; }
+.modal.ask2 .who { margin-bottom: 14px; }
+.modal.ask2 p { font-size: 14px; line-height: 1.5; color: var(--muted); margin-top: 8px; }
+.modal.ask2 .opt { display: flex; align-items: center; gap: 10px; margin-top: 16px; font-size: 14px; color: var(--text); }
+.modal.ask2 .mfoot { justify-content: flex-end; margin-top: 22px; }
+
+/* a friend, in the side panel: everything a friend can see is on it */
+.peek .pbon { display: flex; align-items: center; gap: 18px; margin: 18px 0 6px; }
+.peek .pbon h2 { margin: 0; }
+.peek .pbon span { display: block; font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+.peek .props { grid-template-columns: 138px 1fr; margin-top: 16px; }
+.peek .tbl.sm td { height: 36px; }
+.peek .tbl td.n2 { font-variant-numeric: tabular-nums; text-align: right; }
+.peek .tbl td.n2 b { font-weight: 600; color: var(--ink); }
+.peek .pfoot { display: flex; gap: 8px; }
+
+/* a state line across the top of the page: offline, or sharing off */
+.state { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 8px; background: var(--fill); font-size: 13.5px; color: var(--text); margin-top: 16px; }
+.state .ic { color: var(--muted); }
+.state .sp { flex: 1; }
+.state a { color: var(--muted); }
+.stale td, .stale .who b { color: var(--muted) !important; }
+.stale .bar i { background: var(--ghost) !important; }
+.stale .bon { opacity: .55; }
+
+/* settings rows that are fixed for a learner under 18 */
+.frow .lockv { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.frow .lockv .ic { width: 13px; height: 13px; }
+.frow .who { gap: 10px; }
+.frow.off .l, .frow.off .d { color: var(--faint); }
+.tog.dis { opacity: .45; }
+
+/* the consent step a parent sees for a learner aged 13 to 17 */
+.flow .wide .cons { margin-top: 22px; }
+.flow .wide .cons .rrow { min-height: 44px; }
+.flow .wide .cons .rrow .l { white-space: normal; font-weight: 500; }
