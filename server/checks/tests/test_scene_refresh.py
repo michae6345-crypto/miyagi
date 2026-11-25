@@ -142,13 +142,51 @@ def test_headless_when_there_is_no_dump_yet_and_none_when_it_fails(tmp_path):
 def test_a_fresh_dump_or_no_blend_needs_nothing(tmp_path):
     scene_refresh.enable()
     blend, js = tmp_path / "mug.blend", tmp_path / "mug.scene.json"
-    js.write_text("{}\n")
+    js.write_text(scene_refresh.to_text(DUMP), encoding="utf-8")
     headless = Recorder(DUMP)
     assert scene_refresh.refresh(str(js), live=Recorder(None), headless=headless, clock=Clock()) == "fresh"  # no .blend
     blend.write_text("blend")
     _age(blend, 60)  # the dump is newer than the save
     assert scene_refresh.refresh(str(js), live=Recorder(None), headless=headless, clock=Clock(200)) == "fresh"
     assert headless.calls == []
+
+
+def test_an_empty_dump_newer_than_the_blend_is_still_dumped(tmp_path):
+    """Lesson mode makes the step's file (mug.scene.json) empty with touch before the step starts, after mug.blend was
+    saved: that file is newer than the .blend but holds no scene, so the background dump still runs, once."""
+    scene_refresh.enable()
+    blend, js = tmp_path / "mug.blend", tmp_path / "mug.scene.json"
+    blend.write_text("blend")
+    _age(blend, 60)
+    js.touch()
+    clock, live = Clock(), Recorder(None)
+    headless = Recorder(DUMP, write=scene_refresh.to_text(DUMP))
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "headless"
+    assert headless.calls == [(str(blend), str(js))]
+    # the dump is on disk now and newer than the .blend: not stuck, and no second background Blender
+    clock.t += 30
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "fresh"
+    assert len(headless.calls) == 1
+
+
+@pytest.mark.parametrize("text", ["", "{}\n", '{"dump": "other 2"}\n', "not json"])
+def test_a_file_that_is_not_a_dump_counts_as_missing(tmp_path, text):
+    scene_refresh.enable()
+    blend, js = tmp_path / "mug.blend", tmp_path / "mug.scene.json"
+    blend.write_text("blend")
+    _age(blend, 60)
+    js.write_text(text, encoding="utf-8")
+    assert not scene_refresh.is_dump(str(js))
+    headless = Recorder(None)
+    assert scene_refresh.refresh(str(js), live=Recorder(None), headless=headless, clock=Clock()) == "none"
+    assert headless.calls == [(str(blend), str(js))]
+
+
+def test_is_dump(tmp_path):
+    js = tmp_path / "mug.scene.json"
+    js.write_text(scene_refresh.to_text(DUMP), encoding="utf-8")
+    assert scene_refresh.is_dump(str(js)) is True
+    assert scene_refresh.is_dump(str(tmp_path / "gone.scene.json")) is False
 
 
 def test_never_raises(tmp_path):

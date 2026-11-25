@@ -9,7 +9,8 @@ refresh(path) right before it reads one, and refresh brings it up to date:
   2. "live"     : the miyagi bridge add-on inside the learner's running Blender has that .blend open
                   (server.workspace.blender_ext.live_state): its scene is written, only when the text changed. Asked
                   at most once a second per file; a gate with three checks on one dump asks once.
-  3. "headless" : no live scene, and the .blend was saved after the dump (or there is no dump yet): a background
+  3. "headless" : no live scene, and the .blend was saved after the dump (or there is no dump yet, or the file there
+                  is not a dump: a lesson step's file is made empty with touch before the step starts): a background
                   Blender dumps the saved file (server.workspace.blender.dump_blend). Tried at most once every 10 s
                   per file. "none" when that dump failed (no Blender, a broken file).
   4. "fresh"    : the dump on disk is as new as the .blend (or there is no .blend): nothing to do.
@@ -22,11 +23,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +36,8 @@ FORMAT = "dump_scene.py 1"  # the tag every dump carries (blender-addon/miyagi_b
 LIVE_EVERY_S = 1.0  # ask the live bridge at most this often per dump
 HEADLESS_EVERY_S = 10.0  # start a background Blender at most this often per dump
 _SUFFIX = ".scene.json"
+_HEAD_BYTES = 256  # a dump names its format in its first line or two: '{\n "dump": "dump_scene.py 1",'
+_TAG = re.compile(r'"dump"\s*:\s*"' + re.escape(FORMAT) + '"')
 
 _on = False
 _guard = threading.Lock()  # guards the tables below
@@ -98,6 +102,17 @@ def _mtime(path: str) -> float | None:
         return None
 
 
+def is_dump(path: str) -> bool:
+    """True when `path` holds a scene dump: its first bytes carry '"dump": "dump_scene.py 1"'. An empty file (a lesson
+    step's file made with touch before the step starts) or any other JSON is not one."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_HEAD_BYTES)
+    except OSError:
+        return False
+    return bool(_TAG.search(head.decode("utf-8", "replace")))
+
+
 def to_text(doc: dict) -> str:
     """A dump as the dumper writes it: indent 1, keys in order, non-ASCII kept, one trailing newline."""
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
@@ -150,12 +165,13 @@ def _try_live(key: str, blend: str, live, now: float) -> str | None:
 
 
 def _try_headless(key: str, blend: str, headless, now: float) -> str | None:
-    """Step 3: dump the saved .blend when it is newer than the dump and the last try is HEADLESS_EVERY_S old."""
+    """Step 3: dump the saved .blend when the dump is missing, is not a dump (empty, or other JSON), or is older than
+    the .blend, and the last try is HEADLESS_EVERY_S old."""
     b = _mtime(blend)
     if b is None:
         return None
     j = _mtime(key)
-    if j is not None and b <= j:
+    if j is not None and b <= j and is_dump(key):
         return None
     last = _headless_at.get(key)
     if last is not None and now - last < HEADLESS_EVERY_S:
