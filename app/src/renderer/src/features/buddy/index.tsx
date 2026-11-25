@@ -54,6 +54,7 @@ export { LivingMark, usePointerLean, type BuddyState, type LivingMarkProps } fro
 // For a layer that draws its own stroke (features/annotate): where the living mark is, and the point pose.
 export { useBonsaiPoint } from './Reach'
 export { Character, type CharacterKind, type Mood } from './Character'
+export { PokeBon } from './Poke'
 // The learner's color, and the pieces setup (features/onboarding BuddyStep) and Settings (SettingsRows) pick it with.
 export { BuddyColorPicker, BuddyPreview, BuddySwatches } from './ColorPicker'
 export { BuddyColor } from './SettingsRows'

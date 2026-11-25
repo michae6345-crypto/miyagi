@@ -18,7 +18,7 @@ import { useLesson } from '../../../core/lesson'
 import { closeWindow } from '../../../core/surfaces'
 import { PrimaryButton } from '../../../core/ui/atoms'
 import { color, fill, type2 } from '../../../core/theme'
-import { Character } from '../../buddy/Character'
+import { PokeBon } from '../../buddy/Poke'
 import { LEVELS, progressOf, useGrowth } from '../../buddy/growth'
 import { NAME } from '../../buddy/name'
 import { continueList } from '../../dashboard/continue'
@@ -407,7 +407,7 @@ function Bon({ passed }: { passed: number }): ReactNode {
   const p = progressOf(passed)
   return (
     <div data-progress-bon className="flex flex-col items-center text-center" style={{ paddingTop: 2 }}>
-      <Character size={128} level={p.level} />
+      <PokeBon size={128} level={p.level} />
       <div
         style={{
           fontSize: 12.5,
@@ -698,7 +698,7 @@ function FirstRail({ stacked }: { stacked: boolean }): ReactNode {
   return (
     <aside data-progress-rail aria-label="Pick a goal" style={stacked ? { marginTop: 40, paddingTop: 30, borderTop: hair } : { borderLeft: hair, padding: '0 0 48px 32px' }}>
       <div className="flex flex-col items-center text-center" style={{ paddingTop: 2 }}>
-        <Character size={112} level={1} />
+        <PokeBon size={112} level={1} />
         <div style={{ fontSize: 12.5, color: color.label, marginTop: 6 }}>Each step you pass grows {NAME ?? 'bon'}</div>
         <div style={{ fontSize: 12.5, color: color.faint, marginTop: 2 }}>
           {LEVELS[1].at} steps to {LEVELS[1].name}
