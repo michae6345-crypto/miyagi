@@ -7,6 +7,7 @@
  *   auth.bin            the Supabase session (features/auth.ts)
  *   login.json          the old "made a choice at the login" flag (auth.ts no longer writes it; an old one may stay)
  *   cloud-link.json     the note of the account link (features/cloudLink.ts)
+ *   session.json        the account's plan, today's caps and use, the sign-in mode (features/cloudSession.ts)
  *   install.bin         the miyagi-cloud install token (features/cloud.ts)
  *   onboarding.json     setup done, intro seen, the saved step (features/onboarding.ts)
  *   age.json            the age step's result (features/agegate.ts)
@@ -43,6 +44,7 @@ export const USER_DATA_FILES = [
   'auth.bin',
   'login.json',
   'cloud-link.json',
+  'session.json',
   'install.bin',
   'onboarding.json',
   'age.json',

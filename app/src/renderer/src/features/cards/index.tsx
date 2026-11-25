@@ -1292,7 +1292,10 @@ export default defineFeature({
         const l = useLesson.getState().lesson
         const d = useDrawer.getState()
         const n = notchOf({ notch: useNotchInfo.getState().notch })
-        return setupCardWidth(useOverlayWidth.getState().w, !!l && l.mode !== 'lesson', { open: d.open, at: d.at, w: PANEL_W }, CARD_W, n ? n.x + n.width / 2 : undefined)
+        const w = useOverlayWidth.getState().w
+        // Below the menu bar the pill sits at the overlay's centre (QA Q07): size the card around it too, so it fits
+        // between the drawer and the player and grows out of the pill instead of being pushed down mid-screen.
+        return setupCardWidth(w, !!l && l.mode !== 'lesson', { open: d.open, at: d.at, w: PANEL_W }, CARD_W, n ? n.x + n.width / 2 : w / 2)
       },
       useActive: () => {
         // The setup card's width follows the drawer, the lesson kind and the overlay (setupCardWidth).

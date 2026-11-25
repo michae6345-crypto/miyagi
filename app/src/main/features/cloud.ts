@@ -19,8 +19,14 @@
  *      "ok" cancels a heal still waiting (a late token_invalid about the token just replaced). A disabled install (403)
  *      sends no token_invalid: config.status.cloud says "unauthorized" and onboarding shows it.
  *
- *   6. installToken() / onInstallToken(): the token for features/cloudLink.ts (POST /v1/link ties it to the signed-in
- *      Supabase user). Main process only.
+ *   7. Region block (D9, cloud PR #267): POST /v1/install answers 451 {"error": "region_unavailable"}. That is final
+ *      for this launch: CloudView.region is set, no retry on an engine connect, no self-heal re-mint (a new token would
+ *      be refused the same way); only the learner's own cloud:retry asks again. The renderer shows the cloud's words
+ *      (features/signincard, onboarding, the startup status), never "Couldn't set up access".
+ *
+ *   6. installToken() / onInstallToken(): the token for features/cloudSession.ts (POST /v1/session, or /v1/link on an
+ *      older cloud, ties it to the signed-in Supabase user). healInstall(): the same self-heal, for a 401 there. Main
+ *      process only.
  *
  * Handles: cloud:get → CloudView (no token), cloud:retry → CloudView. Broadcasts feat:cloud CloudView.
  */
@@ -31,7 +37,16 @@ import { defineMainFeature } from '../context'
 
 export type CloudPhase = 'off' | 'minting' | 'ok' | 'failed'
 /** What a renderer may see: never the token. */
-export type CloudView = { state: CloudPhase; configured: boolean; secure: boolean; hasToken: boolean }
+export type CloudView = { state: CloudPhase; configured: boolean; secure: boolean; hasToken: boolean; region?: boolean }
+
+/** POST /v1/install's answer when the cloud's region block is on (cloud/app.py REGION_UNAVAILABLE). */
+export const REGION_STATUS = 451
+
+/** Is this response the cloud's region block? 451, or its body's error says so. */
+export function isRegionBlock(status: number, body?: unknown): boolean {
+  if (status === REGION_STATUS) return true
+  return !!body && typeof body === 'object' && (body as Record<string, unknown>).error === 'region_unavailable'
+}
 
 const TOKEN_RE = /^mi_[A-Za-z0-9_-]{16,128}$/
 const TOKEN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -151,6 +166,34 @@ export function forgetInstall(): void {
   forgetRef?.()
 }
 
+let healRef: (() => void) | undefined
+/**
+ * features/cloudSession.ts, after miyagi-cloud answered 401 bad_install_token: run the self-heal (the same backoff as
+ * the engine's cloud.token_invalid) and resolve true once a new token is in, false when none came within `waitMs` (the
+ * heal is waiting out its window, or the mint failed). Main process only.
+ */
+export function healInstall(waitMs = 15_000): Promise<boolean> {
+  const heal = healRef
+  if (!heal) return Promise.resolve(false)
+  const before = current?.token
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      off()
+      clearTimeout(t)
+      resolve(ok)
+    }
+    const off = onInstallToken(() => {
+      if (current && current.token !== before) finish(true)
+    })
+    const t = setTimeout(() => finish(false), waitMs)
+    t.unref?.()
+    heal()
+  })
+}
+
 /** Called whenever the install token appears or changes (first mint, self-heal). Returns what unsubscribes. */
 export function onInstallToken(fn: () => void): () => void {
   installListeners.add(fn)
@@ -185,8 +228,10 @@ export default defineMainFeature({
     let state: CloudPhase = url ? 'failed' : 'off'
     let lastTry = 0
     let inFlight: Promise<void> | undefined
+    /** The cloud said 451 region_unavailable this launch: no automatic mint or heal until the learner retries. */
+    let region = false
 
-    const view = (): CloudView => ({ state, configured: !!url, secure, hasToken: !!stored })
+    const view = (): CloudView => ({ state, configured: !!url, secure, hasToken: !!stored, ...(region ? { region: true } : {}) })
     const publish = (): void => ctx.broadcast('cloud', view())
     const apply = (): void => {
       ctx.engine.setCloud(stored && url ? { miyagiToken: stored.token, miyagiCloud: cloudApiRoot(url) } : undefined)
@@ -233,7 +278,12 @@ export default defineMainFeature({
             signal: abort.signal,
             redirect: 'error'
           })
-          if (!res.ok) throw new Error(`status ${res.status}`)
+          if (!res.ok) {
+            const body: unknown = await res.json().catch(() => undefined)
+            if (isRegionBlock(res.status, body)) region = true
+            throw new Error(region ? 'region' : `status ${res.status}`)
+          }
+          region = false
           const body = (await res.json()) as { token?: unknown; token_id?: unknown }
           if (typeof body.token !== 'string' || !TOKEN_RE.test(body.token)) throw new Error('bad token shape')
           stored = { token: body.token, tokenId: typeof body.token_id === 'string' && TOKEN_ID_RE.test(body.token_id) ? body.token_id : undefined, url }
@@ -242,7 +292,10 @@ export default defineMainFeature({
         } catch (err) {
           state = 'failed'
           // Only the reason's class, never a body or the token.
-          console.warn('[cloud] could not get an install token:', err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'request failed')
+          console.warn(
+            '[cloud] could not get an install token:',
+            region ? 'not available in this region' : err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'request failed'
+          )
         } finally {
           clearTimeout(timer)
           inFlight = undefined
@@ -254,7 +307,7 @@ export default defineMainFeature({
 
     /** Self-heal: forget the token the proxy no longer knows (memory and install.bin) and mint one new one. */
     const heal = async (): Promise<void> => {
-      if (!url) return
+      if (!url || region) return // a region block: a new token would be refused the same way
       if (inFlight) return inFlight // already getting a token
       console.warn('[cloud] the proxy does not know this install token; getting a new one') // never the token
       stored = undefined
@@ -267,6 +320,7 @@ export default defineMainFeature({
     }
     const healer = createHealer(heal)
     ctx.engine.onCloudTokenInvalid(() => healer.invalid())
+    healRef = () => healer.invalid()
     // The engine answers each config.keys with config.status; cloud "ok" means it holds a token the proxy accepts.
     ctx.engine.onEvent((e) => {
       if (e.type === 'config.status' && e.payload.cloud === 'ok') healer.cancel()
@@ -288,7 +342,7 @@ export default defineMainFeature({
     void mint()
     // An engine (re)connect is a good moment to try again, but not more often than RETRY_MS.
     ctx.engine.onOpen(() => {
-      if (url && !stored && Date.now() - lastTry > RETRY_MS) void mint()
+      if (url && !stored && !region && Date.now() - lastTry > RETRY_MS) void mint()
     })
 
     ctx.handle('cloud:get', () => view())

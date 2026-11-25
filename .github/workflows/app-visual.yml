@@ -1,0 +1,58 @@
+name: app-visual
+# Screenshot regression for the browser stage (MIC-12): every app window page and every overlay scenario at
+# 1024 / 1280 / 1728 wide, light and dark, against the PNG baselines in app/e2e/tests/__screenshots__.
+# macOS runner: the baselines are macOS Chromium headless-shell renders. Headless, 3 workers, offline (the stage runs
+# the mock inline; every non-localhost request is aborted). On a diff, the HTML report with expected / actual / diff
+# images is uploaded as an artifact.
+# Intended UI change: the run fails on the diff, then re-shoots what differed and uploads app-visual-baselines (the full
+# __screenshots__ folder: committed PNGs plus this runner's new ones). Review the report, unzip the artifact over app/e2e/tests/__screenshots__
+# and commit. (workflow_dispatch update=true does the same, but only once this file is on the default branch.)
+on:
+  pull_request:
+    paths: ["app/**", ".github/workflows/app-visual.yml"]
+  push:
+    branches: [michael/app-ui-v4]
+    paths: ["app/**", ".github/workflows/app-visual.yml"]
+  workflow_dispatch:
+    inputs:
+      update:
+        description: "Write new baselines (uploaded as an artifact, never committed by the job)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: app-visual-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # a push to app-ui-v4 always finishes (it lands every few minutes)
+jobs:
+  visual:
+    runs-on: macos-latest
+    timeout-minutes: 45 # ~12 min of shots (scenarios settle first) plus a re-shoot of what failed
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # the stage is plain Vite in Chromium; Electron never starts
+      CI: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: "app/package-lock.json\napp/e2e/package-lock.json" }
+      - name: app dependencies (the stage)
+        run: npm ci
+        working-directory: app
+      - name: test dependencies
+        run: npm ci && npx playwright install chromium --only-shell
+        working-directory: app/e2e
+      - name: screenshots
+        working-directory: app/e2e
+        run: npx playwright test ${{ inputs.update && '--update-snapshots' || '' }}
+      - name: report (expected / actual / diff)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: app-visual-report, path: app/e2e/playwright-report, retention-days: 14 }
+      - name: re-shoot as candidate baselines (after a diff)
+        if: failure() && !inputs.update
+        working-directory: app/e2e
+        run: npx playwright test --last-failed --update-snapshots --reporter=dot || true # only what differed; the rest stay as committed
+      - name: new baselines
+        if: always() && (inputs.update || failure())
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: app-visual-baselines, path: app/e2e/tests/__screenshots__, retention-days: 14 }

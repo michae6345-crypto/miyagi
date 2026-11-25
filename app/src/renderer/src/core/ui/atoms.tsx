@@ -283,18 +283,24 @@ const ACTION_ICON: Record<OptionAction, LucideIcon> = { explain: MessageSquareTe
  * An option (Explain, Diagram, Watch, Show me, Hint): a 30px pill in the action's pastel with ink label and
  * icon, keycap on ink 10%. The same action is the same color everywhere (theme.actionTone). Options only.
  */
-export function OptionButton({ action, label, kbd, onClick, icon }: { action: OptionAction; label: string; kbd?: string; onClick: () => void; icon?: LucideIcon }): ReactNode {
+/**
+ * `busy`: the press is waiting on its answer (never look dead): the Spinner takes the icon's place, aria-busy is set,
+ * and a second click doesn't ask again.
+ */
+export function OptionButton({ action, label, kbd, onClick, icon, busy }: { action: OptionAction; label: string; kbd?: string; onClick: () => void; icon?: LucideIcon; busy?: boolean }): ReactNode {
   const I = icon ?? ACTION_ICON[action]
   return (
     <motion.button
       type="button"
+      data-option={action}
+      aria-busy={busy || undefined}
       className={`mg-press mg-press-light flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
       style={{ backgroundColor: actionTone[action], color: color.onPastel, boxShadow: SLAB }}
-      {...pressMotion()}
+      {...pressMotion(busy)}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
+      onClick={busy ? undefined : onClick}
     >
-      <I size={13} strokeWidth={1.8} className="shrink-0" />
+      {busy ? <Spinner size={13} c={color.onPastel} track={fill.onPastelKey} /> : <I size={13} strokeWidth={1.8} className="shrink-0" />}
       {label}
       {kbd && (
         <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onPastelKey }}>
@@ -350,7 +356,7 @@ export function CardButton({ children, onClick, primary }: { children: ReactNode
 export function CloseButton(): ReactNode {
   return (
     <motion.button
-      className="mg-press grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+      className="mg-press grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
       style={{ background: fill.key }}
       {...pressMotion()}
       onClick={() => emitUi('dismiss')}

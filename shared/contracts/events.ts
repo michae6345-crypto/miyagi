@@ -13,7 +13,10 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
 export type StepKind = "code" | "run" | "read";   // code: type in the file · run: run a command · read: learn a concept first
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[] }   // skillIds (Nov 22, Skills page): the SkillInfo ids this step builds evidence for   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
+/** Any link (Nov 24, ANY-LINK.md): where a web / github lesson's step comes from. url: the page (a #fragment when the engine knows the
+ *  heading's anchor); heading: that section's heading text. Never a copy of the page's words. */
+export interface PageRef { url: string; heading?: string }
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[]; pageRef?: PageRef }   // pageRef (any link, Nov 24): a web / github lesson's step: the part of the page it comes from (ANY-LINK.md); the app may offer "Open this part"   // skillIds (Nov 22, Skills page): the SkillInfo ids this step builds evidence for   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
 /** "Before you start" concept card (Just teach me): the pre-knowledge the steps rely on. diagramPrompt set = the app may ask for a picture with action {kind:"diagram", text:"primer:<id>"}. */
 export interface PrimerItem { id: string; title: string; body: string; code?: string; diagramPrompt?: string }   // null/absent: no video (a "lesson" mode lesson)
 /** Learn-anything screens (Just teach me; mockups 01 drawer v2, 02 concept panel, 03 "Before you start"). All optional: the app hides a part that is absent.
@@ -68,14 +71,14 @@ export interface EngineEvents {
                               goalMatch?: { score: number | null; note: string };
                               mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string;
                               build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[];
-                              outline?: LessonOutline; app?: LessonApp };   // app (Nov 24): the desktop app of a no-code lesson, for the on-screen coach (absent: a code / VS Code lesson)
-                   steps: StepSummary[]; replay?: boolean };   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              outline?: LessonOutline; origin?: BuildSource; app?: LessonApp }; steps: StepSummary[]; replay?: boolean; buildS?: number };   // origin (any link, Nov 24): what the lesson was built from (kind "web" / "github": mode "lesson", no video; the app may show "From <site>" with an Open link)   // buildS: seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready, only on a build's first lesson.ready (engine build metrics; optional, the app may ignore it)   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)   // app (Nov 24): the desktop app of a no-code lesson, for the on-screen coach (absent: a code / VS Code lesson)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number; replay?: boolean;
                     where?: string; then?: string };   // v2 (Les-Working): where = the line above the code ("Type this in the new cell"); then = the line under it ("Then run it with the arrow beside the cell.")   // replay: a reconnect's / restore's replay of the step already running (not a new step)   // estMinutes: about how long this step takes ("about 4 min")   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
-  "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
-  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean; already?: boolean; summary?: string };   // summary (v2, Les-Passed / Prog-Step-Passed): what the learner just did, <= 12 words   // already: its code was already in the file (pasted ahead / Do it for me): passed without starting; ONE card "You already did steps 2–3" follows   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
+  "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string; epoch?: number; gen?: number };   // epoch / gen: the lesson and step generation the engine sent it under (optional, additive)
+  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean; already?: boolean; summary?: string;
+                   key?: string; counted?: boolean; assisted?: boolean; skillIds?: string[]; proofId?: string };   // ui-v4 (Nov 24), all optional: key = "<lessonId>:<stepId>", the pass's stable id (bon, activity.recent and mastery de-dupe on it); counted: this pass grew bon's count (not skipped, not already, never a key counted before; a `bon` push follows); assisted: passed after Show me's snippet, a level-3 hint or Do it for me (it counts for bon, not toward mastery); skillIds: the SkillInfo ids it is evidence for (as StepSummary.skillIds); proofId: the Proof kept for it (proof.get)   // summary (v2, Les-Passed / Prog-Step-Passed): what the learner just did, <= 12 words   // already: its code was already in the file (pasted ahead / Do it for me): passed without starting; ONE card "You already did steps 2–3" follows   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
     stepId: string;
     severity: "warn" | "fail";
@@ -87,6 +90,7 @@ export interface EngineEvents {
     level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
     targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;  // what the coach points at (screen points)   // lesson mode: ONE target, boxId 0 = the culprit lines the engine measured (label: the box's caption, text: those lines); it may come in a re-sent off-track (same card) once the box is measured; never in a reconnect's replay
     guidingQuestion?: string;  // a Socratic nudge to show under the body
+    epoch?: number; gen?: number;   // the lesson and step generation the engine sent it under (optional, additive)
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string; zoom?: boolean } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption   // zoom: the target is one of VS Code's own controls under 32 pt (the Run ▷, Toggle Panel, a tab's unsaved dot): show the loupe
@@ -102,16 +106,24 @@ export interface EngineEvents {
    *  { clear: true }: fade every mark now. An app that ignores this event loses nothing (spotlight / targets still come).
    *  A mark with text (on-screen coach) ignores holdMs (see Annotation). */
   "annotate": { marks: Annotation[]; holdMs?: number } | { clear: true };
-  /** Circle to ask, streamed (Nov 22): the answer to action ask {askId} as the model writes it, so the first words show about
-   *  1 s after release. text: the NEW text to append to what came before for this askId (never the whole text so far); it is
-   *  the answer card's body, plain prose. done: true on the last delta (its text may be ""). In order on the socket; the
-   *  first delta for an askId opens the answer card, next to the circle. The full answer still comes after as the normal
-   *  card {kind: "answer", askId, region}: it REPLACES the streamed text (title, body, actions), even when it differs (the
-   *  engine cleans the full text, or the stream broke and the card is a fallback such as "Couldn't reach Claude"). Drop
-   *  deltas for an askId the app no longer waits for, or that come after its card. The engine may send none (a slow or
-   *  buffering cloud, a fallback card): the card alone is enough. An app that ignores this event loses nothing.
-   *  text may be missing (events.py AnswerDelta defaults it to ""): read a missing text as "". */
-  "answer.delta": { askId: string; text?: string; done?: boolean };
+  /** Circle to ask, streamed (Nov 22; fast circle to ask, server/coach/fast_ask.py): the answer to action ask {askId} as the model
+   *  writes it, so the first words show about 1 s after release. answer.delta: text = the NEW text to append to what came before
+   *  for this askId (never the whole text so far), plain prose; seq counts up from 0 per ask. In order on the socket; the first
+   *  delta for an askId opens the answer card, next to the circle. The model's first-line [DRAW:...] tag never reaches the app: it
+   *  comes as `annotate`. answer.done: the stream is over; its `text` is the whole cleaned answer and the app MUST replace what the
+   *  deltas built with it (deltas go out as the words arrive, so a sentence the engine flags as a prompt injection may have shown in
+   *  them; done.text never has it). complete false: cut short (reason "refusal" | "max_tokens" | "error" | "moved_on"; moved_on: the
+   *  step changed, a "moved on" card follows; refusal: text is "" so the declined words leave the screen, and a failed answer card
+   *  follows). fallback true: the stream failed and a non-streaming retry answered. The full answer still comes after as the normal
+   *  card {kind: "answer", askId, region}: it REPLACES the streamed text (title, body, actions), even when it differs (a fallback
+   *  such as "Couldn't reach Claude"); a streaming app keeps its streamed card for that askId. Drop deltas for an askId the app no
+   *  longer waits for, or that come after its card. The engine may send none (a slow or buffering cloud, a fallback card): the card
+   *  alone is enough. An app that ignores these events loses nothing.
+   *  Union of both readings (Nov 24 contract sync): delta.done true marks the last delta for an app that predates answer.done; an
+   *  engine that sends answer.done never needs to set it. text may be missing (events.py AnswerDelta defaults it to ""): read a
+   *  missing text as "". askId: the ask's own id; events.py also lets it be absent (an ask that carried none), which the app drops. */
+  "answer.delta": { askId: string; text?: string; done?: boolean; seq?: number };
+  "answer.done": { askId?: string; text: string; complete?: boolean; fallback?: boolean; reason?: string };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
@@ -122,7 +134,7 @@ export interface EngineEvents {
    *          when the step's code isn't on screen yet. The lilac Show me tile.
    *  "complete" (v2, Prog-Completion): the last step passed; carries skillMap + result. Typed as CardKindV2 (below), not in this union,
    *  so the app's exhaustive per-kind tables keep compiling; the engine sends it only when the app said so (a future capability). */
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
+  "card": { epoch?: number; gen?: number; stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
             dismissAfterMs?: number;      // the app closes the card on its own after this long (a one-line success: "requests installed ✓", no buttons)
             // open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend, made from Blender's factory scene when missing, opened with the miyagi bridge so no add-on install is needed); label in setup.actionLabels.open_in_app ("Open in Blender"); action open_in_app {text?: the app's tool id, absent = the lesson's app}; the card sends setup.holdVideo false
@@ -163,7 +175,7 @@ export interface EngineEvents {
   };
   "speak": { audioUrl: string; text: string };   // audioUrl is RELATIVE (e.g. /tts/<hash>.mp3): resolve it against the engine's http origin
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
-  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" | "busy"; detail?: string; retryInS?: number };   // v2: detail = what the engine does right now ("Checking your cell", <= 6 words); busy = the AI provider is overloaded, the engine retries in retryInS seconds (no hue)
+  "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" | "busy"; detail?: string; retryInS?: number; epoch?: number; gen?: number };   // epoch / gen: the lesson and step generation the engine sent it under (optional, additive)   // v2: detail = what the engine does right now ("Checking your cell", <= 6 words); busy = the AI provider is overloaded, the engine retries in retryInS seconds (no hue)
   /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */
   "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
   /** Install token self-heal: the miyagi cloud does not know this install's token (the proxy answered 401, e.g. its database was
@@ -172,9 +184,14 @@ export interface EngineEvents {
    *  with cloud "ok" (the new token's answer) cancels a heal still waiting. Not sent for an install an operator disabled (403):
    *  config.status.cloud says "unauthorized" instead. */
   "cloud.token_invalid": { reason?: "unknown_token" };
+  /** The miyagi cloud would not take a shared lesson build claim (server/lesson/cloud_cache.py on_notice). The lesson is built on
+   *  this Mac either way. reason: the cloud's error or cap name ("signin_required", "lesson_builds", "anon_daily_cap", ...);
+   *  status: its HTTP status (401 sign-in required, 403, 429 a cap); resets_at: ISO time a cap resets, when the cloud says.
+   *  The app shows its sign-in card (401) or cap line (429). Never carries the token or a user id. */
+  "cloud.notice": { reason: string; status: number; resets_at?: string };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
-  "error": { message: string };
+  "error": { message: string; epoch?: number; gen?: number };
 
   // ---------- v2 (miyagi-v2 BUILD-PLAN W0-1). All additive; an app that ignores them keeps today's behaviour. ----------
   /** First message on every connect. contract: the contract date this engine speaks ("2026-11-20"); capabilities: the v2 COMMANDS it
@@ -195,6 +212,53 @@ export interface EngineEvents {
   "library.item": { item: LibraryItem; steps?: OutlineStep[]; overview?: string };
   /** Answer to progress.get (Prog-Progress-Window). Every number comes from passed checks; null fields = not tracked yet. */
   "progress": Progress;
+
+  // ---------- ui-v4 (Nov 24): Adrian's v4 pages, skill tree round 3, bon. All additive; shared/contracts/UI-V4.md has an example
+  // of each. The app sends a ui-v4 command only when engine.hello.capabilities lists it (as every v2 command); an app that
+  // ignores these events keeps today's behaviour. ----------
+  /** Answer to activity.get, and pushed again when it changes (a counted step.passed, a lesson finished, practice minutes
+   *  tallied: at most one push every 10 s), only to a connection that sent activity.get. Home's week, Progress's 12 weeks,
+   *  the numbers under them and "Recently passed". */
+  "activity": Activity;
+  /** bon (the buddy): the engine's count of steps passed by doing them, and the level it makes (BON_LEVELS). Answer to bon.get
+   *  and bon.import; pushed after every counted step.passed (grew: that pass crossed into a new level: the level-up moment). */
+  "bon": BonState;
+  /** The learner's plans (catalog presets, playlists, goals) with each lesson's state. Answer to plans.list / plan.start /
+   *  plan.remove, and pushed when a plan lesson changes state (it started, its last step passed). */
+  "plans": { items: PlanState[]; reqId?: string };
+  /** Answer to playlist.get. Comes twice: first the videos (fast: the playlist page, no model call) with proposing true, then
+   *  the same url again with proposal (lessons and skills matched to the videos) and proposing false. error: nothing to show. */
+  "playlist": PlaylistInfo;
+  /** Answer to plan.propose: a plan for a goal, drawn from catalog lessons first. proposing true: still working (an answer
+   *  with the proposal follows). */
+  "plan.proposal": { goal: string; reqId?: string; proposing?: boolean; proposal?: PlanProposal | null; error?: LookupError };
+  /** Answer to link.get: what a pasted link is, for the preview card under the ask field (skill tree r3, home-link). Like
+   *  playlist, a fast first answer (pending true: title and length only) may be followed by the full one. */
+  "link.preview": LinkPreview;
+  /** Answer to proof.get: the learner's own work behind passes (the skill panel's "The code you wrote" / "The check it
+   *  passed"). Kept on this Mac only, never sent to the cloud. */
+  "proof": { items: Proof[]; skillId?: string; reqId?: string };
+  /** Answer to data.get and data.delete: what the engine keeps on this Mac, how big, and what it can delete (Settings, Your
+   *  data). deleted: on a data.delete answer, the kinds really removed (a kind this engine cannot delete yet is left out). */
+  "data": DataInventory;
+
+  // ---------- ambient help (Nov 24): help outside a lesson, in any app. shared/contracts/AMBIENT-HELP.md has an example of
+  // each. All additive; the app sends an ambient command only when engine.hello.capabilities lists it. ----------
+  /** An error Miyagi spotted on screen outside a lesson (a traceback, a failed command, a dialog), read on this Mac only: nothing
+   *  leaves the Mac until the learner presses Explain (error.explain). Sent only after ambient.set {errors: true}, never while a
+   *  lesson runs (its off-track covers that), at most one every 5 s. The same error again (same id) sets `again`, never a new
+   *  card. { id, clear: true }: it is gone (the next run printed no error, the dialog closed): fade its peek. */
+  "error.seen": SeenError | { id: string; clear: true };
+  /** Answer to error.explain: { id, pending: true } at once, then the explanation (or error: why there is none). */
+  "error.explanation": ErrorExplanation;
+  /** Answer to setup.scan, and sent again after each setup.fix finishes: what the open project needs on this Mac. Read from the
+   *  project's own files on this Mac (requirements.txt, pyproject.toml, package.json, .nvmrc, Dockerfile ...), no model call. */
+  "setup.report": SetupReport;
+  /** Answer to help.ask: 1 to HELP_STEPS_MAX short steps in the frontmost app, each with a place for bon to point at. { pending:
+   *  true } first, then the steps; sent again (same reqId) as the learner goes: current moves on when the step's target is
+   *  clicked or the screen changes the way the step expects, and target rects move when the window does. done: the last step
+   *  happened. */
+  "help.steps": HelpSteps;
 }
 
 // ---------- v2 shapes ----------
@@ -202,8 +266,12 @@ export interface EngineEvents {
 export type CardKindV2 = EngineEvents["card"]["kind"] | "complete";
 export type BuildStage = "watching" | "steps" | "checks" | "ready";   // Home-Building: Watching the video · Finding the steps · Writing the checks · Ready to start
 export interface BuildPhase { id: BuildStage; label: string; state: "done" | "active" | "next"; detail?: string }   // detail: "6 steps found", "Step 4 of 6"
-export interface BuildSource { kind: "youtube" | "goal" | "library"; title: string; channel?: string; durationS?: number; url?: string }
-export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown";
+/** kind "web" (an article / docs page) and "github" (a repo's README or docs folder): any link (Nov 24, ANY-LINK.md), with url always set,
+ *  site ("docs.python.org", "github.com/pallets/flask") and author when the page names one. An older app that only knows the first three
+ *  kinds shows title and url. */
+export type BuildSourceKind = "youtube" | "goal" | "library" | "web" | "github"
+export interface BuildSource { kind: BuildSourceKind; title: string; channel?: string; durationS?: number; url?: string; site?: string; author?: string }
+export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown" | "no_content" | "blocked";   // no_content / blocked (any link): the page had no readable text (a script-only page, an image) / the site refused (sign-in, paywall, robots, 4xx)
 /** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
 export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
 export interface MissingLine { text: string; state: "ok" | "missing" }
@@ -231,9 +299,10 @@ export interface Progress {
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
 export interface SetupItem {
-  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "web_app"; why: string;
+  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "node_package" | "web_app"; why: string;   // node_package (ambient help, Nov 24): a project's package.json dependencies as one row
   needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
-  install: { method: "brew" | "brew_cask" | "pip" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)
+  install: { method: "brew" | "brew_cask" | "pip" | "npm" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)   // npm (ambient help): `npm install` in the project folder (setup.fix only)
+  from?: string;       // ambient help (Nov 24), setup.report: the project file (and line) that asked for it: "requirements.txt:4", ".nvmrc", "Dockerfile"
   // Nov 22, additive (server/workspace/apps.py). A licensed app (AutoCAD, Photoshop, Excel, MATLAB...) is never installed:
   // install.method is "download" with the vendor's page, and the row offers actions instead of Install.
   setupKind?: "package" | "free_app" | "licensed_app" | "web_app";   // package: pip / brew formula; free_app: allowlisted Homebrew cask (Install, confirm); licensed_app: never installed; web_app: Open
@@ -297,6 +366,13 @@ export interface SkillInfo {
   review?: { dueAt: string | number } | null;                // spaced review; due once dueAt has come
   lessons?: SkillLessonRef[];
   example?: { code?: string; caption?: string };             // "You'll be able to": a one-line example and its caption
+  // ui-v4 (Nov 24, skill tree round 3), all optional:
+  catalogId?: string;                                        // the catalog skill id this node is ("py.loops", catalog.json plans[].skills[].id)
+  steps?: SkillStepRef[];                                    // the Steps zoom: every step behind it, passed or not, in lesson order
+  mastery?: SkillMastery;                                    // how close to mastered under the two-day rule
+  schedule?: SkillReviewInfo | null;                         // the spaced-review schedule in full (review above keeps only dueAt)
+  proofIds?: string[];                                       // Proofs kept for its passes, newest first (proof.get {skillId} returns them)
+  planIds?: string[];                                        // PlanState ids that grow it
 }
 export interface SkillGraphEdge { from: string; to: string; kind?: "requires" | "helps"; weight?: number }   // SkillInfo ids; kind absent = requires; weight 0..1 (helps only)
 export interface SkillCapstone {
@@ -317,6 +393,10 @@ export interface SkillGraphInfo {
   next?: SkillPick | null; alsoReady?: string[]; keepFresh?: string[];   // alsoReady, keepFresh: <= 3 skill ids each
   events?: SkillEvent[]; ackedUntil?: string | number | null;           // events newer than ackedUntil play once; the app then sends skills.ack {until}
   week?: SkillWeek | null; portfolio?: PortfolioItem[];
+  // ui-v4 (Nov 24), all optional:
+  tracks?: SkillTrackInfo[];                                 // the Tracks zoom and Progress's Tracks table, in display order
+  masteryDays?: number;                                      // the mastery rule in use: passed unassisted on this many different local days (MASTERY_DAYS)
+  reviewDays?: number[];                                     // the review schedule in use, days after mastery for each round (REVIEW_DAYS is the proposal)
 }
 
 /** Circle to ask, fast path (Nov 22): the circled region, already captured by the app's helper (miyagi-listen) while the keys
@@ -329,10 +409,233 @@ export interface SkillGraphInfo {
  *  as before. Used for this one ask only, never stored or logged. */
 export interface AskCapture { path: string; w: number; h: number; rect: { x: number; y: number; w: number; h: number }; displayId: number }
 
+// ---------- ui-v4 shapes (Nov 24). Times are ISO 8601 text with the learner's UTC offset ("2026-11-24T16:12:00-08:00");
+// days are the learner's local date ("2026-11-24"). shared/contracts/UI-V4.md: who sends each message, when, with examples. ----------
+
+/** Activity: how many local days `days` covers (12 weeks, ending today). */
+export const ACTIVITY_DAYS = 84
+/** Activity: how many passed steps `recent` carries at most. */
+export const RECENT_PASSED_MAX = 20
+/** One local day. minutes: practice minutes that day (a minute with a lesson running and the learner doing something in it:
+ *  an edit, a save, a run, a check, the lesson video playing); steps: steps passed that day (counted passes only). */
+export interface ActivityDay { date: string; minutes: number; steps?: number }
+/** One counted pass, for "Recently passed" (Home, Progress) and the skill panel. key: step.passed.key. skills: the labels of
+ *  skillIds, in the same order (the table's Skill tag). planId: the plan the lesson belongs to, when it does. */
+export interface PassedStep { key: string; lessonId: string; lessonTitle: string; stepId: string; stepTitle: string; at: string;
+                              skillIds?: string[]; skills?: string[]; planId?: string; assisted?: boolean; proofId?: string }
+export type MilestoneKind = "first_step" | "first_lesson" | "skill_mastered" | "track_done" | "plan_finished" | "project_done" | "steps"
+/** A dated first or a round number ("First lesson finished", "50 steps passed"). Optional: the Nov 24 trim took milestones off
+ *  Progress, so an app may ignore them and an engine may send none. count: for kind "steps". */
+export interface Milestone { id: string; kind: MilestoneKind; title: string; at: string; skillId?: string; planId?: string; count?: number }
+export interface ActivityTotals { lessonsFinished: number; stepsPassed: number; minutes: number | null; skillsMastered?: number }   // all time on this Mac; minutes null: not recorded yet
+export interface Activity {
+  asOf: string;                                              // when this snapshot was made
+  tz?: string;                                               // the IANA zone the days are cut in ("America/Los_Angeles")
+  minutesTracked: boolean;                                   // false: this engine does not record minutes yet: every minutes is 0 / null; show steps, never "0 min"
+  days: ActivityDay[];                                       // ACTIVITY_DAYS days, oldest first, every day present (0 = nothing), the last is today
+  week: { minutes: number | null; stepsPassed: number; skillsMastered: number };   // this week, Monday to today (Home's rail, Progress's "This week")
+  totals: ActivityTotals;
+  recent: PassedStep[];                                      // newest first, at most RECENT_PASSED_MAX
+  milestones?: Milestone[];                                  // oldest first
+}
+
+/** bon's eight levels (features/buddy/growth.ts LEVELS, Adrian Nov 23): at = the passed steps where the level starts. The engine
+ *  computes BonState.level from these; both files carry the same table (the contract parity test checks it). */
+export interface BonLevel { level: number; name: string; at: number; has: string }
+export const BON_LEVELS: readonly BonLevel[] = [
+  { level: 1, name: "Seed", at: 0, has: "one leaf" },
+  { level: 2, name: "Sprout", at: 3, has: "two leaves" },
+  { level: 3, name: "Shoot", at: 8, has: "a third leaf" },
+  { level: 4, name: "Sapling", at: 15, has: "four leaves" },
+  { level: 5, name: "Budding", at: 25, has: "a bud" },
+  { level: 6, name: "In bloom", at: 40, has: "a blossom" },
+  { level: 7, name: "Young tree", at: 60, has: "its first pad" },
+  { level: 8, name: "Bonsai", at: 90, has: "a shaped tree" }
+]
+/** bon's count, kept by the engine (~/miyagi/state) so it survives the app's storage and every window agrees.
+ *  steps: lifetime passes counted, each step.passed.key at most once, never a skipped or already-done step (an assisted pass counts).
+ *  level / name: BON_LEVELS for steps. next: the level after it (absent at Bonsai); fraction: 0..1 through this level (1 at the last).
+ *  grew: true only on the push from the pass that crossed into `level`; lastKey: that pass's key. */
+export interface BonState { steps: number; level: number; name: string; next?: { level: number; name: string; at: number; left: number };
+                            fraction?: number; grew?: boolean; lastKey?: string }
+
+// Plans. The catalog (Adrian's docs/ui-next/catalog, SCHEMA.md) ships with the app as catalog.json and replaces
+// features/library/presets/packs.ts; these types are its shape, so the engine can read the same file for plan.propose.
+export type PlanGroup = "language" | "environment" | "topic"                   // a coding language · an app or tool you work in · a library or subject on top of one
+export type PlanTopic = "code" | "data" | "ai" | "3d" | "cad" | "design" | "tools"   // the filter tab
+export type PlanToolId = "vscode" | "jupyter" | "terminal" | "browser" | "blender" | "freecad" | "fusion" | "onshape" | "figma" | "excel"
+                       | "sheets" | "unity" | "godot" | "xcode" | "arduino" | "docker" | "rstudio"
+export type PlanCheckKind = "run" | "code" | "scene" | "file" | "screen"     // reads what the program prints · the file typed · the model in the app · a saved file · the window
+export interface PlanTool { id: PlanToolId | string; label: string }
+export interface CatalogSkill { id: string; label: string; needs: string[] }  // id "<prefix>.<name>" ("py.loops"), stable; label <= 18 characters
+export interface CatalogProject { title: string; brief: string; checks: string[] }   // made alone at the end; exactly 3 checks a machine could verify
+export interface CatalogLesson { title: string; goal: string; grows: string[]; minutes: number; steps: number; check: PlanCheckKind; passes: string }   // goal: build it with learn {query: goal, mode: "lesson"}
+export interface PlaylistVideo { id: string; title: string; seconds?: number }   // id: the YouTube video id
+export interface CatalogPlaylist { planId: string; title: string; channel: string; playlistId: string; url: string; videoCount: number; totalSeconds: number; videos: PlaylistVideo[] }
+export interface CatalogPlan { id: string; title: string; group: PlanGroup; topic: PlanTopic; track: string; tool: PlanTool; also: string[];
+                               level: "start" | "next"; needs: string[]; line: string; project: CatalogProject; skills: CatalogSkill[]; lessons: CatalogLesson[];
+                               minutes?: number; playlists?: CatalogPlaylist[] }   // minutes / playlists: added by build.mjs (the lessons' sum; catalog/playlists.json)
+export interface Catalog { version: number; plans: CatalogPlan[] }
+
+/** Which plan lesson a learn / learn_url / library.start is. index: 0-based in PlanState.lessons. */
+export interface PlanLessonRef { id: string; index: number }
+export type PlanSource = "preset" | "playlist" | "goal"
+export type PlanLessonState = "done" | "in_progress" | "next" | "todo" | "skipped"   // next: the one Continue starts (exactly one, until the plan is done)
+export interface PlanLesson {
+  index: number; title: string;
+  goal?: string;                                             // preset / goal plans: the learn query
+  videoId?: string; seconds?: number;                        // playlist plans: the video (learn_url https://www.youtube.com/watch?v=<videoId>)
+  minutes?: number; stepCount?: number; check?: PlanCheckKind; passes?: string;   // from the catalog lesson, when there is one
+  skillIds?: string[];                                       // the skills it grows (catalog ids for presets)
+  state: PlanLessonState;
+  lessonId?: string; libraryId?: string;                     // once built: the engine's lesson id, and its library id (library.start resumes it)
+  steps?: { done: number; total: number };                   // in_progress: "step 3 of 4"
+  openedAt?: string; doneAt?: string;
+}
+export interface PlanState {
+  id: string;                                                // the catalog id for a preset ("intro-blender"); "pl-<playlistId>"; "goal-<8 hex>"
+  title: string; source: PlanSource;
+  catalogId?: string; playlistId?: string; url?: string; goal?: string;
+  track?: string; tool?: PlanTool;
+  lessons: PlanLesson[];
+  project?: (CatalogProject & { state?: "locked" | "ready" | "done"; on?: boolean }) | null;   // on false: the learner switched the project off (playlist plans)
+  done: number; total: number;                               // lessons done of lessons in the plan (skipped lessons are not done)
+  nextIndex?: number | null;                                 // the next lesson; null: every lesson is done
+  minutesLeft?: number | null;                               // the lessons not done, by their minutes (or video length)
+  startedAt?: string; updatedAt?: string; finishedAt?: string | null;
+}
+export type LookupError = "not_found" | "private" | "unsupported" | "offline" | "too_long" | "busy" | "unknown" | "blocked"   // unsupported: not a link the engine can read (before any link: not a YouTube video / playlist link; with "link.any": not http(s), or a file type it cannot read such as a zip); busy: the AI provider is overloaded, try again; blocked (any link): the site needs a sign-in, a paywall, robots.txt says no, or it answered 401 / 403 / 451
+/** A lesson a playlist or goal plan would have. from: the catalog lesson it is (goal plans draw from the catalog first). skip: the
+ *  engine suggests leaving it out (a talk-only intro, a video for another OS); the learner can flip it. */
+export interface ProposedLesson { title: string; goal?: string; videoId?: string; seconds?: number; minutes?: number;
+                                  grows?: string[]; skills?: string[]; from?: { planId: string; index: number }; skip?: boolean; why?: string }   // grows: skill ids; skills: their labels, same order
+export interface PlanProposal {
+  title: string; source: "playlist" | "goal";
+  tool?: PlanTool; tools?: PlanTool[];                       // the tool the plan uses; tools: the choices offered ("Work in FreeCAD / Fusion / Onshape")
+  lessons: ProposedLesson[];
+  skills?: CatalogSkill[];                                   // the skills it grows, with needs (the skill tree draws them)
+  project?: CatalogProject | null;
+  minutes?: number;                                          // lessons + project
+  fromPlans?: string[];                                      // catalog plan ids it drew from
+  have?: { done: number; of: number };                       // skills the learner already has of the ones it uses ("You already have 8 of the 13")
+  note?: string;                                             // one line under the table ("Built from two plans. Lessons you would not need are left out.")
+}
+export interface PlaylistInfo {
+  url: string; reqId?: string;
+  playlistId?: string; title?: string; channel?: string; videoCount?: number; totalSeconds?: number;
+  videos: PlaylistVideo[];                                   // in playlist order; [] with error
+  proposing?: boolean;                                       // true: proposal follows in a second playlist event
+  proposal?: PlanProposal | null;
+  error?: LookupError;
+}
+
+// Skill tree (round 3: tracks -> skills -> steps). A step's skills are StepSummary.skillIds / step.passed.skillIds.
+/** Mastered = passed unassisted on MASTERY_DAYS different local days (Adrian's rule). */
+export const MASTERY_DAYS = 2
+/** Adrian's review schedule: days after mastery for each review round. The engine says which it uses in SkillGraphInfo.reviewDays
+ *  (sessions/review.py has 1, 3, 7, 14, 30 today). */
+export const REVIEW_DAYS: readonly number[] = [3, 7, 21, 60]
+export interface SkillStepRef { key?: string; lessonId: string; lessonTitle?: string; stepId: string; title: string; passed: boolean; at?: string; assisted?: boolean }   // key: step.passed.key once passed
+export interface SkillMastery { need: number; days: string[]; assisted?: number }   // days: the distinct local dates with an unassisted pass (mastered when days.length >= need); assisted: passes that did not count toward it
+export interface SkillReviewInfo { dueAt: string; round: number; interval: number; lastAt?: string; lastResult?: "pass" | "miss" }   // round: 0-based into reviewDays; interval: days this round waits; a miss starts over at round 0
+export interface SkillTrackInfo { id: string; label: string; mastered: number; total: number; next?: string | null; lastPracticedAt?: string; planIds?: string[] }   // next: the SkillInfo id to do next on this track; null: the track is done
+/** The most a Proof's text carries (characters); output gets PROOF_OUTPUT_MAX. Longer work is cut and truncated is true. */
+export const PROOF_TEXT_MAX = 2000
+export const PROOF_OUTPUT_MAX = 1000
+export type ProofKind = "code" | "cell" | "command" | "scene" | "file" | "screen"
+/** The learner's own work at the moment a step passed: the code they wrote (code), a notebook cell and what it printed (cell), the
+ *  command and its output (command), the scene facts read from the app (scene), a saved file's name and size (file), or only the
+ *  check's words (screen: no screenshot is ever kept). Stored on this Mac (~/miyagi/state), never sent anywhere, removed by
+ *  data.delete "proofs" or "progress". file: relative to the lesson folder; line: 1-based where text starts in it. */
+export interface Proof { id: string; kind: ProofKind; key: string; skillIds: string[]; lessonId: string; lessonTitle?: string; stepId: string; stepTitle: string; at: string;
+                         check: { label: string; detail?: string }; text?: string; output?: string; lang?: string; file?: string; line?: number; truncated?: boolean }
+/** link.get's answer. kind "playlist": the full plan comes from playlist.get. grows: the skills it would grow (labels, with ids
+ *  when they match the learner's graph). thumbnail: an https://i.ytimg.com URL only. catalogId: a catalog plan it matches. */
+export interface LinkPreview { url: string; reqId?: string; kind: LinkKind; pending?: boolean;
+                               title?: string; channel?: string; seconds?: number; videoId?: string; playlistId?: string; videoCount?: number; totalSeconds?: number;
+                               thumbnail?: string; grows?: Array<{ id?: string; label: string }>; have?: { done: number; of: number };
+                               finishesGoal?: boolean; catalogId?: string; error?: LookupError;
+                               site?: string; author?: string; estMinutes?: number; teachable?: boolean; teach?: LinkTeachable; why?: string;
+                               tools?: LessonTool[]; cached?: boolean; finalUrl?: string }
+/** Any link (Nov 24, ANY-LINK.md). link.preview kind "web": an article or docs page; "github": a github.com repo (its README, or a
+ *  docs folder / file in it). The engine sends these only when engine.hello.capabilities lists LINK_ANY_CAPABILITY; an older
+ *  engine answers kind "unsupported" for a link that is not YouTube. */
+export type LinkKind = "video" | "playlist" | "unsupported" | "web" | "github"
+/** engine.hello.capabilities lists this (a feature, not a command) once link.get and learn_url take any http(s) link. */
+export const LINK_ANY_CAPABILITY = "link.any"
+/** Why a web / github link can or cannot become a lesson. steps: it walks through things to do; code: it has code to type or
+ *  run. teachable = steps || code. A page with neither (news, an essay, a landing page) is not teachable: the launcher says why
+ *  (LinkPreview.why, one plain line) and offers "Just teach me" on its title instead of Start. */
+export interface LinkTeachable { steps: boolean; code: boolean }
+//  LinkPreview (any link): site: "docs.python.org" / "github.com/pallets/flask"; author: when the page names one; estMinutes: about
+//  how long the lesson takes (whole minutes, from the page's length and code); teachable / teach / why: see LinkTeachable; tools:
+//  the lesson tools it would use; cached: a lesson for this exact page (same normalized URL and content) is already built, on this
+//  Mac or in the shared lesson cache, so Start is instant; finalUrl: where the link ended after redirects (normalized) when that
+//  differs from url. thumbnail stays i.ytimg.com only: the app never loads an image from a pasted site.
+
+// Settings, Your data.
+export type DataItemId = "lesson_folder" | "lesson_cache" | "progress" | "activity" | "bon" | "plans" | "proofs" | "notes" | "screenshots" | "logs"
+export type DataDeleteKind = "notes" | "lesson_cache" | "progress" | "proofs" | "all"   // progress: history, skills, reviews, activity, bon and plans; all: every kind (the lesson folder is never deleted: it is the learner's own work)
+/** One row of "Your data". where "this_mac": stored at path; "not_kept": used and dropped (screenshots: path absent); "account":
+ *  kept by miyagi-cloud (the engine never says this about its own data). bytes / count: null when unknown. delete: the
+ *  data.delete kind that removes it; null: miyagi does not delete it (the lesson folder: the app shows Open, not Clear). */
+export interface DataItem { id: DataItemId | string; label: string; where: "this_mac" | "not_kept" | "account"; path?: string; bytes?: number | null; count?: number | null;
+                            detail?: string; delete?: DataDeleteKind | null }
+export interface DataInventory { items: DataItem[]; totalBytes?: number | null; deleted?: DataDeleteKind[]; canDelete?: DataDeleteKind[] }   // path: "~/..." (home shortened); canDelete: the kinds this engine can really delete today
+
+// ---------- ambient help shapes (Nov 24, shared/contracts/AMBIENT-HELP.md) ----------
+/** The most lines error.seen.lines carries: the error's first lines as read on screen. */
+export const AMBIENT_ERROR_LINES_MAX = 8
+/** On Explain, the most lines around the error (source lines at file:line, or the command before a failed one) sent with it. */
+export const AMBIENT_CONTEXT_LINES_MAX = 6
+/** help.steps carries 1 to this many steps. */
+export const HELP_STEPS_MAX = 5
+/** Model calls ambient help may make in any rolling hour on this Mac (error.explain and help.ask together, Haiku only). The
+ *  next one is answered with error "cap" and retryInS. */
+export const AMBIENT_CALLS_PER_HOUR = 20
+export type AmbientErrorKind = "python_traceback" | "js_error" | "compiler" | "shell_exit" | "notebook_cell" | "app_dialog"
+/** Why an ambient answer has nothing: cap = AMBIENT_CALLS_PER_HOUR reached (retryInS says when); offline = no network / cloud;
+ *  busy = the AI provider is overloaded; gone = the error id or help reqId is no longer held (dismissed, cleared, too old);
+ *  no_app = help.ask found no app to help with; failed = anything else. */
+export type AmbientFail = "cap" | "offline" | "busy" | "gone" | "no_app" | "failed"
+/** A place on screen for bon to point at (the buddy stroke / spotlight). x / y / w / h: screen points, top-left origin, the
+ *  ScreenRegion space; displayId absent = the primary display. label <= 4 words. via: how the engine found it, on this Mac:
+ *  ax = the app's accessibility tree (exact), ocr = on-device text recognition. Ambient help never sends a screenshot or a crop. */
+export interface AmbientTarget { x: number; y: number; w: number; h: number; displayId?: number; label?: string; app?: string; via?: "ax" | "ocr" }
+/** error.seen. id: stable for the same app + kind + title + file:line ("err-" + a short hash), so the same error again keeps its
+ *  id. title: <= 80 characters, usually the error's own last line ("ModuleNotFoundError: No module named 'pandas'").
+ *  lines: up to AMBIENT_ERROR_LINES_MAX, as read, with the home folder shortened to ~ and secret-looking values masked (••••).
+ *  file / line / col: where it points, when the error says (file as shown, home shortened). exitCode: shell_exit only.
+ *  rect: where the error text is on screen (the peek sits by it, bon points at it). at: ISO time first seen; again: times
+ *  seen again since. */
+export interface SeenError { id: string; app: string; kind: AmbientErrorKind; title: string; lines: string[]; file?: string; line?: number; col?: number;
+                             exitCode?: number; lang?: string; rect?: AmbientTarget; at: string; again?: number }
+/** error.explanation. title <= 8 words; why: what went wrong in plain words (<= 40); fix: the likely fix (<= 25 words).
+ *  diff: an optional unified diff for file (shown, never applied by itself). command: an optional terminal fix to copy
+ *  ("pip install pandas"). install: when the fix is installing a tool, its row (Install -> setup.fix {tool}). target: where
+ *  to look (the line in the editor, a dialog's button) for bon to point at. error + retryInS: no explanation (AmbientFail). */
+export interface ErrorExplanation { id: string; reqId?: string; pending?: boolean; title?: string; why?: string; fix?: string; diff?: string; file?: string; line?: number;
+                                    command?: string; install?: SetupItem; target?: AmbientTarget; error?: AmbientFail; retryInS?: number }
+/** One help step: text = one action, <= 12 words ("Click File, then Save As"); detail: optional, <= 25 words. advance: what
+ *  moves on from it: click = the target is clicked, screen = the screen changes as the step says (a menu / sheet / window
+ *  opens), next = only the learner's Next (help.nav). target absent: nothing to point at (or not found yet). */
+export interface HelpStep { id: string; text: string; detail?: string; target?: AmbientTarget; advance?: "click" | "screen" | "next" }
+/** help.steps. app: the app the steps are for ("Blender"); goal: the question as a title (<= 8 words, "Export as STL").
+ *  current: 0-based index of the step to do now. */
+export interface HelpSteps { reqId?: string; app: string; goal: string; steps: HelpStep[]; current: number; done?: boolean; pending?: boolean;
+                             error?: AmbientFail; retryInS?: number }
+export type SetupScanError = "no_project" | "unreadable" | "too_big"   // no_project: no folder given and none open in the frontmost editor; too_big: over the scan's file limit
+/** setup.report. root: the project folder (home shortened); name: its folder name. files: the project files read ("requirements.txt",
+ *  ".nvmrc"). items: one SetupItem per thing they ask for (from: the file and line), missing ones first; more: rows left out
+ *  (a long requirements file). env: the interpreters the checks used ("~/code/app/.venv (Python 3.12.4)", "node 20.11.1").
+ *  ready / total: items ok / items. scanning: a first quick answer, the full one follows. */
+export interface SetupReport { reqId?: string; root?: string; name?: string; files: string[]; items: SetupItem[]; ready: number; total: number; more?: number;
+                               env?: { python?: string; node?: string }; scanning?: boolean; error?: SetupScanError }
+
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
-  "learn": { query: string; mode?: "video" | "lesson" | "demo" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
-  "learn_url": { url: string; transcriptOnly?: boolean };   // pasted YouTube link   // transcriptOnly (v2, Err-LessonBuildFailed "Try transcript only"): build from what the teacher says, no screen reading
+  "learn": { query: string; mode?: "video" | "lesson" | "demo"; plan?: PlanLessonRef };   // plan (ui-v4): this lesson is lesson `index` of plan `id` (start it with query = that lesson's goal, mode "lesson"); the engine marks the plan lesson in_progress, then done when its last step passes   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
+  "learn_url": { url: string; transcriptOnly?: boolean; plan?: PlanLessonRef };   // pasted YouTube link; with "link.any" in engine.hello.capabilities, any http(s) link: an article / docs page (BuildSource kind "web") or a github.com repo ("github"), built into a text lesson (mode "lesson", no video; ANY-LINK.md); transcriptOnly is ignored for those   // transcriptOnly (v2, Err-LessonBuildFailed "Try transcript only"): skip the video model, build from the transcript + title/chapters (offered by lesson.building.alternatives kind "transcript"; optional, older engines ignore it)   // plan (ui-v4): this video is lesson `index` of plan `id` (a playlist plan): the engine marks that plan lesson when it starts and passes
   "build_lesson": { resultIds: string[] };
   /** explain: no text = explain the current step (Explain button / shortcut, unchanged). text = the learner's selection (the drawer's "Explain more" pop-up on selected lesson text):
    *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket).
@@ -362,7 +665,7 @@ export interface AppCommands {
   "permission.open": { kind: PermissionKind };       // the engine reports the grant it needs; the APP opens System Settings (main/permissions.ts), never a URL from here
   "library.list": {};                                // -> library
   "library.get": { id: string };                     // -> library.item
-  "library.start": { id: string };                   // start a cached lesson: zero model calls; -> lesson.ready (or error)
+  "library.start": { id: string; plan?: PlanLessonRef };   // start a cached lesson: zero model calls; -> lesson.ready (or error)   // plan (ui-v4): as learn.plan
   "progress.get": {};                                // -> progress
   /** The lesson panel docked beside the editor (screen points): the engine keeps boxes and VS Code clear of it. rect absent = closed. */
   "panel.state": { open: boolean; rect?: { x: number; y: number; w: number; h: number } };
@@ -377,7 +680,61 @@ export interface AppCommands {
    *  or an aborted chord), and only when engine.hello lists "ask.warm". The engine always opens or reuses the links
    *  (free; keep-alive links close seconds after their last use) and throttles only the paid prompt-cache write (at
    *  most once per few minutes, under the 5-minute cache lifetime). */
-  "ask.warm": { pttId?: string };
+  "ask.warm": { pttId?: string; source?: string };   // source: optional tag ("keydown"), for logs only
+
+  // ---------- engine commands the contract did not list yet (Nov 24 sync with server/orchestrator/main.py V2_COMMANDS) ----------
+  /** Start review (sessions/review.py): replay the steps behind one mastered skill from its lesson's cached graph, no build and
+   *  no model call. skillId / label both optional (none: the first review due). -> lesson.ready, or error when nothing is due. */
+  "review.start": { skillId?: string; label?: string };
+  /** Delete my data, engine part. Today it removes the lesson notes (server/context) whatever `what` says. what (ui-v4,
+   *  optional): which local data to remove (DataDeleteKind); an engine that cannot delete a kind yet skips it and leaves it out
+   *  of the `data` answer's `deleted`. Older engines send no reply; ui-v4 engines answer `data`. */
+  "data.delete": { what?: DataDeleteKind[] };
+
+  // ---------- ui-v4 commands (Nov 24): send one only when engine.hello.capabilities lists its type ----------
+  "activity.get": {};                                // -> activity (then pushes while it changes)
+  "bon.get": {};                                     // -> bon
+  /** Once per Mac, the first time the engine lists bon.import: the count growth.ts kept in localStorage before the engine kept it.
+   *  The engine keeps max(its count, steps), adds seen (the app's "<lessonId>:<stepId>" keys, <= 400) to the keys it has counted,
+   *  and answers bon. After that the app reads bon only. */
+  "bon.import": { steps: number; seen?: string[] };
+  "plans.list": {};                                  // -> plans
+  /** Add a plan: a catalog preset (catalogId), a playlist (playlistId, with the proposal the learner accepted, skips included) or
+   *  a goal (proposal from plan.proposal). Starting its first lesson is a separate learn / learn_url / library.start with plan.
+   *  -> plans (the new plan first). The same catalogId twice answers the plan already there. */
+  "plan.start": { catalogId?: string; playlistId?: string; url?: string; goal?: string; proposal?: PlanProposal; reqId?: string };
+  "plan.remove": { id: string };                     // -> plans. The lessons it started stay in the library
+  "playlist.get": { url: string; reqId?: string };   // a youtube.com playlist link (or a watch link with list=) -> playlist (twice)
+  "plan.propose": { goal: string; tool?: string; reqId?: string };   // goal text; tool: a PlanTool id the learner picked ("freecad") -> plan.proposal
+  "link.get": { url: string; reqId?: string };       // a link pasted in the ask field -> link.preview (with "link.any": any http(s) link, kinds "web" / "github" too; ANY-LINK.md)
+  "proof.get": { id?: string; skillId?: string; reqId?: string };   // one Proof by id, or a skill's (newest first, <= 5) -> proof
+  "data.get": {};                                    // -> data
+
+  // ---------- ambient help commands (Nov 24, AMBIENT-HELP.md): send one only when engine.hello.capabilities lists its type ----------
+  /** Turn spotting errors on or off (Settings; the app sends it on every connect). errors: watch for errors outside a lesson
+   *  (absent: unchanged; the engine starts with it off). mutedApps: app names never watched ("1Password"), <= 50. Local only. */
+  "ambient.set": { errors?: boolean; mutedApps?: string[] };
+  /** The learner pressed Explain on an error.seen peek. -> error.explanation. The one moment the error leaves the Mac: its
+   *  title, lines and up to AMBIENT_CONTEXT_LINES_MAX lines of context, redacted (paths cut to the file name, secrets masked),
+   *  plus the app name and kind; never a screenshot. One Haiku call, counted against AMBIENT_CALLS_PER_HOUR; the same id
+   *  again answers from the engine's memory. */
+  "error.explain": { id: string; reqId?: string };
+  /** The learner closed the peek: the engine forgets what it held for this id and does not send it again this session. */
+  "error.dismiss": { id: string };
+  /** Check a project for missing tools, runtimes and packages. path: the folder (absent: the folder open in the frontmost editor).
+   *  -> setup.report. */
+  "setup.scan": { path?: string; reqId?: string };
+  /** Install one setup.report row through the existing install path (action install's: brew, allowlisted casks, pip into the
+   *  project's own .venv when it has one, npm install in root; a licensed app is never installed). The row's button is the
+   *  learner's yes. -> setup.progress {tool} lines, then {done, ok}, then a fresh setup.report. */
+  "setup.fix": { tool: string; root?: string; reqId?: string };
+  /** "How do I X" about the app the learner is in, outside a lesson. text <= 300 characters. app: the app that was frontmost
+   *  before the ask field took focus (absent: the engine reads the frontmost app). -> help.steps. A new help.ask replaces the
+   *  one before. Sends the question, the app's name and the labels of its window's controls (accessibility tree, redacted),
+   *  never a screenshot; one Haiku call, counted against AMBIENT_CALLS_PER_HOUR. */
+  "help.ask": { text: string; reqId?: string; app?: string; source?: AskSource };
+  /** The help card's Next / Back / close. next / back -> help.steps with current moved; close: the engine stops watching, no reply. */
+  "help.nav": { reqId?: string; to: "next" | "back" | "close" };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;

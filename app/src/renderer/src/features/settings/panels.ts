@@ -3,11 +3,11 @@
  * core/surfaces SettingsSection stays the five ids that `openSettings(section)` and main know; PanelId is that set plus
  * the panels added here, so an old open request still lands on a valid panel.
  */
-import { Bell, Code2, Database, Info, KeyRound, Keyboard, Lock, Palette, ShieldCheck, SlidersHorizontal, GraduationCap, type LucideIcon } from 'lucide-react'
+import { Bell, Code2, Database, Eye, Info, Plug, KeyRound, Keyboard, Lock, Palette, ShieldCheck, SlidersHorizontal, GraduationCap, type LucideIcon } from 'lucide-react'
 import type { SettingsSection } from './env'
 import { OWN_KEY } from './words'
 
-export type PanelId = SettingsSection | 'appearance' | 'lessons' | 'editor' | 'notifications' | 'storage' | 'about'
+export type PanelId = SettingsSection | 'appearance' | 'lessons' | 'editor' | 'notifications' | 'storage' | 'about' | 'apps' | 'data'
 
 export type PanelDef = { id: PanelId; label: string; icon: LucideIcon; caption: string }
 export type PanelGroup = { label: string; panels: readonly PanelDef[] }
@@ -42,7 +42,14 @@ export const GROUPS: readonly PanelGroup[] = [
   { label: 'miyagi', panels: [{ id: 'about', label: 'About', icon: Info, caption: 'Version, updates and feedback.' }] }
 ]
 
+/** The v4 Settings page's own panels (Adrian's ui-next mock, Nov 23): not in the sheet's list. Captions are the page's lede. */
+export const V4_PANELS: readonly PanelDef[] = [
+  { id: 'apps', label: 'Apps', icon: Plug, caption: 'Connected apps are read exactly. In the rest miyagi looks at the window.' },
+  { id: 'data', label: 'Your data', icon: Eye, caption: 'What miyagi sees, what it keeps, and how to remove it.' }
+]
+
 export const PANELS: readonly PanelDef[] = GROUPS.flatMap((g) => g.panels)
 export const PANEL_IDS: readonly PanelId[] = PANELS.map((p) => p.id)
-export const isPanel = (s: unknown): s is PanelId => typeof s === 'string' && (PANEL_IDS as readonly string[]).includes(s)
-export const panelOf = (id: PanelId): PanelDef => PANELS.find((p) => p.id === id) ?? PANELS[0]
+const ALL_IDS: readonly PanelId[] = [...PANEL_IDS, ...V4_PANELS.map((p) => p.id)]
+export const isPanel = (s: unknown): s is PanelId => typeof s === 'string' && (ALL_IDS as readonly string[]).includes(s)
+export const panelOf = (id: PanelId): PanelDef => PANELS.find((p) => p.id === id) ?? V4_PANELS.find((p) => p.id === id) ?? PANELS[0]

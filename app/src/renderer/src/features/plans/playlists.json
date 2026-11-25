@@ -1,0 +1,5817 @@
+[
+ {
+  "planId": "intro-python",
+  "title": "Python Programming Beginner Tutorials",
+  "channel": "Corey Schafer",
+  "playlistId": "PL-osiE80TeTskrapNbzXhwoFUiLCjGgY7",
+  "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTskrapNbzXhwoFUiLCjGgY7",
+  "videoCount": 26,
+  "totalSeconds": 32009,
+  "videos": [
+   {
+    "id": "YYXdXT2l-Gg",
+    "title": "Python Tutorial for Beginners 1: Install and Setup for Mac and Windows",
+    "seconds": 929
+   },
+   {
+    "id": "k9TUPpGqYTo",
+    "title": "Python Tutorial for Beginners 2: Strings - Working with Textual Data",
+    "seconds": 1272
+   },
+   {
+    "id": "khKv-8q7YmY",
+    "title": "Python Tutorial for Beginners 3: Integers and Floats - Working with Numeric Data",
+    "seconds": 715
+   },
+   {
+    "id": "W8KRzm-HUcc",
+    "title": "Python Tutorial for Beginners 4: Lists, Tuples, and Sets",
+    "seconds": 1745
+   },
+   {
+    "id": "daefaLgNkw0",
+    "title": "Python Tutorial for Beginners 5: Dictionaries - Working with Key-Value Pairs",
+    "seconds": 599
+   },
+   {
+    "id": "DZwmZ8Usvnk",
+    "title": "Python Tutorial for Beginners 6: Conditionals and Booleans - If, Else, and Elif Statements",
+    "seconds": 988
+   },
+   {
+    "id": "6iF8Xb7Z3wQ",
+    "title": "Python Tutorial for Beginners 7: Loops and Iterations - For/While Loops",
+    "seconds": 614
+   },
+   {
+    "id": "9Os0o3wzS_I",
+    "title": "Python Tutorial for Beginners 8: Functions",
+    "seconds": 1308
+   },
+   {
+    "id": "CqvZ3vGoGs0",
+    "title": "Python Tutorial for Beginners 9: Import Modules and Exploring The Standard Library",
+    "seconds": 1317
+   },
+   {
+    "id": "tJxcKyFMTGo",
+    "title": "Python Tutorial: OS Module - Use Underlying Operating System Functionality",
+    "seconds": 1154
+   },
+   {
+    "id": "Uh2ebFW8OYM",
+    "title": "Python Tutorial: File Objects - Reading and Writing to Files",
+    "seconds": 1473
+   },
+   {
+    "id": "OdIHeg4jj2c",
+    "title": "Python Tutorial: How to Set the Path and Switch Between Different Versions/Executables (Windows)",
+    "seconds": 1457
+   },
+   {
+    "id": "PUIE7CPANfo",
+    "title": "Python Tutorial: How to Set the Path and Switch Between Different Versions/Executables (Mac & Linux)",
+    "seconds": 1844
+   },
+   {
+    "id": "ve2pmm5JqmI",
+    "title": "Python Tutorial: Automate Parsing and Renaming of Multiple Files",
+    "seconds": 754
+   },
+   {
+    "id": "q5uM4VKywbA",
+    "title": "Python Tutorial: CSV Module - How to Read, Parse, and Write CSV Files",
+    "seconds": 972
+   },
+   {
+    "id": "bkpLhQd6YQM",
+    "title": "Python Tutorial: Real World Example - Parsing Names From a CSV to an HTML List",
+    "seconds": 1128
+   },
+   {
+    "id": "eirjjyP2qcQ",
+    "title": "Python Tutorial: Datetime Module - How to work with Dates, Times, Timedeltas, and Timezones",
+    "seconds": 1669
+   },
+   {
+    "id": "QVdf0LgmICw",
+    "title": "Python Tutorial: Variable Scope - Understanding the LEGB rule and global/nonlocal statements",
+    "seconds": 1259
+   },
+   {
+    "id": "D3JvDWO-BY4",
+    "title": "Python Tutorial: Sorting Lists, Tuples, and Objects",
+    "seconds": 728
+   },
+   {
+    "id": "NIWwJbo-9_8",
+    "title": "Python Tutorial: Using Try/Except Blocks for Error Handling",
+    "seconds": 634
+   },
+   {
+    "id": "6tNS--WetLI",
+    "title": "Python Tutorial: Unit Testing Your Code with the unittest Module",
+    "seconds": 2353
+   },
+   {
+    "id": "zDYL22QNiWk",
+    "title": "Python Tutorial: Pipenv - Easily Manage Packages and Virtual Environments",
+    "seconds": 1949
+   },
+   {
+    "id": "tb8gHvYlCFs",
+    "title": "Python Requests Tutorial: Request Web Pages, Download Images, POST Data, Read JSON, and More",
+    "seconds": 1501
+   },
+   {
+    "id": "Kg1Yvry_Ydk",
+    "title": "Python Tutorial: VENV (Mac & Linux) - How to Use Virtual Environments with the Built-In venv Module",
+    "seconds": 858
+   },
+   {
+    "id": "APOPm01BVrk",
+    "title": "Python Tutorial: VENV (Windows) - How to Use Virtual Environments with the Built-In venv Module",
+    "seconds": 1030
+   },
+   {
+    "id": "zdJEYhA2AZQ",
+    "title": "5 Common Python Mistakes and How to Fix Them",
+    "seconds": 1759
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-python",
+  "title": "Python Programming Tutorials",
+  "channel": "Tech With Tim",
+  "playlistId": "PLzMcBGfZo4-mFu00qxl0a67RhjjZj3jXm",
+  "url": "https://www.youtube.com/playlist?list=PLzMcBGfZo4-mFu00qxl0a67RhjjZj3jXm",
+  "videoCount": 20,
+  "totalSeconds": 9475,
+  "videos": [
+   {
+    "id": "OFrLs22MDAw",
+    "title": "Python Programming Tutorial #1 - Variables and Data Types",
+    "seconds": 667
+   },
+   {
+    "id": "QQrcd_62VWM",
+    "title": "Python Programming Tutorial #2 - Basic Operators and Input",
+    "seconds": 708
+   },
+   {
+    "id": "2EngAQX_kCg",
+    "title": "Python Programming Tutorial #3 - Conditions",
+    "seconds": 518
+   },
+   {
+    "id": "vA4r_MPRNsg",
+    "title": "Python Programming Tutorial #4 - IF/ELIF/ELSE",
+    "seconds": 776
+   },
+   {
+    "id": "IRiJdLN-Ers",
+    "title": "Python Programming Tutorial #5 - Chained Conditionals and Nested Statements",
+    "seconds": 451
+   },
+   {
+    "id": "vKeoXxVaga4",
+    "title": "Python Programming Tutorial #6 - For Loops",
+    "seconds": 355
+   },
+   {
+    "id": "U_nugSKtbSk",
+    "title": "Python Programming Tutorial #7 - While Loops",
+    "seconds": 378
+   },
+   {
+    "id": "1uCH3zqbv2s",
+    "title": "Python Programming Tutorial #8 - Lists and Tuples",
+    "seconds": 493
+   },
+   {
+    "id": "jmx1OZNMLr0",
+    "title": "Python Programming Tutorial #9 - Iteration by Item (For Loops Continued...)",
+    "seconds": 360
+   },
+   {
+    "id": "ERww7FiLrqk",
+    "title": "Python Programming Tutorial #10 - String Methods",
+    "seconds": 381
+   },
+   {
+    "id": "L0j7JkFmYDI",
+    "title": "Python Programming Tutorial #11 - Slice Operator",
+    "seconds": 418
+   },
+   {
+    "id": "1OuRhD7FmTA",
+    "title": "Python Programming Tutorial #12 - Functions",
+    "seconds": 504
+   },
+   {
+    "id": "0EgSo7hsRWM",
+    "title": "Python Programming Tutorial #13 - How to Read a Text File",
+    "seconds": 498
+   },
+   {
+    "id": "W0fPZQBFpVE",
+    "title": "Python Programming Tutorial #14 - Writing to a Text File",
+    "seconds": 254
+   },
+   {
+    "id": "W4JwgcqpDBE",
+    "title": "Python Programming Tutorial #15 - Using .count() and .find()",
+    "seconds": 414
+   },
+   {
+    "id": "PBUtAdR1n6g",
+    "title": "Python Programming Tutorial #16 - Introduction to Modular Programming",
+    "seconds": 471
+   },
+   {
+    "id": "pjIxDyLCOfQ",
+    "title": "Python Programming Tutorial #17 - Optional Parameters",
+    "seconds": 350
+   },
+   {
+    "id": "MImAiZIzzd4",
+    "title": "Python Programming Tutorial #18 - Try and Except (Python Error Handling)",
+    "seconds": 288
+   },
+   {
+    "id": "Fc0XRcRmBP4",
+    "title": "Python Programming Tutorial #19 - Global vs Local Variables",
+    "seconds": 516
+   },
+   {
+    "id": "ucSuTR5qat8",
+    "title": "Python Programming Tutorial #20 - Classes and Objects",
+    "seconds": 675
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-javascript",
+  "title": "Javascript Tutorials for Beginners",
+  "channel": "Dave Gray",
+  "playlistId": "PL0Zuz27SZ-6Oi6xNtL_fwCrwpuqylMsgT",
+  "url": "https://www.youtube.com/playlist?list=PL0Zuz27SZ-6Oi6xNtL_fwCrwpuqylMsgT",
+  "videoCount": 29,
+  "totalSeconds": 57741,
+  "videos": [
+   {
+    "id": "SajRjc9KKUE",
+    "title": "JavaScript Tutorial for Beginners: Quick Start",
+    "seconds": 481
+   },
+   {
+    "id": "JMy6z1GricM",
+    "title": "Where do I put my JavaScript? How to link Javascript to HTML | Tutorial for Beginners",
+    "seconds": 473
+   },
+   {
+    "id": "LiuzigJldNo",
+    "title": "JavaScript String Methods and Properties | JavaScript Tutorial for Beginners",
+    "seconds": 439
+   },
+   {
+    "id": "3Ul9gYweEPs",
+    "title": "JavaScript Numbers, Number Methods, isNaN | JavaScript Tutorial for Beginners",
+    "seconds": 362
+   },
+   {
+    "id": "vzLdq3b0w3Y",
+    "title": "Math Methods and How to Generate a Random Number with JavaScript | JavaScript Tutorial for Beginners",
+    "seconds": 324
+   },
+   {
+    "id": "gLt1KJPmjXA",
+    "title": "Problem Solving with Code | Your First Coding Challenge | JavaScript Tutorial for Beginners",
+    "seconds": 453
+   },
+   {
+    "id": "9Ykz2_PhdfE",
+    "title": "If Statements in Javascript | Tutorial for Beginners",
+    "seconds": 394
+   },
+   {
+    "id": "3q7sk03ehOs",
+    "title": "Switch Statements in Javascript | Tutorial for Beginners",
+    "seconds": 238
+   },
+   {
+    "id": "ib8MHSMwtYg",
+    "title": "Ternary Operator in Javascript | Tutorial for Beginners",
+    "seconds": 328
+   },
+   {
+    "id": "94UM0Ss3uoU",
+    "title": "User Input in Javascript | Tutorial for Beginners",
+    "seconds": 629
+   },
+   {
+    "id": "C2_z34QFVjw",
+    "title": "Your First Javascript Game | Tutorial for Beginners | Rock, Paper, Scissors",
+    "seconds": 977
+   },
+   {
+    "id": "zO5-OnRA5lA",
+    "title": "For Loops, While Loops, Do While Loops | Javascript Loop Tutorial for Beginners",
+    "seconds": 980
+   },
+   {
+    "id": "u_lLNH38n5E",
+    "title": "Functions in Javascript | Javascript Functions Tutorial",
+    "seconds": 738
+   },
+   {
+    "id": "_E96W6ivHng",
+    "title": "var let const in Javascript Scope | Understanding Global Local Function Block Scope",
+    "seconds": 1072
+   },
+   {
+    "id": "0SyTDl4pb4w",
+    "title": "Arrays in Javascript | Arrays Tutorial for Beginners",
+    "seconds": 1727
+   },
+   {
+    "id": "yEYqGiAiLFk",
+    "title": "Refactoring Code | Rock Paper Scissors | Web Dev | Javascript",
+    "seconds": 1117
+   },
+   {
+    "id": "rLPwCAqyCAE",
+    "title": "Javascript Objects Explained | Javascript Objects Tutorial",
+    "seconds": 1397
+   },
+   {
+    "id": "5fmifZZeJJ4",
+    "title": "Javascript Classes Explained | Javascript Factory Functions | es6 private variables properties",
+    "seconds": 1879
+   },
+   {
+    "id": "wFJEQB-QxuE",
+    "title": "JSON Explained with JavaScript | JSON Tutorial for Beginners",
+    "seconds": 432
+   },
+   {
+    "id": "blBoIyNhGvY",
+    "title": "Javascript Error Handling | Handle Errors in Javascript | Try Catch Finally",
+    "seconds": 903
+   },
+   {
+    "id": "WbG86sMd3SU",
+    "title": "JavaScript DOM Tutorial | Document Object Model in JavaScript",
+    "seconds": 2139
+   },
+   {
+    "id": "UVRDq-wnfgk",
+    "title": "Event Listeners in JavaScript | JavaScript Events Tutorial",
+    "seconds": 2372
+   },
+   {
+    "id": "zmFDvFwj6-8",
+    "title": "JavaScript LocalStorage and Session Storage API Tutorial",
+    "seconds": 1141
+   },
+   {
+    "id": "Q3SBogjUfMk",
+    "title": "Javascript Modules | Export Import Syntax for ES6 Modules",
+    "seconds": 1034
+   },
+   {
+    "id": "7BeT6lsudL4",
+    "title": "Higher Order Functions Javascript | forEach, filter, map, and reduce functions",
+    "seconds": 644
+   },
+   {
+    "id": "VmQ6dHvnKIM",
+    "title": "Callbacks, Promises, Async Await | JavaScript Fetch API Explained",
+    "seconds": 3905
+   },
+   {
+    "id": "3l08sBKOSCs",
+    "title": "Regex Tutorial | Regular Expressions Explained",
+    "seconds": 1357
+   },
+   {
+    "id": "LAa-mGCx484",
+    "title": "Regex Javascript | Regular Expressions in JavaScript",
+    "seconds": 1333
+   },
+   {
+    "id": "EfAl9bwzVZk",
+    "title": "JavaScript Full Course for Beginners | Complete All-in-One Tutorial | 8 Hours",
+    "seconds": 28473
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-javascript",
+  "title": "Modern JavaScript Tutorial",
+  "channel": "Net Ninja",
+  "playlistId": "PL4cUxeGkcC9haFPT7J25Q9GRB_ZkFrQAc",
+  "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9haFPT7J25Q9GRB_ZkFrQAc",
+  "videoCount": 6,
+  "totalSeconds": 17073,
+  "videos": [
+   {
+    "id": "iWOYAxlnaww",
+    "title": "Modern JavaScript Tutorial #1 - Intro & Setup",
+    "seconds": 746
+   },
+   {
+    "id": "FhguwBJeqWs",
+    "title": "Modern JavaScript Tutorial #2 - Syntax Basics & Types",
+    "seconds": 5058
+   },
+   {
+    "id": "JloLGV9DmtQ",
+    "title": "Modern JavaScript Tutorial #3 - Control Flow",
+    "seconds": 3180
+   },
+   {
+    "id": "xUI5Tsl2JpY",
+    "title": "Modern JavaScript Tutorial #4 - Functions",
+    "seconds": 2614
+   },
+   {
+    "id": "X0ipw1k7ygU",
+    "title": "Modern JavaScript Tutorial #5 - Objects",
+    "seconds": 2256
+   },
+   {
+    "id": "wKBu_dEaF9E",
+    "title": "Modern JavaScript Tutorial #6 - The Document Object Model",
+    "seconds": 3219
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-html-css",
+  "title": "HTML & CSS for Absolute Beginners",
+  "channel": "Kevin Powell",
+  "playlistId": "PL4-IK0AVhVjOJs_UjdQeyEZ_cmEV3uJvx",
+  "url": "https://www.youtube.com/playlist?list=PL4-IK0AVhVjOJs_UjdQeyEZ_cmEV3uJvx",
+  "videoCount": 50,
+  "totalSeconds": 20129,
+  "videos": [
+   {
+    "id": "1L2YiWdaUDM",
+    "title": "HTML & CSS for Absolute Beginners: Introduction",
+    "seconds": 181
+   },
+   {
+    "id": "X4sClFRMJ00",
+    "title": "HTML & CSS for Absolute Beginners: What is HTML?",
+    "seconds": 457
+   },
+   {
+    "id": "3AXZ9Iahvc4",
+    "title": "HTML & CSS for Absolute Beginners: Root folder & your first HTML file",
+    "seconds": 261
+   },
+   {
+    "id": "07EVpWb8dtg",
+    "title": "HTML & CSS for Absolute Beginners: DOCTYPE, head, and body",
+    "seconds": 569
+   },
+   {
+    "id": "iSFXFG4CMUU",
+    "title": "HTML & CSS for Absolute Beginners: HTML Headings",
+    "seconds": 525
+   },
+   {
+    "id": "sbvQVPvjUdk",
+    "title": "HTML & CSS for Absolute Beginners: Adding content to our project",
+    "seconds": 405
+   },
+   {
+    "id": "NTlhOJIy8HY",
+    "title": "HTML & CSS for Absolute Beginners: HTML Comments",
+    "seconds": 151
+   },
+   {
+    "id": "PWrVAmejosk",
+    "title": "HTML & CSS for Absolute Beginners: Nesting HTML elements",
+    "seconds": 370
+   },
+   {
+    "id": "m61h9YEB1fw",
+    "title": "HTML & CSS for Absolute Beginners: HTML Lists (ol and ul)",
+    "seconds": 373
+   },
+   {
+    "id": "YOsMJQfwqow",
+    "title": "HTML & CSS for Absolute Beginners: Semantic HTML",
+    "seconds": 573
+   },
+   {
+    "id": "bA1zt_wkDNE",
+    "title": "HTML & CSS for Absolute Beginners: Strong and Em elements",
+    "seconds": 260
+   },
+   {
+    "id": "BdBO5A_q2tI",
+    "title": "HTML & CSS for Absolute Beginners: Block & Inline elements",
+    "seconds": 189
+   },
+   {
+    "id": "fcHm3I0VwZo",
+    "title": "HTML & CSS for Absolute Beginners: Creating a second page",
+    "seconds": 523
+   },
+   {
+    "id": "5_GfLidQBIA",
+    "title": "HTML & CSS for Absolute Beginners: Creating links to other pages",
+    "seconds": 571
+   },
+   {
+    "id": "t-G8GgRA5Yw",
+    "title": "HTML & CSS for Absolute Beginners: Images",
+    "seconds": 756
+   },
+   {
+    "id": "QhMTPAbea_k",
+    "title": "HTML & CSS for Absolute Beginners: Intro to CSS",
+    "seconds": 55
+   },
+   {
+    "id": "vzZ7TXGIQ3Y",
+    "title": "HTML & CSS for Absolute Beginners: Creating and linking to a CSS file",
+    "seconds": 238
+   },
+   {
+    "id": "bRY-8INPVJQ",
+    "title": "HTML & CSS for Absolute Beginners: CSS syntax / formatting CSS",
+    "seconds": 377
+   },
+   {
+    "id": "6VhUHbjTBFs",
+    "title": "HTML & CSS for Absolute Beginners: CSS color basics",
+    "seconds": 419
+   },
+   {
+    "id": "9gKBAmHfvYI",
+    "title": "HTML & CSS for Absolute Beginners: Order in CSS is important",
+    "seconds": 130
+   },
+   {
+    "id": "j4NcMQfYs64",
+    "title": "HTML & CSS for Absolute Beginners: Text alignment",
+    "seconds": 321
+   },
+   {
+    "id": "OagLVTOrTBM",
+    "title": "HTML & CSS for Absolute Beginners: Font family and font stacks",
+    "seconds": 334
+   },
+   {
+    "id": "HwJs9OmuHt0",
+    "title": "HTML & CSS for Absolute Beginners: Inheritence",
+    "seconds": 387
+   },
+   {
+    "id": "aI89_vjlsSs",
+    "title": "HTML & CSS for Absolute Beginners: User Agent Styles",
+    "seconds": 216
+   },
+   {
+    "id": "cb6ce4aKRBw",
+    "title": "HTML & CSS for Absolute Beginners: Font sizes",
+    "seconds": 464
+   },
+   {
+    "id": "HaTxxAj3cBo",
+    "title": "HTML & CSS for Absolute Beginners: Line height and spacing",
+    "seconds": 461
+   },
+   {
+    "id": "5vf7rtzil9M",
+    "title": "HTML & CSS for Absolute Beginners: Inline CSS and Internal stylesheets",
+    "seconds": 286
+   },
+   {
+    "id": "qnS-WAjkI18",
+    "title": "HTML & CSS for Absolute Beginners: Dev tools",
+    "seconds": 315
+   },
+   {
+    "id": "D_akuQHIPtg",
+    "title": "HTML & CSS for Absolute Beginners: The box model - width, height, inline-size, block-size",
+    "seconds": 566
+   },
+   {
+    "id": "NrKYyP322kc",
+    "title": "HTML & CSS for Absolute Beginners: Box model - Padding",
+    "seconds": 530
+   },
+   {
+    "id": "trg925x5LdM",
+    "title": "HTML & CSS for Absolute Beginners: Box model - Borders",
+    "seconds": 433
+   },
+   {
+    "id": "zgqof2VAToM",
+    "title": "HTML & CSS for Absolute Beginners: Box Model - Margin",
+    "seconds": 217
+   },
+   {
+    "id": "gjfYr_RpyDU",
+    "title": "HTML & CSS for Absolute Beginners: box-sizing",
+    "seconds": 287
+   },
+   {
+    "id": "MBYkDqNppYs",
+    "title": "HTML & CSS for Absolute Beginners: The new layout!",
+    "seconds": 145
+   },
+   {
+    "id": "jWMbj1PyeT4",
+    "title": "HTML & CSS for Absolute Beginners: IDs and Classes",
+    "seconds": 437
+   },
+   {
+    "id": "z_5F2fopvlA",
+    "title": "HTML & CSS for Absolute Beginners: Divs and Spans",
+    "seconds": 697
+   },
+   {
+    "id": "ggDsm9Nm0jM",
+    "title": "HTML & CSS for Absolute Beginners: Styling links with pseudo-classes",
+    "seconds": 463
+   },
+   {
+    "id": "Z9at7PqTNyw",
+    "title": "HTML & CSS for Absolute Beginners: Background images",
+    "seconds": 998
+   },
+   {
+    "id": "5Ymc7-B66Vs",
+    "title": "HTML & CSS for Absolute Beginners: Descendant Selectors",
+    "seconds": 278
+   },
+   {
+    "id": "LUDkXMXf3P8",
+    "title": "HTML & CSS for Absolute Beginners: Specificity",
+    "seconds": 444
+   },
+   {
+    "id": "ftk7nUmVOOw",
+    "title": "HTML & CSS for Absolute Beginners: Specificity + Dev tools",
+    "seconds": 116
+   },
+   {
+    "id": "iZTN-vRBp2Q",
+    "title": "HTML & CSS for Absolute Beginners: Styling lists",
+    "seconds": 674
+   },
+   {
+    "id": "Qqa2MJMxjw4",
+    "title": "HTML & CSS for Absolute Beginners: Preventing layouts from getting too wide",
+    "seconds": 775
+   },
+   {
+    "id": "gn0OaxS1OdY",
+    "title": "HTML & CSS for Absolute Beginners: Responsive images",
+    "seconds": 368
+   },
+   {
+    "id": "u2Va9Poda_g",
+    "title": "HTML & CSS for Absolute Beginners: Creating a two-column layout",
+    "seconds": 676
+   },
+   {
+    "id": "bRp5_YSFXGc",
+    "title": "HTML & CSS for Absolute Beginners: A simple navigation",
+    "seconds": 810
+   },
+   {
+    "id": "2X5rfWVkpB8",
+    "title": "HTML & CSS for Absolute Beginners: A bit more flexbox stuff",
+    "seconds": 112
+   },
+   {
+    "id": "QGb-W-c-gIM",
+    "title": "HTML & CSS for Absolute Beginners: Media Query basics - making a layout responsive",
+    "seconds": 442
+   },
+   {
+    "id": "a1gvCuONy1w",
+    "title": "HTML & CSS for Absolute Beginners: Finishing touches",
+    "seconds": 175
+   },
+   {
+    "id": "n69mt1APqjQ",
+    "title": "HTML & CSS for Absolute Beginners: What's next?",
+    "seconds": 319
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-html-css",
+  "title": "HTML & CSS Crash Course Tutorial",
+  "channel": "Net Ninja",
+  "playlistId": "PL4cUxeGkcC9ivBf_eKCPIAYXWzLlPAm6G",
+  "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9ivBf_eKCPIAYXWzLlPAm6G",
+  "videoCount": 11,
+  "totalSeconds": 14944,
+  "videos": [
+   {
+    "id": "hu-q2zYwEYs",
+    "title": "HTML & CSS Crash Course Tutorial #1 - Introduction",
+    "seconds": 1200
+   },
+   {
+    "id": "mbeT8mpmtHA",
+    "title": "HTML & CSS Crash Course Tutorial #2 - HTML Basics",
+    "seconds": 1192
+   },
+   {
+    "id": "YwbIeMlxZAU",
+    "title": "HTML & CSS Crash Course Tutorial #3 - HTML Forms",
+    "seconds": 1915
+   },
+   {
+    "id": "D3iEE29ZXRM",
+    "title": "HTML & CSS Crash Course Tutorial #4 - CSS Basics",
+    "seconds": 2558
+   },
+   {
+    "id": "FHZn6706e3Q",
+    "title": "HTML & CSS Crash Course Tutorial #5 - CSS Classes & Selectors",
+    "seconds": 1587
+   },
+   {
+    "id": "kGW8Al_cga4",
+    "title": "HTML & CSS Crash Course Tutorial #6 - HTML 5 Semantics",
+    "seconds": 854
+   },
+   {
+    "id": "25R1Jl5P7Mw",
+    "title": "HTML & CSS Crash Course Tutorial #7 - Chrome Dev Tools",
+    "seconds": 710
+   },
+   {
+    "id": "XQaHAAXIVg8",
+    "title": "HTML & CSS Crash Course Tutorial #8 - CSS Layout & Position",
+    "seconds": 2361
+   },
+   {
+    "id": "FMu2cKWD90g",
+    "title": "HTML & CSS Crash Course Tutorial #9 - Pseudo Classes & Elements",
+    "seconds": 1007
+   },
+   {
+    "id": "Xig7NsIE6DI",
+    "title": "HTML & CSS Crash Course Tutorial #10 - Intro to Media Queries",
+    "seconds": 1356
+   },
+   {
+    "id": "qES0HypsUK0",
+    "title": "HTML & CSS Crash Course Tutorial #11 - Next Steps",
+    "seconds": 204
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-cpp",
+  "title": "C++ tutorial for beginners ⚡️",
+  "channel": "Bro Code",
+  "playlistId": "PLZPZq0r_RZOMHoXIcxze_lP97j2Ase2on",
+  "url": "https://www.youtube.com/playlist?list=PLZPZq0r_RZOMHoXIcxze_lP97j2Ase2on",
+  "videoCount": 60,
+  "totalSeconds": 21666,
+  "videos": [
+   {
+    "id": "S3nx34WFXjI",
+    "title": "C++ tutorial for beginners 👨‍💻",
+    "seconds": 840
+   },
+   {
+    "id": "4psGUiKacPQ",
+    "title": "Variables and basic data types ✗",
+    "seconds": 644
+   },
+   {
+    "id": "MwQEaCsS6UM",
+    "title": "What is a const? 🚫",
+    "seconds": 204
+   },
+   {
+    "id": "2lcIKzFHjSM",
+    "title": "What are C++ namespaces? 📛",
+    "seconds": 277
+   },
+   {
+    "id": "7TJ7Z1-V_24",
+    "title": "C++ Typedef and type aliases explained 🙋‍♂️",
+    "seconds": 326
+   },
+   {
+    "id": "6am27D60i84",
+    "title": "What are arithmetic operators? 🧮",
+    "seconds": 340
+   },
+   {
+    "id": "Fj9HjbqHto8",
+    "title": "What is C++ type conversion? ✨",
+    "seconds": 227
+   },
+   {
+    "id": "imiIhu9u670",
+    "title": "How to accept user input in C++? ⌨️",
+    "seconds": 331
+   },
+   {
+    "id": "LXq3OhajeeU",
+    "title": "Useful math related functions in C++ 🔢",
+    "seconds": 208
+   },
+   {
+    "id": "LvfUeY4-_1k",
+    "title": "C++ Hypotenuse calculator practice program 📐",
+    "seconds": 162
+   },
+   {
+    "id": "kO3eEn_hgQc",
+    "title": "What's an if statement? 🤔",
+    "seconds": 297
+   },
+   {
+    "id": "Bx9b12FCF5o",
+    "title": "What is a switch? 🔀",
+    "seconds": 349
+   },
+   {
+    "id": "tjAa5VRuy6A",
+    "title": "C++ console calculator program 🖩",
+    "seconds": 285
+   },
+   {
+    "id": "dWsjatPhWHQ",
+    "title": "What is the ternary operator ❓",
+    "seconds": 281
+   },
+   {
+    "id": "UiF-QgCBOhM",
+    "title": "What are logical operators? 🔣",
+    "seconds": 302
+   },
+   {
+    "id": "7bTZrFGRqGM",
+    "title": "C++ Temperature conversion program 🌡️",
+    "seconds": 322
+   },
+   {
+    "id": "KTr0SZTW9nI",
+    "title": "Useful string methods in C++ 〰️",
+    "seconds": 395
+   },
+   {
+    "id": "XCxHhfJq1LU",
+    "title": "What are while loops? ♾️",
+    "seconds": 186
+   },
+   {
+    "id": "3xcXse7DK5s",
+    "title": "C++ while loops explained 🔃",
+    "seconds": 199
+   },
+   {
+    "id": "gP22X_ykkxI",
+    "title": "C++ for loops explained 🔂",
+    "seconds": 219
+   },
+   {
+    "id": "D2aQITtBhMM",
+    "title": "C++ break & continue explained 💔",
+    "seconds": 102
+   },
+   {
+    "id": "TdtFtPHeyZE",
+    "title": "C++ nested loops explained ➿",
+    "seconds": 257
+   },
+   {
+    "id": "bYEdLCWJeHA",
+    "title": "C++ create a random number generator 🎲",
+    "seconds": 206
+   },
+   {
+    "id": "JLIF5XHBL3E",
+    "title": "Random event generator in C++ 🎁",
+    "seconds": 221
+   },
+   {
+    "id": "hfnr2EPzn98",
+    "title": "C++ number guessing game ↕️",
+    "seconds": 246
+   },
+   {
+    "id": "6SnxFx9aRps",
+    "title": "C++ user defined functions explained 📞",
+    "seconds": 444
+   },
+   {
+    "id": "d89IvsCh__E",
+    "title": "What does 'return' do in C++? 🔙",
+    "seconds": 369
+   },
+   {
+    "id": "LZd5LhfnYsk",
+    "title": "C++ overloaded functions explained 🍕",
+    "seconds": 187
+   },
+   {
+    "id": "Q7ZFHAO-oxI",
+    "title": "C++ variable scope explained 🌎",
+    "seconds": 263
+   },
+   {
+    "id": "TJOysgQkqZY",
+    "title": "C++ Banking program for beginners 💰",
+    "seconds": 833
+   },
+   {
+    "id": "F4jzY6YVw4w",
+    "title": "C++ ROCK PAPER SCISSORS game for beginners 👊",
+    "seconds": 787
+   },
+   {
+    "id": "QFrJQq6Iox8",
+    "title": "C++ arrays explained 🚗",
+    "seconds": 329
+   },
+   {
+    "id": "1_YDHY_34Bg",
+    "title": "C++ sizeof() operator explained ⚖️",
+    "seconds": 295
+   },
+   {
+    "id": "a4P4ial8OgQ",
+    "title": "C++ array iteration for beginners 🗃️",
+    "seconds": 247
+   },
+   {
+    "id": "qnEUB25TRaY",
+    "title": "C++ 'for each' loop explained 🗂️",
+    "seconds": 177
+   },
+   {
+    "id": "VQSroKMqISE",
+    "title": "C++ pass arrays to functions 💵",
+    "seconds": 271
+   },
+   {
+    "id": "a6V4QQs5m3E",
+    "title": "C++ search an array for an element 🔎",
+    "seconds": 457
+   },
+   {
+    "id": "kOEOqehNCQg",
+    "title": "How to sort an array in C++ for beginners ➡️",
+    "seconds": 355
+   },
+   {
+    "id": "xFMnQhkjq1Q",
+    "title": "C++ fill() function explained 🍔",
+    "seconds": 283
+   },
+   {
+    "id": "0CJMEuKuapc",
+    "title": "C++ How to fill an array with user input 🌭",
+    "seconds": 418
+   },
+   {
+    "id": "fINt-nzR-o8",
+    "title": "C++ multidimensional arrays explained ⬜",
+    "seconds": 461
+   },
+   {
+    "id": "tIr-43tfT5k",
+    "title": "C++ QUIZ GAME for beginners 💯",
+    "seconds": 706
+   },
+   {
+    "id": "sHD7r6HWFc4",
+    "title": "C++ memory addresses for beginners 🏠",
+    "seconds": 169
+   },
+   {
+    "id": "ao0I1ViVV6U",
+    "title": "C++ pass by VALUE vs pass by REFERENCE? 📧",
+    "seconds": 257
+   },
+   {
+    "id": "5wDXnZ2vOGY",
+    "title": "C++ const parameters explained 🧱",
+    "seconds": 188
+   },
+   {
+    "id": "o_RTeD_3Lq8",
+    "title": "C++ credit card validator program for beginners 💳",
+    "seconds": 603
+   },
+   {
+    "id": "slzcWKWCMBg",
+    "title": "C++ pointers explained easy 👈",
+    "seconds": 316
+   },
+   {
+    "id": "yKT_Rwx4lsQ",
+    "title": "What is a C++ null pointer? ⛔",
+    "seconds": 246
+   },
+   {
+    "id": "D30owXMzAm8",
+    "title": "C++ TIC TAC TOE game for beginners ⭕",
+    "seconds": 1149
+   },
+   {
+    "id": "fc19HhHKtrA",
+    "title": "C++ dynamic memory explained for beginners 🧠",
+    "seconds": 349
+   },
+   {
+    "id": "udiq6hVvZ1Y",
+    "title": "C++ recursion explained easy 😵",
+    "seconds": 381
+   },
+   {
+    "id": "spZd2rNtze8",
+    "title": "What are C++ FUNCTION TEMPLATES? 🍪",
+    "seconds": 315
+   },
+   {
+    "id": "ObUUe9ujYoY",
+    "title": "STRUCTS in C++ explained 🏗️",
+    "seconds": 301
+   },
+   {
+    "id": "Iv-ZBq4Bcps",
+    "title": "C++ structs as arguments explained 🚚",
+    "seconds": 329
+   },
+   {
+    "id": "Fqn4pSRH6Ec",
+    "title": "ENUMS in C++ explained easy 📅",
+    "seconds": 262
+   },
+   {
+    "id": "_8H2n0nDfd4",
+    "title": "C++ CLASSES & OBJECTS explained easy 🧍",
+    "seconds": 654
+   },
+   {
+    "id": "5z3KEX9AZEQ",
+    "title": "C++ CONSTRUCTORS explained easy 👷",
+    "seconds": 535
+   },
+   {
+    "id": "uAVj1cLktyU",
+    "title": "C++ CONSTRUCTOR OVERLOADING explained easy 👨‍🍳",
+    "seconds": 267
+   },
+   {
+    "id": "5_GQw06deQg",
+    "title": "C++ GETTERS & SETTERS explained easy 🔒",
+    "seconds": 372
+   },
+   {
+    "id": "5HYIFFuGcvk",
+    "title": "What is INHERITANCE in C++? 👨‍👧‍👧",
+    "seconds": 665
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-cpp",
+  "title": "Learn C++ With Me",
+  "channel": "Tech With Tim",
+  "playlistId": "PLzMcBGfZo4-lmGC8VW0iu6qfMHjy7gLQ3",
+  "url": "https://www.youtube.com/playlist?list=PLzMcBGfZo4-lmGC8VW0iu6qfMHjy7gLQ3",
+  "videoCount": 20,
+  "totalSeconds": 20435,
+  "videos": [
+   {
+    "id": "lPd13fsU-CQ",
+    "title": "Learn C++ With Me #1 - How to Compile and Run C++ Code",
+    "seconds": 1106
+   },
+   {
+    "id": "ckbfOdMhZls",
+    "title": "Learn C++ With Me #2 - C++ Program Structure",
+    "seconds": 1064
+   },
+   {
+    "id": "zgutFVxOlTY",
+    "title": "Learn C++ With Me #3 - Data Types and Variables",
+    "seconds": 1197
+   },
+   {
+    "id": "OA28SYILJv8",
+    "title": "Learn C++ With Me #4 - User Input and Constants",
+    "seconds": 1415
+   },
+   {
+    "id": "CWtiqVQp8uk",
+    "title": "Learn C++ With Me #5 - Arithmetic Operators",
+    "seconds": 947
+   },
+   {
+    "id": "taBgBbXRadc",
+    "title": "Learn C++ With Me #6 - Comparison Operators",
+    "seconds": 1052
+   },
+   {
+    "id": "F__aAx-3HOY",
+    "title": "Learn C++ With Me #7 - Logical Operators (And, Or and Not)",
+    "seconds": 745
+   },
+   {
+    "id": "Zkr0aAdD1Ww",
+    "title": "Learn C++ With Me #8 - If, Else & Else If",
+    "seconds": 1025
+   },
+   {
+    "id": "1FVBeLD_FdE",
+    "title": "Learn C++ With Me #9 - Arrays",
+    "seconds": 1295
+   },
+   {
+    "id": "gVmTVsAn6EI",
+    "title": "Learn C++ With Me #10 - For Loops",
+    "seconds": 971
+   },
+   {
+    "id": "aOskrzlcBRY",
+    "title": "Learn C++ With Me #11 - While, Do While Loops & Break/Continue",
+    "seconds": 1441
+   },
+   {
+    "id": "uOlLs1OYSSI",
+    "title": "Learn C++ With Me #12 - Switch Statement",
+    "seconds": 482
+   },
+   {
+    "id": "QtP0PdLEvFk",
+    "title": "Learn C++ With Me #13 - Strings",
+    "seconds": 356
+   },
+   {
+    "id": "RGYGiLUAQ3c",
+    "title": "Learn C++ With Me #14 - References (&)",
+    "seconds": 749
+   },
+   {
+    "id": "jUbOcBkdMF0",
+    "title": "Learn C++ With Me #15 - Pointers (*)",
+    "seconds": 865
+   },
+   {
+    "id": "T9-agjKW4PQ",
+    "title": "Learn C++ With Me #16 - Tuples",
+    "seconds": 1078
+   },
+   {
+    "id": "7mwgA9XFIEQ",
+    "title": "Learn C++ With Me #17 - Maps",
+    "seconds": 1475
+   },
+   {
+    "id": "RXzzE2wnnlo",
+    "title": "Learn C++ With Me #18 - Vectors",
+    "seconds": 785
+   },
+   {
+    "id": "682xT_TcKUg",
+    "title": "Learn C++ With Me #19 - Sets",
+    "seconds": 813
+   },
+   {
+    "id": "C83tPpvxIJA",
+    "title": "Learn C++ With Me #20 - Functions",
+    "seconds": 1574
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-java",
+  "title": "Java Tutorial for Absolute Beginners",
+  "channel": "Tech With Tim",
+  "playlistId": "PLzMcBGfZo4-mOYgu42wKsStsA_ClOMpr3",
+  "url": "https://www.youtube.com/playlist?list=PLzMcBGfZo4-mOYgu42wKsStsA_ClOMpr3",
+  "videoCount": 22,
+  "totalSeconds": 14429,
+  "videos": [
+   {
+    "id": "P8FmdbRxX34",
+    "title": "Java Tutorial for Beginners #1 - Introduction",
+    "seconds": 440
+   },
+   {
+    "id": "RPoquiZydYc",
+    "title": "Java Tutorial for Beginners #2 - Variables & Data Types",
+    "seconds": 737
+   },
+   {
+    "id": "ofKz3XGv6ZQ",
+    "title": "Java Tutorial for Beginners #3 - Basic Operators",
+    "seconds": 735
+   },
+   {
+    "id": "ZtcX0OXXRWk",
+    "title": "Java Tutorial for Beginners #4 - Input and Scanners",
+    "seconds": 572
+   },
+   {
+    "id": "jcHk4ilAbPY",
+    "title": "Java Tutorial for Beginners #5 - Conditions and Booleans",
+    "seconds": 698
+   },
+   {
+    "id": "ojYxKBoZ44c",
+    "title": "Java Tutorial for Beginners #6 - If/Else/Else If",
+    "seconds": 632
+   },
+   {
+    "id": "CFvTlTcZBTY",
+    "title": "Java Tutorial for Beginners #7 - Nested Statements",
+    "seconds": 464
+   },
+   {
+    "id": "_Wf2rbL9wQU",
+    "title": "Java Tutorial for Beginners #8 - Arrays",
+    "seconds": 533
+   },
+   {
+    "id": "1BAZsQBteDs",
+    "title": "Java Tutorial for Beginners #9 - For Loops",
+    "seconds": 594
+   },
+   {
+    "id": "v6mkj9H629Q",
+    "title": "Java Tutorial for Beginners #10 - For Loops (Continued)",
+    "seconds": 588
+   },
+   {
+    "id": "WiprCVc7lDY",
+    "title": "Java Tutorial for Beginners #11 - While Loops",
+    "seconds": 434
+   },
+   {
+    "id": "LRHvRJw_Djk",
+    "title": "Java Tutorial For Beginners #12 - Sets and Lists",
+    "seconds": 912
+   },
+   {
+    "id": "YFPVyj_aP64",
+    "title": "Java Tutorial for Beginners #13 - Maps & HashMaps",
+    "seconds": 699
+   },
+   {
+    "id": "1b-R6TxZMEk",
+    "title": "Java Tutorial For Beginners #14 - Maps Example",
+    "seconds": 614
+   },
+   {
+    "id": "LkhhyJM3RRI",
+    "title": "Java Tutorial for Beginners #15 - Introduction to Objects",
+    "seconds": 805
+   },
+   {
+    "id": "tORoVluMDps",
+    "title": "Java Tutorial for Beginners #16 - Creating Classes",
+    "seconds": 940
+   },
+   {
+    "id": "K7uvUtGPcYs",
+    "title": "Java Tutorial for Beginners #17 - Inheritance",
+    "seconds": 859
+   },
+   {
+    "id": "9jtRaEbqt-E",
+    "title": "Java Tutorial for Beginners #18 - What Does STATIC Mean?",
+    "seconds": 515
+   },
+   {
+    "id": "A17rkOzKfow",
+    "title": "Java Tutorial for Beginners #19 - Overloading Methods & Object Comparisons",
+    "seconds": 724
+   },
+   {
+    "id": "m90goRUpWV0",
+    "title": "Java Tutorial for Beginners #20 - Inner Classes",
+    "seconds": 507
+   },
+   {
+    "id": "CjwVL8mED4I",
+    "title": "Java Tutorial for Beginners #21 - Interfaces",
+    "seconds": 771
+   },
+   {
+    "id": "x81mj8ANlHY",
+    "title": "Java Tutorial for Beginners #22 - Enums",
+    "seconds": 656
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-java",
+  "title": "Java Beginner",
+  "channel": "Coding with John",
+  "playlistId": "PLkeaG1zpPTHiMjczpmZ6ALd46VjjiQJ_8",
+  "url": "https://www.youtube.com/playlist?list=PLkeaG1zpPTHiMjczpmZ6ALd46VjjiQJ_8",
+  "videoCount": 16,
+  "totalSeconds": 10025,
+  "videos": [
+   {
+    "id": "6WYJLkd3R9M",
+    "title": "Create Your First Java Program from Scratch in Minutes",
+    "seconds": 591
+   },
+   {
+    "id": "drQK8ciCAjY",
+    "title": "Learn Java in One Video - 15-minute Crash Course",
+    "seconds": 894
+   },
+   {
+    "id": "pgBk8HC7jbU",
+    "title": "Java Constructors - Full Tutorial",
+    "seconds": 458
+   },
+   {
+    "id": "wq9SJb8VeyM",
+    "title": "Java Enums Explained in 6 Minutes",
+    "seconds": 358
+   },
+   {
+    "id": "r9CMJZ4T__8",
+    "title": "Final Keyword in Java Full Tutorial - Final Classes, Methods, and Variables",
+    "seconds": 597
+   },
+   {
+    "id": "ScUJx4aWRi0",
+    "title": "Java File Input/Output - It's Way Easier Than You Think",
+    "seconds": 498
+   },
+   {
+    "id": "j_ax_yT7KW0",
+    "title": "Number Guessing Game in Java Tutorial (Beginning to End)",
+    "seconds": 874
+   },
+   {
+    "id": "DyqMglmrido",
+    "title": "Create Rock Paper Scissors in Java in 10 Minutes",
+    "seconds": 624
+   },
+   {
+    "id": "AoUVdLWLFQw",
+    "title": ".equals() vs. == in Java - The Real Difference",
+    "seconds": 528
+   },
+   {
+    "id": "NbYgm0r7u6o",
+    "title": "Array vs. ArrayList in Java Tutorial - What's The Difference?",
+    "seconds": 1056
+   },
+   {
+    "id": "WQ7mvQFSmYc",
+    "title": "Primitives Data Types In Java - All the Primitives And What They Do",
+    "seconds": 624
+   },
+   {
+    "id": "P-_Nzi_mCRo",
+    "title": "Java Main Method Explained - What Does All That Stuff Mean?",
+    "seconds": 430
+   },
+   {
+    "id": "uA4eQbC3JgA",
+    "title": "How to Run Java Programs With Command Prompt (cmd) and Notepad in Windows",
+    "seconds": 343
+   },
+   {
+    "id": "0lOnnd50cGI",
+    "title": "Insertion Sort Algorithm in Java - Full Tutorial With Source",
+    "seconds": 617
+   },
+   {
+    "id": "cum3OrpURzc",
+    "title": "Fibonacci Series In Java With Recursion - Full Tutorial (FAST Algorithm)",
+    "seconds": 911
+   },
+   {
+    "id": "ZibsO2doQjU",
+    "title": "Java's Hello World Is About To Change Forever",
+    "seconds": 622
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-rust",
+  "title": "The Rust Lang Book",
+  "channel": "Let's Get Rusty",
+  "playlistId": "PLai5B987bZ9CoVR-QEIN9foz4QCJ0H2Y8",
+  "url": "https://www.youtube.com/playlist?list=PLai5B987bZ9CoVR-QEIN9foz4QCJ0H2Y8",
+  "videoCount": 44,
+  "totalSeconds": 36274,
+  "videos": [
+   {
+    "id": "OX9HJsJUDxA",
+    "title": "ULTIMATE Rust Lang Tutorial! - Getting Started",
+    "seconds": 430
+   },
+   {
+    "id": "H0xBSbnQYds",
+    "title": "Programming a Guessing Game in Rust!",
+    "seconds": 802
+   },
+   {
+    "id": "2V0JaMVjzws",
+    "title": "Common Programming Concepts in Rust",
+    "seconds": 873
+   },
+   {
+    "id": "VFIOSWy93H0",
+    "title": "Understanding Ownership in Rust",
+    "seconds": 1530
+   },
+   {
+    "id": "n3bPhdiJm9I",
+    "title": "Structs in Rust",
+    "seconds": 1042
+   },
+   {
+    "id": "DSZqIJhkNCM",
+    "title": "Enums and Pattern Matching in Rust",
+    "seconds": 754
+   },
+   {
+    "id": "5RPXgDQrjio",
+    "title": "Rust's Module System Explained!",
+    "seconds": 1346
+   },
+   {
+    "id": "Zs-pS-egQSs",
+    "title": "Common Collections in Rust",
+    "seconds": 1495
+   },
+   {
+    "id": "wM6o70NAWUI",
+    "title": "Error Handling in Rust",
+    "seconds": 980
+   },
+   {
+    "id": "6rcTSxPJ6Bw",
+    "title": "Generic Types in Rust",
+    "seconds": 918
+   },
+   {
+    "id": "T0Xfltu4h3A",
+    "title": "Traits in Rust",
+    "seconds": 704
+   },
+   {
+    "id": "juIINGuZyBc",
+    "title": "Rust Lifetimes Finally Explained!",
+    "seconds": 1150
+   },
+   {
+    "id": "18-7NoNPO30",
+    "title": "Testing in Rust",
+    "seconds": 915
+   },
+   {
+    "id": "-L4nKAlmH3M",
+    "title": "Testing in Rust - Part 2",
+    "seconds": 850
+   },
+   {
+    "id": "XYkiwsplDTg",
+    "title": "Writing a CLI App in Rust! - Part 1",
+    "seconds": 1064
+   },
+   {
+    "id": "AABHxixn6Cw",
+    "title": "Writing a CLI App in Rust! - Part 2",
+    "seconds": 1001
+   },
+   {
+    "id": "kZXJvLfjUS4",
+    "title": "Closures in Rust",
+    "seconds": 1193
+   },
+   {
+    "id": "4GcKrj4By8k",
+    "title": "Iterators in Rust",
+    "seconds": 805
+   },
+   {
+    "id": "rb63xJEjaZU",
+    "title": "Iterators in Practice",
+    "seconds": 420
+   },
+   {
+    "id": "4TI153PIEDQ",
+    "title": "Publishing a Rust Crate!",
+    "seconds": 842
+   },
+   {
+    "id": "70_9IIsQfjs",
+    "title": "Cargo Workspaces",
+    "seconds": 713
+   },
+   {
+    "id": "m76sRj2VgGo",
+    "title": "The Box Smart Pointer in Rust",
+    "seconds": 738
+   },
+   {
+    "id": "dYEC6NElVOg",
+    "title": "Smart Pointers in Rust - The Deref Trait",
+    "seconds": 601
+   },
+   {
+    "id": "RPWZcTYBS4k",
+    "title": "Smart Pointers in Rust - The Drop Trait",
+    "seconds": 307
+   },
+   {
+    "id": "M9Owp3iLigg",
+    "title": "Smart Pointers in Rust - Reference Counting",
+    "seconds": 521
+   },
+   {
+    "id": "77aRH6YBKyY",
+    "title": "Smart Pointers in Rust - Interior Mutability",
+    "seconds": 1024
+   },
+   {
+    "id": "pIVZRDFAUyc",
+    "title": "Smart Pointers in Rust - Reference Cycles",
+    "seconds": 938
+   },
+   {
+    "id": "06WcsNPUNC8",
+    "title": "Concurrency in Rust - Creating Threads",
+    "seconds": 641
+   },
+   {
+    "id": "FE1BkKqYCGU",
+    "title": "Concurrency in Rust - Message Passing",
+    "seconds": 566
+   },
+   {
+    "id": "mupwF9jbVZ4",
+    "title": "Concurrency in Rust - Sharing State",
+    "seconds": 552
+   },
+   {
+    "id": "UGDa0P2PXrY",
+    "title": "Object Oriented Programming in Rust",
+    "seconds": 430
+   },
+   {
+    "id": "ReBmm0eJg6g",
+    "title": "Using Trait Objects in Rust",
+    "seconds": 812
+   },
+   {
+    "id": "VFmPwvhubow",
+    "title": "State Design Pattern in Rust",
+    "seconds": 1221
+   },
+   {
+    "id": "NzeQbiiqhgo",
+    "title": "Patterns and Matching",
+    "seconds": 602
+   },
+   {
+    "id": "8_HPKGZGM5I",
+    "title": "Pattern Syntax in Rust",
+    "seconds": 924
+   },
+   {
+    "id": "9E2v8pCUc48",
+    "title": "Writing Unsafe Rust",
+    "seconds": 926
+   },
+   {
+    "id": "RDxz94tuxqM",
+    "title": "Advanced Traits in Rust",
+    "seconds": 815
+   },
+   {
+    "id": "aI1oIFqh44Y",
+    "title": "Advanced Types in Rust",
+    "seconds": 516
+   },
+   {
+    "id": "rnxutl7t1hI",
+    "title": "Advanced Function and Closures in Rust",
+    "seconds": 475
+   },
+   {
+    "id": "KsJHlqULpO4",
+    "title": "Declarative Macros in Rust",
+    "seconds": 416
+   },
+   {
+    "id": "crWfcA064is",
+    "title": "Procedural Macros in Rust",
+    "seconds": 693
+   },
+   {
+    "id": "BHxmWTVFWxQ",
+    "title": "Building a Web Server in Rust - Part 1",
+    "seconds": 979
+   },
+   {
+    "id": "1AamFJGAE8E",
+    "title": "Building a Web Server in Rust - Part 2",
+    "seconds": 1251
+   },
+   {
+    "id": "qjx8vutWaUQ",
+    "title": "Building a Web Server in Rust - Part 3",
+    "seconds": 499
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-rust",
+  "title": "Rust for Beginners",
+  "channel": "Microsoft Developer",
+  "playlistId": "PLlrxD0HtieHjbTjrchBwOVks_sr8EVW1x",
+  "url": "https://www.youtube.com/playlist?list=PLlrxD0HtieHjbTjrchBwOVks_sr8EVW1x",
+  "videoCount": 35,
+  "totalSeconds": 8464,
+  "videos": [
+   {
+    "id": "PpWR6zungUk",
+    "title": "Introduction to the series [1 of 35] | Rust for Beginners",
+    "seconds": 180
+   },
+   {
+    "id": "1DJkU8H-uDc",
+    "title": "What is Rust and why should you learn it [2 of 35] | Rust for Beginners",
+    "seconds": 204
+   },
+   {
+    "id": "XMntMXLC870",
+    "title": "Learn about the Rust community [3 of 35] | Rust for Beginners",
+    "seconds": 162
+   },
+   {
+    "id": "x2u2G1MS4gY",
+    "title": "Install the tools to develop with Rust [4 of 35] | Rust for Beginners",
+    "seconds": 275
+   },
+   {
+    "id": "OmQ_cXa9uLw",
+    "title": "Create your first application [5 of 35] | Rust for Beginners",
+    "seconds": 284
+   },
+   {
+    "id": "ivJHL8P7VL4",
+    "title": "What is Cargo? [6 of 35] | Rust for Beginners",
+    "seconds": 163
+   },
+   {
+    "id": "S3F1yVMFDSk",
+    "title": "Learn about variables [7 of 35] | Rust for Beginners",
+    "seconds": 242
+   },
+   {
+    "id": "VISz8j8D2xk",
+    "title": "Demo: Declare and use variables [8 of 35] | Rust for Beginners",
+    "seconds": 353
+   },
+   {
+    "id": "VXYWzDjzF5I",
+    "title": "Learn about scalar data types [9 of 35] | Rust for Beginners",
+    "seconds": 209
+   },
+   {
+    "id": "XqGTVe8OWrw",
+    "title": "Demo: Create and use scalar data types [10 of 35] | Rust for Beginners",
+    "seconds": 326
+   },
+   {
+    "id": "7IKzzprOWRA",
+    "title": "Learn about compound data types [11 of 35] | Rust for Beginners",
+    "seconds": 171
+   },
+   {
+    "id": "as_yzzRTMoM",
+    "title": "Demo: Create and use compound data types [12 of 35] | Rust for Beginners",
+    "seconds": 227
+   },
+   {
+    "id": "43Wpixau-Cg",
+    "title": "Functions [13 of 35] | Rust for Beginners",
+    "seconds": 112
+   },
+   {
+    "id": "dw36imIMBow",
+    "title": "Demo: Functions [14 of 35] | Rust for Beginners",
+    "seconds": 137
+   },
+   {
+    "id": "kuQMk8cRI4Q",
+    "title": "Structs [15 of 35] | Rust for Beginners",
+    "seconds": 173
+   },
+   {
+    "id": "lc5zvjsQH_E",
+    "title": "Demo: Structs [16 of 35] | Rust for Beginners",
+    "seconds": 350
+   },
+   {
+    "id": "aP4mfIzboyI",
+    "title": "Enums [17 of 35] | Rust for Beginners",
+    "seconds": 183
+   },
+   {
+    "id": "di_wKwlC-PI",
+    "title": "Demo: Enums [18 of 35] | Rust for Beginners",
+    "seconds": 248
+   },
+   {
+    "id": "srkHP8IwcX0",
+    "title": "If/else and match [19 of 35] | Rust for Beginners",
+    "seconds": 211
+   },
+   {
+    "id": "Me3eo_n4MZM",
+    "title": "Demo: If/else and match [20 of 35] | Rust for Beginners",
+    "seconds": 255
+   },
+   {
+    "id": "iEUW4Qcfjkw",
+    "title": "Loops [21 of 35] | Rust for Beginners",
+    "seconds": 184
+   },
+   {
+    "id": "UyoLTNrbaEE",
+    "title": "Demo: Loops [22 of 35] | Rust for Beginners",
+    "seconds": 242
+   },
+   {
+    "id": "72Lw-fOaG4E",
+    "title": "Error handling [23 of 35] | Rust for Beginners",
+    "seconds": 313
+   },
+   {
+    "id": "sd36CgC-w3I",
+    "title": "Demo: Error handling [24 of 35] | Rust for Beginners",
+    "seconds": 432
+   },
+   {
+    "id": "2H-O43Hl94c",
+    "title": "Ownership [25 of 35] | Rust for Beginners",
+    "seconds": 522
+   },
+   {
+    "id": "Tw5Xr68GUSk",
+    "title": "Demo: Ownership [26 of 35] | Rust for Beginners",
+    "seconds": 109
+   },
+   {
+    "id": "6eCV-Q-kjX4",
+    "title": "Borrowing [27 of 35] | Rust for Beginners",
+    "seconds": 207
+   },
+   {
+    "id": "k_WmestbBYw",
+    "title": "Demo: Borrowing [28 of 35] | Rust for Beginners",
+    "seconds": 267
+   },
+   {
+    "id": "jcj-1ocHiEQ",
+    "title": "Learn about strings [29 of 35] | Rust for Beginners",
+    "seconds": 276
+   },
+   {
+    "id": "4YjdTjv4234",
+    "title": "Demo: Create and use strings [30 of 35] | Rust for Beginners",
+    "seconds": 261
+   },
+   {
+    "id": "tTUFl8c_Z0w",
+    "title": "Collections [31 of 35] | Rust for Beginners",
+    "seconds": 229
+   },
+   {
+    "id": "yAw3cpqIXtg",
+    "title": "Demo: Collections [32 of 35] | Rust for Beginners",
+    "seconds": 315
+   },
+   {
+    "id": "JKK2TqCFx8Y",
+    "title": "Traits [33 of 35] | Rust for Beginners",
+    "seconds": 224
+   },
+   {
+    "id": "ajvipmDMwAg",
+    "title": "Demo: Traits [34 of 35] | Rust for Beginners",
+    "seconds": 321
+   },
+   {
+    "id": "pfKZeFGt7YM",
+    "title": "Next steps [35 of 35] | Rust for Beginners",
+    "seconds": 97
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-go",
+  "title": "Go Tutorial (Golang) for Beginners",
+  "channel": "Net Ninja",
+  "playlistId": "PL4cUxeGkcC9gC88BEo9czgyS72A3doDeM",
+  "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9gC88BEo9czgyS72A3doDeM",
+  "videoCount": 22,
+  "totalSeconds": 11428,
+  "videos": [
+   {
+    "id": "etSN4X_fCnM",
+    "title": "Go (Golang) Tutorial #1 - Introduction & Setup",
+    "seconds": 375
+   },
+   {
+    "id": "RI9ngRqn9N4",
+    "title": "Go (Golang) Tutorial #2 - Your First Go File",
+    "seconds": 280
+   },
+   {
+    "id": "98tQPM3R3qU",
+    "title": "Go (Golang) Tutorial #3 - Variables, Strings & Numbers",
+    "seconds": 834
+   },
+   {
+    "id": "m1Uy0WQ2Xns",
+    "title": "Go (Golang) Tutorial #4 - Printing & Formatting Strings",
+    "seconds": 746
+   },
+   {
+    "id": "Arb-LjPg7FA",
+    "title": "Go (Golang) Tutorial #5 - Arrays & Slices",
+    "seconds": 657
+   },
+   {
+    "id": "BoooHY57RXw",
+    "title": "Go (Golang) Tutorial #6 - The Standard Library",
+    "seconds": 751
+   },
+   {
+    "id": "CL13xV2dHCg",
+    "title": "Go (Golang) Tutorial #7 - Loops",
+    "seconds": 525
+   },
+   {
+    "id": "d5oUb2T2iCE",
+    "title": "Go (Golang) Tutorial #8 - Booleans & Conditionals",
+    "seconds": 530
+   },
+   {
+    "id": "X68JmClzap4",
+    "title": "Go (Golang) Tutorial #9 - Using Functions",
+    "seconds": 622
+   },
+   {
+    "id": "ypV7r1ODZCA",
+    "title": "Go (Golang) Tutorial #10 - Multiple Return Values",
+    "seconds": 483
+   },
+   {
+    "id": "XYK4Rs80q6c",
+    "title": "Go (Golang) Tutorial #11 - Package Scope",
+    "seconds": 381
+   },
+   {
+    "id": "v3RodjH1i6c",
+    "title": "Go (Golang) Tutorial #12 - Maps",
+    "seconds": 409
+   },
+   {
+    "id": "LBLN4Wu5U4w",
+    "title": "Go (Golang) Tutorial #13 - Pass By Value",
+    "seconds": 545
+   },
+   {
+    "id": "4B2rwYvuiBo",
+    "title": "Go (Golang) Tutorial #14 - Pointers",
+    "seconds": 549
+   },
+   {
+    "id": "zfMhSFpBSaw",
+    "title": "Go (Golang) Tutorial #15 - Structs & Custom Types",
+    "seconds": 338
+   },
+   {
+    "id": "HE6tbWlymmk",
+    "title": "Go (Golang) Tutorial #16 - Receiver Functions",
+    "seconds": 617
+   },
+   {
+    "id": "cgBA5k50At8",
+    "title": "Go (Golang) Tutorial #17 - Receiver Functions with Pointers",
+    "seconds": 441
+   },
+   {
+    "id": "20HlPtQuc_g",
+    "title": "Go (Golang) Tutorial #18 - User Input",
+    "seconds": 892
+   },
+   {
+    "id": "l6zlJFJst8o",
+    "title": "Go (Golang) Tutorial #19 - Switch Statements",
+    "seconds": 454
+   },
+   {
+    "id": "ipUWKRPw43I",
+    "title": "Go (Golang) Tutorial #20 - Parsing Floats",
+    "seconds": 369
+   },
+   {
+    "id": "J88pG3NeRoA",
+    "title": "Go (Golang) Tutorial #21 - Saving Files",
+    "seconds": 293
+   },
+   {
+    "id": "lbW-KVdIXaY",
+    "title": "Go (Golang) Tutorial #22 - Interfaces",
+    "seconds": 337
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-go",
+  "title": "Golang Tutorials",
+  "channel": "Tech With Tim",
+  "playlistId": "PLzMcBGfZo4-mtY_SE3HuzQJzuj4VlUG0q",
+  "url": "https://www.youtube.com/playlist?list=PLzMcBGfZo4-mtY_SE3HuzQJzuj4VlUG0q",
+  "videoCount": 22,
+  "totalSeconds": 17286,
+  "videos": [
+   {
+    "id": "75lJDVT1h0s",
+    "title": "Golang Tutorial #1 - An Introduction to Go Programming",
+    "seconds": 968
+   },
+   {
+    "id": "pM0-CMysa_M",
+    "title": "Golang Tutorial #2 - Variables & Data Types",
+    "seconds": 887
+   },
+   {
+    "id": "UVp7Cz1NMwA",
+    "title": "Golang Tutorial #3 - Assignment Expression & Implicit vs Explicit",
+    "seconds": 505
+   },
+   {
+    "id": "GQ880MlHBBE",
+    "title": "Golang Tutorial #4 - Printing to Console & fmt",
+    "seconds": 844
+   },
+   {
+    "id": "1-bM3lSBDaA",
+    "title": "Golang Tutorial #5 - Console Input (Bufio Scanner) & Type Conversion",
+    "seconds": 647
+   },
+   {
+    "id": "qCtgLbFWPI4",
+    "title": "Golang Tutorial #6 - Arithmetic Operators & Math",
+    "seconds": 546
+   },
+   {
+    "id": "63au_xLLp0A",
+    "title": "Golang Tutorial #7 - Conditions & Boolean Expressions",
+    "seconds": 496
+   },
+   {
+    "id": "QvPa8C0y9yc",
+    "title": "Golang Tutorial #8 - Chained Conditionals (AND, OR, NOT)",
+    "seconds": 451
+   },
+   {
+    "id": "QgBYnz6I7p4",
+    "title": "Golang Tutorial #9 - If, Else If, Else",
+    "seconds": 833
+   },
+   {
+    "id": "jZ-llP_yKNo",
+    "title": "Golang Tutorial #10 - For Loops & While Loops",
+    "seconds": 759
+   },
+   {
+    "id": "siOPdXdQImg",
+    "title": "Golang Tutorial #11 - Switch Statement",
+    "seconds": 336
+   },
+   {
+    "id": "e-oBn806Pzc",
+    "title": "Golang Tutorial #12 - Arrays",
+    "seconds": 810
+   },
+   {
+    "id": "KzKNGGoaT5U",
+    "title": "Golang Tutorial #13 - Slices",
+    "seconds": 932
+   },
+   {
+    "id": "DYqpu3jF2_4",
+    "title": "Golang Tutorial #14 - Range & Slice/Array Examples",
+    "seconds": 944
+   },
+   {
+    "id": "yJE2RC37BF4",
+    "title": "Golang Tutorial #15 - Maps",
+    "seconds": 597
+   },
+   {
+    "id": "CrgD_otSzDI",
+    "title": "Golang Tutorial #16 - Functions",
+    "seconds": 869
+   },
+   {
+    "id": "vdm04bVzkLg",
+    "title": "Golang Tutorial #17 - Advanced Function Concepts & Function Closures",
+    "seconds": 873
+   },
+   {
+    "id": "vtYTl4pNDSI",
+    "title": "Golang Tutorial #18 - Mutable & Immutable Data Types",
+    "seconds": 1065
+   },
+   {
+    "id": "a4HcEsJ1hIE",
+    "title": "Golang Tutorial #19 - Pointers & Derefrence Operator (& and *)",
+    "seconds": 1235
+   },
+   {
+    "id": "dm9oXt6_YNA",
+    "title": "Golang Tutorial #20 - Structs and Custom Types",
+    "seconds": 1129
+   },
+   {
+    "id": "5b8MMXgBnp0",
+    "title": "Golang Tutorial #21 - Struct Methods",
+    "seconds": 821
+   },
+   {
+    "id": "lh_Uv2imp14",
+    "title": "Golang Tutorial #22 - Interfaces",
+    "seconds": 739
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-swift",
+  "title": "Swift Basics (Beginner Level)",
+  "channel": "Swiftful Thinking",
+  "playlistId": "PLwvDm4VfkdpiLvzZFJI6rVIBtdolrJBVB",
+  "url": "https://www.youtube.com/playlist?list=PLwvDm4VfkdpiLvzZFJI6rVIBtdolrJBVB",
+  "videoCount": 19,
+  "totalSeconds": 23479,
+  "videos": [
+   {
+    "id": "PwXgg9adkdM",
+    "title": "Learn Swift online for FREE | Swift Basics #0",
+    "seconds": 141
+   },
+   {
+    "id": "xfvdxQJj7Vw",
+    "title": "How to code in Swift | Swift Basics #1",
+    "seconds": 1105
+   },
+   {
+    "id": "JeoaCW9fO0w",
+    "title": "How to use basic Types in Swift (Bool, String, Int) | Swift Basics #2",
+    "seconds": 990
+   },
+   {
+    "id": "jRNa6hYTJLo",
+    "title": "How to use Variables and Constants | Swift Basics #3",
+    "seconds": 730
+   },
+   {
+    "id": "Q0DBDJqT3Ps",
+    "title": "How to write if-statements and use operators | Swift Basics #4",
+    "seconds": 1449
+   },
+   {
+    "id": "kr3SSplrJlw",
+    "title": "How to use Functions in Swift | Swift Basics #5",
+    "seconds": 2185
+   },
+   {
+    "id": "PDWNf4pBI64",
+    "title": "How to use Optionals in Swift | Swift Basics #6",
+    "seconds": 3237
+   },
+   {
+    "id": "zsjCrtENsZA",
+    "title": "How to use Tuples in Swift | Swift Basics #7",
+    "seconds": 824
+   },
+   {
+    "id": "XdZUVmqIkJE",
+    "title": "What is Object Oriented Programming for Swift | Swift Basics #8",
+    "seconds": 2400
+   },
+   {
+    "id": "gRKlprUj-I8",
+    "title": "How to use Structs in Swift | Swift Basics #9",
+    "seconds": 1824
+   },
+   {
+    "id": "YPUCML__Md8",
+    "title": "How to use Enums in Swift | Swift Basics #10",
+    "seconds": 901
+   },
+   {
+    "id": "xJgtknc-7CA",
+    "title": "How to use Classes in Swift | Swift Basics #11",
+    "seconds": 902
+   },
+   {
+    "id": "UbX2UtgZTJI",
+    "title": "How to use Access Control (Private vs Public) | Swift Basics #12",
+    "seconds": 1139
+   },
+   {
+    "id": "_SRaZjPuYOQ",
+    "title": "How to use Arrays and Sets in Swift | Swift Basics #13",
+    "seconds": 1752
+   },
+   {
+    "id": "ctBEqA0wh3M",
+    "title": "How to use Dictionaries in Swift | Swift Basics #14",
+    "seconds": 1131
+   },
+   {
+    "id": "7hAmXRwBQxc",
+    "title": "How to use For Loops in Swift | Swift Basics #15",
+    "seconds": 971
+   },
+   {
+    "id": "NkOU60vwUEY",
+    "title": "How to Filter, Sort, and Map in Swift | Swift Basics #16",
+    "seconds": 986
+   },
+   {
+    "id": "nJmrkRlRu88",
+    "title": "What is a Protocol in Swift and SwiftUI View protocol | Swift Basics #17",
+    "seconds": 587
+   },
+   {
+    "id": "3284ruY8jbg",
+    "title": "Learn Swift online for FREE Series Conclusion | Swift Basics #18",
+    "seconds": 225
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-swift",
+  "title": "Learn Swift for Beginners 2026 Course",
+  "channel": "CodeWithChris",
+  "playlistId": "PLMRqhzcHGw1bVghYq_TAiPeoKaBVlOJu5",
+  "url": "https://www.youtube.com/playlist?list=PLMRqhzcHGw1bVghYq_TAiPeoKaBVlOJu5",
+  "videoCount": 12,
+  "totalSeconds": 6164,
+  "videos": [
+   {
+    "id": "H3kgN0TuLVc",
+    "title": "Learn Swift for Beginners 2026 - Lesson 1 - Intro to Swift",
+    "seconds": 504
+   },
+   {
+    "id": "4UngKMf0T84",
+    "title": "Learn Swift for Beginners 2026 - Lesson 2 - Print Output",
+    "seconds": 471
+   },
+   {
+    "id": "B-MZOUBtmUQ",
+    "title": "Learn Swift for Beginners 2026 - Lesson 3 - Variables and Constants",
+    "seconds": 776
+   },
+   {
+    "id": "0GlpzpUJVcM",
+    "title": "Learn Swift for Beginners - Lesson 4 - Data Types",
+    "seconds": 507
+   },
+   {
+    "id": "Yt1RBhPAyMk",
+    "title": "Learn Swift for Beginners 2026 - Lesson 5 - String Interpolation",
+    "seconds": 369
+   },
+   {
+    "id": "27zajydTlV8",
+    "title": "Learn Swift for Beginners 2026 - Lesson 6 - Comparison Operators",
+    "seconds": 384
+   },
+   {
+    "id": "OGQvW-sQVoY",
+    "title": "Learn Swift for Beginners 2026 - Lesson 7 - If, Else If, Else",
+    "seconds": 670
+   },
+   {
+    "id": "YDtVZnC_2zU",
+    "title": "Learn Swift for Beginners 2026 - Lesson 8 - Logical Operators",
+    "seconds": 465
+   },
+   {
+    "id": "LWqMRAx05RU",
+    "title": "Learn Swift for Beginners 2026 - Lesson 9 - Switch Statements",
+    "seconds": 588
+   },
+   {
+    "id": "-QrtdLcQoew",
+    "title": "Learn Swift for Beginners 2026 - Lesson 10 - Ternary Operator",
+    "seconds": 449
+   },
+   {
+    "id": "lsUdai6nf5A",
+    "title": "Learn Swift for Beginners 2026 - Lesson 11 - For Loops with Ranges",
+    "seconds": 461
+   },
+   {
+    "id": "fHO0mWKM6Gg",
+    "title": "Learn Swift for Beginners 2026 - Lesson 12 - Arrays",
+    "seconds": 520
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-sql",
+  "title": "Introduction to SQL (Computer Science)",
+  "channel": "Socratica",
+  "playlistId": "PLi01XoE8jYojRqM4qGBF1U90Ee1Ecb5tt",
+  "url": "https://www.youtube.com/playlist?list=PLi01XoE8jYojRqM4qGBF1U90Ee1Ecb5tt",
+  "videoCount": 13,
+  "totalSeconds": 6558,
+  "videos": [
+   {
+    "id": "nWyyDHhTxYU",
+    "title": "Learn SQL with Socratica  |¦|  SQL Tutorial  |¦|  SQL for Beginners",
+    "seconds": 87
+   },
+   {
+    "id": "OfM5lC-7R4Y",
+    "title": "SQL - A Quick Overview  |¦| SQL Tutorial |¦| SQL for Beginners",
+    "seconds": 506
+   },
+   {
+    "id": "WzfDLqt-WIg",
+    "title": "Relational Databases - How to Choose  |¦|  SQL Tutorial  |¦|  SQL for Beginners",
+    "seconds": 486
+   },
+   {
+    "id": "fZQI7nBu32M",
+    "title": "PostgreSQL (Postgres) - Installation & Overview |¦|  SQL Tutorial  |¦|  SQL for Beginners",
+    "seconds": 536
+   },
+   {
+    "id": "YufocuHbYZo",
+    "title": "SQL SELECT Tutorial   |¦| SQL Tutorial |¦| SQL for Beginners",
+    "seconds": 536
+   },
+   {
+    "id": "PkJKzR_sClM",
+    "title": "SQL SELECT Tutorial - Part 2  |¦| SQL Tutorial |¦| SQL for Beginners",
+    "seconds": 507
+   },
+   {
+    "id": "VkabxQgtGsA",
+    "title": "SQL INSERT INTO Statement |¦| SQL Tutorial |¦| SQL for Beginners",
+    "seconds": 498
+   },
+   {
+    "id": "cd-hSl7_pGQ",
+    "title": "SQL UPDATE Statement |¦| SQL Tutorial |¦| SQL for Beginners",
+    "seconds": 483
+   },
+   {
+    "id": "c7AAkX39_Wo",
+    "title": "SQL DELETE Query |¦| SQL Delete Command |¦| SQL Tutorial",
+    "seconds": 507
+   },
+   {
+    "id": "9yeOJ0ZMUYw",
+    "title": "SQL Joins Explained  |¦| Joins in SQL |¦| SQL Tutorial",
+    "seconds": 626
+   },
+   {
+    "id": "Jh_pvk48jHA",
+    "title": "SQL Joins Examples |¦| Joins in SQL |¦| SQL Tutorial",
+    "seconds": 692
+   },
+   {
+    "id": "8jU8SrAPn9c",
+    "title": "SQL VIEWS + Complex Queries, Cross Joins, Unions, and more!  |¦| SQL Tutorial",
+    "seconds": 497
+   },
+   {
+    "id": "fsG1XaZEa78",
+    "title": "SQL Index |¦| Indexes in SQL |¦| Database Index",
+    "seconds": 597
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-sql",
+  "title": "MySQL tutorial for beginners 🐬",
+  "channel": "Bro Code",
+  "playlistId": "PLZPZq0r_RZOMskz6MdsMOgxzheIyjo-BZ",
+  "url": "https://www.youtube.com/playlist?list=PLZPZq0r_RZOMskz6MdsMOgxzheIyjo-BZ",
+  "videoCount": 31,
+  "totalSeconds": 10769,
+  "videos": [
+   {
+    "id": "oPV2sjMG53U",
+    "title": "MySQL tutorial for beginners (intro + installation) 🐬",
+    "seconds": 630
+   },
+   {
+    "id": "9LQ9rGoGfYQ",
+    "title": "MySQL: How to create a DATABASE",
+    "seconds": 241
+   },
+   {
+    "id": "XfrgCK6BX5w",
+    "title": "MySQL: How to create a TABLE",
+    "seconds": 490
+   },
+   {
+    "id": "Cxilfg-M158",
+    "title": "MySQL: How to INSERT rows into a TABLE",
+    "seconds": 354
+   },
+   {
+    "id": "kUDznItqKbI",
+    "title": "MySQL: How to SELECT data from a TABLE",
+    "seconds": 301
+   },
+   {
+    "id": "OB2leB2iZ6U",
+    "title": "MySQL: How to UPDATE and DELETE data from a TABLE",
+    "seconds": 212
+   },
+   {
+    "id": "GOQVlrQohtM",
+    "title": "MySQL: AUTOCOMMIT, COMMIT, ROLLBACK",
+    "seconds": 158
+   },
+   {
+    "id": "YEGM_S8mQEI",
+    "title": "MySQL: CURRENT_DATE() & CURRENT_TIME()",
+    "seconds": 166
+   },
+   {
+    "id": "Of_-2pBeL0g",
+    "title": "MySQL: UNIQUE constraint",
+    "seconds": 283
+   },
+   {
+    "id": "unzHhq82mKU",
+    "title": "MySQL: NOT NULL constraint",
+    "seconds": 173
+   },
+   {
+    "id": "EeG2boJCXbc",
+    "title": "MySQL: CHECK constraint is easy",
+    "seconds": 237
+   },
+   {
+    "id": "f4DEKHc9wLk",
+    "title": "MySQL: DEFAULT constraint is easy",
+    "seconds": 499
+   },
+   {
+    "id": "620DzFVz41o",
+    "title": "MySQL: PRIMARY KEYS are easy",
+    "seconds": 325
+   },
+   {
+    "id": "ALht4W2QxqY",
+    "title": "MySQL: AUTO_INCREMENT is awesome",
+    "seconds": 235
+   },
+   {
+    "id": "rFssfx37UJw",
+    "title": "MySQL: FOREIGN KEYS are easy (kind of)",
+    "seconds": 497
+   },
+   {
+    "id": "G3lJAxg1cy8",
+    "title": "Learn MySQL joins in 5 minutes!",
+    "seconds": 304
+   },
+   {
+    "id": "9HXJUGT-06w",
+    "title": "Functions in MySQL are easy",
+    "seconds": 225
+   },
+   {
+    "id": "lScJW5Qz_5k",
+    "title": "MySQL logical operators are easy",
+    "seconds": 357
+   },
+   {
+    "id": "T11d2ScMtk8",
+    "title": "MySQL wild cards are easy",
+    "seconds": 258
+   },
+   {
+    "id": "R-5F3BF8IeY",
+    "title": "MySQL ORDER BY clause is easy",
+    "seconds": 157
+   },
+   {
+    "id": "q-kZ8Rq58MY",
+    "title": "MySQL LIMIT clause is easy",
+    "seconds": 173
+   },
+   {
+    "id": "su-fxrvKTCk",
+    "title": "MySQL UNIONS are easy",
+    "seconds": 254
+   },
+   {
+    "id": "lweF--_3Pk8",
+    "title": "MySQL SELF JOINS are ... ughhh",
+    "seconds": 603
+   },
+   {
+    "id": "wciubfRhvtM",
+    "title": "MySQL VIEWS are awesome",
+    "seconds": 363
+   },
+   {
+    "id": "t0grczCICMk",
+    "title": "MySQL: INDEXES are awesome",
+    "seconds": 386
+   },
+   {
+    "id": "i5acg3Hvu6g",
+    "title": "MySQL: SUBQUERIES",
+    "seconds": 406
+   },
+   {
+    "id": "FztbYXeOEQ4",
+    "title": "MySQL: GROUP BY",
+    "seconds": 308
+   },
+   {
+    "id": "6FwQBS3jV_I",
+    "title": "MySQL: ROLLUP",
+    "seconds": 231
+   },
+   {
+    "id": "vANfY96ccOY",
+    "title": "MySQL: ON DELETE",
+    "seconds": 451
+   },
+   {
+    "id": "oagHZwY9JJY",
+    "title": "MySQL: STORED PROCEDURES",
+    "seconds": 482
+   },
+   {
+    "id": "jVbj72YO-8s",
+    "title": "MySQL: TRIGGERS",
+    "seconds": 1010
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-git",
+  "title": "Git & GitHub Tutorial for Beginners",
+  "channel": "Net Ninja",
+  "playlistId": "PL4cUxeGkcC9goXbgTDQ0n_4TBzOO0ocPR",
+  "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9goXbgTDQ0n_4TBzOO0ocPR",
+  "videoCount": 12,
+  "totalSeconds": 5969,
+  "videos": [
+   {
+    "id": "3RjQznt-8kE",
+    "title": "Git & GitHub Tutorial for Beginners #1 - Why Use Git?",
+    "seconds": 346
+   },
+   {
+    "id": "MFtsLRphqDM",
+    "title": "Git & GitHub Tutorial for Beginners #2 - Installing Git",
+    "seconds": 331
+   },
+   {
+    "id": "iNP_KmOFqXs",
+    "title": "Git & GitHub Tutorial for Beginners #3 - How Git Works",
+    "seconds": 368
+   },
+   {
+    "id": "v0Ch3yWQ-Zc",
+    "title": "Git & GitHub Tutorial for Beginners #4 - Creating a Repository",
+    "seconds": 265
+   },
+   {
+    "id": "KngvG8WzYLU",
+    "title": "Git & GitHub Tutorial for Beginners #5 - Staging files",
+    "seconds": 365
+   },
+   {
+    "id": "Fhgga2s_RmM",
+    "title": "Git & GitHub Tutorial for Beginners #6 - Making Commits",
+    "seconds": 408
+   },
+   {
+    "id": "RIYrfkZjWmA",
+    "title": "Git & GitHub Tutorial for Beginners #7 - Undoing Things",
+    "seconds": 630
+   },
+   {
+    "id": "QV0kVNvkMxc",
+    "title": "Git & GitHub Tutorial for Beginners #8 - Branches",
+    "seconds": 607
+   },
+   {
+    "id": "XX-Kct0PfFc",
+    "title": "Git & GitHub Tutorial for Beginners #9 - Merging Branches (& conflicts)",
+    "seconds": 501
+   },
+   {
+    "id": "fQLK8Ib_SKk",
+    "title": "Git & GitHub Tutorial for Beginners #10 - Introduction to GitHub",
+    "seconds": 909
+   },
+   {
+    "id": "MnUd31TvBoU",
+    "title": "Git & GitHub Tutorial for Beginners #11 - Collaborating on GitHub",
+    "seconds": 732
+   },
+   {
+    "id": "HbSjyU2vf6Y",
+    "title": "Git & GitHub Tutorial for Beginners #12 - Forking (& Contributing)",
+    "seconds": 507
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-git",
+  "title": "GitHub for Beginners",
+  "channel": "GitHub",
+  "playlistId": "PL0lo9MOBetEFcp4SCWinBdpml9B2U25-f",
+  "url": "https://www.youtube.com/playlist?list=PL0lo9MOBetEFcp4SCWinBdpml9B2U25-f",
+  "videoCount": 16,
+  "totalSeconds": 6683,
+  "videos": [
+   {
+    "id": "r8jQ9hVA2qs",
+    "title": "A brief introduction to Git for beginners | GitHub",
+    "seconds": 548
+   },
+   {
+    "id": "rE2zRhZdjFU",
+    "title": "Beginner Git commands you need to know (WITH EXAMPLES)",
+    "seconds": 868
+   },
+   {
+    "id": "-RZ03WHqkaY",
+    "title": "How to create your first GitHub repository: A beginner's guide | Tutorial",
+    "seconds": 572
+   },
+   {
+    "id": "tlu5e0TxSzo",
+    "title": "How to upload files and folders to GitHub: GitHub for Beginners",
+    "seconds": 231
+   },
+   {
+    "id": "g2XjJhrGGg4",
+    "title": "How to add code to your repository | GitHub beginner tutorial",
+    "seconds": 341
+   },
+   {
+    "id": "nCKdihvneS0",
+    "title": "How to create a pull request in 4 min | GitHub for Beginners",
+    "seconds": 224
+   },
+   {
+    "id": "FDXSgyDGmho",
+    "title": "How to merge a pull request | Introduction to GitHub",
+    "seconds": 204
+   },
+   {
+    "id": "T_PKBNImooA",
+    "title": "GitHub Profile Tips to standout (& stay secure) | GitHub tutorial",
+    "seconds": 230
+   },
+   {
+    "id": "c67GaAkf1BE",
+    "title": "How to use GitHub issues and projects | GitHub for Beginners",
+    "seconds": 478
+   },
+   {
+    "id": "BQrohJ3PT7I",
+    "title": "How to use GitHub Actions | GitHub for Beginners",
+    "seconds": 484
+   },
+   {
+    "id": "zhxXaFzzJYA",
+    "title": "Getting started with GitHub security | GitHub for Beginners",
+    "seconds": 302
+   },
+   {
+    "id": "b2r9Cdvssi0",
+    "title": "Getting started with GitHub Pages for beginners | Tutorial",
+    "seconds": 241
+   },
+   {
+    "id": "LxeclcePg-c",
+    "title": "Getting started with Markdown on GitHub",
+    "seconds": 358
+   },
+   {
+    "id": "WldXhauP024",
+    "title": "Getting started with open source contributions for beginners",
+    "seconds": 333
+   },
+   {
+    "id": "NFjz1AGKA4c",
+    "title": "How to use Git and GitHub in VS Code | Tutorial for beginners",
+    "seconds": 544
+   },
+   {
+    "id": "ZgARMqR3qq8",
+    "title": "Answering the most common GitHub beginner questions",
+    "seconds": 725
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-terminal",
+  "title": "Linux/Mac Tutorials",
+  "channel": "Corey Schafer",
+  "playlistId": "PL-osiE80TeTvGhHkpvfmKWOiIPF8UVy6c",
+  "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTvGhHkpvfmKWOiIPF8UVy6c",
+  "videoCount": 19,
+  "totalSeconds": 18019,
+  "videos": [
+   {
+    "id": "j6vKLJxAKfw",
+    "title": "Linux/Mac Terminal Tutorial: Navigating your Filesystem",
+    "seconds": 514
+   },
+   {
+    "id": "eoejHvAPDFs",
+    "title": "Linux/Mac Terminal Tutorial: Create, Copy, Move, Rename and Delete Files and Directories",
+    "seconds": 701
+   },
+   {
+    "id": "KCVaNb_zOuw",
+    "title": "Linux/Mac Terminal Tutorial: How To Use The find Command",
+    "seconds": 1065
+   },
+   {
+    "id": "VGgTmxXp7xQ",
+    "title": "Linux/Mac Terminal Tutorial: The Grep Command - Search Files and Directories for Patterns of Text",
+    "seconds": 1216
+   },
+   {
+    "id": "WxUVU0b95Oc",
+    "title": "Linux/Mac Terminal Tutorial: How To Use The cURL Command",
+    "seconds": 538
+   },
+   {
+    "id": "qE77MbDnljA",
+    "title": "Linux/Mac Terminal Tutorial: How To Use The rsync Command - Sync Files Locally and Remotely",
+    "seconds": 1075
+   },
+   {
+    "id": "QZJ1drMQz1A",
+    "title": "Linux/Mac Tutorial: Cron Jobs - How to Schedule Commands with crontab",
+    "seconds": 1131
+   },
+   {
+    "id": "vDOVEDl2z84",
+    "title": "Customizing Your Terminal: .bash_profile and .bashrc files",
+    "seconds": 500
+   },
+   {
+    "id": "LXgXV7YmSiU",
+    "title": "Customizing Your Terminal: Adding Color and Information to Your Prompt",
+    "seconds": 1116
+   },
+   {
+    "id": "c5RZWDLqifA",
+    "title": "Customizing Your Terminal: How To Use and Modify Dotfiles",
+    "seconds": 1211
+   },
+   {
+    "id": "TXzrk3b9sKM",
+    "title": "Mac OS X Terminal Tutorial: Time-Saving Keyboard Shortcuts",
+    "seconds": 437
+   },
+   {
+    "id": "0liXeoADU6A",
+    "title": "Linux/Mac Terminal Tutorial: Creating Aliases for Commands",
+    "seconds": 668
+   },
+   {
+    "id": "HVMOBKRNEbc",
+    "title": "Easily Resize Multiple Images Using the Mac Terminal",
+    "seconds": 438
+   },
+   {
+    "id": "Qte4X-rdr2Q",
+    "title": "VirtualBox: How to Use Snapshots",
+    "seconds": 880
+   },
+   {
+    "id": "xzgwDbe7foQ",
+    "title": "How to Run Linux/Bash on Windows 10 Using the Built-In Windows Subsystem for Linux",
+    "seconds": 871
+   },
+   {
+    "id": "SELYgZvAZbU",
+    "title": "Homebrew Tutorial: Simplify Software Installation on Mac Using This Package Manager",
+    "seconds": 1202
+   },
+   {
+    "id": "kIdiWut8eD8",
+    "title": "How I Setup a New Development Machine - Using Scripts to Automate Installs and Save Time",
+    "seconds": 1701
+   },
+   {
+    "id": "vpk_1gldOAE",
+    "title": "Linux/Mac Tutorial: SSH Key-Based Authentication - How to SSH Without a Password",
+    "seconds": 946
+   },
+   {
+    "id": "ra5kMCXO-6I",
+    "title": "Automate Your Development Environment Setup with Scripts and Dotfiles",
+    "seconds": 1809
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-terminal",
+  "title": "Linux Commands for Beginners",
+  "channel": "Learn Linux TV",
+  "playlistId": "PLT98CRl2KxKHaKA9-4_I38sLzK134p4GJ",
+  "url": "https://www.youtube.com/playlist?list=PLT98CRl2KxKHaKA9-4_I38sLzK134p4GJ",
+  "videoCount": 25,
+  "totalSeconds": 20633,
+  "videos": [
+   {
+    "id": "lvSoxOMg5_c",
+    "title": "Linux Commands for Beginners 01 - Introduction",
+    "seconds": 151
+   },
+   {
+    "id": "MxDvzSTl-xI",
+    "title": "Linux Commands for Beginners 02 - Setting up a Cloud Instance",
+    "seconds": 445
+   },
+   {
+    "id": "yT3RXGdoX5E",
+    "title": "Linux Commands for Beginners 03 - Setting up a Virtualbox Virtual Machine",
+    "seconds": 777
+   },
+   {
+    "id": "MnY0K-3_Fjk",
+    "title": "Linux Commands for Beginners 04 - Navigating the Filesystem",
+    "seconds": 1089
+   },
+   {
+    "id": "T20jXu7rDCA",
+    "title": "Linux Commands for Beginners 05 - Basic File Editing",
+    "seconds": 953
+   },
+   {
+    "id": "cSBYvSA9rDM",
+    "title": "Linux Commands for Beginners 06 - Moving and Renaming Files",
+    "seconds": 620
+   },
+   {
+    "id": "esNITi0RkPE",
+    "title": "Linux Commands for Beginners 07 - The Bash Configuration File",
+    "seconds": 684
+   },
+   {
+    "id": "ehKAIWJWI8Y",
+    "title": "Linux Commands for Beginners 08 - Command Aliases",
+    "seconds": 707
+   },
+   {
+    "id": "T269zebUSj8",
+    "title": "Linux Commands for Beginners 09 - Understanding Permissions",
+    "seconds": 1014
+   },
+   {
+    "id": "kyt1xAlXITE",
+    "title": "Linux Commands for Beginners 10 - Checking Resource Usage",
+    "seconds": 1219
+   },
+   {
+    "id": "yxc2ntmH9xY",
+    "title": "Linux Commands for Beginners 11 - Intro to Package Management on Debian-based Distributions",
+    "seconds": 1164
+   },
+   {
+    "id": "ZhW6mzzyqlM",
+    "title": "Linux Commands for Beginners 12 - Managing systemd Units",
+    "seconds": 666
+   },
+   {
+    "id": "Ei276TjyxCA",
+    "title": "Linux Commands for Beginners 13 - Viewing Logs",
+    "seconds": 723
+   },
+   {
+    "id": "DmdyxEJdt3k",
+    "title": "Linux Commands for Beginners 14 - Managing Users",
+    "seconds": 1068
+   },
+   {
+    "id": "U7ODlrzF41s",
+    "title": "Linux Commands for Beginners 15 - Bash History",
+    "seconds": 568
+   },
+   {
+    "id": "NUjpOLlYv7Q",
+    "title": "Linux Commands for Beginners 16 - Output Redirection",
+    "seconds": 918
+   },
+   {
+    "id": "RBKXY14VK8c",
+    "title": "Linux Commands for Beginners 17 - Streams",
+    "seconds": 872
+   },
+   {
+    "id": "qtcRpEHHuJI",
+    "title": "Linux Commands for Beginners 18 - Variables",
+    "seconds": 665
+   },
+   {
+    "id": "zmlNuMKJSkc",
+    "title": "Linux Commands for Beginners 19 - The find Command",
+    "seconds": 955
+   },
+   {
+    "id": "-mvcOpMBlfs",
+    "title": "Linux commands for Beginners 20 - Package Management on Fedora and CentOS (dnf and yum)",
+    "seconds": 903
+   },
+   {
+    "id": "0SGGCklKa1U",
+    "title": "Linux Commands for Beginners 21 - Changing Permissions Numerically",
+    "seconds": 677
+   },
+   {
+    "id": "7OQYlLh0srY",
+    "title": "Linux Commands for Beginners 22 - Remote Management with OpenSSH",
+    "seconds": 1014
+   },
+   {
+    "id": "gGe1cNgfHwE",
+    "title": "Linux Commands for Beginners 23 - Transferring Files with scp",
+    "seconds": 597
+   },
+   {
+    "id": "lwQIZzoqJTU",
+    "title": "Linux Commands for Beginners 24 - Transferring Files with rsync",
+    "seconds": 1196
+   },
+   {
+    "id": "FvdlwyMwrzg",
+    "title": "Easily Install Docker on Linux and Run Your First Container",
+    "seconds": 988
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-blender",
+  "title": "Blender Donut Tutorial (2025)",
+  "channel": "Blender Guru",
+  "playlistId": "PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+  "url": "https://www.youtube.com/playlist?list=PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+  "videoCount": 8,
+  "totalSeconds": 15578,
+  "videos": [
+   {
+    "id": "-tbSCMbJA6o",
+    "title": "Blender Donut Tutorial Part 1 (2026)",
+    "seconds": 1710
+   },
+   {
+    "id": "K1UyEdmSttQ",
+    "title": "Blender Basic Modelling Tutorial (Donut Part 2)",
+    "seconds": 1851
+   },
+   {
+    "id": "9OA2asQdi_U",
+    "title": "Blender Basic Organic Modelling Tutorial (Donut Part 3)",
+    "seconds": 1883
+   },
+   {
+    "id": "5Xlu2zwbJd0",
+    "title": "Blender Basic Materials Tutorial (Donut Part 4)",
+    "seconds": 2013
+   },
+   {
+    "id": "h30ZJQrb4s8",
+    "title": "Blender Basic Texturing Tutorial (Donut Part 5)",
+    "seconds": 1914
+   },
+   {
+    "id": "yxAqN8TzFbo",
+    "title": "Blender Basic UV Unwrapping Tutorial (Donut Part 6)",
+    "seconds": 2026
+   },
+   {
+    "id": "_-QsGTL7pS0",
+    "title": "How to Scatter in Blender 5.0 (Donut Part 7)",
+    "seconds": 2204
+   },
+   {
+    "id": "WobATxh3i-g",
+    "title": "The Basics of Lighting and Rendering in Blender (Donut Finale)",
+    "seconds": 1977
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-blender",
+  "title": "Learn Blender 5",
+  "channel": "Grant Abbitt (Gabbitt)",
+  "playlistId": "PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+  "url": "https://www.youtube.com/playlist?list=PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+  "videoCount": 10,
+  "totalSeconds": 7439,
+  "videos": [
+   {
+    "id": "kVcY7K-JA1Y",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 1 - The Interface",
+    "seconds": 762
+   },
+   {
+    "id": "J2OpaKlChI8",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 2 Materials",
+    "seconds": 669
+   },
+   {
+    "id": "ut9_RRf1-hM",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 3 - The Old Man",
+    "seconds": 673
+   },
+   {
+    "id": "GB6xDutIOx0",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 4 - Old Man Details",
+    "seconds": 845
+   },
+   {
+    "id": "YaWGsX1IyTk",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 5 - Monsters body",
+    "seconds": 851
+   },
+   {
+    "id": "jZvSIupp53E",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 6 - Monsters Arms",
+    "seconds": 748
+   },
+   {
+    "id": "ctBx6OQ4Ljg",
+    "title": "Blender 5 Complete Beginners Guide   FREE COURSE   Part 7   the street",
+    "seconds": 854
+   },
+   {
+    "id": "7moxMNaRlk8",
+    "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 8 - Lights & Composit",
+    "seconds": 835
+   },
+   {
+    "id": "A62Exb4Hheg",
+    "title": "How to - Orbit & Rotate Your Camera Around an Object : Blender 4.5",
+    "seconds": 230
+   },
+   {
+    "id": "SsFXh8KEBy4",
+    "title": "Make a Cute Easter Chick in Blender 5 - Beginner Tutorial",
+    "seconds": 972
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-cad",
+  "title": "Basic Beginners FreeCAD v1 Course",
+  "channel": "MangoJelly Solutions for FreeCAD",
+  "playlistId": "PLWuyJLVUNtc3kYxQQiOriVJiTbQ0qNBXh",
+  "url": "https://www.youtube.com/playlist?list=PLWuyJLVUNtc3kYxQQiOriVJiTbQ0qNBXh",
+  "videoCount": 57,
+  "totalSeconds": 53233,
+  "videos": [
+   {
+    "id": "t_yh_S31R9g",
+    "title": "Basic Beginners FreeCAD v1.0 : Introduction to Course",
+    "seconds": 240
+   },
+   {
+    "id": "9TrUSYzOHUM",
+    "title": "How to Install FreeCAD on all OS | Basic Beginners FreeCAD v1 | Lesson 1 | (upd: AUG 2025)",
+    "seconds": 252
+   },
+   {
+    "id": "dHUHwelt3q4",
+    "title": "Essential Preferences and Settings | Basic Beginners FreeCAD v1 | Lesson 2 | (upd: 2025)",
+    "seconds": 456
+   },
+   {
+    "id": "hIO1ZKMYUDs",
+    "title": "How To Customize FreeCAD Toolbars and Panels | Basic Beginners FreeCAD v1 Lesson 3 (upd: 2025)",
+    "seconds": 459
+   },
+   {
+    "id": "3aiD7CsU-4o",
+    "title": "Basic 3D Navigation & Selections in FreeCAD v1 | Basic Beginners Course Lesson 4 (upd: AUG 2025)",
+    "seconds": 988
+   },
+   {
+    "id": "ffNOA9XmaU8",
+    "title": "Workbench Choice in FreeCAD, Part Design vs Part? |  Basic Beginners FreeCAD v1 Course | Lesson 5",
+    "seconds": 357
+   },
+   {
+    "id": "O6MZs20oGGM",
+    "title": "How To Start Modelling Subjects In FreeCAD | Basic Beginners FreeCAD v1 Course | Lesson 6",
+    "seconds": 352
+   },
+   {
+    "id": "D9vRm922c6I",
+    "title": "Create Your First FreeCAD Basic Model | Basic Beginners FreeCAD v1 Course | Lesson 7 (Upd: Aug 2025)",
+    "seconds": 1176
+   },
+   {
+    "id": "41GngUa3keU",
+    "title": "Basic FreeCAD Model Exercise | Basic Beginners FreeCAD v1 Course | Lesson 8 (upd AUG 2025)",
+    "seconds": 1208
+   },
+   {
+    "id": "lhx68WvFVa4",
+    "title": "Digitalizing Real World Objects in FreeCAD v1 | Basic Beginners Course Lesson 9 (upd: AUG 2025)",
+    "seconds": 257
+   },
+   {
+    "id": "2dEP4P_JR0s",
+    "title": "How To Create This FreeCAD Model | Basic Beginners FreeCAD v1 Course | Lesson 10 | (upd: AUG 2025)",
+    "seconds": 894
+   },
+   {
+    "id": "xAD3-5bH_0o",
+    "title": "Digitalizing Everyday Objects with FreeCAD v1 | Basic Beginners Course Lesson 11 (upd: AUG 2025)",
+    "seconds": 250
+   },
+   {
+    "id": "e09E3xqfRfE",
+    "title": "Connecting Operations In Part Design | Modelling a Mug | Basic Beginners FreeCAD v1 Course Lesson 12",
+    "seconds": 1259
+   },
+   {
+    "id": "kt40OhTWT4w",
+    "title": "Make Your Subject Easier to Model | Basic Beginners FreeCAD v1 / 0.22 Lesson 13",
+    "seconds": 340
+   },
+   {
+    "id": "c-VQfnXr4eE",
+    "title": "Simplify Your 3D Modelling, Leverage Part Design Primitives | Basic Beginners FreeCAD v1 Lesson 14",
+    "seconds": 1142
+   },
+   {
+    "id": "Toje8Ij8nGk",
+    "title": "Modeling Part Design Using Primitives | Basic Beginners FreeCAD v1.0 / 0.22 Lesson 15 | Exercise 5",
+    "seconds": 1691
+   },
+   {
+    "id": "BxcHS0GLdKg",
+    "title": "Basic Attachment & Map Modes | Basic Beginners FreeCAD v1.0 / 0.22 Lesson 16",
+    "seconds": 430
+   },
+   {
+    "id": "Ft-yURL0Qwo",
+    "title": "Text in FreeCAD | Multi-Face Dice in Part Design | Basic Beginners FreeCAD v1.0 / 0.22 Lesson 17",
+    "seconds": 1285
+   },
+   {
+    "id": "0zUUwyWPMQU",
+    "title": "FreeCAD Curved Surface/ Non Planar Sketch Attachment | Basic Beginners FreeCAD v1.0 / 0.22 Lesson 18",
+    "seconds": 1056
+   },
+   {
+    "id": "PIAhmIuTid8",
+    "title": "FreeCAD v1.0 Lesson 19 | Threaded holes Non-Planar Exercise | Light Fitting | Basic Beginners",
+    "seconds": 1291
+   },
+   {
+    "id": "b2JFQLStJTc",
+    "title": "FreeCAD V1.0 | Introduction to Lofts | Lesson #20 | Basic Beginners FreeCAD | Create Complex Models",
+    "seconds": 270
+   },
+   {
+    "id": "v689Ii71TnE",
+    "title": "FreeCAD v1.0 | Lofts & Lofting  The Basics Part 1 | Basic Beginners FreeCAD Lesson #21",
+    "seconds": 1195
+   },
+   {
+    "id": "sgzKC5moK_M",
+    "title": "FreeCAD v1.0 | Twisted Part in Part Design | Basic Beginners FreeCAD Lesson 22 Exercise 8",
+    "seconds": 1336
+   },
+   {
+    "id": "Hcf_bJ6lYgM",
+    "title": "FreeCAD 1.0 | Tips & Tricks for Hollow and Subtractive Lofts - Basic Beginners FreeCAD v1 Lesson 23",
+    "seconds": 1242
+   },
+   {
+    "id": "hoq2Mr59T8c",
+    "title": "FreeCAD v1.0 | Lofting To A Point And Tapered Lofts  - Basic Beginners FreeCAD Lesson 24",
+    "seconds": 950
+   },
+   {
+    "id": "AqzJ58bM2rs",
+    "title": "FreeCAD 1.0 | Pipes and Sweeps for More Complex Surfaces - Basic Beginners FreeCAD v1 Lesson 25",
+    "seconds": 239
+   },
+   {
+    "id": "yhPy4y2_EMc",
+    "title": "FreeCAD 1.0 | Vacuum Elbow Joint - Basic Beginners Lesson 26  Part Design Exercise 9",
+    "seconds": 1116
+   },
+   {
+    "id": "6DPH6Sg9ZBo",
+    "title": "FreeCAD 1.0 | Part Design Fishing Lure - Basic Beginners Lesson 27  Exercise 10 | Additive Pipe",
+    "seconds": 2219
+   },
+   {
+    "id": "sH424C3xEOs",
+    "title": "FreeCAD v1.0 How To Fix Failures when Hollowing/ Thickness | Basic Beginners FreeCAD 1.0 Lesson 28",
+    "seconds": 796
+   },
+   {
+    "id": "zEKnaifbI6I",
+    "title": "FreeCAD v1.0 | Electronics Enclosure Project | Basic Beginners FreeCAD 1.0 Lesson 29 for 3D Printing",
+    "seconds": 2033
+   },
+   {
+    "id": "RBOHjvChkYE",
+    "title": "FreeCAD v 1.0 Introduction to Multi-Body Modelling | Part Design | Basic Beginners FreeCAD Lesson 30",
+    "seconds": 304
+   },
+   {
+    "id": "NVwrt9QaW4A",
+    "title": "FreeCAD 1.0 | Simple Box & Snap-Fit Lid | Shape Binders | Basic Beginners FreeCAD Lesson 31 Project",
+    "seconds": 1583
+   },
+   {
+    "id": "6_FBijwp-l0",
+    "title": "FreeCAD 1.0 | The Power of Part Design Clones | Basic Beginners FreeCAD Lesson 32",
+    "seconds": 997
+   },
+   {
+    "id": "Z41Qx7453zk",
+    "title": "FreeCAD 1.0 | Introduction to Multi-Body Boolean Operations | Basic Beginners FreeCAD Lesson 33",
+    "seconds": 716
+   },
+   {
+    "id": "lptN2xipSBE",
+    "title": "FreeCAD 1.0 | Moulded Motor Mount | Basic Beginners FreeCAD Lesson 34",
+    "seconds": 1812
+   },
+   {
+    "id": "3A7QzNeIvEI",
+    "title": "FreeCAD 1.0 | Part Design Common & Intersection Workflows | Basic Beginners FreeCAD Lesson 35",
+    "seconds": 1113
+   },
+   {
+    "id": "cudxRdw-31A",
+    "title": "FreeCAD v1.0 | Adding Finishings Using Sub-shape Binders? | Basic Beginners FreeCAD 1.0 | Lesson 36",
+    "seconds": 1798
+   },
+   {
+    "id": "P7Vse2A0-5Q",
+    "title": "Freecad v1. 0 | Part Design Pattern Tools Introduction | Basic Beginners FreeCAD 1.0 | Lesson 37",
+    "seconds": 376
+   },
+   {
+    "id": "w1zT6u72CYo",
+    "title": "Freecad v1. 0 | The Basics: Applying Part Design Patterns  | Basic Beginners FreeCAD 1.0 | Lesson 38",
+    "seconds": 1461
+   },
+   {
+    "id": "S66AFIWPbvs",
+    "title": "Freecad 1.0 | Easy Hinged Box Using Linear Pattern | Basic Beginners FreeCAD 1.0 | Lesson 39",
+    "seconds": 945
+   },
+   {
+    "id": "lCeWDfIDWHw",
+    "title": "FreeCAD 1.0 Part Design Polar Pattern Tutorial: Create a Pond Planter | Basic Beginners Lesson 40",
+    "seconds": 912
+   },
+   {
+    "id": "PFuDOt_4fZU",
+    "title": "FreeCAD 1. 0 | Why it Matters! Leveraging Symmetry  | Basic Beginners FreeCAD 1.0 | Lesson 41",
+    "seconds": 416
+   },
+   {
+    "id": "YWgCCgpxNCQ",
+    "title": "Build Complex Patterns in FreeCAD 1.0 With Multi Transform | Basic Beginners FreeCAD 1.0 | Lesson 42",
+    "seconds": 1174
+   },
+   {
+    "id": "n0lG1hYV1SE",
+    "title": "How To Use Datum Planes and Lines in FreeCAD 1.0 | Basic Beginners FreeCAD 1.0 | Lesson 43",
+    "seconds": 995
+   },
+   {
+    "id": "GiUgla6kmv0",
+    "title": "FreeCAD: Building Stable Multi-Body Multi-Transform Models | Basic Beginners FreeCAD 1.0 | Lesson 44",
+    "seconds": 2526
+   },
+   {
+    "id": "-3gaYl_pIFU",
+    "title": "Patterning Along a Path in FreeCAD Part Design | Basic Beginners Lesson 45 | Tutorial",
+    "seconds": 556
+   },
+   {
+    "id": "lHAbk01ptqw",
+    "title": "FreeCAD Additive & Subtractive Helix Operations Introduction | Basic Beginners Lesson 46 | Tutorial",
+    "seconds": 217
+   },
+   {
+    "id": "PcOo3rOyruI",
+    "title": "Create Custom External Threads in FreeCAD with Additive Helix | Basic Beginners Lesson 47 | Tutorial",
+    "seconds": 1036
+   },
+   {
+    "id": "qHsoO44su6w",
+    "title": "No Part WB Needed! FreeCAD Fasterners WB Directly in Part Design  Basic Beginners Lesson 48",
+    "seconds": 1325
+   },
+   {
+    "id": "VW8433d1AZ4",
+    "title": "What are FreeCAD Dress up features? And Why Do We Need Them? | Basic Beginners FreeCAD Lesson 49",
+    "seconds": 249
+   },
+   {
+    "id": "KSHiOTE_Ibo",
+    "title": "Custom Edges in FreeCAD: Fillets, Chamfers, and Pipes | Basic Beginners FreeCAD Lesson 50",
+    "seconds": 761
+   },
+   {
+    "id": "A1VPI7CPpV4",
+    "title": "Part Design : Drafting Angles | Basic Beginners FreeCAD Lesson 51",
+    "seconds": 619
+   },
+   {
+    "id": "-KZXH5aRcBo",
+    "title": "FreeCAD How To Generate Multiple Variants Automatically With Spreadsheet | Basic Beginners Lesson 52",
+    "seconds": 1060
+   },
+   {
+    "id": "9mohplbz7Wg",
+    "title": "FreeCAD How To Generate Multiple Variants Without Re-Modeling | Basic Beginners Lesson 53  (FCv1.1) ",
+    "seconds": 890
+   },
+   {
+    "id": "iF587TsLR28",
+    "title": "FreeCAD:  How To Make Features Reusable Across Bodies | Variants In Action Basic Beginners Lesson 54",
+    "seconds": 881
+   },
+   {
+    "id": "8hhNiJ2_qgE",
+    "title": "FreeCAD: How To Structure Your Projects & Share Across Multiple Files | Basic Beginners Lesson 55",
+    "seconds": 1472
+   },
+   {
+    "id": "HiNttiJObvo",
+    "title": "FreeCAD's Base Feature in Part Design | Basic Beginners Lesson 56",
+    "seconds": 260
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-cad",
+  "title": "FreeCAD Tutorial 2026: 3D Modeling for Beginners",
+  "channel": "CAD CAM Lessons",
+  "playlistId": "PLUrr_kHPp4vgVuaIrLU1EWYwDHxRkBg0U",
+  "url": "https://www.youtube.com/playlist?list=PLUrr_kHPp4vgVuaIrLU1EWYwDHxRkBg0U",
+  "videoCount": 16,
+  "totalSeconds": 13125,
+  "videos": [
+   {
+    "id": "6ZfzcIYEKWw",
+    "title": "FreeCAD Sketch to 3D Solid (Pad + Constraints) [FreeCAD Tutorial 2026 - Part 1]",
+    "seconds": 891
+   },
+   {
+    "id": "JCb5TDQrF3o",
+    "title": "FreeCAD Constraints: Symmetry, Equal, Coincide [FreeCAD Tutorial 2026 - Part 2]",
+    "seconds": 1299
+   },
+   {
+    "id": "7uY7nJsOMAU",
+    "title": "FreeCAD Pocket Tool & External Geometry [FreeCAD Tutorial 2026 - Part 3]",
+    "seconds": 615
+   },
+   {
+    "id": "IfEQddASENU",
+    "title": "FreeCAD Revolve, Groove & Polar Pattern [FreeCAD Tutorial 2026 - Part 4]",
+    "seconds": 709
+   },
+   {
+    "id": "QCdDQrnaVgo",
+    "title": "FreeCAD Rectangular Pattern & Mirror (Fast!) - FreeCAD Tutorial 2026 - Part 5",
+    "seconds": 776
+   },
+   {
+    "id": "jZSu1WZeyNM",
+    "title": "FreeCAD Selection and MultiTransform Patterns - FreeCAD Tutorial 2026 - Part 6",
+    "seconds": 655
+   },
+   {
+    "id": "E2J6P0KMZmI",
+    "title": "FreeCAD Complex Sketching & Multi-Mirror - FreeCAD Tutorial 2026 - Part 7",
+    "seconds": 911
+   },
+   {
+    "id": "jLTNKuivRnI",
+    "title": "FreeCAD Thickness, Text Engrave & Datum Plane - FreeCAD Tutorial 2026 - Part 8",
+    "seconds": 1039
+   },
+   {
+    "id": "fgPXZQR0-X4",
+    "title": "FreeCAD Custom Datum Planes - FreeCAD Tutorial 2026 - Part 9",
+    "seconds": 902
+   },
+   {
+    "id": "xcJV0wtCf4s",
+    "title": "FreeCAD Loft & Sweep with Datum Planes [FreeCAD Tutorial 2026 - Part 10]",
+    "seconds": 881
+   },
+   {
+    "id": "HNCvWTkwTKg",
+    "title": "FreeCAD Carbon Copy vs Copy/Paste Sketches - FreeCAD Tutorial 2026 - Part 11",
+    "seconds": 424
+   },
+   {
+    "id": "1To3vKOrNQU",
+    "title": "FreeCAD Loft & Pipe with Multiple Profiles - FreeCAD Tutorial 2026 - Part 12",
+    "seconds": 715
+   },
+   {
+    "id": "G_qtVm3VzTk",
+    "title": "FreeCAD Subtractive Loft & Pipe (Cut Shapes) - FreeCAD Tutorial 2026 - Part 13",
+    "seconds": 542
+   },
+   {
+    "id": "zagUYKWQ5yk",
+    "title": "FreeCAD Parametric Design: Variables, Expressions & Part Variants - FreeCAD Tutorial 2026 - Part 14",
+    "seconds": 524
+   },
+   {
+    "id": "wMPd2fA6UYA",
+    "title": "FreeCAD Pad & Pocket: Modes That Speed Up Modeling",
+    "seconds": 1594
+   },
+   {
+    "id": "AItblia-QdY",
+    "title": "FreeCAD Multi-Solid Bodies (New Feature): How to Enable + When It’s Useful",
+    "seconds": 648
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-fusion",
+  "title": "Learn Autodesk Fusion 360 in 30 Days for Complete Beginners! 2026 EDITION",
+  "channel": "Product Design Online",
+  "playlistId": "PLrZ2zKOtC_-C4rWfapgngoe9o2-ng8ZBr",
+  "url": "https://www.youtube.com/playlist?list=PLrZ2zKOtC_-C4rWfapgngoe9o2-ng8ZBr",
+  "videoCount": 30,
+  "totalSeconds": 21040,
+  "videos": [
+   {
+    "id": "zmGbUH-P1lE",
+    "title": "Don't open Fusion 360 until you learn these 8 terms",
+    "seconds": 358
+   },
+   {
+    "id": "0nZYebn3jyg",
+    "title": "Stop Using Fusion the \"Old\" Way: NEW 2026 WORKFLOWS",
+    "seconds": 299
+   },
+   {
+    "id": "4G2E_DqQteM",
+    "title": "Day 1 of Learn Autodesk Fusion in 30 Days! (2026 EDITION)",
+    "seconds": 1172
+   },
+   {
+    "id": "_x2Q44UTyrA",
+    "title": "Day 2 of Learn Autodesk Fusion in 30 Days! (2026 EDITION)",
+    "seconds": 1015
+   },
+   {
+    "id": "JG5Z4ZJmkmE",
+    "title": "Day 3 of Learn Autodesk Fusion in 30 Days! (2026 EDITION)",
+    "seconds": 585
+   },
+   {
+    "id": "rcD7wcNFwsU",
+    "title": "Square to Circle? EASY | Day 4 of Learn Autodesk Fusion in 30 Days! (2026 EDITION)",
+    "seconds": 1043
+   },
+   {
+    "id": "I6BooYAo1mg",
+    "title": "The 'Secret' Shell Trick | Day 5 of Learn Autodesk Fusion in 30 Days! (2026 EDITION)",
+    "seconds": 772
+   },
+   {
+    "id": "n854QDOAVqg",
+    "title": "Stop using the Thread tool wrong | Day 6 of Learn Autodesk Fusion in 30 Days (2026 EDITION)",
+    "seconds": 804
+   },
+   {
+    "id": "iiXxXSkGXI4",
+    "title": "Try this instead | Day 7 of Learn Autodesk Fusion in 30 Days (2026 EDITION)",
+    "seconds": 973
+   },
+   {
+    "id": "KN1fkOK7EHQ",
+    "title": "The Secret to Thin Wall Designs | Day 8 of Learn Autodesk Fusion 360 in 30 Days (2026 EDITION)",
+    "seconds": 802
+   },
+   {
+    "id": "Pj38QvHNI_Q",
+    "title": "How to transition between shapes | Day 9 of Learn Autodesk Fusion in 30 Days (2026 EDITION)",
+    "seconds": 635
+   },
+   {
+    "id": "BUH3WiUjMXw",
+    "title": "Day 10 of Learn Fusion 360 in 30 Days for Complete Beginners! - 2023 EDITION",
+    "seconds": 506
+   },
+   {
+    "id": "pa6VWGFoZ2Q",
+    "title": "Intro to surfaces | Day 11 of Learn Autodesk Fusion 360 in 30 Days (2026 EDITION)",
+    "seconds": 886
+   },
+   {
+    "id": "J3rPwne4lWY",
+    "title": "Modeling a 3-part screwdriver | Day 12 of Learn Autodesk Fusion 360 in 30 Days (2026 EDITION)",
+    "seconds": 939
+   },
+   {
+    "id": "zLL6foqTdJg",
+    "title": "You’ll regret breaking this rule | Day 13 of Learn Autodesk Fusion 360 in 30 Days (2026 EDITION)",
+    "seconds": 858
+   },
+   {
+    "id": "xmAGzRBDccs",
+    "title": "Practice ALL Fusion Sketch Constraints | Day 14 of Learn Autodesk Fusion in 30 Days (2026 EDITION)",
+    "seconds": 1058
+   },
+   {
+    "id": "QnDJl9W5Uso",
+    "title": "Loft to Point & Batch Printing | Day 15 of Learn Autodesk Fusion 360 in 30 Days (2026 EDITION)",
+    "seconds": 720
+   },
+   {
+    "id": "vr_zPVEsyjs",
+    "title": "Convert STL to Solid in Fusion 360 | Day 18 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 529
+   },
+   {
+    "id": "DJULiA1aTtM",
+    "title": "Intro to User Parameters and Joints | Day 19 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 420
+   },
+   {
+    "id": "fYDJLdOV_zE",
+    "title": "Design 3D Printable Hinges | Day 20 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 562
+   },
+   {
+    "id": "smbb4rJPBGg",
+    "title": "3D Printable One-Part Molds | Day 21 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 401
+   },
+   {
+    "id": "Q1Thdrt40MA",
+    "title": "Two-Part Molds in Autodesk Fusion 360 | Day 22 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 561
+   },
+   {
+    "id": "OsdL0VoaGl0",
+    "title": "Create Assemblies with Joints in Fusion 360 | Day 23 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 719
+   },
+   {
+    "id": "5PsR8bL-Wv4",
+    "title": "Basics of Sheet Metal Tools in Fusion 360 | Day 24 of Learn Fusion 360 in 30 Days - 2023 EDITION",
+    "seconds": 739
+   },
+   {
+    "id": "EzJMWLX0IbU",
+    "title": "Fusion 360 SURFACES made EASY | Day 25 of Learn Fusion 360 in 30 Days - 2024 EDITION",
+    "seconds": 605
+   },
+   {
+    "id": "WtEWbNIaK9Q",
+    "title": "EASY ways to edit mesh files in Fusion 360 | Day 26 of Learn Fusion 360 in 30 Days - 2024 EDITION",
+    "seconds": 579
+   },
+   {
+    "id": "NqjbJZ2ekRU",
+    "title": "Fusion T-splines are easy! | Day 27 of Learn Fusion 360 in 30 Days - 2024 EDITION",
+    "seconds": 677
+   },
+   {
+    "id": "ShmSm9vjKpI",
+    "title": "Fusion 360 Rendering - Quick Start Guide | Day 28 of Learn Fusion 360 in 30 Days - 2024 EDITION",
+    "seconds": 551
+   },
+   {
+    "id": "NweBvuVYuQo",
+    "title": "Easy 2D Drawings in Fusion 360 | Day 29 of Learn Fusion 360 in 30 Days - 2024 EDITION",
+    "seconds": 708
+   },
+   {
+    "id": "ePEypa1kB-g",
+    "title": "Getting Started Creating ANIMATIONS in Fusion 360 - Beginners Start Here!",
+    "seconds": 564
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-fusion",
+  "title": "Can You Design This Fishing Reel? | Getting Started with Autodesk Fusion",
+  "channel": "Autodesk Fusion",
+  "playlistId": "PLmA_xUT-8UlJYjo3X_xUAR057IfpvvbkB",
+  "url": "https://www.youtube.com/playlist?list=PLmA_xUT-8UlJYjo3X_xUAR057IfpvvbkB",
+  "videoCount": 16,
+  "totalSeconds": 9901,
+  "videos": [
+   {
+    "id": "Sw4001eqi_o",
+    "title": "Can You Design This Fishing Reel? | Getting Started with Autodesk Fusion Episode 1",
+    "seconds": 244
+   },
+   {
+    "id": "8bzrXPOvTP4",
+    "title": "How to Navigate the Interface | Getting Started with Autodesk Fusion Episode 2",
+    "seconds": 370
+   },
+   {
+    "id": "AwcS0mh9XDc",
+    "title": "Fusion Sketching Made Easy! | Getting Started with Autodesk Fusion Episode 3",
+    "seconds": 501
+   },
+   {
+    "id": "65bZmwmKOw0",
+    "title": "How to Create and Modify a Model | Getting Started with Autodesk Fusion Episode 4",
+    "seconds": 447
+   },
+   {
+    "id": "BzKwkJDza3o",
+    "title": "Timeline Editing Made EASY | Getting Started with Autodesk Fusion Episode 5",
+    "seconds": 387
+   },
+   {
+    "id": "0FyqVeFpLYQ",
+    "title": "Can You Create This Fishing Bail? | Getting Started with Autodesk Fusion Episode 6",
+    "seconds": 688
+   },
+   {
+    "id": "VNBVgZnwYzE",
+    "title": "Working with Imported Geometry | Getting Started with Autodesk Fusion Episode 7",
+    "seconds": 660
+   },
+   {
+    "id": "X9xtKMhyA2g",
+    "title": "The Sweep Command | Getting Started with Autodesk Fusion Episode 8",
+    "seconds": 639
+   },
+   {
+    "id": "TOHy9u0LF4M",
+    "title": "Mastering The Loft Command | Getting Started with Autodesk Fusion Episode 9",
+    "seconds": 640
+   },
+   {
+    "id": "BflLpCpamus",
+    "title": "The Form Command | Getting Started with Autodesk Fusion Episode 10",
+    "seconds": 567
+   },
+   {
+    "id": "XWVgpiPxYcM",
+    "title": "The Secret to Smooth Assemblies | Getting Started with Autodesk Fusion Episode 11",
+    "seconds": 725
+   },
+   {
+    "id": "IzWg5Mf8tbE",
+    "title": "Manage Projects with the Data Panel | Getting Started with Autodesk Fusion Episode 12",
+    "seconds": 428
+   },
+   {
+    "id": "6VRte6oTiFk",
+    "title": "Analyze and Validate Your Design | Getting Started with Autodesk Fusion Episode 13",
+    "seconds": 787
+   },
+   {
+    "id": "yr9n1mGJfh8",
+    "title": "Creating Perfect Drawings FAST | Getting Started with Autodesk Fusion Episode 14",
+    "seconds": 884
+   },
+   {
+    "id": "kyriw0xJdso",
+    "title": "Manufacturing for Beginners | Getting Started with Autodesk Fusion Episode 15",
+    "seconds": 1019
+   },
+   {
+    "id": "Xq3VB7g1Yms",
+    "title": "Design Configurations | Getting Started with Autodesk Fusion Episode 16",
+    "seconds": 915
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-onshape",
+  "title": "Learn Onshape",
+  "channel": "Invent Box Tutorials",
+  "playlistId": "PL2935W76vRNEE_NNWlpUar20iUdkFQ1z2",
+  "url": "https://www.youtube.com/playlist?list=PL2935W76vRNEE_NNWlpUar20iUdkFQ1z2",
+  "videoCount": 13,
+  "totalSeconds": 6639,
+  "videos": [
+   {
+    "id": "tvCbfSXyDuI",
+    "title": "Learn Onshape: #1 The Basics - Tutorial",
+    "seconds": 549
+   },
+   {
+    "id": "OB5WRWTChug",
+    "title": "Learn Onshape: #2 Sketch Constraints - Tutorial",
+    "seconds": 734
+   },
+   {
+    "id": "3WskRJ_tNYo",
+    "title": "Learn Onshape: #3 Revolve - Tutorial",
+    "seconds": 423
+   },
+   {
+    "id": "0l4SwdlrcdQ",
+    "title": "Learn Onshape: #4 Sweep - Tutorial",
+    "seconds": 236
+   },
+   {
+    "id": "4hYVyb8IMn4",
+    "title": "Learn Onshape: #5 Making a Bolt - Tutorial",
+    "seconds": 643
+   },
+   {
+    "id": "f4FurEGQxDg",
+    "title": "Learn Onshape: #6 Loft - Tutotorial",
+    "seconds": 291
+   },
+   {
+    "id": "peS_ul_ppmg",
+    "title": "Learn Onshape: #7 Thickening Surfaces - Tutorial",
+    "seconds": 246
+   },
+   {
+    "id": "DxL0tZi_LaM",
+    "title": "Learn Onshape: #8 3D Operations - Tutorial",
+    "seconds": 457
+   },
+   {
+    "id": "BFURYp4Rgck",
+    "title": "Learn Onshape: #9 Patterns - Tutorial",
+    "seconds": 673
+   },
+   {
+    "id": "hULiRqKURSk",
+    "title": "Learn Onshape: #10 Mirror - Tutorial",
+    "seconds": 148
+   },
+   {
+    "id": "C_FiDr0V0cY",
+    "title": "Learn Onshape: #11 Boolean, Split, Transform, and Delete - Tutorial",
+    "seconds": 648
+   },
+   {
+    "id": "L6HO0DswUkU",
+    "title": "Learn Onshape: #12 Assembly Mates - Tutorials",
+    "seconds": 842
+   },
+   {
+    "id": "X36CUx4sfAw",
+    "title": "Learn Onshape: #13 Assembly Relations - Tutorial",
+    "seconds": 749
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-onshape",
+  "title": "Part Design Basics",
+  "channel": "Onshape",
+  "playlistId": "PL4FdDkwWXT9q0bWfy7sxuKQeughT9Fg_Q",
+  "url": "https://www.youtube.com/playlist?list=PL4FdDkwWXT9q0bWfy7sxuKQeughT9Fg_Q",
+  "videoCount": 8,
+  "totalSeconds": 2078,
+  "videos": [
+   {
+    "id": "-V1E07_3BGI",
+    "title": "Introduction to Parts in Onshape",
+    "seconds": 144
+   },
+   {
+    "id": "sxJDaEeukiI",
+    "title": "Feature-Based Design Overview",
+    "seconds": 178
+   },
+   {
+    "id": "i0x4bOmr_Rw",
+    "title": "Feature List in Onshape",
+    "seconds": 225
+   },
+   {
+    "id": "xvn9hD7KMVs",
+    "title": "Basic Sketch Geometry",
+    "seconds": 269
+   },
+   {
+    "id": "6STIrs0U8y4",
+    "title": "Sketch Constraints in Onshape",
+    "seconds": 332
+   },
+   {
+    "id": "9tWzPxuhD3A",
+    "title": "Basic Features in Onshape",
+    "seconds": 495
+   },
+   {
+    "id": "n-ld-rXKcWE",
+    "title": "Options to Show and Hide Different Entities",
+    "seconds": 222
+   },
+   {
+    "id": "7KSKVYznn88",
+    "title": "Edit a Part's Appearance & Material",
+    "seconds": 213
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-figma",
+  "title": "Figma Design for beginners 2025",
+  "channel": "Figma",
+  "playlistId": "PLXDU_eVOJTx5IuSrbtanZHnDuPB3Hx0hq",
+  "url": "https://www.youtube.com/playlist?list=PLXDU_eVOJTx5IuSrbtanZHnDuPB3Hx0hq",
+  "videoCount": 18,
+  "totalSeconds": 10956,
+  "videos": [
+   {
+    "id": "zzhSFobLkYw",
+    "title": "Course overview: Figma Design for beginners [1 of 13]",
+    "seconds": 136
+   },
+   {
+    "id": "O3gwSmExW1Q",
+    "title": "Set up your Figma account: Figma Design for beginners [2 of 13]",
+    "seconds": 234
+   },
+   {
+    "id": "Slm6gr2ZV7k",
+    "title": "Figma Design for beginners: Advocate sidebar — Kaitie and Lauren talk portfolios",
+    "seconds": 164
+   },
+   {
+    "id": "zt-Zr57Vfzs",
+    "title": "Navigate Figma Design files: Figma Design for beginners [3 of 13]",
+    "seconds": 528
+   },
+   {
+    "id": "q3RM7W2PjUs",
+    "title": "Create the landing page hero: Figma Design for beginners [4 of 13]",
+    "seconds": 1148
+   },
+   {
+    "id": "sGXHtQfgChg",
+    "title": "Figma Design for beginners: Advocate sidebar — Portfolio personalization",
+    "seconds": 200
+   },
+   {
+    "id": "G9ojik2MEeQ",
+    "title": "Create the case study page: Figma Design for beginners [5 of 13]",
+    "seconds": 1150
+   },
+   {
+    "id": "v1ETJHt6hf4",
+    "title": "Figma Design for beginners: Advocate Sidebar — Sections, groups, and frames",
+    "seconds": 263
+   },
+   {
+    "id": "PZaBmmI0s4M",
+    "title": "Create the button: Figma Design for beginners [6 of 13]",
+    "seconds": 623
+   },
+   {
+    "id": "7dJBDU8HBeQ",
+    "title": "Components fundamentals: Figma Design for beginners [7 of 13]",
+    "seconds": 307
+   },
+   {
+    "id": "9La952nT1_8",
+    "title": "Create the card and container system: Figma Design for beginners [8 of 13]",
+    "seconds": 1100
+   },
+   {
+    "id": "aaZsP7AYi2w",
+    "title": "Figma Design for beginners: Advocate sidebar — Auto layout",
+    "seconds": 510
+   },
+   {
+    "id": "zo7FVhjOq68",
+    "title": "Create the navigation bar and footer: Figma design for beginners [9 of 13]",
+    "seconds": 823
+   },
+   {
+    "id": "9g04XTM_clE",
+    "title": "Create the skills list: Figma Design for beginners [10 of 13]",
+    "seconds": 1361
+   },
+   {
+    "id": "Dv8tr65KIWA",
+    "title": "Assemble the portfolio pages: Figma Design for beginners [11 of 13]",
+    "seconds": 747
+   },
+   {
+    "id": "ScsAc99PT_w",
+    "title": "Add prototype connections: Figma Design for beginners [12 of 13]",
+    "seconds": 1447
+   },
+   {
+    "id": "p37EopqBmIo",
+    "title": "Course wrap up: Figma Design for beginners [13 of 13]",
+    "seconds": 84
+   },
+   {
+    "id": "9SFjiUmlFtg",
+    "title": "Figma Design for beginners: Advocate sidebars — What's next?",
+    "seconds": 131
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-figma",
+  "title": "New to Figma? Get started with \"Figma for beginners\" tutorials",
+  "channel": "Figma",
+  "playlistId": "PLXDU_eVOJTx7QHLShNqIXL1Cgbxj7HlN4",
+  "url": "https://www.youtube.com/playlist?list=PLXDU_eVOJTx7QHLShNqIXL1Cgbxj7HlN4",
+  "videoCount": 7,
+  "totalSeconds": 3233,
+  "videos": [
+   {
+    "id": "Cx2dkpBxst8",
+    "title": "What's Figma? [2019]",
+    "seconds": 95
+   },
+   {
+    "id": "dXQ7IHkTiMM",
+    "title": "Figma For Beginners: Explore ideas (1/4)",
+    "seconds": 950
+   },
+   {
+    "id": "wvFd-z7jSaA",
+    "title": "Figma For Beginners: Create designs (2/4)",
+    "seconds": 1285
+   },
+   {
+    "id": "lTIeZ2ahEkQ",
+    "title": "Figma For Beginners: Build prototypes (3/4)",
+    "seconds": 466
+   },
+   {
+    "id": "EQ_FL6u8EyM",
+    "title": "Figma For Beginners: Prepare for Handoff (4/4)",
+    "seconds": 311
+   },
+   {
+    "id": "axDzyLEfYgU",
+    "title": "Welcome to FigJam",
+    "seconds": 66
+   },
+   {
+    "id": "bYdyNEvr7ks",
+    "title": "Figma Design for Beginners",
+    "seconds": 60
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-unity",
+  "title": "How to make a Video Game in Unity",
+  "channel": "Brackeys",
+  "playlistId": "PLPV2KyIb3jR53Jce9hP7G5xC4O9AgnOuL",
+  "url": "https://www.youtube.com/playlist?list=PLPV2KyIb3jR53Jce9hP7G5xC4O9AgnOuL",
+  "videoCount": 11,
+  "totalSeconds": 5972,
+  "videos": [
+   {
+    "id": "j48LtUkZRjU",
+    "title": "How to make a Video Game - Getting Started (Unity)",
+    "seconds": 201
+   },
+   {
+    "id": "IlKaB1etrik",
+    "title": "How to make a Video Game in Unity - BASICS (E01)",
+    "seconds": 686
+   },
+   {
+    "id": "9ZEu_I-ido4",
+    "title": "How to make a Video Game in Unity - PROGRAMMING (E02)",
+    "seconds": 611
+   },
+   {
+    "id": "Au8oX5pu5u4",
+    "title": "How to make a Video Game in Unity - MOVEMENT (E03)",
+    "seconds": 537
+   },
+   {
+    "id": "HVB6UVcb3f8",
+    "title": "How to make a Video Game in Unity - CAMERA FOLLOW (E04)",
+    "seconds": 401
+   },
+   {
+    "id": "gAB64vfbrhI",
+    "title": "How to make a Video Game in Unity - COLLISION (E05)",
+    "seconds": 468
+   },
+   {
+    "id": "D4I0I3QJAvc",
+    "title": "GAMEPLAY - How to make a Video Game in Unity (E06)",
+    "seconds": 495
+   },
+   {
+    "id": "TAGZxRMloyU",
+    "title": "SCORE & UI - How to make a Video Game in Unity (E07)",
+    "seconds": 548
+   },
+   {
+    "id": "VbZ9_C4-Qbo",
+    "title": "GAME OVER - How to make a Video Game in Unity (E08)",
+    "seconds": 731
+   },
+   {
+    "id": "Iv7A8TzreY4",
+    "title": "WINNING LEVELS - How to make a Video Game in Unity (E09)",
+    "seconds": 718
+   },
+   {
+    "id": "r5NWZoTSjWs",
+    "title": "FINISHING UP - How to make a Video Game in Unity (E10)",
+    "seconds": 576
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-unity",
+  "title": "Unity for Beginners!",
+  "channel": "Dani Krossing",
+  "playlistId": "PL0eyrZgxdwhwQZ9zPUC7TnJ-S0KxqGlrN",
+  "url": "https://www.youtube.com/playlist?list=PL0eyrZgxdwhwQZ9zPUC7TnJ-S0KxqGlrN",
+  "videoCount": 17,
+  "totalSeconds": 22205,
+  "videos": [
+   {
+    "id": "xw6DR7uuNz0",
+    "title": "#1 | LEARN UNITY AS AN ABSOLUTE BEGINNER! 🎮 | Getting Started With Unity | Learn Unity For Free",
+    "seconds": 1276
+   },
+   {
+    "id": "-wCZDcoGBeE",
+    "title": "#2 | CREATING OUR FIRST C# SCRIPT! 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1092
+   },
+   {
+    "id": "bgygKzOQTcM",
+    "title": "#3 | DATA TYPES & FIELDS 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1270
+   },
+   {
+    "id": "qpbRrxaEzQE",
+    "title": "#4 | PROPERTIES & GET/SET METHODS 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 808
+   },
+   {
+    "id": "2NSa1UlG_1U",
+    "title": "#5 | METHODS & DEBUGGING CODE 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 872
+   },
+   {
+    "id": "8w3BJUwOSHY",
+    "title": "#6 | CONDITIONAL STATEMENTS 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1076
+   },
+   {
+    "id": "KLDfcNh5Mm4",
+    "title": "#7 | CREATING YOUR FIRST GAME IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 2604
+   },
+   {
+    "id": "0X7KENT6-B0",
+    "title": "#8 | LOOPS IN UNITY WITH EXAMPLES 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1020
+   },
+   {
+    "id": "30_spR3cCxw",
+    "title": "#9 | VECTOR MAGNITUDE & SQRMAGNITUDE 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 946
+   },
+   {
+    "id": "Z3tO8FPCM_w",
+    "title": "#10 | ENABLE/DISABLE COMPONENTS & GAMEOBJECTS 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 889
+   },
+   {
+    "id": "8pYq15Lh0x4",
+    "title": "#11 | TIME.DELTATIME EXPLAINED 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 363
+   },
+   {
+    "id": "mJi0NwSsJig",
+    "title": "#12 | TRANSLATE, ROTATE & LOOKAT IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1217
+   },
+   {
+    "id": "59JswoJZHY8",
+    "title": "#13 | RIGIDBODY VS. TRANSFORM AND UPDATE VS. FIXEDUPDATE 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 740
+   },
+   {
+    "id": "MfKyUkZb1V4",
+    "title": "#14 | COLLISIONS AND TRIGGERS IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 858
+   },
+   {
+    "id": "CU1GHT9tHqQ",
+    "title": "#15 | IENUMERATOR & COROUTINE IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 841
+   },
+   {
+    "id": "Q16KIxtomeo",
+    "title": "#16 | ARRAYS & LISTS IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 1230
+   },
+   {
+    "id": "O3b8xJQLdHs",
+    "title": "#17 | CREATING YOUR SECOND GAME IN UNITY 🎮 | Unity For Beginners | Unity Tutorial",
+    "seconds": 5103
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-godot",
+  "title": "Godot 4 Tutorial",
+  "channel": "Net Ninja",
+  "playlistId": "PL4cUxeGkcC9iHCXBpxbdsOByZ55Ez4bgF",
+  "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9iHCXBpxbdsOByZ55Ez4bgF",
+  "videoCount": 9,
+  "totalSeconds": 10444,
+  "videos": [
+   {
+    "id": "q7wlSvt0JIc",
+    "title": "Godot 4 Crash Course #1 - The Basics",
+    "seconds": 1152
+   },
+   {
+    "id": "8CrFk3tjsSY",
+    "title": "Godot 4 Crash Course #2 - Coding in Godot",
+    "seconds": 1619
+   },
+   {
+    "id": "nBCcnPAMvBg",
+    "title": "Godot 4 Crash Course #3 - Physics & Signals",
+    "seconds": 1058
+   },
+   {
+    "id": "MWE4d5Wtqbk",
+    "title": "Godot 4 Crash Course #4 - Adding Meteors",
+    "seconds": 1338
+   },
+   {
+    "id": "MtKC5y1wK9Y",
+    "title": "Godot 4 Crash Course #5 - Custom Signals",
+    "seconds": 936
+   },
+   {
+    "id": "_d5iunVxlk4",
+    "title": "Godot 4 Crash Course #6 - Animation",
+    "seconds": 872
+   },
+   {
+    "id": "sYsl6PqcZSs",
+    "title": "Godot 4 Crash Course #7 - Layout",
+    "seconds": 902
+   },
+   {
+    "id": "ZhVFoux2EzU",
+    "title": "Godot 4 Crash Course #8 - Finishing Up",
+    "seconds": 1599
+   },
+   {
+    "id": "R8y1xxxbfEg",
+    "title": "Godot 4 Crash Course #9 - Extras",
+    "seconds": 968
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-godot",
+  "title": "Godot 4 Beginners: Learn to make a 3D Platformer!",
+  "channel": "BornCG",
+  "playlistId": "PLda3VoSoc_TTp8Ng3C57spnNkOw3Hm_35",
+  "url": "https://www.youtube.com/playlist?list=PLda3VoSoc_TTp8Ng3C57spnNkOw3Hm_35",
+  "videoCount": 27,
+  "totalSeconds": 43185,
+  "videos": [
+   {
+    "id": "CI-cVKuSD1s",
+    "title": "Godot 4 3D Platformer Lesson #1: Let's Get Started!",
+    "seconds": 1376
+   },
+   {
+    "id": "zQRt94rmZGo",
+    "title": "Godot 4 3D Platformer Lesson #2: Solid Objects & Physics Simulation!",
+    "seconds": 1687
+   },
+   {
+    "id": "T_7ob1zAjLo",
+    "title": "Godot 4 3D Platformer Lesson #3: Player Object + Movement/Jump Script!",
+    "seconds": 827
+   },
+   {
+    "id": "7u0xNFwljd8",
+    "title": "Godot 4 3D Platformer Lesson #4: Coding 101 (Part 1)",
+    "seconds": 1693
+   },
+   {
+    "id": "ccsk5usqh9w",
+    "title": "Godot 4 3D Platformer Lesson #5: Coding 101 (Part 2)",
+    "seconds": 2213
+   },
+   {
+    "id": "8XygvGbNTA8",
+    "title": "Godot 4 3D Platformer Lesson #6: Collectable Coin",
+    "seconds": 1545
+   },
+   {
+    "id": "bYM9gs-iqkQ",
+    "title": "Godot 4 3D Platformer Lesson #7: 3D Coin Model from Blender to Godot!",
+    "seconds": 2281
+   },
+   {
+    "id": "kzdbaI9vZ5g",
+    "title": "Godot 4 3D Platformer Lesson #8: Adding Materials & Sky Environment",
+    "seconds": 1590
+   },
+   {
+    "id": "yVde3I3K7oo",
+    "title": "Godot 4 3D Platformer Lesson #9: Smooth Camera Following",
+    "seconds": 1451
+   },
+   {
+    "id": "9GCinm040RA",
+    "title": "Godot 4 3D Platformer Lesson #10: Modeling World Blocks!",
+    "seconds": 3184
+   },
+   {
+    "id": "2wumHaW-hyM",
+    "title": "Godot 4 3D Platformer Lesson #11: Building 3D Levels with World Blocks & GridMap!",
+    "seconds": 943
+   },
+   {
+    "id": "61O4ehgojeU",
+    "title": "Godot 4 3D Platformer Lesson #12: Camera Controls & Camera-Relative Player Movement!",
+    "seconds": 1873
+   },
+   {
+    "id": "Y5OiChOukfg",
+    "title": "Godot 4 3D Platformer Lesson #13: Align Player with Ground!",
+    "seconds": 1583
+   },
+   {
+    "id": "qxtvw1Fhnag",
+    "title": "Godot 4 3D Platformer Lesson #14: Fall Zone to Change Scenes",
+    "seconds": 630
+   },
+   {
+    "id": "q325k1Hcb0A",
+    "title": "Godot 4 3D Platformer Lesson #15: Collision Layers & Masks!",
+    "seconds": 673
+   },
+   {
+    "id": "tnSUotjlzeI",
+    "title": "Godot 4 3D Platformer Lesson #16: Animated Coin Bounce!",
+    "seconds": 1180
+   },
+   {
+    "id": "mh4m_j7E3Ks",
+    "title": "Godot 4 3D Platformer Lesson #17: Counting Coins to Win! + Singletons",
+    "seconds": 980
+   },
+   {
+    "id": "zR0sLAGpsIY",
+    "title": "Godot 4 3D Platformer Lesson #18: Coins Heads-Up Display (HUD)!",
+    "seconds": 2094
+   },
+   {
+    "id": "E6qsOY2CSdI",
+    "title": "Godot 4 3D Platformer Lesson #19: 3D Rigged, Animated, Playable Character!",
+    "seconds": 1974
+   },
+   {
+    "id": "gJUi4D__3vo",
+    "title": "Godot 4 3D Platformer Lesson #20: Adding an Enemy! (Part 1)",
+    "seconds": 2798
+   },
+   {
+    "id": "uHxmGbDwguo",
+    "title": "Godot 4 3D Platformer Lesson #21: Enemy (Part 2)! : Collisions & Squashing",
+    "seconds": 1486
+   },
+   {
+    "id": "t8P3vYqHLp0",
+    "title": "Godot 4 3D Platformer Lesson #22: Enemy (Part 3)! : Cliff-Detection! Auto-Turn-Around",
+    "seconds": 900
+   },
+   {
+    "id": "turZ7YfUXtA",
+    "title": "Godot 4 3D Platformer Lesson #23: Reusable Moving Platforms!",
+    "seconds": 2172
+   },
+   {
+    "id": "O--7OAAQcJA",
+    "title": "Godot 4 3D Platformer Lesson #24: Menu Screens & Buttons!",
+    "seconds": 1648
+   },
+   {
+    "id": "Bw875_qFM1c",
+    "title": "Godot 4 3D Platformer Lesson #25: Adding SFX & Music! (+ a Sound Manager)!",
+    "seconds": 2113
+   },
+   {
+    "id": "2WPFHZ20NPQ",
+    "title": "Godot 4 3D Platformer Lesson #26: Exporting to a Windows App (.exe)",
+    "seconds": 1284
+   },
+   {
+    "id": "WWzX55Jhz2U",
+    "title": "Godot 4 3D Platformer Lesson #27: Publishing your Web Game! (Course Finale!)",
+    "seconds": 1007
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-excel",
+  "title": "Excel for Beginners",
+  "channel": "Kevin Stratvert",
+  "playlistId": "PLlKpQrBME6xLDnoK7OovAVVsGNV55MS3K",
+  "url": "https://www.youtube.com/playlist?list=PLlKpQrBME6xLDnoK7OovAVVsGNV55MS3K",
+  "videoCount": 60,
+  "totalSeconds": 7788,
+  "videos": [
+   {
+    "id": "UPnlqzNWKrw",
+    "title": "1-1. Introduction: Welcome to Excel for Beginners",
+    "seconds": 83
+   },
+   {
+    "id": "IwgspIH1G0M",
+    "title": "1-2. Introduction: What is Excel",
+    "seconds": 76
+   },
+   {
+    "id": "a2ahG0YYzL8",
+    "title": "1-3. Introduction: How to get Excel",
+    "seconds": 108
+   },
+   {
+    "id": "-pHOZDl37To",
+    "title": "2-1. Main interface: Start screen",
+    "seconds": 129
+   },
+   {
+    "id": "2CZugf2ZC6Q",
+    "title": "2-2. Main interface: Workbook and worksheet",
+    "seconds": 32
+   },
+   {
+    "id": "bSOvw3vaMFk",
+    "title": "2-3. Main interface: Tabs and ribbon",
+    "seconds": 89
+   },
+   {
+    "id": "9PP3yZzPul8",
+    "title": "2-4. Main interface: Navigate through a worksheet",
+    "seconds": 163
+   },
+   {
+    "id": "_b1tgS5X1Jw",
+    "title": "2-5. Main interface: Navigate through a workbook",
+    "seconds": 44
+   },
+   {
+    "id": "DqdsnaykmLw",
+    "title": "2-6. Main interface: Help",
+    "seconds": 80
+   },
+   {
+    "id": "95QlZ1yokp8",
+    "title": "3-1. Enter data: Numbers",
+    "seconds": 254
+   },
+   {
+    "id": "lPbMALquC5g",
+    "title": "3-2. Enter data: Column width and row height",
+    "seconds": 84
+   },
+   {
+    "id": "2CB_dod_ewY",
+    "title": "3-3. Enter data: Dates and times",
+    "seconds": 148
+   },
+   {
+    "id": "W4tl-51sIzU",
+    "title": "3-4. Enter data: Select cells to enter data quickly",
+    "seconds": 58
+   },
+   {
+    "id": "Frg80C5C5lg",
+    "title": "4-1. Save workbook: Save workbook",
+    "seconds": 46
+   },
+   {
+    "id": "ovVrabdoBn4",
+    "title": "4-2. Save workbook: Benefits of saving a workbook in the cloud",
+    "seconds": 47
+   },
+   {
+    "id": "2ct1uPgvYJk",
+    "title": "5-1. Format, layout, and design: Basic formatting",
+    "seconds": 282
+   },
+   {
+    "id": "fUykkTM2SrU",
+    "title": "5-2. Format, layout, and design: Tables",
+    "seconds": 204
+   },
+   {
+    "id": "zauQQYS-RXE",
+    "title": "5-3. Format, layout, and design: Insert rows and columns",
+    "seconds": 97
+   },
+   {
+    "id": "47GNSXWNEqM",
+    "title": "5-4. Format, layout, and design: Copy and move",
+    "seconds": 131
+   },
+   {
+    "id": "6hsHVomsHVQ",
+    "title": "5-5. Format, layout, and design: Conditional formatting",
+    "seconds": 87
+   },
+   {
+    "id": "0yqdnMtxcHE",
+    "title": "5-6. Format, layout, and design: Hide rows and columns",
+    "seconds": 110
+   },
+   {
+    "id": "P1uvQ6NFKmg",
+    "title": "5-7. Format, layout, and design: Find and replace",
+    "seconds": 75
+   },
+   {
+    "id": "dO2iQSY11zA",
+    "title": "6-1. Formulas and functions: Status bar for basic metrics",
+    "seconds": 116
+   },
+   {
+    "id": "jThThA58GI8",
+    "title": "6-2. Formulas and functions: Enter a basic formula with addition and subtraction",
+    "seconds": 180
+   },
+   {
+    "id": "LWIRT-aZV_k",
+    "title": "6-3. Formulas and functions: Repeat formulas",
+    "seconds": 107
+   },
+   {
+    "id": "7X7kKt0HCT4",
+    "title": "6-4. Formulas and functions: Relative and absolute references",
+    "seconds": 299
+   },
+   {
+    "id": "NL2w0wDXd6M",
+    "title": "6-5. Formulas and functions: Division",
+    "seconds": 35
+   },
+   {
+    "id": "RBjzeUpi_Dk",
+    "title": "6-6. Formulas and functions: Order of operations",
+    "seconds": 101
+   },
+   {
+    "id": "LsZCXXM-63g",
+    "title": "6-7. Formulas and functions: Commons functions including SUM, MAX, MIN, COUNT, and AVERAGE",
+    "seconds": 416
+   },
+   {
+    "id": "mZn5nzisZzI",
+    "title": "6-8. Formulas and functions: VLOOKUP function",
+    "seconds": 355
+   },
+   {
+    "id": "QE-TuF7kMzU",
+    "title": "6-9. Formulas and functions: XLOOKUP function",
+    "seconds": 187
+   },
+   {
+    "id": "09G0ElIC378",
+    "title": "7-1. Charts: Insert and format charts",
+    "seconds": 351
+   },
+   {
+    "id": "hZbbBdxIgDY",
+    "title": "7-2. Charts: Analyze data to generate charts",
+    "seconds": 126
+   },
+   {
+    "id": "V_c8zloRE8c",
+    "title": "8-1. Sorting and filtering: Sort",
+    "seconds": 191
+   },
+   {
+    "id": "wMKB2n1PTvc",
+    "title": "8-2. Sorting and filtering: Filter",
+    "seconds": 161
+   },
+   {
+    "id": "i9TR3fHX0Ww",
+    "title": "8-3. Sorting and filtering: Worksheet views",
+    "seconds": 68
+   },
+   {
+    "id": "j-ZbmtBeyK8",
+    "title": "9-1. Pivot tables: All about pivot tables",
+    "seconds": 806
+   },
+   {
+    "id": "eti2KtXQaeQ",
+    "title": "10-1. Flash fill: Separate and merge data using flash fill",
+    "seconds": 136
+   },
+   {
+    "id": "rK7btHGgh78",
+    "title": "11-1. Adjust worksheet views: Freeze panes",
+    "seconds": 168
+   },
+   {
+    "id": "4KTTmNPa1b8",
+    "title": "11-2. Adjust worksheet views: Split panes",
+    "seconds": 95
+   },
+   {
+    "id": "-tsS5HjAQEc",
+    "title": "12-1. Multiple worksheets and workbooks: Rename and color worksheets",
+    "seconds": 62
+   },
+   {
+    "id": "CQa9AxyMT6k",
+    "title": "12-2. Multiple worksheets and workbooks: Add and delete worksheets",
+    "seconds": 49
+   },
+   {
+    "id": "8iZmiaSuxcM",
+    "title": "12-3. Multiple worksheets and workbooks: Hide and unhide worksheets",
+    "seconds": 31
+   },
+   {
+    "id": "V2lxqRB6W1k",
+    "title": "12-4. Multiple worksheets and workbooks: Move and copy worksheets",
+    "seconds": 67
+   },
+   {
+    "id": "71LWYSUqc24",
+    "title": "12-5. Multiple worksheets and workbooks: Worksheet groups",
+    "seconds": 77
+   },
+   {
+    "id": "CyiONQ2ZXE4",
+    "title": "13-1. Share and collaborate: Protect worksheet",
+    "seconds": 176
+   },
+   {
+    "id": "GdDB2aSJrjw",
+    "title": "13-2. Share and collaborate: Protect workbook",
+    "seconds": 32
+   },
+   {
+    "id": "Ekenxrw2RAY",
+    "title": "13-3. Share and collaborate: Password protect workbook",
+    "seconds": 38
+   },
+   {
+    "id": "tgNKCC7O-DE",
+    "title": "13-4. Share and collaborate: Share workbook",
+    "seconds": 121
+   },
+   {
+    "id": "wcmRc_dPhI4",
+    "title": "13-5. Share and collaborate: Version history",
+    "seconds": 36
+   },
+   {
+    "id": "hClobjyBAZ0",
+    "title": "14-1. Print: Print selection",
+    "seconds": 176
+   },
+   {
+    "id": "V1FWr8yfBTI",
+    "title": "14-2. Print: Set print area",
+    "seconds": 60
+   },
+   {
+    "id": "HJ12j5BK7HE",
+    "title": "14-3. Print: Hide column",
+    "seconds": 33
+   },
+   {
+    "id": "Pud1a0Tmwwc",
+    "title": "14-4. Print: Page settings",
+    "seconds": 82
+   },
+   {
+    "id": "yOnpEfPC_2I",
+    "title": "14-5. Print: Adjust columns",
+    "seconds": 73
+   },
+   {
+    "id": "lEaTcRspC-U",
+    "title": "14-6. Print: Repeat headers",
+    "seconds": 50
+   },
+   {
+    "id": "G2KutOsC-m4",
+    "title": "14-7 Print: Headers and footers",
+    "seconds": 96
+   },
+   {
+    "id": "FvLulH-LU88",
+    "title": "14-8. Print: Show gridlines",
+    "seconds": 44
+   },
+   {
+    "id": "Kvh-Oys9r5w",
+    "title": "14-9. Print: Page break view",
+    "seconds": 107
+   },
+   {
+    "id": "D9FkMQG-BgA",
+    "title": "15-1. Wrap up: Wrap up",
+    "seconds": 53
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "intro-excel",
+  "title": "Excel 365 Basics Free Course: Learn to Efficiently Use Excel at Work and to Get a Job. (More Videos To Come)",
+  "channel": "excelisfun",
+  "playlistId": "PLrRPvpgDmw0k7ocn_EnBaSJ6RwLDOZdfo",
+  "url": "https://www.youtube.com/playlist?list=PLrRPvpgDmw0k7ocn_EnBaSJ6RwLDOZdfo",
+  "videoCount": 18,
+  "totalSeconds": 40802,
+  "videos": [
+   {
+    "id": "IInFoJxxPPA",
+    "title": "Excel 365 Basics #1: What is Excel?, Formulas, Functions, Formatting, Cell References & Page Setup",
+    "seconds": 3926
+   },
+   {
+    "id": "r7jbrNjbp68",
+    "title": "Excel 365 Basics #2: SUMIFS, COUNTIFS, COUNT, COUNTA, ROWS, SUM & IF Functions to Add & Count",
+    "seconds": 3121
+   },
+   {
+    "id": "mNCm7q24n10",
+    "title": "Excel 365 Basics #3: Number Formatting as Façade & when you MUST use ROUND Function",
+    "seconds": 1306
+   },
+   {
+    "id": "7vfA42C6ODA",
+    "title": "Excel 365 Basics #4: Date & Time Formulas, Functions & Formatting: All The Basics You Need to Know",
+    "seconds": 2548
+   },
+   {
+    "id": "cRmEVw89FUE",
+    "title": "Excel 365 Basics #5: IF Function & Logical Tests IFS, IFNA, OR, AND, NOT, ISNUMBER Functions More",
+    "seconds": 2805
+   },
+   {
+    "id": "iJj4rYhlzmo",
+    "title": "Excel 365 Basics 06: XLOOKUP, FILTER, XMATCH, LOOKUP, SWITCH Functions to Solve Any Lookup Task!",
+    "seconds": 2961
+   },
+   {
+    "id": "xxhsxMaEthw",
+    "title": "Excel 365 Basics #7: Comprehensive Formula & Function Lesson To Become An Excel Formula Guru!",
+    "seconds": 5184
+   },
+   {
+    "id": "rXwZITn70Xo",
+    "title": "MS 365 Excel Basics 08: PivotTables, Slicers, Charts, Conditional Formatting, Data Analysis Tips!",
+    "seconds": 2154
+   },
+   {
+    "id": "hj73mvZYUSY",
+    "title": "PivotTables Instantly Update When Source Data Change, Just Like Formulas!! Excel Magic Trick 1900",
+    "seconds": 809
+   },
+   {
+    "id": "umiQHSGLu5U",
+    "title": "Excel Revolution with PIVOTBY & GROUPBY Functions! #Short Preview of Upcoming Video",
+    "seconds": 26
+   },
+   {
+    "id": "l5hcjfW81tQ",
+    "title": "MS 365 Excel Basics 09: PIVOTBY & GROUPBY Functions Beat PivotTable: 10 Mind-Blowing Examples!",
+    "seconds": 3083
+   },
+   {
+    "id": "RV7lvDKiDy0",
+    "title": "MS 365 Excel Basics 10: Power Query, FlashFill, XLOOKUP, PivotTables Sort & Filter! 7 DA Examples.",
+    "seconds": 5329
+   },
+   {
+    "id": "9MTn9D0aQ2Q",
+    "title": "MS 365 Excel Basics #10 Part 02: SORT Array Function  &  the Many Varied Tasks It Can Achieve!",
+    "seconds": 374
+   },
+   {
+    "id": "h5q4mB8-p8o",
+    "title": "MS 365 Excel Basics #10 Part 03: FILTER Array Function to Dynamically Filter!",
+    "seconds": 281
+   },
+   {
+    "id": "84NGNUrTBQM",
+    "title": "MS 365 Excel Basics #10 Part 04: GROUPBY Array Function to Calculate the Percent of Count Total",
+    "seconds": 208
+   },
+   {
+    "id": "JD0Snb2lsw4",
+    "title": "MS 365 Excel Basics 11: Power Pivot, Data Model, Relationships & DAX Measures, & Filter Context Too!",
+    "seconds": 2364
+   },
+   {
+    "id": "uHvEjX6OU5Y",
+    "title": "MS 365 Excel Basics 12: Power BI Desktop & Interactive Visuals / Dashboards, Import Excel Data Model",
+    "seconds": 1517
+   },
+   {
+    "id": "Y6TCO-wHV0s",
+    "title": "MS 365 Excel Basics #13: Power BI Dashboard from 7 Million Rows of SQL Data and DAX Formulas",
+    "seconds": 2806
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "numpy",
+  "title": "NumPy tutorial for beginners 🔢",
+  "channel": "Bro Code",
+  "playlistId": "PLZPZq0r_RZOMldEsyG8-3BebUNbTFVfmY",
+  "url": "https://www.youtube.com/playlist?list=PLZPZq0r_RZOMldEsyG8-3BebUNbTFVfmY",
+  "videoCount": 12,
+  "totalSeconds": 5164,
+  "videos": [
+   {
+    "id": "Gc-dwloxNFE",
+    "title": "Start using NumPy in 5 minutes! 🔢",
+    "seconds": 308
+   },
+   {
+    "id": "fPopFeqw5sk",
+    "title": "Learn NumPy data types in 8 minutes! 💱",
+    "seconds": 522
+   },
+   {
+    "id": "EnhgbolbEe0",
+    "title": "NumPy multidimensional arrays are easy! 🧊",
+    "seconds": 463
+   },
+   {
+    "id": "pgPwaNpC0so",
+    "title": "Learn to reshape NumPy arrays in 4 minutes! ↔️",
+    "seconds": 252
+   },
+   {
+    "id": "6WaBryk4fkE",
+    "title": "Slicing in NumPy is easy! ✂️",
+    "seconds": 667
+   },
+   {
+    "id": "DHS4gsp2ta0",
+    "title": "NumPy arithmetic is easy! ✖️",
+    "seconds": 553
+   },
+   {
+    "id": "P67wiuTx7l0",
+    "title": "Learn NumPy broadcasting in 6 minutes! 📡",
+    "seconds": 378
+   },
+   {
+    "id": "81i_uSX9Vic",
+    "title": "Useful NumPy functions you should know! 🎚️",
+    "seconds": 419
+   },
+   {
+    "id": "8pUBr05OQfs",
+    "title": "NumPy aggregate functions are easy! 📊",
+    "seconds": 242
+   },
+   {
+    "id": "ITbUyiyQckY",
+    "title": "Filtering in NumPy is easy! 🧲",
+    "seconds": 491
+   },
+   {
+    "id": "Ql5zGPtxlHY",
+    "title": "Random numbers in NumPy are easy! 🎲",
+    "seconds": 471
+   },
+   {
+    "id": "4paHKF4bJtI",
+    "title": "Saving and loading NumPy arrays is easy! 💾",
+    "seconds": 398
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "numpy",
+  "title": "Numpy For Machine Learning",
+  "channel": "John Elder",
+  "playlistId": "PLCC34OHNcOtpalASMlX2HHdsLNipyyhbK",
+  "url": "https://www.youtube.com/playlist?list=PLCC34OHNcOtpalASMlX2HHdsLNipyyhbK",
+  "videoCount": 9,
+  "totalSeconds": 4499,
+  "videos": [
+   {
+    "id": "gnKbAAVUzro",
+    "title": "Intro To Numpy - Numpy For Machine Learning 1",
+    "seconds": 751
+   },
+   {
+    "id": "PbKOrSottRQ",
+    "title": "Slicing Numpy Arrays - Numpy For Machine Learning 2",
+    "seconds": 636
+   },
+   {
+    "id": "4LIAHVXnpbY",
+    "title": "Numpy Universal Functions - Numpy For Machine Learning 3",
+    "seconds": 469
+   },
+   {
+    "id": "yAjzj2eShXU",
+    "title": "Numpy Array Copy Vs View - Numpy For Machine Learning 4",
+    "seconds": 395
+   },
+   {
+    "id": "OryO301RmX8",
+    "title": "Shape and Reshape Numpy Arrays - Numpy For Machine Learning 5",
+    "seconds": 424
+   },
+   {
+    "id": "oIyfZTYQbtk",
+    "title": "Iterating Through Numpy Arrays - Numpy For Machine Learning 6",
+    "seconds": 541
+   },
+   {
+    "id": "eQAuGKayM80",
+    "title": "Sorting Numpy Arrays The Right Way - Numpy For Machine Learning 7",
+    "seconds": 402
+   },
+   {
+    "id": "TE2BVmeVhJw",
+    "title": "Searching Numpy Arrays The Easy Way - Numpy For Machine Learning 8",
+    "seconds": 437
+   },
+   {
+    "id": "gBd5cg5ELN0",
+    "title": "How To Filter Numpy Arrays - Numpy For Machine Learning 9",
+    "seconds": 444
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "pandas",
+  "title": "Pandas Tutorials",
+  "channel": "Corey Schafer",
+  "playlistId": "PL-osiE80TeTsWmV9i9c58mdDCSskIFdDS",
+  "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTsWmV9i9c58mdDCSskIFdDS",
+  "videoCount": 11,
+  "totalSeconds": 19151,
+  "videos": [
+   {
+    "id": "ZyhVh-qRZPA",
+    "title": "Python Pandas Tutorial (Part 1): Getting Started with Data Analysis - Installation and Loading Data",
+    "seconds": 1381
+   },
+   {
+    "id": "zmdjNSmRXF4",
+    "title": "Python Pandas Tutorial (Part 2): DataFrame and Series Basics - Selecting Rows and Columns",
+    "seconds": 2015
+   },
+   {
+    "id": "W9XjRYFkkyw",
+    "title": "Python Pandas Tutorial (Part 3): Indexes - How to Set, Reset, and Use Indexes",
+    "seconds": 1047
+   },
+   {
+    "id": "Lw2rlcxScZY",
+    "title": "Python Pandas Tutorial (Part 4): Filtering - Using Conditionals to Filter Rows and Columns",
+    "seconds": 1384
+   },
+   {
+    "id": "DCDe29sIKcE",
+    "title": "Python Pandas Tutorial (Part 5): Updating Rows and Columns - Modifying Data Within DataFrames",
+    "seconds": 2403
+   },
+   {
+    "id": "HQ6XO9eT-fc",
+    "title": "Python Pandas Tutorial (Part 6): Add/Remove Rows and Columns From DataFrames",
+    "seconds": 1015
+   },
+   {
+    "id": "T11QYVfZoD0",
+    "title": "Python Pandas Tutorial (Part 7): Sorting Data",
+    "seconds": 940
+   },
+   {
+    "id": "txMdrV1Ut64",
+    "title": "Python Pandas Tutorial (Part 8): Grouping and Aggregating - Analyzing and Exploring Your Data",
+    "seconds": 2946
+   },
+   {
+    "id": "KdmPHEnPJPs",
+    "title": "Python Pandas Tutorial (Part 9): Cleaning Data - Casting Datatypes and Handling Missing Values",
+    "seconds": 1914
+   },
+   {
+    "id": "UFuo7EHI8zc",
+    "title": "Python Pandas Tutorial (Part 10): Working with Dates and Time Series Data",
+    "seconds": 2141
+   },
+   {
+    "id": "N6hyN6BW6ao",
+    "title": "Python Pandas Tutorial (Part 11): Reading/Writing Data to Different Sources - Excel, JSON, SQL, Etc",
+    "seconds": 1965
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "pandas",
+  "title": "Pandas for Beginners",
+  "channel": "Alex The Analyst",
+  "playlistId": "PLUaB-1hjhk8GZOuylZqLz-Qt9RIdZZMBE",
+  "url": "https://www.youtube.com/playlist?list=PLUaB-1hjhk8GZOuylZqLz-Qt9RIdZZMBE",
+  "videoCount": 8,
+  "totalSeconds": 9802,
+  "videos": [
+   {
+    "id": "dUpyC40cF6Q",
+    "title": "Reading in Files in Pandas | Python Pandas Tutorials",
+    "seconds": 1157
+   },
+   {
+    "id": "kB7FV-ijdqE",
+    "title": "Filtering Columns and Rows in Pandas | Python Pandas Tutorials",
+    "seconds": 709
+   },
+   {
+    "id": "mBCG9J1TVTc",
+    "title": "Indexes in Pandas | Python Pandas Tutorials",
+    "seconds": 682
+   },
+   {
+    "id": "VRmXto2YA2I",
+    "title": "Group By and Aggregate Functions in Pandas | Python Pandas Tutorials",
+    "seconds": 665
+   },
+   {
+    "id": "TPivN7tpdwc",
+    "title": "Merging DataFrames in Pandas | Python Pandas Tutorials",
+    "seconds": 1329
+   },
+   {
+    "id": "JpSMse3eVVg",
+    "title": "Creating Visualizations using Pandas Library | Python Pandas Tutorials",
+    "seconds": 1010
+   },
+   {
+    "id": "bDhvCp3_lYw",
+    "title": "Data Cleaning in Pandas | Python Pandas Tutorials",
+    "seconds": 2317
+   },
+   {
+    "id": "Liv6eeb1VfE",
+    "title": "Exploratory Data Analysis in Pandas | Python Pandas Tutorials",
+    "seconds": 1933
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "plotting",
+  "title": "Matplotlib Tutorials",
+  "channel": "Corey Schafer",
+  "playlistId": "PL-osiE80TeTvipOqomVEeZ1HRrcEvtZB_",
+  "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTvipOqomVEeZ1HRrcEvtZB_",
+  "videoCount": 10,
+  "totalSeconds": 12821,
+  "videos": [
+   {
+    "id": "UO98lJQ3QGI",
+    "title": "Matplotlib Tutorial (Part 1): Creating and Customizing Our First Plots",
+    "seconds": 2101
+   },
+   {
+    "id": "nKxLfUrkLE8",
+    "title": "Matplotlib Tutorial (Part 2): Bar Charts and Analyzing Data from CSVs",
+    "seconds": 2066
+   },
+   {
+    "id": "MPiz50TsyF0",
+    "title": "Matplotlib Tutorial (Part 3): Pie Charts",
+    "seconds": 1022
+   },
+   {
+    "id": "xN-Supd4H38",
+    "title": "Matplotlib Tutorial (Part 4): Stack Plots",
+    "seconds": 889
+   },
+   {
+    "id": "x0Uguu7gqgk",
+    "title": "Matplotlib Tutorial (Part 5): Filling Area on Line Plots",
+    "seconds": 918
+   },
+   {
+    "id": "XDv6T4a0RNc",
+    "title": "Matplotlib Tutorial (Part 6): Histograms",
+    "seconds": 996
+   },
+   {
+    "id": "zZZ_RCwp49g",
+    "title": "Matplotlib Tutorial (Part 7): Scatter Plots",
+    "seconds": 1284
+   },
+   {
+    "id": "_LWjaAiKaf8",
+    "title": "Matplotlib Tutorial (Part 8): Plotting Time Series Data",
+    "seconds": 1029
+   },
+   {
+    "id": "Ercd-Ip5PfQ",
+    "title": "Matplotlib Tutorial (Part 9): Plotting Live Data in Real-Time",
+    "seconds": 1234
+   },
+   {
+    "id": "XFZRVnP-MTU",
+    "title": "Matplotlib Tutorial (Part 10): Subplots",
+    "seconds": 1282
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "plotting",
+  "title": "Matplotlib tutorial for beginners 📊",
+  "channel": "Bro Code",
+  "playlistId": "PLZPZq0r_RZONpa_Xg1MmyjmctJjL4l3Ay",
+  "url": "https://www.youtube.com/playlist?list=PLZPZq0r_RZONpa_Xg1MmyjmctJjL4l3Ay",
+  "videoCount": 10,
+  "totalSeconds": 3668,
+  "videos": [
+   {
+    "id": "2KY5AaFvWtE",
+    "title": "Start using Matplotlib in 7 minutes! 📊",
+    "seconds": 422
+   },
+   {
+    "id": "hunq_UOdmoo",
+    "title": "Matplotlib customization is easy! 🎨",
+    "seconds": 553
+   },
+   {
+    "id": "t-kHUq8OvQs",
+    "title": "Matplotlib labels in 6 minutes! 🏷️",
+    "seconds": 381
+   },
+   {
+    "id": "alVRCZkTBHc",
+    "title": "Matplotlib grid lines in 2 minutes! 🌐",
+    "seconds": 162
+   },
+   {
+    "id": "k7UJg2E-TyU",
+    "title": "Matplotlib bar charts in 4 minutes! 📶",
+    "seconds": 246
+   },
+   {
+    "id": "N63ODsRdRVQ",
+    "title": "Matplotlib pie charts in 6 minutes! 🥧",
+    "seconds": 362
+   },
+   {
+    "id": "HHrG5W530fk",
+    "title": "Matplotlib scatter plots in 6 minutes! ✨",
+    "seconds": 404
+   },
+   {
+    "id": "2E6fDoz7LuU",
+    "title": "Matplotlib histograms in 6 minutes! 🔔",
+    "seconds": 373
+   },
+   {
+    "id": "KFMs_ZZNgmo",
+    "title": "Matplotlib subplots in 6 minutes! 🔲",
+    "seconds": 414
+   },
+   {
+    "id": "JJ0vg1Kbris",
+    "title": "Let's create a graph using Pandas and Matplotlib! 🐼📊",
+    "seconds": 351
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "neural-networks",
+  "title": "Neural networks",
+  "channel": "3Blue1Brown",
+  "playlistId": "PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+  "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+  "videoCount": 10,
+  "totalSeconds": 13054,
+  "videos": [
+   {
+    "id": "aircAruvnKk",
+    "title": "But what is a neural network? | Deep learning chapter 1",
+    "seconds": 1120
+   },
+   {
+    "id": "IHZwWFHWa-w",
+    "title": "Gradient descent, how neural networks learn | Deep Learning Chapter 2",
+    "seconds": 1233
+   },
+   {
+    "id": "Ilg3gGewQ5U",
+    "title": "Backpropagation, intuitively | Deep Learning Chapter 3",
+    "seconds": 767
+   },
+   {
+    "id": "tIeHLnjs5U8",
+    "title": "Backpropagation calculus | Deep Learning Chapter 4",
+    "seconds": 618
+   },
+   {
+    "id": "LPZh9BOjkQs",
+    "title": "Large Language Models explained briefly",
+    "seconds": 478
+   },
+   {
+    "id": "wjZofJX0v4M",
+    "title": "Transformers, the tech behind LLMs | Deep Learning Chapter 5",
+    "seconds": 1634
+   },
+   {
+    "id": "eMlx5fFNoYc",
+    "title": "Attention in transformers, step-by-step | Deep Learning Chapter 6",
+    "seconds": 1570
+   },
+   {
+    "id": "9-Jl0dxWQs8",
+    "title": "How might LLMs store facts | Deep Learning Chapter 7",
+    "seconds": 1363
+   },
+   {
+    "id": "GlYgs6v2YfU",
+    "title": "But what is cross-entropy? | Information theory, part 2",
+    "seconds": 2031
+   },
+   {
+    "id": "iv-5mZ_9CPY",
+    "title": "But how do AI images and videos actually work? | Guest video by Welch Labs",
+    "seconds": 2240
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "neural-networks",
+  "title": "Neural Networks: Zero to Hero",
+  "channel": "Andrej Karpathy",
+  "playlistId": "PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ",
+  "url": "https://www.youtube.com/playlist?list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ",
+  "videoCount": 10,
+  "totalSeconds": 69662,
+  "videos": [
+   {
+    "id": "VMj-3S1tku0",
+    "title": "The spelled-out intro to neural networks and backpropagation: building micrograd",
+    "seconds": 8752
+   },
+   {
+    "id": "PaCmpygFfXo",
+    "title": "The spelled-out intro to language modeling: building makemore",
+    "seconds": 7065
+   },
+   {
+    "id": "TCH_1BHY58I",
+    "title": "Building makemore Part 2: MLP",
+    "seconds": 4540
+   },
+   {
+    "id": "P6sfmUTpUmc",
+    "title": "Building makemore Part 3: Activations & Gradients, BatchNorm",
+    "seconds": 6958
+   },
+   {
+    "id": "q8SA3rM6ckI",
+    "title": "Building makemore Part 4: Becoming a Backprop Ninja",
+    "seconds": 6924
+   },
+   {
+    "id": "t3YJ5hKiMQ0",
+    "title": "Building makemore Part 5: Building a WaveNet",
+    "seconds": 3382
+   },
+   {
+    "id": "kCc8FmEb1nY",
+    "title": "Let's build GPT: from scratch, in code, spelled out.",
+    "seconds": 6980
+   },
+   {
+    "id": "bZQun8Y4L2A",
+    "title": "State of GPT | BRK216HFS",
+    "seconds": 2560
+   },
+   {
+    "id": "zduSFxRajkE",
+    "title": "Let's build the GPT Tokenizer",
+    "seconds": 8015
+   },
+   {
+    "id": "l8pRSuU81PU",
+    "title": "Let's reproduce GPT-2 (124M)",
+    "seconds": 14486
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "pytorch",
+  "title": "PyTorch Tutorials - Complete Beginner Course",
+  "channel": "Patrick Loeber",
+  "playlistId": "PLqnslRFeH2UrcDBWF5mfPGpqQDSta6VK4",
+  "url": "https://www.youtube.com/playlist?list=PLqnslRFeH2UrcDBWF5mfPGpqQDSta6VK4",
+  "videoCount": 22,
+  "totalSeconds": 24660,
+  "videos": [
+   {
+    "id": "EMXfZB8FVUA",
+    "title": "PyTorch Tutorial 01 - Installation",
+    "seconds": 345
+   },
+   {
+    "id": "exaWOE8jvy8",
+    "title": "PyTorch Tutorial 02 - Tensor Basics",
+    "seconds": 1108
+   },
+   {
+    "id": "DbeIqrwb_dE",
+    "title": "PyTorch Tutorial 03 - Gradient Calculation With Autograd",
+    "seconds": 954
+   },
+   {
+    "id": "3Kb0QS6z7WA",
+    "title": "PyTorch Tutorial 04 - Backpropagation - Theory With Example",
+    "seconds": 793
+   },
+   {
+    "id": "E-I2DNVzQLg",
+    "title": "PyTorch Tutorial 05 - Gradient Descent with Autograd and Backpropagation",
+    "seconds": 1051
+   },
+   {
+    "id": "VVDHU_TWwUg",
+    "title": "PyTorch Tutorial 06 - Training Pipeline: Model, Loss, and Optimizer",
+    "seconds": 856
+   },
+   {
+    "id": "YAJ5XBwlN4o",
+    "title": "PyTorch Tutorial 07 - Linear Regression",
+    "seconds": 731
+   },
+   {
+    "id": "OGpQxIkR4ao",
+    "title": "PyTorch Tutorial 08 - Logistic Regression",
+    "seconds": 1102
+   },
+   {
+    "id": "PXOzkkB5eH0",
+    "title": "PyTorch Tutorial 09 - Dataset and DataLoader - Batch Training",
+    "seconds": 927
+   },
+   {
+    "id": "X_QOZEko5uE",
+    "title": "PyTorch Tutorial 10 - Dataset Transforms",
+    "seconds": 643
+   },
+   {
+    "id": "7q7E91pHoW4",
+    "title": "PyTorch Tutorial 11 - Softmax and Cross Entropy",
+    "seconds": 1097
+   },
+   {
+    "id": "3t9lZM7SS7k",
+    "title": "PyTorch Tutorial 12 - Activation Functions",
+    "seconds": 600
+   },
+   {
+    "id": "oPhxf2fXHkQ",
+    "title": "PyTorch Tutorial 13 - Feed-Forward Neural Network",
+    "seconds": 1294
+   },
+   {
+    "id": "pDdP0TFzsoQ",
+    "title": "PyTorch Tutorial 14 - Convolutional Neural Network (CNN)",
+    "seconds": 1327
+   },
+   {
+    "id": "K0lWSB2QoIQ",
+    "title": "PyTorch Tutorial 15 - Transfer Learning",
+    "seconds": 895
+   },
+   {
+    "id": "VJW9wU-1n18",
+    "title": "PyTorch Tutorial 16 - How To Use The TensorBoard",
+    "seconds": 1541
+   },
+   {
+    "id": "9L9jEOwRrCg",
+    "title": "PyTorch Tutorial 17 - Saving and Loading Models",
+    "seconds": 1104
+   },
+   {
+    "id": "bA7-DEtYCNM",
+    "title": "Create & Deploy A Deep Learning App - PyTorch Model Deployment With Flask & Heroku",
+    "seconds": 2512
+   },
+   {
+    "id": "WEV61GmmPrk",
+    "title": "PyTorch RNN Tutorial - Name Classification Using A Recurrent Neural Net",
+    "seconds": 2337
+   },
+   {
+    "id": "0_PgWWmauHk",
+    "title": "PyTorch Tutorial - RNN & LSTM & GRU - Recurrent Neural Nets",
+    "seconds": 952
+   },
+   {
+    "id": "Hgg8Xy6IRig",
+    "title": "PyTorch Lightning Tutorial - Lightweight PyTorch Wrapper For ML Researchers",
+    "seconds": 1682
+   },
+   {
+    "id": "81NJgoR5RfY",
+    "title": "PyTorch LR Scheduler - Adjust The Learning Rate For Better Results",
+    "seconds": 809
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "pytorch",
+  "title": "PyTorch Beginner Series",
+  "channel": "PyTorch Foundation",
+  "playlistId": "PL_lsbAsL_o2CTlGHgMxNrKhzP97BaG9ZN",
+  "url": "https://www.youtube.com/playlist?list=PL_lsbAsL_o2CTlGHgMxNrKhzP97BaG9ZN",
+  "videoCount": 8,
+  "totalSeconds": 8498,
+  "videos": [
+   {
+    "id": "IC0_FRiX-sw",
+    "title": "Introduction to PyTorch",
+    "seconds": 1413
+   },
+   {
+    "id": "r7QDUPb2dCM",
+    "title": "Introduction to PyTorch Tensors",
+    "seconds": 2353
+   },
+   {
+    "id": "M0fX15_-xrY",
+    "title": "The Fundamentals of Autograd",
+    "seconds": 842
+   },
+   {
+    "id": "OSqIP-mOWOI",
+    "title": "Building Models with PyTorch",
+    "seconds": 849
+   },
+   {
+    "id": "6CEld3hZgqc",
+    "title": "PyTorch TensorBoard Support",
+    "seconds": 433
+   },
+   {
+    "id": "jF43_wj_DCQ",
+    "title": "Training with PyTorch",
+    "seconds": 897
+   },
+   {
+    "id": "Am2EF9CLu-g",
+    "title": "Model Understanding with Captum",
+    "seconds": 770
+   },
+   {
+    "id": "Dk88zv1KYMI",
+    "title": "Production Inference Deployment with PyTorch",
+    "seconds": 941
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "react",
+  "title": "React 19 Complete Tutorial",
+  "channel": "Codevolution",
+  "playlistId": "PLC3y8-rFHvwg9D7EOSEBabuutIdKZN5V3",
+  "url": "https://www.youtube.com/playlist?list=PLC3y8-rFHvwg9D7EOSEBabuutIdKZN5V3",
+  "videoCount": 38,
+  "totalSeconds": 18308,
+  "videos": [
+   {
+    "id": "H6QAY_VqvUc",
+    "title": "React 19 Tutorial - 1 - Introduction",
+    "seconds": 279
+   },
+   {
+    "id": "32nwU4Gd8qE",
+    "title": "React 19 Tutorial - 2 - Your First React App",
+    "seconds": 262
+   },
+   {
+    "id": "j_D-KWQmZt4",
+    "title": "React 19 Tutorial - 3 - Project Structure",
+    "seconds": 434
+   },
+   {
+    "id": "zFdDdPMyIAo",
+    "title": "React 19 Tutorial - 4 - Components",
+    "seconds": 438
+   },
+   {
+    "id": "ACqQh7zdPiY",
+    "title": "React 19 Tutorial - 5 - Export and Import Components",
+    "seconds": 378
+   },
+   {
+    "id": "6sg98ju4O-w",
+    "title": "React 19 Tutorial - 6 - JSX",
+    "seconds": 516
+   },
+   {
+    "id": "1IvSI_YKx-k",
+    "title": "React 19 Tutorial - 7 - Rules of JSX",
+    "seconds": 772
+   },
+   {
+    "id": "JQBaytmgmGo",
+    "title": "React 19 Tutorial - 8 - Props",
+    "seconds": 576
+   },
+   {
+    "id": "pQLXUT94Hcg",
+    "title": "React 19 Tutorial - 9 - Props Patterns",
+    "seconds": 614
+   },
+   {
+    "id": "VwuwodgrIaU",
+    "title": "React 19 Tutorial - 10 - Conditional Rendering",
+    "seconds": 702
+   },
+   {
+    "id": "lRB-RAZeaHg",
+    "title": "React 19 Tutorial - 11 - Rendering Lists",
+    "seconds": 436
+   },
+   {
+    "id": "y_J0-bUoACc",
+    "title": "React 19 Tutorial - 12 - Lists and Keys",
+    "seconds": 381
+   },
+   {
+    "id": "919gHAelBfw",
+    "title": "React 19 Tutorial - 13 - Index as Key Anti-Pattern",
+    "seconds": 505
+   },
+   {
+    "id": "sIecklWhEaw",
+    "title": "React 19 Tutorial - 14 - Styling React Components",
+    "seconds": 637
+   },
+   {
+    "id": "peewECGtPCI",
+    "title": "React 19 Tutorial - 15 - Event Handling",
+    "seconds": 450
+   },
+   {
+    "id": "XzZoUojeuF0",
+    "title": "React 19 Tutorial - 16 - Event Handlers as Props",
+    "seconds": 634
+   },
+   {
+    "id": "CRZSGDUfgsw",
+    "title": "React 19 Tutorials - 17 - Introduction to State",
+    "seconds": 398
+   },
+   {
+    "id": "akZJe9Mx-Xc",
+    "title": "React 19 Tutorial - 18 - useState Hook",
+    "seconds": 649
+   },
+   {
+    "id": "YdJPtx-ovWM",
+    "title": "React 19 Tutorial - 19 - Rules of Hooks",
+    "seconds": 560
+   },
+   {
+    "id": "qiPHXVeNi_w",
+    "title": "React 19 Tutorial - 20 - How State Updates Work",
+    "seconds": 355
+   },
+   {
+    "id": "hjNExKVUHSw",
+    "title": "React 19 Tutorial - 21 - State as a Snapshot",
+    "seconds": 347
+   },
+   {
+    "id": "7PsTafZluL0",
+    "title": "React 19 Tutorial - 22 - setState using Previous State",
+    "seconds": 478
+   },
+   {
+    "id": "IXrMupqNlog",
+    "title": "React 19 Tutorial - 23 - How React Batches Updates",
+    "seconds": 244
+   },
+   {
+    "id": "MCIfZlQlmSc",
+    "title": "React 19 Tutorial - 24 - useState with Objects",
+    "seconds": 568
+   },
+   {
+    "id": "m0FUyg5ntlM",
+    "title": "React 19 Tutorial - 25 - useState with Arrays",
+    "seconds": 532
+   },
+   {
+    "id": "YpjvL5SvVhM",
+    "title": "React 19 Tutorial - 26 - Sharing State Between Components",
+    "seconds": 736
+   },
+   {
+    "id": "I2B_vbo_4B0",
+    "title": "React 19 Tutorial - 27 - useReducer Hook",
+    "seconds": 291
+   },
+   {
+    "id": "WaqlQYpNSWI",
+    "title": "React 19 Tutorial - 28 - useReducer (simple state and action)",
+    "seconds": 492
+   },
+   {
+    "id": "9QRq2kbP7PA",
+    "title": "React 19 Tutorial - 29 - useReducer (complex state and actions)",
+    "seconds": 1257
+   },
+   {
+    "id": "XKVlIu2RKmo",
+    "title": "React 19 Tutorial - 30 - useReducer Lazy Initialization",
+    "seconds": 373
+   },
+   {
+    "id": "5BwYRc84qgc",
+    "title": "React 19 Tutorial - 31 - Implementing useState with useReducer",
+    "seconds": 579
+   },
+   {
+    "id": "jfxERvIgOp4",
+    "title": "React 19 Tutorial - 32 - useState vs useReducer",
+    "seconds": 227
+   },
+   {
+    "id": "IgZjyyG6DjQ",
+    "title": "React 19 Tutorial - 33 - The Prop Drilling Problem",
+    "seconds": 341
+   },
+   {
+    "id": "BdKykWVTPtU",
+    "title": "React 19 Tutorial - 34 - Context and useContext Hook",
+    "seconds": 499
+   },
+   {
+    "id": "Iy2u57d3pLU",
+    "title": "React 19 Tutorial - 35 - Context with State",
+    "seconds": 470
+   },
+   {
+    "id": "18sbaJl06N0",
+    "title": "React 19 Tutorial - 36 - use API for Context",
+    "seconds": 254
+   },
+   {
+    "id": "b4VbMlgciYg",
+    "title": "React 19 Tutorial - 37 - Refs and useRef Hook",
+    "seconds": 443
+   },
+   {
+    "id": "O1mleqDJ-Wg",
+    "title": "React 19 Tutorial - 38 - Manipulate the DOM with Refs",
+    "seconds": 201
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ },
+ {
+  "planId": "react",
+  "title": "React tutorial for beginners ⚛️",
+  "channel": "Bro Code",
+  "playlistId": "PLZPZq0r_RZOMQArzyI32mVndGBZ3D99XQ",
+  "url": "https://www.youtube.com/playlist?list=PLZPZq0r_RZOMQArzyI32mVndGBZ3D99XQ",
+  "videoCount": 20,
+  "totalSeconds": 16993,
+  "videos": [
+   {
+    "id": "hn80mWvP-9g",
+    "title": "React tutorial for beginners ⚛️",
+    "seconds": 1227
+   },
+   {
+    "id": "yYiwxYqQ9vg",
+    "title": "React CARD components 🃏",
+    "seconds": 719
+   },
+   {
+    "id": "r3SMd0YTSZs",
+    "title": "React js how to add CSS styles 🎨",
+    "seconds": 496
+   },
+   {
+    "id": "uvEAvxWvwOs",
+    "title": "PROPS in React explained 📧",
+    "seconds": 729
+   },
+   {
+    "id": "XvURBpFxdGw",
+    "title": "How to CONDITIONAL RENDER in React ❓",
+    "seconds": 615
+   },
+   {
+    "id": "fkl1Kn_QWCI",
+    "title": "How to render LISTS in React 📃",
+    "seconds": 1600
+   },
+   {
+    "id": "KpiiKuqNlYw",
+    "title": "Learn React Click Events 👆",
+    "seconds": 741
+   },
+   {
+    "id": "SpDG283b4bw",
+    "title": "React useState() hook introduction 🎣",
+    "seconds": 993
+   },
+   {
+    "id": "JhIbXor84Wc",
+    "title": "Learn the React onChange event handler 🚦",
+    "seconds": 880
+   },
+   {
+    "id": "3hCN3dLHV24",
+    "title": "Build this color picker app with React! 🖌",
+    "seconds": 616
+   },
+   {
+    "id": "nbAaUpNDhRY",
+    "title": "What are React updater functions? 🔄",
+    "seconds": 435
+   },
+   {
+    "id": "YxQlt3n1ZPA",
+    "title": "React JS how to update OBJECTS in state 🚗",
+    "seconds": 550
+   },
+   {
+    "id": "A9Bz2YxhAQk",
+    "title": "React JS how to update ARRAYS in state 🍎",
+    "seconds": 541
+   },
+   {
+    "id": "Y62mbztjmus",
+    "title": "React JS update ARRAY of OBJECTS in state 🚘",
+    "seconds": 768
+   },
+   {
+    "id": "9wiWzu_tRB0",
+    "title": "Build this to-do-list app with React! ☝",
+    "seconds": 1355
+   },
+   {
+    "id": "L-1sP3Ljhsg",
+    "title": "React useEffect() hook introduction 🌟",
+    "seconds": 1192
+   },
+   {
+    "id": "AiQ-V_0qvRI",
+    "title": "Build this digital clock with React! 🕒",
+    "seconds": 960
+   },
+   {
+    "id": "FpNfvbNYPsg",
+    "title": "React useContext() hook introduction 🧗‍♂️",
+    "seconds": 697
+   },
+   {
+    "id": "AltU-XcGvuo",
+    "title": "React useRef() hook introduction 🗳️",
+    "seconds": 678
+   },
+   {
+    "id": "jPo0mIcNZfM",
+    "title": "Build this stopwatch with React! ⏱",
+    "seconds": 1201
+   }
+  ],
+  "verified": true,
+  "checkedAt": "2026-11-22",
+  "how": "playlist page ytInitialData + oembed"
+ }
+]

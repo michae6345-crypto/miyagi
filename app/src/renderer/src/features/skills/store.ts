@@ -28,6 +28,12 @@ import { startGoal, startSaved } from '../dashboard/store'
 import { buildSkillGraph, type SkillGraph, type SkillGraphNode } from './model'
 
 export type SkillsView = 'path' | 'map' | 'list'
+export type MapZoom = 'tracks' | 'skills' | 'steps'
+export const ZOOMS: ReadonlyArray<{ value: MapZoom; label: string }> = [
+  { value: 'tracks', label: 'Tracks' },
+  { value: 'skills', label: 'Skills' },
+  { value: 'steps', label: 'Steps' }
+]
 export const VIEWS: ReadonlyArray<{ value: SkillsView; label: string }> = [
   { value: 'path', label: 'Path' },
   { value: 'map', label: 'Map' },
@@ -44,6 +50,8 @@ type State = {
   played: Record<'path' | 'map', string[]>
   picker: boolean
   tools: boolean
+  /** The Map's zoom (round 3): one card per track, the skills, or the skills with their steps. */
+  zoom: MapZoom
 }
 
 const KEY = { view: 'miyagi.skills.view', goal: 'miyagi.skills.goal', acked: 'miyagi.skills.acked', played: 'miyagi.skills.played' } as const
@@ -84,7 +92,8 @@ export const useSkills = create<State>(() => ({
   acked: Number.isFinite(storedAck) && storedAck > 0 ? storedAck : undefined,
   played: storedPlayed(),
   picker: false,
-  tools: false
+  tools: false,
+  zoom: 'skills'
 }))
 const set = useSkills.setState
 const get = useSkills.getState
@@ -102,6 +111,7 @@ export function setView(view: SkillsView): void {
   write(KEY.view, view)
   set({ view })
 }
+export const setZoom = (zoom: MapZoom): void => set({ zoom })
 export const setQuery = (query: string): void => set({ query })
 export const select = (id?: string): void => set({ selected: id })
 export const openPicker = (): void => set({ picker: true, selected: undefined })

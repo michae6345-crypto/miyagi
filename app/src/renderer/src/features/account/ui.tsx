@@ -114,7 +114,7 @@ export function Note({ text, tone = 'dark' }: { text?: string; tone?: Tone }): R
 /** An inline text link that calls back into the app (never an href: every way out goes through main's allowlist). */
 export function TextLink({ children, onClick, tone = 'dark', weight = 400 }: { children: ReactNode; onClick: () => void; tone?: Tone; weight?: number }): ReactNode {
   return (
-    <button type="button" className="cursor-pointer underline underline-offset-2" style={{ color: tone === 'paper' ? paper.ink : color.text, fontWeight: weight, font: 'inherit' }} onClick={onClick}>
+    <button type="button" className="inline-flex cursor-pointer items-center underline underline-offset-2" style={{ color: tone === 'paper' ? paper.ink : color.text, fontWeight: weight, font: 'inherit', minHeight: 24 }} onClick={onClick}>
       {children}
     </button>
   )

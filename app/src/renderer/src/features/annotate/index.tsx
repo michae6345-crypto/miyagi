@@ -16,4 +16,7 @@ import './store'
 // On-screen coach: an app lesson's drawer starts collapsed to the island (after the drawer store above has loaded).
 import './onscreen'
 
-export default defineFeature({ id: 'annotate', overlayLayers: [{ id: 'annotate', z: 48, Component: BuddyLayer }] })
+// The character draws (Adrian, Nov 23): when features/buddy's character is in the build, BuddyLayer draws nothing.
+// `yieldsToBuddy` says so to features/buddy (its marks.ts standsDown), which otherwise stands down for this layer,
+// and then nothing would draw at all.
+export default Object.assign(defineFeature({ id: 'annotate', overlayLayers: [{ id: 'annotate', z: 48, Component: BuddyLayer }] }), { yieldsToBuddy: true })

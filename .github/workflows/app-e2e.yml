@@ -1,0 +1,48 @@
+name: app-e2e
+# The real Electron app end to end (MIC-11): the dev build launched by Playwright's _electron on a macOS runner, the
+# mock engine in-process (DEMO=1), a fake notch helper reporting a notched display, a fresh userData per test.
+# Covers Home / Library / Settings, first run, the overlay in the notch, and the sign-in card on a cloud.notice; each
+# test also fails on console errors from our own pages. Electron opens real windows (no headless on macOS): this runs
+# only here, never on a dev Mac. Traces, screenshots and the HTML report are uploaded on failure.
+on:
+  pull_request:
+    paths: ["app/**", ".github/workflows/app-e2e.yml"]
+  push:
+    branches: [michael/app-ui-v4, michael/app-e2e]
+    paths: ["app/**", ".github/workflows/app-e2e.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: app-e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # a push to app-ui-v4 always finishes (it lands every few minutes)
+jobs:
+  electron:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      CI: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: "app/package-lock.json\napp/e2e/package-lock.json" }
+      - name: app dependencies (with the Electron binary)
+        run: npm ci
+        working-directory: app
+      - name: dev build (electron-vite build → out/)
+        run: npm run build
+        working-directory: app
+      - name: test dependencies
+        run: npm ci
+        working-directory: app/e2e
+      - name: electron e2e
+        working-directory: app/e2e
+        run: npx playwright test -c playwright.electron.config.ts
+      - name: report, traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: app-e2e-report
+          path: |
+            app/e2e/playwright-report-electron
+            app/e2e/test-results
+          retention-days: 14

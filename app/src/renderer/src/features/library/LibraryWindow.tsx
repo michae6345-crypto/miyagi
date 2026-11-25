@@ -8,7 +8,8 @@
  */
 import { useEffect, type ReactNode } from 'react'
 import { bridge, isElectron } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { canSend, useLesson } from '../../core/lesson'
+import { loadPlans } from '../plans/store'
 import { useWindowArgs, type WindowArgs } from '../../core/surfaces'
 import { color, font } from '../../core/theme'
 import { Shell } from '../shell/Shell'
@@ -67,6 +68,8 @@ export function LibraryWindow(): ReactNode {
 
   useEffect(() => {
     void refresh()
+    // The sidebar's Plans show on every page (plans/store feeds them), so ask once the engine says it answers.
+    if (connected && canSend('plans.list')) loadPlans()
   }, [connected, hello])
 
   useEffect(() => {

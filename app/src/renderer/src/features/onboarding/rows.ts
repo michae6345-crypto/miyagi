@@ -20,6 +20,7 @@ import type { HealthItem } from '../../../../../../shared/contracts/events'
 import { useLesson } from '../../core/lesson'
 import { copy } from '../../core/theme'
 import type { StatusState } from '../../core/ui/status'
+import { REGION_LINE } from '../signincard/notice'
 import { needsGrants, osNow, shellName, thisDevice, type Os } from './device'
 import { useOnboarding, type Asked, type CloudView, type Permissions, type RowAction } from './store'
 
@@ -116,6 +117,8 @@ function engineRow(i: RowInput): Row {
   }
   const cloud = i.cloud?.state
   if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: `Setting up access for ${here}.` }
+  // 451 region_unavailable (cloud.ts): the cloud's own words, no Try again (it would be refused the same way)
+  if (cloud === 'failed' && i.cloud?.region) return { ...base, state: 'notyet', word: 'Not available', detail: REGION_LINE }
   if (cloud === 'failed') return { ...base, state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Check your connection.", action: { id: 'retry-cloud', label: 'Try again' } }
   if (cloud === 'ok' || i.cloudStatus) {
     switch (i.cloudStatus) {

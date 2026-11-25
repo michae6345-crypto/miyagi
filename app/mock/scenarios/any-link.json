@@ -1,0 +1,738 @@
+{
+  "name": "any-link",
+  "on": {
+    "connect": "step_anylink",
+    "link.get@step_anylink": "step_anylink_web",
+    "link.get@step_anylink_web": "step_anylink_github",
+    "link.get@step_anylink_github": "step_anylink_essay",
+    "link.get@step_anylink_essay": "step_anylink_blocked",
+    "link.get@step_anylink_blocked": "step_anylink_web",
+    "learn_url@step_anylink_web": "anylink_build_web",
+    "learn_url@step_anylink_github": "anylink_build_github",
+    "library.list": "anylink_library",
+    "library.get": "anylink_item_web"
+  },
+  "segments": {
+    "step_anylink": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state",
+            "set_goal",
+            "skills.ack",
+            "review.start",
+            "data.delete",
+            "ask.warm",
+            "activity.get",
+            "bon.get",
+            "bon.import",
+            "plans.list",
+            "plan.start",
+            "plan.remove",
+            "playlist.get",
+            "plan.propose",
+            "link.get",
+            "proof.get",
+            "data.get",
+            "link.any"
+          ]
+        }
+      }
+    ],
+    "step_anylink_web": [
+      {
+        "wait": 300,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://docs.python.org/3/tutorial/venv.html",
+          "reqId": "r-any-1",
+          "kind": "web",
+          "pending": true,
+          "title": "Virtual Environments and Packages",
+          "site": "docs.python.org"
+        }
+      },
+      {
+        "wait": 1100,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://docs.python.org/3/tutorial/venv.html",
+          "reqId": "r-any-1",
+          "kind": "web",
+          "pending": false,
+          "title": "Virtual Environments and Packages",
+          "site": "docs.python.org",
+          "estMinutes": 10,
+          "teachable": true,
+          "teach": {
+            "steps": true,
+            "code": true
+          },
+          "why": "Walks through commands you run, one at a time.",
+          "tools": [
+            "terminal"
+          ],
+          "grows": [
+            {
+              "label": "Virtual environments"
+            },
+            {
+              "label": "Installing packages"
+            }
+          ],
+          "cached": true
+        }
+      }
+    ],
+    "step_anylink_github": [
+      {
+        "wait": 300,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://github.com/pallets/flask",
+          "reqId": "r-any-2",
+          "kind": "github",
+          "pending": true,
+          "title": "Flask",
+          "site": "github.com/pallets/flask",
+          "author": "Pallets"
+        }
+      },
+      {
+        "wait": 1400,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://github.com/pallets/flask",
+          "reqId": "r-any-2",
+          "kind": "github",
+          "pending": false,
+          "title": "Flask",
+          "site": "github.com/pallets/flask",
+          "author": "Pallets",
+          "estMinutes": 10,
+          "teachable": true,
+          "teach": {
+            "steps": true,
+            "code": true
+          },
+          "why": "The README installs Flask and runs a small app.",
+          "tools": [
+            "vscode",
+            "terminal"
+          ],
+          "grows": [
+            {
+              "label": "Web servers"
+            },
+            {
+              "label": "Routes"
+            }
+          ]
+        }
+      }
+    ],
+    "step_anylink_essay": [
+      {
+        "wait": 300,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://example.com/blog/why-i-switched-editors",
+          "reqId": "r-any-3",
+          "kind": "web",
+          "pending": true,
+          "title": "Why I switched editors",
+          "site": "example.com"
+        }
+      },
+      {
+        "wait": 1000,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://example.com/blog/why-i-switched-editors",
+          "reqId": "r-any-3",
+          "kind": "web",
+          "pending": false,
+          "title": "Why I switched editors",
+          "site": "example.com",
+          "author": "Sam Lee",
+          "estMinutes": 6,
+          "teachable": false,
+          "teach": {
+            "steps": false,
+            "code": false
+          },
+          "why": "It’s an opinion piece, with nothing to do or type."
+        }
+      }
+    ],
+    "step_anylink_blocked": [
+      {
+        "wait": 600,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://example.org/members/advanced-pandas",
+          "reqId": "r-any-4",
+          "kind": "web",
+          "pending": false,
+          "site": "example.org",
+          "error": "blocked"
+        }
+      }
+    ],
+    "anylink_build_web": [
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Reading the page",
+          "progress": 0.15,
+          "stage": "watching",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "active"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "next"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "next"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 40,
+          "source": {
+            "kind": "web",
+            "title": "Virtual Environments and Packages",
+            "url": "https://docs.python.org/3/tutorial/venv.html",
+            "site": "docs.python.org"
+          }
+        }
+      },
+      {
+        "wait": 900,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Finding the steps",
+          "progress": 0.45,
+          "stage": "steps",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "done"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "active"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "next"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 25,
+          "source": {
+            "kind": "web",
+            "title": "Virtual Environments and Packages",
+            "url": "https://docs.python.org/3/tutorial/venv.html",
+            "site": "docs.python.org"
+          }
+        }
+      },
+      {
+        "wait": 900,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Writing the checks",
+          "progress": 0.8,
+          "stage": "checks",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "done"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "done"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "active"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 8,
+          "source": {
+            "kind": "web",
+            "title": "Virtual Environments and Packages",
+            "url": "https://docs.python.org/3/tutorial/venv.html",
+            "site": "docs.python.org"
+          }
+        }
+      },
+      {
+        "wait": 700,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "web-w_4f1c0e9a",
+            "title": "Virtual environments and pip",
+            "mode": "lesson",
+            "complete": true,
+            "builtBy": "claude",
+            "origin": {
+              "kind": "web",
+              "title": "Virtual Environments and Packages",
+              "url": "https://docs.python.org/3/tutorial/venv.html",
+              "site": "docs.python.org"
+            },
+            "sources": [
+              {
+                "id": "src1",
+                "kind": "blog",
+                "title": "Virtual Environments and Packages",
+                "url": "https://docs.python.org/3/tutorial/venv.html",
+                "meta": "docs.python.org"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 0,
+              "title": "Make a virtual environment",
+              "kind": "run",
+              "what": "A .venv folder for this project",
+              "estMinutes": 2,
+              "pageRef": {
+                "url": "https://docs.python.org/3/tutorial/venv.html#creating-virtual-environments",
+                "heading": "Creating Virtual Environments"
+              }
+            },
+            {
+              "id": "s2",
+              "index": 1,
+              "title": "Turn it on",
+              "kind": "run",
+              "what": "Your terminal uses the .venv Python",
+              "estMinutes": 2,
+              "pageRef": {
+                "url": "https://docs.python.org/3/tutorial/venv.html#creating-virtual-environments",
+                "heading": "Creating Virtual Environments"
+              }
+            },
+            {
+              "id": "s3",
+              "index": 2,
+              "title": "Install a package with pip",
+              "kind": "run",
+              "what": "requests installed in .venv",
+              "estMinutes": 3,
+              "pageRef": {
+                "url": "https://docs.python.org/3/tutorial/venv.html#managing-packages-with-pip",
+                "heading": "Managing Packages with pip"
+              }
+            },
+            {
+              "id": "s4",
+              "index": 3,
+              "title": "Save your packages to requirements.txt",
+              "kind": "run",
+              "what": "A requirements.txt others can install",
+              "estMinutes": 3,
+              "pageRef": {
+                "url": "https://docs.python.org/3/tutorial/venv.html#managing-packages-with-pip",
+                "heading": "Managing Packages with pip"
+              }
+            }
+          ],
+          "buildS": 2.7
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s1",
+          "index": 0,
+          "title": "Make a virtual environment",
+          "instructions": "In the terminal, run python3 -m venv .venv in your lesson folder.",
+          "kind": "run",
+          "estMinutes": 2
+        }
+      }
+    ],
+    "anylink_build_github": [
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Reading the page",
+          "progress": 0.15,
+          "stage": "watching",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "active"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "next"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "next"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 40,
+          "source": {
+            "kind": "github",
+            "title": "Flask",
+            "url": "https://github.com/pallets/flask",
+            "site": "github.com/pallets/flask",
+            "author": "Pallets"
+          }
+        }
+      },
+      {
+        "wait": 900,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Finding the steps",
+          "progress": 0.45,
+          "stage": "steps",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "done"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "active"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "next"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 25,
+          "source": {
+            "kind": "github",
+            "title": "Flask",
+            "url": "https://github.com/pallets/flask",
+            "site": "github.com/pallets/flask",
+            "author": "Pallets"
+          }
+        }
+      },
+      {
+        "wait": 900,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Writing the checks",
+          "progress": 0.8,
+          "stage": "checks",
+          "phases": [
+            {
+              "id": "watching",
+              "label": "Reading the page",
+              "state": "done"
+            },
+            {
+              "id": "steps",
+              "label": "Finding the steps",
+              "state": "done"
+            },
+            {
+              "id": "checks",
+              "label": "Writing the checks",
+              "state": "active"
+            },
+            {
+              "id": "ready",
+              "label": "Ready to start",
+              "state": "next"
+            }
+          ],
+          "etaS": 8,
+          "source": {
+            "kind": "github",
+            "title": "Flask",
+            "url": "https://github.com/pallets/flask",
+            "site": "github.com/pallets/flask",
+            "author": "Pallets"
+          }
+        }
+      },
+      {
+        "wait": 700,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "web-g_9b27d311",
+            "title": "Your first Flask app",
+            "mode": "lesson",
+            "complete": true,
+            "builtBy": "claude",
+            "origin": {
+              "kind": "github",
+              "title": "Flask",
+              "url": "https://github.com/pallets/flask",
+              "site": "github.com/pallets/flask",
+              "author": "Pallets"
+            },
+            "sources": [
+              {
+                "id": "src1",
+                "kind": "repo",
+                "title": "Flask",
+                "url": "https://github.com/pallets/flask",
+                "meta": "github.com/pallets/flask"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 0,
+              "title": "Install Flask",
+              "kind": "run",
+              "what": "Flask installed in a .venv",
+              "estMinutes": 3,
+              "pageRef": {
+                "url": "https://github.com/pallets/flask#installing",
+                "heading": "Installing"
+              }
+            },
+            {
+              "id": "s2",
+              "index": 1,
+              "title": "Write a hello world app",
+              "kind": "code",
+              "what": "app.py with one route",
+              "estMinutes": 4,
+              "pageRef": {
+                "url": "https://github.com/pallets/flask#a-simple-example",
+                "heading": "A Simple Example"
+              }
+            },
+            {
+              "id": "s3",
+              "index": 2,
+              "title": "Run it and open the page",
+              "kind": "run",
+              "what": "Hello, World! in your browser",
+              "estMinutes": 3,
+              "pageRef": {
+                "url": "https://github.com/pallets/flask#a-simple-example",
+                "heading": "A Simple Example"
+              }
+            }
+          ],
+          "buildS": 2.7
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s1",
+          "index": 0,
+          "title": "Install Flask",
+          "instructions": "Make a .venv, turn it on, then run pip install flask.",
+          "kind": "run",
+          "estMinutes": 3
+        }
+      }
+    ],
+    "anylink_library": [
+      {
+        "wait": 120,
+        "type": "library",
+        "payload": {
+          "items": [
+            {
+              "id": "web-w_4f1c0e9a",
+              "title": "Virtual environments and pip",
+              "steps": 4,
+              "estMinutes": 10,
+              "tools": [
+                "terminal"
+              ],
+              "ready": true,
+              "progress": {
+                "stepIndex": 1,
+                "stepTitle": "Turn it on",
+                "total": 4
+              },
+              "source": {
+                "kind": "web",
+                "title": "Virtual Environments and Packages",
+                "url": "https://docs.python.org/3/tutorial/venv.html",
+                "site": "docs.python.org"
+              },
+              "updatedAt": "2026-11-24T15:10:00-08:00"
+            },
+            {
+              "id": "web-g_9b27d311",
+              "title": "Your first Flask app",
+              "steps": 4,
+              "estMinutes": 10,
+              "tools": [
+                "vscode",
+                "terminal"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "github",
+                "title": "Flask",
+                "url": "https://github.com/pallets/flask",
+                "site": "github.com/pallets/flask",
+                "author": "Pallets"
+              }
+            },
+            {
+              "id": "web-w_2a71c0de",
+              "title": "Fetch data with the Fetch API",
+              "steps": 5,
+              "estMinutes": 15,
+              "tools": [
+                "vscode"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "web",
+                "title": "Using the Fetch API",
+                "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch",
+                "site": "developer.mozilla.org"
+              }
+            },
+            {
+              "id": "uiv4_plot",
+              "title": "Plot your data with matplotlib",
+              "steps": 6,
+              "estMinutes": 15,
+              "tools": [
+                "jupyter"
+              ],
+              "ready": true,
+              "source": {
+                "kind": "youtube",
+                "title": "Matplotlib in 15 minutes",
+                "channel": "Corey Schafer",
+                "url": "https://www.youtube.com/watch?v=UO98lJQ3QGI"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "anylink_item_web": [
+      {
+        "wait": 120,
+        "type": "library.item",
+        "payload": {
+          "item": {
+            "id": "web-w_4f1c0e9a",
+            "title": "Virtual environments and pip",
+            "steps": 4,
+            "estMinutes": 10,
+            "tools": [
+              "terminal"
+            ],
+            "ready": true,
+            "progress": {
+              "stepIndex": 1,
+              "stepTitle": "Turn it on",
+              "total": 4
+            },
+            "source": {
+              "kind": "web",
+              "title": "Virtual Environments and Packages",
+              "url": "https://docs.python.org/3/tutorial/venv.html",
+              "site": "docs.python.org"
+            },
+            "updatedAt": "2026-11-24T15:10:00-08:00"
+          },
+          "overview": "Make a virtual environment, turn it on, and install packages into it with pip.",
+          "steps": [
+            {
+              "index": 0,
+              "title": "Make a virtual environment",
+              "what": "A .venv folder for this project",
+              "estMinutes": 2
+            },
+            {
+              "index": 1,
+              "title": "Turn it on",
+              "what": "Your terminal uses the .venv's Python",
+              "estMinutes": 2
+            },
+            {
+              "index": 2,
+              "title": "Install a package",
+              "what": "requests installed with pip",
+              "estMinutes": 3
+            },
+            {
+              "index": 3,
+              "title": "Save your requirements",
+              "what": "A requirements.txt file",
+              "estMinutes": 3
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

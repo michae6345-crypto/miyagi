@@ -45,6 +45,7 @@ import { KeysRow } from './KeysRow'
 import { CodeBlock, MissingBlock, StepIntro } from './StepBody'
 import { CheckingCaption, HintBox, NotYetBox, PassedBody } from './states'
 import { Divider } from './ui'
+import { PageSource } from './Source'
 import { usePanelModel, type PanelModel } from './view'
 
 export type PanelVia = 'edge' | 'pill'
@@ -299,6 +300,8 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
       </div>
       <Divider />
       <Help pressed={m.view === 'hint' ? 'hint' : undefined} watchStart={s.video?.start} waiting={waiting} gate={gate} />
+      {/* Any link: a page lesson's source (the page, or this step's part of it) where a video lesson has Watch. */}
+      <PageSource />
     </motion.div>
   )
 }

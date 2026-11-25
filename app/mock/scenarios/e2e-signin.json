@@ -1,0 +1,13 @@
+{
+  "name": "e2e-signin",
+  "on": {
+    "connect": "e2e_signin_connect"
+  },
+  "segments": {
+    "e2e_signin_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 100, "type": "lesson.building", "payload": { "message": "Watching the tutorial", "progress": 0.35 } },
+      { "wait": 300, "type": "cloud.notice", "payload": { "reason": "signin_required", "status": 401 } }
+    ]
+  }
+}

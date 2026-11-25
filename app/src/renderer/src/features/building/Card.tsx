@@ -40,7 +40,7 @@ type Build = Payload<'lesson.building'>
 type Phase = NonNullable<Build['phases']>[number]
 type Source = NonNullable<Build['source']>
 
-const FROM: Record<Source['kind'], string> = { youtube: 'From YouTube', goal: 'From your goal', library: 'From your library' }
+const FROM: Record<Source['kind'], string> = { youtube: 'From YouTube', goal: 'From your goal', library: 'From your library', web: 'From a web page', github: 'From GitHub' }
 
 /** "24 min", "1 h 5 min"; under a minute, nothing (a length that rounds to 0 says nothing). */
 export function lengthLabel(s?: number): string | undefined {

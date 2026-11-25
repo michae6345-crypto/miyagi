@@ -46,8 +46,7 @@ import { Home } from '../library/Home'
 import { LessonSearch, Lessons, openLauncher } from '../library/Library'
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
-import { useLibrary } from '../library/store'
-import { useDash } from '../dashboard/store'
+import { itemFor, useLibrary } from '../library/store'
 import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
@@ -58,8 +57,8 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { useLocal } from '../settings/local'
-import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
+import { pageLabel, Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
+import { COLUMN_W, LegacyPageHeader, PANEL, pageInset, TopBar, useCrumbs, V4_W, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -73,12 +72,20 @@ const SHORT_H = 520 // the sidebar needs ~420 px; keep the Ready line at mid hei
 /** Captions only where the page needs one to be understood; the redraft keeps them off (calm copy). */
 const CAPTION: Partial<Record<PageId, string>> = {}
 
+/**
+ * The shell's own title for a page that has not moved to the v4 PageFrame yet (a v4 page owns its title: styles.css
+ * hides this one as soon as the page renders a PageFrame). Home has no title (Michael's brief: no greeting).
+ */
 function Header({ page }: { page: PageId }): ReactNode {
-  const label = PAGES.find((p) => p.id === page)?.label ?? ''
-  // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
-  // strip that drags the window.
-  if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : page === 'skills' ? <SkillsHeaderTools /> : undefined} />
+  if (page === 'home') return null
+  return <LegacyPageHeader title={pageLabel(page)} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : page === 'skills' ? <SkillsHeaderTools /> : undefined} />
+}
+
+/** The top bar's breadcrumb: the page's name, then the trail a page set for its deeper view (ui.tsx setCrumbs). */
+function Crumbs({ page, detail }: { page: PageId; detail?: string }): ReactNode {
+  const trail = useCrumbs((s) => (s.page === page ? s.trail : null))
+  const parts = [pageLabel(page), ...(detail ? [detail] : (trail ?? []))]
+  return <TopBar crumbs={parts} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
@@ -119,10 +126,8 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 'settings'])
 
 /**
- * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
- * 1040 (WIDE_W) only while its grid has skills to show: with none it is one centered empty state, and a lone title
- * 160 px left of every other page's hugged the corner of an empty pane. The header pads in by `--page-inset` for this
- * width, so its left edge is the content's left edge.
+ * The column each page's title sits on (content + gutters): 720 (ui.tsx COLUMN_W) or the wide 1040 (WIDE_W). The
+ * header pads in by `--page-inset` for this width, so its left edge is the content's left edge.
  *
  * Who centers the content: every page, through its own column (ui.tsx PageColumn, the one column), centered in the full
  * pane. The shell never pads a page's body: a padded body shrank the box the columns measure (their gutter flips at a
@@ -134,9 +139,12 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 
  * Skills; the layout-home lane: Home, Lessons, the preview). Land this lane with or after those two, never alone:
  * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
-function pageWidth(page: PageId, skills: boolean): number {
-  // Settings is a two-pane page (list + panel), so it takes the wide column too.
-  return (page === 'skills' && skills) || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
+function pageWidth(page: PageId): number {
+  // Settings is a two-pane page (list + panel), so it takes the wide column too. Skills takes it always, its empty
+  // state included (that state is a PageColumn wide), so its title starts where every v4 page's does (QA r1 Q01).
+  // Skills draws the legacy title, so it takes the v4 column (V4_W, PageFrame's) to share that left edge (MIC-54).
+  if (page === 'skills') return V4_W
+  return page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
@@ -162,10 +170,8 @@ const frame: Variants = {
   shown: { opacity: 1, y: 0, transition: { ...spring, opacity: { duration: duration.base } } }
 }
 
-function PageFrame({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
+function PageSlot({ page, active, covered }: { page: PageId; active: boolean; covered: boolean }): ReactNode {
   const off = !active || covered
-  // Skills' grid has something to show (the constellation's tracks): only then does its title take the wide column.
-  const skills = useDash((s) => (s.data?.tracks?.length ?? 0) > 0)
   // Reduced motion: a page is born in its final state (no hidden frame to wait on).
   const reduce = useReducedMotion() ?? false
   return (
@@ -184,7 +190,7 @@ function PageFrame({ page, active, covered }: { page: PageId; active: boolean; c
       style={{
         visibility: active ? 'visible' : 'hidden',
         color: color.text,
-        ['--page-inset' as string]: pageInset(pageWidth(page, skills))
+        ['--page-inset' as string]: pageInset(pageWidth(page))
       }}
     >
       <Header page={page} />
@@ -286,7 +292,8 @@ export function Shell(): ReactNode {
     return () => removeEventListener('keydown', onKey)
   }, [])
 
-  const backLabel = PAGES.find((p) => p.id === page)?.label
+  const backLabel = pageLabel(page)
+  const openTitle = useLibrary((s) => (s.openId ? itemFor(s, s.openId)?.title : undefined))
   const again = useFlow((s) => s.again)
   // Setup again (reopenFlow): home stays mounted under the flow, inert, the sidebar under the layer too.
   const home = phase === 'off' || phase === 'leaving' || again
@@ -325,24 +332,27 @@ export function Shell(): ReactNode {
             aria-hidden={covered || undefined}
             inert={covered}
             data-shell-panel
-            className="relative min-w-0 flex-1 overflow-hidden"
-            // The content is one raised panel inset from the window (the sidebar is the window's own layer).
-            style={{ ...PANEL, margin: `${PANEL_INSET}px ${PANEL_INSET}px ${PANEL_INSET}px 0` }}
+            className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+            // v4: the page is the window's own paper (no inset pane); the sidebar's hairline separates them.
+            style={{ background: PANEL.backgroundColor }}
             initial={enter && !reduce ? { opacity: 0, y: 8 } : false}
             animate={{ opacity: 1, y: 0 }}
             transition={homeIn}
           >
-            {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
-              <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet || covered} />
-            ))}
-            <AnimatePresence>
-              {openId && (
-                <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="mg-page-frame absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor, backgroundImage: PANEL.backgroundImage, backgroundSize: PANEL.backgroundSize, backgroundPosition: PANEL.backgroundPosition }}>
-                  <Detail id={openId} back={backLabel} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <AccountSheetHost mainW={size.w - sideW - PANEL_INSET} mainH={size.h - 2 * PANEL_INSET} />
+            <Crumbs page={page} detail={openTitle} />
+            <div data-shell-pages className="relative min-h-0 flex-1">
+              {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
+                <PageSlot key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet || covered} />
+              ))}
+              <AnimatePresence>
+                {openId && (
+                  <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet || covered} className="mg-page-frame absolute inset-0 z-20" style={{ backgroundColor: PANEL.backgroundColor }}>
+                    <Detail id={openId} back={backLabel} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <AccountSheetHost mainW={size.w - sideW} mainH={size.h} />
           </motion.main>
         )}
         <AnimatePresence>{covered && <FlowLayer key="flow" width={size.w} height={size.h} />}</AnimatePresence>

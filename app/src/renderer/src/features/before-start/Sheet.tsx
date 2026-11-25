@@ -5,7 +5,8 @@
  *   - What you'll build: build.summary, then the outcome ("what it does when it's done") in a quieter line.
  *   - How it works: the flow boxes, left to right (./Flow.tsx).
  *   - You'll need: each prerequisite with its status. Passed = the green tick + evidence ("Passed in Python
- *     Calculator"); unknown = a gray ring + "Not seen yet" (never a failure, never red or amber).
+ *     Calculator"); unknown = a gray ring alone (never a failure, never red or amber; "Not seen yet" three times
+ *     read as noise at the 1517 demo, Nov 24).
  *   - Learn first: the mini-lessons for prerequisites not passed yet; clicking one starts it.
  *   - Buttons: "Learn <first mini-lesson> first" (neutral) and "Start the lesson" (the one white primary).
  *
@@ -139,7 +140,7 @@ function Section({ title, children }: { title: string; children: ReactNode }): R
   )
 }
 
-/** done: the lesson's steps have all passed, so an unseen prerequisite reads "Used in this lesson", not "Not seen yet". */
+/** done: the lesson's steps have all passed, so an unseen prerequisite reads "Used in this lesson"; before that it has no label. */
 function NeedRow({ need, done }: { need: Prerequisite; done?: boolean }): ReactNode {
   const passed = need.status === 'passed'
   return (
@@ -154,9 +155,11 @@ function NeedRow({ need, done }: { need: Prerequisite; done?: boolean }): ReactN
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-[10px]">
           <span className="truncate text-[13.5px] font-semibold leading-[18px]">{need.title}</span>
-          <span className="shrink-0 text-[12px] leading-[16px]" style={{ color: passed ? color.label : color.faint }}>
-            {passed ? need.evidence || 'Passed' : done ? 'Used in this lesson' : 'Not seen yet'}
-          </span>
+          {(passed || done) && (
+            <span className="shrink-0 text-[12px] leading-[16px]" style={{ color: passed ? color.label : color.faint }}>
+              {passed ? need.evidence || 'Passed' : 'Used in this lesson'}
+            </span>
+          )}
         </div>
         {need.why && (
           <div className="text-[12.5px] leading-[17px]" style={{ color: color.faint }}>

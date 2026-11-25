@@ -1,184 +1,120 @@
 /**
- * Feature: shell. The home window's persistent left sidebar:
+ * Feature: shell. The home window's persistent left sidebar, v4 (Adrian's ui-next mock, Nov 23: Notion's sidebar):
  *
  *   top      room for the traffic lights (the window drags here), then the bonsai and the lowercase wordmark
- *            (flow/SidebarBrand.tsx: where the first run's bonsai lands, the wordmark writing in after it)
- *   nav      Home, Lessons, Skills, Progress, Settings, Account. The selection is one shape that slides between rows
- *            on the house spring (layoutId). Arrow keys move along the list (and switch the page, like the macOS
- *            sidebar), Home / End jump to the ends. ⌘1..⌘6 are handled by Shell.tsx.
- *   status   is miyagi ready (one calm line: getting ready, Ready, or couldn't start with Retry) and Setup at a glance
- *            (features/library Status.tsx), hidden when the window is short (the pill carries the status
- *            then, and the account chip stays fully in view down to the 420 px minimum height)
- *   account  a chip at the foot: who is signed in and the plan, or how miyagi runs without an account. Opens the
- *            account sheet over the content (signed in: the account; signed out: Sign in to sync), never a window.
- *            Its avatar is shared with the sheet: it flies into the sheet's header and back (AccountSheet.tsx).
+ *            (flow/SidebarBrand.tsx: where the first run's bonsai lands) with New lesson (the compose icon) on the right
+ *   nav      Search (the launcher, its keycap on the right), Home, Library, Skills, Progress. Arrow keys move along the
+ *            pages (and switch the page, like the macOS sidebar), Home / End jump to the ends. ⌘1..⌘6 are Shell.tsx's.
+ *   Plans    the learner's plans with "3 of 8" on the right (ui.tsx useSidebarFeed; hidden until there are plans)
+ *   Recent   the last three lessons opened: the ink ring while in progress, the green tick once passed (green = passed)
+ *   foot     Settings, then the account row: who is signed in and the plan, or how miyagi runs without an account. Opens
+ *            the account sheet over the content, never a window. Its avatar flies into the sheet's header and back.
+ *   status   only while miyagi is not ready (getting ready, reconnecting, couldn't start with Retry): one calm line
+ *            above Settings (features/library Status.tsx). When all is well the sidebar says nothing about it.
+ *
+ * A page with its own list (Settings) swaps the whole list for its own (ui.tsx setSidebarList): a back row, then its
+ * sections. One sidebar on screen.
  *
  * Compact (narrow window): icons only, 64 px, labels as tooltips. Navigation is chrome: neutral fills, never a hue.
  */
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { ChevronRight, SquarePen } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { color, fill, focus, highlight, layout, radius2, spring, status, surface, type2, typeScale } from '../../core/theme'
-import { fade, pressMotion } from '../../core/ui/motion'
+import { motion } from 'motion/react'
+import { ChevronLeft, GitBranch, Library, List, PenLine, Search, type LucideIcon } from 'lucide-react'
+import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { bridge } from '../../bridge'
+import { color, fill, focus, highlight, radius2, status, surface, v4, v4c, v4type } from '../../core/theme'
+import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
+import { openDetail, useLibrary } from '../library/store'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { authOn } from '../auth/model'
 import { loadAuth, useAuth } from '../auth/store'
+import { useBoot } from '../errors/startup'
 import { StatusArea } from '../library/Status'
 import { SharedAvatar } from './AccountSheet'
 import { SidebarBrand } from './flow/SidebarBrand'
 import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
+import { PassedMark, ProgressRing, useSidebarFeed, useSidebarList, type SidebarList, type SidebarRecent } from './ui'
 
-export const SIDEBAR_W = layout.sidebar.w
-/** Between compact and full (Michael's audit at 1024x700: "the sidebar takes a large share"): labels stay, less width. */
-export const SIDEBAR_NARROW_W = layout.sidebar.narrowW
-export const SIDEBAR_COMPACT_W = layout.sidebar.compactW
-/** A row: 30 tall, 10 px text inset (the row's highlight is itself inset 10 from the sidebar's edge). */
-const ROW = layout.sidebar.row
+export const SIDEBAR_W = v4.sidebar.w
+/** Between compact and full (a 1024 window): labels stay, a little less width. */
+export const SIDEBAR_NARROW_W = v4.sidebar.narrowW
+export const SIDEBAR_COMPACT_W = v4.sidebar.compactW
+const ROW = v4.sidebar.row
+const PAD = v4.sidebar.padX
 
-/**
- * Redraft (Adrian, Nov 21): the main nav is the learner's pages (Home, Lessons, Skills, Progress). Settings sits at the
- * foot beside the account, as in macOS and Linear; Account is the chip itself (⌘6 still reaches its page).
- */
-const FOOT: ReadonlySet<PageId> = new Set(['settings', 'account'])
-
-/** New lesson: the launcher, one click from every page (a goal or a YouTube link). Chrome: neutral, never a hue. */
-function NewLesson({ compact }: { compact: boolean }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      data-shell-new
-      title={compact ? 'New lesson' : undefined}
-      aria-label="New lesson"
-      className="mg-press relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
-      style={{
-        ...typeScale.nav,
-        height: ROW,
-        gap: 10,
-        padding: compact ? 0 : '0 6px 0 10px',
-        justifyContent: compact ? 'center' : undefined,
-        borderRadius: radius2.control,
-        color: color.text,
-        outlineColor: focus.dark
-      }}
-      {...pressMotion()}
-      onClick={openLauncher}
-    >
-      <SquarePen aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" />
-      {!compact && <span className="relative flex-1 truncate">New lesson</span>}
-    </motion.button>
-  )
-}
-
-function NavRow({ id, label, Icon, on, compact, index }: { id: PageId; label: string; Icon: (typeof PAGES)[number]['icon']; on: boolean; compact: boolean; index: number }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      data-shell-nav={id}
-      aria-current={on ? 'page' : undefined}
-      // Roving focus: only the selected row is a tab stop; the arrows move between rows.
-      tabIndex={on ? 0 : -1}
-      title={compact ? label : undefined}
-      aria-label={compact ? label : undefined}
-      aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
-      className={`${on ? '' : 'mg-press'} relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid`}
-      style={{
-        ...typeScale.nav,
-        height: ROW,
-        gap: 10,
-        padding: compact ? 0 : '0 10px',
-        justifyContent: compact ? 'center' : undefined,
-        borderRadius: radius2.control,
-        color: on ? color.text : color.label,
-        fontWeight: on ? 600 : undefined,
-        outlineColor: focus.dark
-      }}
-      {...pressMotion(on)}
-      onClick={() => setPage(id)}
-    >
-      {on && (
-        <motion.span
-          layoutId="shell-nav-selection"
-          aria-hidden
-          className="absolute inset-0"
-          // Selected: a quiet fill only (no hue, no edge, no left bar), so the content stays first.
-          style={{ background: fill.trackSoft, borderRadius: radius2.control }}
-          transition={spring}
-        />
-      )}
-      <Icon aria-hidden size={16} strokeWidth={1.8} className="relative shrink-0" />
-      {!compact && <span className="relative truncate">{label}</span>}
-    </motion.button>
-  )
-}
+/** The sidebar's names for the pages (v4: "Library" for the lessons page). The page ids stay. */
+export const NAV_LABEL: Partial<Record<PageId, string>> = { lessons: 'Library' }
+/** The mock's glyphs where they differ from the page's own icon (store.ts): Library's shelf, Skills' branch. */
+const NAV_ICON: Partial<Record<PageId, LucideIcon>> = { lessons: Library, skills: GitBranch }
+export const pageLabel = (id: PageId): string => NAV_LABEL[id] ?? PAGES.find((p) => p.id === id)?.label ?? ''
+/** The learner's pages, in order (Settings and the account live at the foot). */
+const MAIN: readonly PageId[] = ['home', 'lessons', 'skills', 'progress']
 
 /**
- * The nav's sections (Notion-style): a quiet label over its rows, collapsible with the chevron. The state is a
- * preference of this window only (localStorage, wrapped: it can be blocked), and a collapsed section still shows the
- * page you are on, so the selection never disappears. Compact (icons only) shows every row and no labels.
+ * One sidebar row (Notion's): 30 tall, 8 px in, the icon then the label, a quiet value on the right. Selected: the
+ * active wash, ink text and icon, a touch heavier.
  */
-const GROUPS: ReadonlyArray<{ id: string; label: string; pages: readonly PageId[] }> = [
-  { id: 'learn', label: 'Learn', pages: ['home', 'lessons'] },
-  { id: 'track', label: 'Track', pages: ['skills', 'progress'] }
-]
-const COLLAPSE_KEY = 'miyagi.sidebar.collapsed'
-
-function readCollapsed(): string[] {
-  try {
-    const v: unknown = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '[]')
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function GroupLabel({ label, open, onToggle, id }: { label: string; open: boolean; onToggle: () => void; id: string }): ReactNode {
+function SideRow({ icon, label, right, on = false, compact, onClick, data, title, keys }: { icon: ReactNode; label: string; right?: ReactNode; on?: boolean; compact: boolean; onClick: () => void; data?: Record<string, string>; title?: string; keys?: string }): ReactNode {
   return (
     <button
       type="button"
-      data-shell-group={id}
-      aria-expanded={open}
-      onClick={onToggle}
-      className="mg-press group relative flex cursor-pointer items-center text-left font-medium outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
-      style={{ height: 24, gap: 4, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.micro, letterSpacing: '0.02em', color: color.label, outlineColor: focus.dark }}
+      aria-current={on ? 'page' : undefined}
+      title={compact ? label : title}
+      aria-label={compact ? label : undefined}
+      aria-keyshortcuts={keys}
+      className={`mg-v4-side-row relative flex w-full shrink-0 cursor-pointer items-center text-left outline-offset-1 focus-visible:outline-2 focus-visible:outline-solid`}
+      style={{
+        ...v4type.nav,
+        height: ROW,
+        gap: 9,
+        padding: compact ? 0 : `0 ${PAD}px`,
+        justifyContent: compact ? 'center' : undefined,
+        borderRadius: v4.radius.row,
+        background: on ? v4c.active : undefined,
+        color: on ? color.text : color.label,
+        fontWeight: on ? 560 : 500,
+        outlineColor: focus.dark
+      }}
+      onClick={onClick}
+      {...data}
     >
-      <span className="relative">{label}</span>
-      <motion.span aria-hidden className="relative flex opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" animate={{ rotate: open ? 90 : 0 }} transition={spring}>
-        <ChevronRight size={12} strokeWidth={2} />
-      </motion.span>
+      <span aria-hidden className="flex shrink-0 items-center justify-center" style={{ width: 16, height: 16, color: on ? color.text : color.faint }}>
+        {icon}
+      </span>
+      {!compact && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!compact && right != null && (
+        <span className="shrink-0 whitespace-nowrap" style={{ fontSize: 12, lineHeight: '16px', fontWeight: 450, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
+          {right}
+        </span>
+      )}
     </button>
   )
 }
 
+/** A quiet section label (Plans, Recent): 12 / 550 faint, 18 above, 4 under. */
+function SideLabel({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <div className="truncate" style={{ ...v4type.navLabel, color: color.faint, padding: `0 ${PAD}px`, margin: `${v4.sidebar.labelTop}px 0 ${v4.sidebar.labelBottom}px` }}>
+      {children}
+    </div>
+  )
+}
+
+const icon = (I: LucideIcon): ReactNode => <I size={16} strokeWidth={1.6} />
+
 function Nav({ compact }: { compact: boolean }): ReactNode {
   const page = useShell((s) => s.page)
   const ref = useRef<HTMLElement>(null)
-  const reduce = useReducedMotion()
-  const [closed, setClosed] = useState<string[]>(readCollapsed)
-  const toggle = (id: string): void =>
-    setClosed((c) => {
-      const next = c.includes(id) ? c.filter((x) => x !== id) : [...c, id]
-      try {
-        localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
-      } catch {
-        /* storage blocked: the section still folds for this session */
-      }
-      return next
-    })
-  // A row is shown unless its section is folded and it is not the page on show.
-  const shown = (g: (typeof GROUPS)[number], id: PageId): boolean => compact || !closed.includes(g.id) || id === page
-  // The arrows walk the rows on show (Settings and the account live at the foot).
-  const main = GROUPS.flatMap((g) => g.pages.filter((id) => shown(g, id)))
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
-    if ((e.target as HTMLElement).closest('[data-shell-group]')) return
-    const i = main.indexOf(page)
-    const last = main.length - 1
+    if (!(e.target as HTMLElement).closest('[data-shell-nav]')) return
+    const i = MAIN.indexOf(page)
+    const last = MAIN.length - 1
     const to = e.key === 'ArrowDown' ? Math.min(last, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1
     if (to < 0) return
     e.preventDefault()
-    setPage(main[to])
+    setPage(MAIN[to])
   }
   // Keep keyboard focus on the selected row when the arrows (or the number shortcuts while the nav has focus) move it.
   useEffect(() => {
@@ -187,32 +123,65 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
     nav.querySelector<HTMLButtonElement>(`[data-shell-nav="${page}"]`)?.focus()
   }, [page])
   return (
-    <nav ref={ref} aria-label="Pages" className="flex flex-col" style={{ gap: compact ? layout.sidebar.rowGap : 8 }} onKeyDown={onKey}>
-      {GROUPS.map((g) => {
-        const open = compact || !closed.includes(g.id)
-        const rows = g.pages.filter((id) => shown(g, id))
-        return (
-          <div key={g.id} role="group" aria-label={g.label} className="flex flex-col" style={{ gap: layout.sidebar.rowGap }}>
-            {!compact && <GroupLabel id={g.id} label={g.label} open={open} onToggle={() => toggle(g.id)} />}
-            <AnimatePresence initial={false}>
-              {rows.map((id) => {
-                const p = PAGES.find((x) => x.id === id)!
-                return (
-                  <motion.div key={id} layout={!reduce} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: fade.in }} exit={{ opacity: 0, transition: fade.out }} transition={spring}>
-                    <NavRow id={p.id} label={p.label} Icon={p.icon} on={p.id === page} compact={compact} index={PAGES.findIndex((x) => x.id === id)} />
-                  </motion.div>
-                )
-              })}
-            </AnimatePresence>
-          </div>
-        )
+    <nav ref={ref} aria-label="Pages" className="flex flex-col" onKeyDown={onKey}>
+      <SideRow icon={icon(Search)} label="Search" right={bridge.platform.keys.launcher} compact={compact} onClick={openLauncher} data={{ 'data-shell-search': '' }} />
+      {MAIN.map((id) => {
+        const p = PAGES.find((x) => x.id === id)!
+        const index = PAGES.findIndex((x) => x.id === id)
+        return <SideRow key={id} icon={icon(NAV_ICON[id] ?? p.icon)} label={pageLabel(id)} on={page === id} compact={compact} onClick={() => setPage(id)} data={{ 'data-shell-nav': id }} keys={`Meta+${index + 1} Control+${index + 1}`} />
       })}
     </nav>
   )
 }
 
-/** The account chip's avatar. */
-const CHIP_AVATAR = 20
+/** Recent: the feed's, or until the ui-v4 contract is wired, the library's last three lessons with progress. */
+function useRecent(): SidebarRecent[] {
+  const fed = useSidebarFeed((s) => s.recent)
+  const items = useLibrary((s) => s.items)
+  return useMemo(() => {
+    if (fed) return fed.slice(0, 3)
+    return items
+      .filter((i) => i.progress)
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+      .slice(0, 3)
+      .map((i) => ({ id: i.id, title: i.title, passed: !!i.progress && i.progress.total > 0 && i.progress.stepIndex >= i.progress.total }))
+  }, [fed, items])
+}
+
+function openRecent(r: SidebarRecent): void {
+  if (r.onOpen) return r.onOpen()
+  setPage('lessons')
+  openDetail(r.id)
+}
+
+function Lists({ compact }: { compact: boolean }): ReactNode {
+  const plans = useSidebarFeed((s) => s.plans)
+  const recent = useRecent()
+  if (compact) return null
+  return (
+    <>
+      {plans && plans.length > 0 && (
+        <div data-shell-plans className="flex flex-col">
+          <SideLabel>Plans</SideLabel>
+          {plans.map((p) => (
+            <SideRow key={p.id} icon={icon(List)} label={p.title} title={p.title} right={`${p.done} of ${p.total}`} compact={false} onClick={() => (p.onOpen ? p.onOpen() : setPage('lessons'))} data={{ 'data-shell-plan': p.id }} />
+          ))}
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div data-shell-recent className="flex flex-col">
+          <SideLabel>Recent</SideLabel>
+          {recent.map((r) => (
+            <SideRow key={r.id} icon={r.passed ? <PassedMark size={16} /> : <ProgressRing size={16} />} label={r.title} title={r.title} compact={false} onClick={() => openRecent(r)} data={{ 'data-shell-recent-item': r.id }} />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** The account row's avatar: a 22 px rounded square (the mock's), shared with the sheet. */
+const CHIP_AVATAR = 22
 
 /** Above the sheet's scrim (z 30) and the sheet itself (z 40) while the avatar flies back into the chip. */
 const FLIGHT_Z = 45
@@ -223,8 +192,9 @@ function AvatarSocket(): ReactNode {
 }
 
 /**
- * The account chip: the signed-in learner (the real login, features/auth: avatar initial, name, email), "Not signed
- * in / Sign in to sync" when signed out; the person and the plan under v2Cloud (mock); "This Mac" with login off.
+ * The account row: the signed-in learner (the real login, features/auth: avatar initial, name) and the plan on the
+ * right; "Not signed in" / "Sign in" when signed out; the person and the plan under v2Cloud (mock); "This Mac" with
+ * login off.
  */
 function AccountChip({ compact }: { compact: boolean }): ReactNode {
   const on = useShell((s) => s.page === 'account')
@@ -248,21 +218,25 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
     else if (authOn) void loadAuth()
   }, [])
   let name: string
+  let right: string
   let line: string
   let initial: string | undefined
   let signedIn = false
   if (v2Cloud) {
     signedIn = !!account?.signedIn
     name = signedIn ? (account?.name ?? account?.email ?? 'Signed in') : 'Not signed in'
+    right = signedIn ? planLabel(account!.plan) : 'Sign in'
     line = signedIn ? `${planLabel(account!.plan)} plan` : 'Sign in to sync'
     initial = signedIn ? initialOf(name) : undefined
   } else if (login) {
     signedIn = !!user
     name = user ? (user.name ?? user.email ?? 'Signed in') : 'Not signed in'
-    line = user ? (user.name && user.email ? user.email : 'Signed in') : 'Sign in to sync'
+    right = user ? '' : 'Sign in'
+    line = user ? (user.email ?? 'Signed in') : 'Sign in to sync'
     initial = user?.avatarInitial
   } else {
     name = 'This Mac'
+    right = ''
     line = 'No account needed'
   }
   const pending = v2Cloud ? !accountLoaded : login ? !authLoaded : false
@@ -273,14 +247,15 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       data-shell-account={signedIn ? 'in' : 'out'}
       aria-label={`Account: ${name}. ${line}.`}
       title={compact ? name : undefined}
-      className="mg-press relative flex w-full cursor-pointer items-center text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
+      className="mg-v4-side-row relative flex w-full shrink-0 cursor-pointer items-center text-left outline-offset-1 focus-visible:outline-2 focus-visible:outline-solid"
       style={{
-        // 4/8 scale. With the 20 px avatar its center lines up with the nav icons' and the name with their labels (x 46 in a 232 sidebar).
-        gap: 8,
-        padding: compact ? 6 : '4px 8px',
+        gap: 9,
+        height: v4.sidebar.account,
+        marginTop: 2,
+        padding: compact ? 0 : `0 ${PAD}px`,
         justifyContent: compact ? 'center' : undefined,
-        borderRadius: radius2.control,
-        background: on ? fill.navOn : 'transparent',
+        borderRadius: v4.radius.row,
+        background: on ? v4c.active : undefined,
         outlineColor: focus.dark
       }}
       {...pressMotion()}
@@ -288,61 +263,108 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
       onClick={() => (login || v2Cloud ? openSheet(signedIn ? 'account' : 'signin') : setPage('account'))}
     >
       {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={CHIP_AVATAR} snap={snap} onFlight={onFlight} />}
-      {!compact && (
-        <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
-          {pending ? (
-            <>
-              <span aria-hidden style={{ width: 96, height: 10, borderRadius: radius2.round, background: fill.skeleton }} />
-              <span aria-hidden style={{ width: 64, height: 8, borderRadius: radius2.round, background: fill.skeleton }} />
-            </>
-          ) : (
-            <>
-              <span className="truncate font-medium" style={{ fontSize: type2.sm, lineHeight: '16px', color: color.text }}>
-                {name}
+      {!compact &&
+        (pending ? (
+          <span aria-hidden style={{ width: 96, height: 10, borderRadius: radius2.round, background: fill.skeleton }} />
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 truncate" style={{ fontSize: 13.5, lineHeight: '18px', fontWeight: 550, color: color.text }}>
+              {name}
+            </span>
+            {right && (
+              <span className="shrink-0" style={{ fontSize: 12, lineHeight: '16px', color: color.label }}>
+                {right}
               </span>
-              <span className="truncate" style={{ fontSize: type2.micro, lineHeight: '14px', color: color.label }}>
-                {line}
-              </span>
-            </>
-          )}
-        </span>
-      )}
+            )}
+          </>
+        ))}
     </motion.button>
+  )
+}
+
+/** A page's own list (Settings): its back row, its sections, its foot. */
+function OwnList({ list, compact }: { list: SidebarList; compact: boolean }): ReactNode {
+  return (
+    <>
+      <nav aria-label={list.back.label} className="flex flex-col">
+        <SideRow icon={icon(ChevronLeft)} label={list.back.label} compact={compact} onClick={list.back.onClick} data={{ 'data-shell-back': '' }} />
+        {list.groups.map((g, gi) => (
+          <div key={gi} role="group" aria-label={g.label} className="flex flex-col">
+            {g.label && !compact ? <SideLabel>{g.label}</SideLabel> : gi > 0 ? <div style={{ height: v4.sidebar.labelTop }} /> : null}
+            {g.items.map((it) => (
+              <SideRow key={it.id} icon={icon(it.icon)} label={it.label} on={list.active === it.id} compact={compact} onClick={() => list.onPick(it.id)} data={{ 'data-shell-own': it.id }} />
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="mt-auto flex flex-col" style={{ paddingTop: v4.sidebar.labelTop }}>
+        {list.foot?.map((it) => (
+          <SideRow key={it.id} icon={icon(it.icon)} label={it.label} on={list.active === it.id} compact={compact} onClick={() => list.onPick(it.id)} data={{ 'data-shell-own': it.id }} />
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** miyagi's own start-up, only while it is not ready (the sidebar is quiet when all is well). */
+function Boot(): ReactNode {
+  const phase = useBoot().phase
+  if (phase !== 'failed' && phase !== 'starting' && phase !== 'reconnecting') return null
+  // "Ready" is the engine's state, not a passed check: styles.css swaps its green tick for the gray dot.
+  return (
+    <div data-sidebar-status style={{ ['--sidebar-ready-dot' as string]: status.watching, marginBottom: 4 }}>
+      <StatusArea plan={false} setup={false} />
+    </div>
   )
 }
 
 export function Sidebar({ compact, short, blocked = false, width = SIDEBAR_W }: { compact: boolean; short: boolean; /** the account sheet is open: lit, but inert */ blocked?: boolean; /** full width, or SIDEBAR_NARROW_W in a mid-size window */ width?: number }): ReactNode {
   const page = useShell((s) => s.page)
+  const own = useSidebarList((s) => s.list)
   const settings = PAGES.findIndex((p) => p.id === 'settings')
   const S = PAGES[settings]
   return (
     <aside
       data-shell-sidebar={compact ? 'compact' : 'full'}
       inert={blocked}
-      className="flex h-full shrink-0 flex-col"
-      // The sidebar is the window itself (the lowest layer); the content panel beside it is the raised one.
-      // 10 px each side, so every row's highlight is inset 10 from the edge; the foot sits 12 above the bottom.
-      style={{ width: compact ? SIDEBAR_COMPACT_W : width, padding: `0 ${layout.sidebar.pad}px ${layout.sidebar.foot}px` }}
+      className="flex h-full shrink-0 flex-col overflow-hidden"
+      // The sidebar shares the page's paper; one hairline on its right edge separates them (the mock's paper-cream).
+      style={{ width: compact ? SIDEBAR_COMPACT_W : width, padding: `0 ${PAD}px ${v4.sidebar.padY}px`, background: v4c.side, boxShadow: `inset -1px 0 0 ${v4c.hair}` }}
     >
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
       <div data-drag className="mg-lights shrink-0" />
-      <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 18px' : '4px 10px 18px', justifyContent: compact ? 'center' : undefined }}>
+      <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ height: v4.sidebar.brand, padding: compact ? 0 : `0 ${PAD}px`, marginBottom: 6, justifyContent: compact ? 'center' : undefined }}>
         <SidebarBrand compact={compact} />
-      </div>
-      <div className="flex flex-col" style={{ gap: 12 }}>
-        <NewLesson compact={compact} />
-        <Nav compact={compact} />
-      </div>
-      <div className="mt-auto flex flex-col" style={{ gap: layout.sidebar.rowGap, paddingTop: layout.sidebar.groupGap }}>
-        {!compact && !short && (
-          // "Ready" here is the engine's state, not a passed check: styles.css swaps its green tick for the gray dot.
-          <div data-sidebar-status style={{ ['--sidebar-ready-dot' as string]: status.watching }}>
-            <StatusArea plan={false} />
-          </div>
+        {!compact && (
+          <button
+            type="button"
+            data-shell-new
+            aria-label="New lesson"
+            title="New lesson"
+            onClick={openLauncher}
+            className="mg-v4-side-row ml-auto grid cursor-pointer place-items-center outline-offset-1 focus-visible:outline-2 focus-visible:outline-solid"
+            style={{ width: 26, height: 26, borderRadius: v4.radius.row, color: color.label, outlineColor: focus.dark }}
+          >
+            <PenLine aria-hidden size={16} strokeWidth={1.6} />
+          </button>
         )}
-        <NavRow id={S.id} label={S.label} Icon={S.icon} on={page === 'settings'} compact={compact} index={settings} />
-        <AccountChip compact={compact} />
       </div>
+      {own ? (
+        <OwnList list={own} compact={compact} />
+      ) : (
+        <>
+          <div className="flex min-h-0 flex-col overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+            <Nav compact={compact} />
+            {!short && <Lists compact={compact} />}
+          </div>
+          <div className="mt-auto flex shrink-0 flex-col" style={{ paddingTop: v4.sidebar.labelTop }}>
+            {!compact && !short && <Boot />}
+            {compact && <SideRow icon={icon(PenLine)} label="New lesson" compact onClick={openLauncher} data={{ 'data-shell-new': '' }} />}
+            <SideRow icon={icon(S.icon)} label={S.label} on={page === 'settings'} compact={compact} onClick={() => setPage('settings')} data={{ 'data-shell-nav': 'settings' }} keys={`Meta+${settings + 1} Control+${settings + 1}`} />
+            <AccountChip compact={compact} />
+          </div>
+        </>
+      )}
     </aside>
   )
 }

@@ -15,7 +15,7 @@
  *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
- *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
+ *  - App text in Bricolage Grotesque (bundled, styles.css @font-face; Michael's call, Nov 24), system font as fallback. No Inter.
  */
 /**
  * Motion tokens (the springs, fades, beat, press and stagger) live in core/ui/motionTokens.ts (helpers beside them in core/ui/motion.ts), the single source of truth
@@ -142,6 +142,24 @@ const palette: Record<string, readonly [string, string]> = {
   'l-border': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
   // The fine dot grid on the content pane (PR #242). Neutral and quiet; PANEL fades it out away from the top.
   'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.06)`],
+  // ---- v4 frame (Adrian's ui-next mock, Nov 23: docs/ui-next/mock/app.css, its paper-cream variant) ----
+  // The sidebar and the page share one tone (cream in light, the pane gray in dark) with a hairline between them; the
+  // hairline, hover, selected-row, fill and track steps are the mock's warm-ink alphas. Read through `v4c` below.
+  // Dark: the sidebar sits one step above the page like the mock's (rgb 32,31,29 over 25,24,22), held at #1D1D1B so the
+  // faint ink (#858480: "3 of 8", the section labels) keeps 4.5:1 on it (test/v4Shell.test.ts). Light: one cream for both.
+  'v4-side': ['#1D1D1B', brand.paper],
+  'v4-page': ['#1B1B1A', brand.paper],
+  'v4-card': ['#242422', '#FFFFFF'],
+  'v4-hair': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.09)'],
+  'v4-hair2': ['rgba(255,255,255,.13)', 'rgba(40,38,33,.14)'],
+  'v4-hover': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.045)'],
+  'v4-active': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-fill': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.04)'],
+  'v4-fill2': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-track': ['rgba(255,255,255,.16)', 'rgba(40,38,33,.13)'],
+  'v4-ghost': ['rgba(255,255,255,.22)', 'rgba(40,38,33,.22)'],
+  'v4-e1': ['0 0 0 1px rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.3)', '0 0 0 1px rgba(15,15,15,.045), 0 1px 2px rgba(15,15,15,.05)'],
+  'v4-e2': ['0 0 0 1px rgba(255,255,255,.07), 0 2px 6px rgba(0,0,0,.3), 0 10px 24px rgba(0,0,0,.28)', '0 0 0 1px rgba(15,15,15,.05), 0 2px 5px rgba(15,15,15,.06), 0 8px 20px rgba(15,15,15,.06)'],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -177,6 +195,8 @@ const palette: Record<string, readonly [string, string]> = {
   'f-track-next-mini': ['rgba(255,255,255,.24)', `rgba(${INK},.2)`],
   'f-practicing': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],
   'f-toggle-off': ['rgba(255,255,255,.16)', `rgba(${INK},.16)`],
+  // An off Toggle's knob: light on dark, white on light (it was the ink, which read as on; QA R2-05).
+  'f-toggle-knob-off': [APP_DARK.text, '#FFFFFF'],
   // ---- surface.* ----
   's-panel': ['rgba(30,30,29,0.96)', 'rgba(253,252,250,0.97)'],
   's-sheet': ['#2C2B2A', '#FFFFFF'],
@@ -234,8 +254,10 @@ const palette: Record<string, readonly [string, string]> = {
   // ---- glass panels (theme.glass): the same surfaces, as before ----
   'glass-bg': ['rgba(30, 30, 29, 0.96)', 'rgba(252, 251, 249, 0.97)'],
   'glass-text': [hud.dark.text, brand.ink],
-  'glass-label': ['rgba(255,255,255,.6)', 'rgba(0,0,0,.56)'],
-  'glass-faint': ['rgba(255,255,255,.42)', 'rgba(0,0,0,.38)'],
+  // QA Q08 (Nov 24): faint was 4.0:1 (dark) and 2.65:1 (light) on the glass; now at least 4.5:1 on the pane and its
+  // hover field. Light label moves darker with it so label still reads above faint.
+  'glass-label': ['rgba(255,255,255,.66)', 'rgba(0,0,0,.66)'],
+  'glass-faint': ['rgba(255,255,255,.54)', 'rgba(0,0,0,.57)'],
   'glass-hairline': ['rgba(255,255,255,.12)', 'rgba(0,0,0,.1)'],
   'glass-field': ['rgba(255,255,255,.06)', 'rgba(0,0,0,.045)'],
   'glass-field-hover': ['rgba(255,255,255,.1)', 'rgba(0,0,0,.08)'],
@@ -318,10 +340,10 @@ export const color = {
 } as const
 
 export const font = {
-  /** Everything inside the app. */
-  ui: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
-  /** Brand moments only (wordmark is an outlined SVG, so rarely needed in the app). */
-  brand: '"Google Sans Flex", system-ui, sans-serif',
+  /** Everything inside the app: Bricolage Grotesque (Michael, Nov 24), the system font as fallback. */
+  ui: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  /** Brand moments (auth/onboarding headings). The same face since Nov 24; the wordmark is an outlined SVG. */
+  brand: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 } as const
 
@@ -401,7 +423,9 @@ export const fill = {
   /** A skill being practiced (Prog-Progress-Window): white at 55%, never a hue. */
   practicing: 'var(--f-practicing)',
   /** A Toggle that is off. */
-  toggleOff: 'var(--f-toggle-off)'
+  toggleOff: 'var(--f-toggle-off)',
+  /** The knob of a Toggle that is off: light on dark, white on light. */
+  toggleKnobOff: 'var(--f-toggle-knob-off)'
 } as const
 
 /**
@@ -623,12 +647,76 @@ export const layout = {
 } as const
 
 /**
- * The app windows' type ramp (system font; Linear's scale, layout lane Nov 22). Spread one into a style:
+ * The v4 frame (Adrian's ui-next mock, Nov 23-24: docs/ui-next/README.md "the rules behind the pages"). The pages use
+ * the whole window: a Notion-style 240 sidebar, a 44 px top bar with the breadcrumb, and wide row-and-table pages.
+ * features/shell ui.tsx turns these into PageFrame / PageHeader / Section / TwoCol / Rows / Table.
+ *
+ *   sidebar  240 wide (216 under a 1100 window, icons only under 860), 8 px side padding, 30 px rows, quiet section
+ *            labels (Plans, Recent) 18 above their rows, the account row 40 tall at the foot
+ *   top      the top bar over every page: 44 tall, the breadcrumb at 13.5 px
+ *   page     content 1040 wide, centered in the main area, 44 under the top bar, 40 px gutters (24 under a 760 main).
+ *            Home and Progress: a 684 main column and a 316 rail, 40 apart, one hairline (the rail's left edge, 32 in);
+ *            under a 900 main the rail drops below. Settings: two columns of groups 56 apart. Library, Plans: full width.
+ *   row      a list row 44 tall (50 with a cover), a rail row 33 (48 with two lines); hairlines between rows
+ *   table    head 32, rows 46, hairlines under each; the first column has no left padding
+ *   sec      a section label 12.5 / 550 muted, 30 above and 10 under, with an optional quiet link on the right
+ */
+export const v4 = {
+  sidebar: { w: 240, narrowW: 216, compactW: 64, padX: 8, padY: 10, row: 30, brand: 34, labelTop: 18, labelBottom: 4, account: 40, icon: 16 },
+  top: 44,
+  page: { w: 1040, main: 684, rail: 316, colGap: 40, railPad: 32, settingsGap: 56, top: 44, bottom: 72, gutter: 40, gutterTight: 24, twoColBelow: 900 },
+  row: { h: 44, cover: 50, rail: 33, railTall: 48, padX: 8 },
+  table: { head: 32, row: 46, padX: 8 },
+  sec: { top: 30, bottom: 10, first: 26 },
+  radius: { row: 6, control: 8, card: 12, tag: 4 }
+} as const
+
+/** The v4 frame's colors (palette `v4-*`): use these, never the mock's hex. Text stays `color.text` / `label` / `faint`. */
+export const v4c = {
+  side: 'var(--v4-side)',
+  page: 'var(--v4-page)',
+  card: 'var(--v4-card)',
+  hair: 'var(--v4-hair)',
+  hair2: 'var(--v4-hair2)',
+  hover: 'var(--v4-hover)',
+  active: 'var(--v4-active)',
+  fill: 'var(--v4-fill)',
+  fill2: 'var(--v4-fill2)',
+  track: 'var(--v4-track)',
+  ghost: 'var(--v4-ghost)',
+  e1: 'var(--v4-e1)',
+  e2: 'var(--v4-e2)'
+} as const
+
+/**
+ * The v4 type ramp (the mock's sizes). Bricolage Grotesque since Nov 24, so the display sizes are 600, not 650-700.
+ * Spread one into a style with its color.
+ */
+export const v4type = {
+  title: { fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.025em' },
+  lede: { fontSize: 14.5, lineHeight: '20px', fontWeight: 400 },
+  h2: { fontSize: 20, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em' },
+  sec: { fontSize: 12.5, lineHeight: '18px', fontWeight: 550 },
+  row: { fontSize: 14, lineHeight: '20px', fontWeight: 550 },
+  body: { fontSize: 14, lineHeight: '20px', fontWeight: 400 },
+  meta: { fontSize: 13, lineHeight: '18px', fontWeight: 400, fontVariantNumeric: 'tabular-nums' },
+  th: { fontSize: 12.5, lineHeight: '16px', fontWeight: 450 },
+  nav: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
+  navLabel: { fontSize: 12, lineHeight: '16px', fontWeight: 550 },
+  crumb: { fontSize: 13.5, lineHeight: '18px', fontWeight: 400 },
+  stat: { fontSize: 22, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  statSm: { fontSize: 17, lineHeight: '22px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  tag: { fontSize: 12.5, lineHeight: '20px', fontWeight: 400 }
+} as const
+
+/**
+ * The app windows' type ramp (Linear's scale, layout lane Nov 22; Bricolage Grotesque since Nov 24: titles 600 with
+ * slightly negative tracking, 12-14 px text at normal tracking, optical sizing picks the text cut). Spread one into a style:
  * `style={{ ...typeScale.pageTitle, color: color.text }}`. Sentence case everywhere, no uppercase labels.
  */
 export const typeScale = {
-  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 650, letterSpacing: '-0.4px' },
-  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.2px' },
+  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 600, letterSpacing: '-0.6px' },
+  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.3px' },
   section: { fontSize: 13, lineHeight: '18px', fontWeight: 600 },
   body: { fontSize: 14, lineHeight: '20px', fontWeight: 450 },
   row: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
