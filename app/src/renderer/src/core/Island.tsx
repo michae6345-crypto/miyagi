@@ -21,7 +21,7 @@ import { getIslandModes, type IslandMode } from './registry'
 import { perf } from './perf'
 import { NotchContext } from './notchContext'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
-import { color, hud, pill, shadows } from './theme'
+import { color, pill, shadows } from './theme'
 import {
   EAR_W,
   HOVER,
@@ -31,7 +31,6 @@ import {
   notchSize,
   radiiFor,
   restSize,
-  SHORT_OPEN_H,
   viewWith,
   type NotchView
 } from './notchGeometry'
@@ -556,7 +555,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={open && shown.h >= SHORT_OPEN_H} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
             {layers}
           </NotchShape>
         ) : (
@@ -591,8 +590,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  * layer (filter and will-change on the wrapper) before the hover lean scales it from the top. Open or hovered it
  * gets a soft shadow; at rest there is none, so it fuses with the hardware notch. When another notch app shares the
  * notch, the core band is masked out: nothing of ours is drawn there. A 1 px seam sits inside the top of the shape.
+ * It is plain notch black at every size: the green glow an open, tall shape had (a try-out of Nov 22) is gone (Adrian,
+ * Nov 24, MIC-83: a gradient, and it sat behind "Not yet" and the error cards, where green should mean passed).
  */
-function NotchShape({ w, h, rt, rb, tp, glow, open, nm, coexist, shadow, scale, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; tp: number; glow: boolean; open: boolean; nm: NotchLayout; coexist: boolean; shadow: string; scale: number; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
+function NotchShape({ w, h, rt, rb, tp, open, nm, coexist, shadow, scale, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; tp: number; open: boolean; nm: NotchLayout; coexist: boolean; shadow: string; scale: number; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
   const W = useMotionValue(w)
   const H = useMotionValue(h)
   const RT = useMotionValue(rt)
@@ -618,8 +619,6 @@ function NotchShape({ w, h, rt, rb, tp, glow, open, nm, coexist, shadow, scale, 
     >
       <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: H, background: color.island, clipPath: clip, mask, WebkitMask: mask }}>
         <motion.span aria-hidden className="pointer-events-none absolute" style={{ top: 0, height: 1, left: seamLeft, width: seamWidth, background: color.island }} />
-        {/* Open and tall: black at the notch fading into green at the bottom (Michael, Nov 22, after Clicky's blue). */}
-        <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: hud.notchGlow }} initial={false} animate={{ opacity: glow ? 1 : 0 }} transition={reduced ? instant : { duration: 0.35, ease: 'easeOut', delay: glow ? 0.08 : 0 }} />
         {children}
       </motion.div>
     </motion.div>
