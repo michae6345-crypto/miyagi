@@ -49,10 +49,14 @@
  * (↵ ⇥ ↑↓) comes from keys.navKey (bridge.platform.keys first). The grown panel lands below the editor's tabs and
  * toolbar (EDITOR_CHROME), still born from the notch and collapsing back into it.
  *
- * Look: born black like the island, it turns to dark HUD glass (color.glass) with a hairline edge as it
- * grows (Michael's audit A18, mockup 03) and back to black as it collapses. White text at the theme's
- * label/faint levels, low-alpha white fills, one hairline rule; the accent only for the caret and the
- * best result. Footer: key hints (keycap first, "esc Close") and one primary, the white button.
+ * Look (v4, Nov 24: Adrian's ui-next mock, the v4 tokens v4 / v4c / v4type in core/theme.ts): born black like the
+ * island, it turns into v4's card (#242422 over the apps in dark, white in light) with v4's hairline edge as it grows
+ * and back to black as it collapses. Bricolage Grotesque on v4's ramp: a 17 px field, section labels in v4's `sec`
+ * (12.5 / 550, the label gray), rows at v4's heights (44, 50 with a cover) with hairlines between them and the
+ * selected-row wash under the active one, 14 / 550 names over 13 px meta. Continue, Plans and Ready to run are drawn
+ * like the Library's rows (picture, name, the ink bar with "3 of 8", where it runs); the ghost chevron at a row's end
+ * wakes into the ↵ keycap on the active line. Footer: key hints (keycap first) and one primary, v4's primary button.
+ * Plans (v4): the learner's plans still going (plans.ts), between Continue and Ready to run; ↵ starts the next lesson.
  *
  * Motion: one spring for the shape (width, height, radius together, like the island's own cards);
  * content crossfades (out 80ms; in after 60ms), its sections settling a beat apart. Rows enter
@@ -63,25 +67,46 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Clipboa
 import { useShallow } from 'zustand/react/shallow'
 import { WifiOff } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
+import type { PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
-import { noteLearnMode, useCapability, useLesson, useProgress } from '../../core/lesson'
+import { canSend, noteLearnMode, useCapability, useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { sendAction } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { islandTop } from '../../core/islandEdge'
-import { Keycap } from '../../core/ui/Keycap'
 import { Spinner } from '../../core/ui/atoms'
-import { color, copy, fill, launcher as launcherTheme, pill, radius, radius2, scrim, shadows, spring, springOut } from '../../core/theme'
+import { color, copy, launcher as launcherTheme, layout as frame, pill, radius, scrim, shadows, spring, springOut, v4, v4c, v4type } from '../../core/theme'
 import { useCards } from '../cards/store'
 import { findPrimer, useStepDetail } from '../drawer/plan'
+import { loadPlans, startNext, usePlans } from '../plans/store'
 import { hole, isUsableRect, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
-import { librarySections, libraryMatch, refreshLibrary, startLibraryLesson, useLibrary, type LibraryItem } from './library'
-import { Action, EndLink, Hint, HOW_LABEL, HOWS, HowChoice, ListHighlight, modKey, NavKey, QuestionChips, Rise, SectionLabel, SuggestionRows, type How } from './parts'
+import { librarySections, libraryMatch, MAX_READY, refreshLibrary, startLibraryLesson, useLibrary, type LibraryItem } from './library'
+import {
+  Action,
+  DismissKey,
+  EndLink,
+  Hint,
+  HOW_LABEL,
+  HOWS,
+  HowChoice,
+  ListHighlight,
+  modKey,
+  NavKey,
+  PAD_X,
+  QuestionChips,
+  Rise,
+  RowRules,
+  SectionLabel,
+  SuggestionRows,
+  TEXT_X,
+  type How
+} from './parts'
+import { launcherPlans, limitWithPlans, nextLessonIndex, planStarted } from './plans'
 import { stepQuestions } from './questions'
-import { LessonRow, LibraryContinueRow, LinkPreview, MessageRow, READY_H, ReadyRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
+import { COVER_H, LessonRow, LibraryContinueRow, LinkPreview, MessageRow, PlanRow, ReadyRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { isFlipKey, navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { isDuplicateToggle } from './guard'
@@ -95,11 +120,12 @@ type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 /** `notch`: the island lives in the notch (place 'notch'): the shape starts flat on the display top with these radii. */
 type Size = { w: number; h: number; notch?: { top: number; bottom: number } }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'open' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'resume' | 'open' | 'start' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 /** One line of the idle list (nothing typed): what ↑↓ walk and ↵ runs. */
 type IdleItem =
   | { kind: 'continue' }
   | { kind: 'lib'; item: LibraryItem }
+  | { kind: 'plan'; plan: PlanState }
   | { kind: 'question'; text: string }
   | { kind: 'suggest'; text: string }
 
@@ -110,6 +136,11 @@ type IdleItem =
  * into it; it just lands lower, like Spotlight.
  */
 const EDITOR_CHROME = 92
+
+/** The field's row: v4's ask box (48) a size up, since the launcher is the place you type. */
+const FIELD_H = 56
+/** The footer's height under its hairline. */
+const FOOTER_H = 48
 
 /** The footer's End lesson stays armed ("Tap to end") this long for its second click, like the bar's End. */
 const END_ARM_MS = 3000
@@ -318,6 +349,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         setAskPicked(false)
         // The cached lessons can change between opens (a build finished, a lesson moved on): ask again.
         refreshLibrary()
+        // The learner's plans too (v4 Plans rows), when the engine speaks plans.list; the answer lands in plans/store.
+        if (canSend('plans.list')) loadPlans()
         delays.current.clear()
         // Results stay after Build until a new learn / learn_url. Reopened after a pick ("Pick another"), the
         // highlight starts on the next row, so Enter doesn't rebuild the same tutorial.
@@ -579,23 +612,38 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const sections = librarySections(library, lesson.hasLesson || lesson.building ? lesson.title : saved?.title)
   /** Nothing typed and the idle (or Continue) layout is up: the place for the cached-lesson sections. */
   const homeLayout = canStartCached && !typed && !settingsRow && !choosing && (mode === 'ask' || ((view === 'idle' || resumeRows) && !lessonRow))
+  /** ↑↓ / Enter reach the cached lessons and the plans only with no lesson running and nothing else to pick (act would be 'none'). */
+  const homeKeys = mode === 'search' && view === 'idle' && !typed && !settingsRow && !lesson.hasLesson && !resumeCard
+  /**
+   * v4 Plans (Home's plan rows): the learner's plans still going, between Continue and Ready to run, with nothing typed
+   * and no lesson running or waiting (a plan's next lesson then waits for that one). They don't need library.start:
+   * a plan's next lesson starts however it can (plans/store startNext).
+   */
+  const mine = usePlans((s) => s.mine)
+  const plans = homeKeys ? launcherPlans(mine, lesson.building ? (topic.current ?? lesson.title) : undefined) : []
   const libCont = homeLayout && mode === 'search' && !lesson.hasLesson && !resumeCard ? sections.cont : []
-  const libReady = homeLayout ? sections.ready : []
-  const libRows: LibraryItem[] = [...libCont, ...libReady]
-  /** ↑↓ / Enter reach the cached lessons only with no lesson running and nothing else to pick (act would be 'none'). */
-  const libKeys = mode === 'search' && view === 'idle' && !typed && !settingsRow && !lesson.hasLesson && !resumeCard && libRows.length > 0
+  // With plans on screen, one Ready row and one topic fewer: the panel stays inside a 700 tall screen (limitWithPlans).
+  const libReady = homeLayout ? sections.ready.slice(0, limitWithPlans(MAX_READY, plans.length)) : []
+  const topics = suggestions.slice(0, limitWithPlans(SUGGESTIONS.length, plans.length))
+  const libKeys = homeKeys && libCont.length + libReady.length > 0
 
   /**
    * The idle list: what ↑↓ walk and ↵ runs with nothing typed (persona QA: ↓ on the empty launcher did nothing).
-   * Continue (a lesson open or a saved one waiting) first, then the cached lessons (no lesson running only), then the
-   * "Try asking" lines (topics in search mode, the step's questions in ask mode). Ready rows during a lesson stay click-only.
+   * Continue (a lesson open or a saved one waiting) first, then the cached lessons in progress, the plans and the
+   * lessons ready to run (no lesson running only), then the "Try asking" lines (topics in search mode, the step's
+   * questions in ask mode). Ready rows during a lesson stay click-only.
    */
   const idleList = !typed && !settingsRow && !choosing && !lessonRow && (mode === 'ask' || view === 'idle' || resumeRows)
-  const asks = mode === 'ask' ? questions : suggestions.map((s) => s.label)
+  const asks = mode === 'ask' ? questions : topics.map((s) => s.label)
+  const keyCont = idleList && libKeys ? libCont : []
+  const keyPlans = idleList ? plans : []
+  const keyReady = idleList && libKeys ? libReady : []
   const idleItems: IdleItem[] = idleList
     ? [
         ...(resumeRows ? [{ kind: 'continue' } as const] : []),
-        ...(libKeys ? libRows.map((item) => ({ kind: 'lib', item }) as const) : []),
+        ...keyCont.map((item) => ({ kind: 'lib', item }) as const),
+        ...keyPlans.map((plan) => ({ kind: 'plan', plan }) as const),
+        ...keyReady.map((item) => ({ kind: 'lib', item }) as const),
         ...asks.map((text) => ({ kind: mode === 'ask' ? 'question' : 'suggest', text }) as const)
       ]
     : []
@@ -604,9 +652,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const active = unpickedAsk ? -1 : idleAt
   const activeItem = active >= 0 ? idleItems[active] : undefined
   const continueOn = resumeRows && active === 0
-  const libSel = libKeys && active >= 0 && active < libRows.length ? active : -1
-  /** Where the "Try asking" lines start in the idle list. */
-  const askBase = (resumeRows ? 1 : 0) + (libKeys ? libRows.length : 0)
+  /** Where each section starts in the idle list, and its active line (-1: the active line is elsewhere). */
+  const contBase = resumeRows ? 1 : 0
+  const planBase = contBase + keyCont.length
+  const readyBase = planBase + keyPlans.length
+  const askBase = readyBase + keyReady.length
+  const within = (base: number, n: number): number => (active >= base && active < base + n ? active - base : -1)
+  const contSel = within(contBase, keyCont.length)
+  const planSel = within(planBase, keyPlans.length)
+  const readySel = within(readyBase, keyReady.length)
   const askActive = activeItem && (activeItem.kind === 'question' || activeItem.kind === 'suggest') ? active - askBase : -1
 
   // ---- actions --------------------------------------------------------------------------------
@@ -681,6 +735,22 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('building')
   }
 
+  /**
+   * Start a plan's next lesson (v4 Plans rows): plans/store startNext sends library.start, learn_url or learn with
+   * `plan: {id, index}`, so the engine marks it. The panel goes into the building pill like Build lesson.
+   */
+  const startPlanNext = (plan: PlanState): void => {
+    if (phaseRef.current !== 'open') return
+    const next = plan.lessons[nextLessonIndex(plan)]
+    if (!next) return
+    lastPick.current = undefined
+    topic.current = next.title
+    // A lesson written from its goal is a text lesson; a cached one or a video is the usual kind.
+    noteLearnMode(!next.libraryId && !next.videoId && next.goal ? 'lesson' : undefined)
+    startNext(plan)
+    setPhase('building')
+  }
+
   /** End the lesson (Michael): the engine answers lesson.ended and core resets to idle; the panel goes back into the island. */
   const endLesson = (): void => {
     if (phaseRef.current !== 'open') return
@@ -749,6 +819,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const runIdle = (item: IdleItem): void => {
     if (item.kind === 'continue') return continueLesson()
     if (item.kind === 'lib') return startCached(item.item)
+    if (item.kind === 'plan') return startPlanNext(item.plan)
     if (item.kind === 'question') return ask(item.text)
     suggest(item.text)
   }
@@ -915,15 +986,19 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     height: grownH,
     bottom
   })
-  /** Grown, the panel is dark HUD glass (color.glass) with a hairline edge (below), like mockup 03, not the island's flat black. */
+  /**
+   * Grown, the panel is v4's card (Adrian's ui-next mock: "the only card"): #242422 over the apps in dark, white in light,
+   * with v4's hairline edge (below) and the island's card shadow, not the island's flat black. Radius 16 (the frame's
+   * hero radius): a v4 card a size up, since it sits alone over the screen.
+   */
+  const R = frame.radius.hero
   const grown: TargetAndTransition = {
     width: place.w,
     height: grownH,
     y: chromeDy + place.dy,
-    // Home-Launcher: radius 20 (the v2 panel radius).
-    borderRadius: from.notch ? `${radius2.panel}px ${radius2.panel}px ${radius2.panel}px ${radius2.panel}px` : radius2.panel,
+    borderRadius: from.notch ? `${R}px ${R}px ${R}px ${R}px` : R,
     boxShadow: shadows.card,
-    backgroundColor: color.glass
+    backgroundColor: v4c.card
   }
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
@@ -953,6 +1028,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         ? activeItem.item.progress
           ? 'resume'
           : 'open'
+        : activeItem.kind === 'plan'
+          ? planStarted(activeItem.plan)
+            ? 'resume'
+            : 'start'
         : activeItem.kind === 'question'
           ? 'ask'
           : 'none'
@@ -990,6 +1069,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     settings: 'Settings',
     resume: 'Continue',
     open: 'Open',
+    start: 'Start',
     ask: 'Ask',
     // A link that is already a cached lesson builds nothing: Enter starts it (library.start).
     build: linkMatch ? 'Start lesson' : 'Build lesson',
@@ -1055,15 +1135,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         >
           {/* No title: the placeholder says it. In ask mode, one quiet line says where you are (color.label, so it reads: A20). */}
           {mode === 'ask' && (
-            <Rise key="where" i={0} className="truncate px-[24px] pt-[14px] text-[12px] leading-[16px]">
+            <Rise key="where" i={0} className="truncate" style={{ ...v4type.crumb, padding: `12px ${TEXT_X}px 0` }}>
               <span style={{ color: color.label }}>{lesson.hasStep ? `Step ${progress.index + 1} · ${lesson.stepTitle}` : lesson.title}</span>
             </Rise>
           )}
 
-          {/* Home-Launcher's field: a 64 high header row over a hairline. The bonsai stays in the field (brand kit); Esc
-              is the platform's own keycap. */}
+          {/* The field, v4's ask box (the mock's `.ask .f`) a size up for a launcher: 56 high over a hairline, the bonsai
+              on the rows' text edge (brand kit: where the mockup had a magnifier), Esc as the platform's own keycap. */}
           <Rise i={1}>
-            <div className="flex h-[64px] items-center gap-[16px] px-[24px]" style={{ borderBottom: `1px solid ${fill.hairline}` }}>
+            <div className="flex items-center gap-[12px]" style={{ height: FIELD_H, padding: `0 ${TEXT_X}px`, borderBottom: `1px solid ${v4c.hair}` }}>
               <span className="grid w-[20px] shrink-0 place-items-center" style={{ color: color.label }}>
                 {busy ? (
                   <Spinner size={18} c={color.label} />
@@ -1093,19 +1173,19 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 spellCheck={false}
                 autoComplete="off"
                 aria-label={mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
-                className="h-[40px] min-w-0 flex-1 bg-transparent text-[18px] text-white outline-none placeholder:text-white/30"
-                style={{ caretColor: color.accent }}
+                className="h-[40px] min-w-0 flex-1 bg-transparent outline-none placeholder:text-[color:var(--c-faint)]"
+                style={{ fontSize: 17, fontWeight: 450, letterSpacing: '-0.005em', color: color.text, caretColor: color.accent }}
               />
-              <Keycap k="dismiss" />
+              <DismissKey />
             </div>
           </Rise>
 
-          <div className="px-[8px] pb-[8px]">
+          <div style={{ padding: `0 ${PAD_X}px ${PAD_X - 4}px` }}>
             {resumeRows && (
               <Rise key="resume" i={2}>
                 <SectionLabel first>Continue</SectionLabel>
-                <div className="relative" style={{ height: ROW_H }}>
-                  <ListHighlight at={continueOn ? 0 : -1} count={1} h={ROW_H} />
+                <div className="relative" style={{ height: COVER_H }}>
+                  <ListHighlight at={continueOn ? 0 : -1} count={1} h={COVER_H} />
                   <ResumeRow
                     lessonTitle={saved ? (saved.title ?? lesson.title) : lesson.title}
                     // Where you are, the same in both modes (persona QA: "Step 3 of 6 · Build the model"). A saved
@@ -1126,16 +1206,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             )}
 
             {settingsRow && (
-              <Rise key="settings" i={2} className="pt-[8px]">
-                <div className="relative" style={{ height: ROW_H }}>
-                  <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
+              <Rise key="settings" i={2} style={{ paddingTop: 8 }}>
+                <div className="relative" style={{ height: COVER_H }}>
+                  <ListHighlight at={0} count={1} h={COVER_H} />
                   <SettingsRow onPick={openSettings} />
                 </div>
               </Rise>
             )}
 
             {settingsRow ? null : choosing ? (
-              <Rise key="how" i={2} className="px-[16px] pt-[12px]">
+              <Rise key="how" i={2} style={{ padding: `14px ${v4.row.padX}px 0` }}>
                 <HowChoice how={how} onPick={pick} />
               </Rise>
             ) : mode === 'ask' ? (
@@ -1153,8 +1233,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 )}
                 {libReady.length > 0 && (
                   <Rise key="ready" i={3}>
-                    <SectionLabel first={!resumeRows && !questions.length}>Ready to run</SectionLabel>
-                    <ReadyList items={libReady} offset={libCont.length} sel={libSel} onSel={setIdleSel} keys={libKeys} onPick={startCached} />
+                    <SectionLabel first={!resumeRows && !questions.length} count={libReady.length}>
+                      Ready to run
+                    </SectionLabel>
+                    <ReadyList items={libReady} sel={-1} onSel={() => undefined} keys={false} onPick={startCached} />
                   </Rise>
                 )}
               </>
@@ -1164,25 +1246,55 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 {libCont.length > 0 && (
                   <Rise key="cont" i={2}>
                     <SectionLabel first>Continue</SectionLabel>
-                    <div className="relative" style={{ height: libCont.length * ROW_H }}>
-                      <SlotHighlight at={libSel} count={libCont.length} h={ROW_H} />
+                    <div className="relative" style={{ height: libCont.length * COVER_H }}>
+                      <ListHighlight at={contSel} count={libCont.length} h={COVER_H} />
+                      <RowRules count={libCont.length} h={COVER_H} at={contSel} />
                       {libCont.map((item, i) => (
-                        <LibraryContinueRow key={item.id} item={item} slot={i} active={libSel === i} onHover={() => libKeys && setIdleSel(i)} onPick={() => startCached(item)} />
+                        <LibraryContinueRow
+                          key={item.id}
+                          item={item}
+                          slot={i}
+                          active={contSel === i}
+                          onHover={() => libKeys && setIdleSel(contBase + i)}
+                          onPick={() => startCached(item)}
+                        />
+                      ))}
+                    </div>
+                  </Rise>
+                )}
+                {plans.length > 0 && (
+                  <Rise key="plans" i={3}>
+                    <SectionLabel first={!resumeRows && !libCont.length}>Plans</SectionLabel>
+                    <div className="relative" style={{ height: plans.length * COVER_H }} role="list" aria-label="Plans">
+                      <ListHighlight at={planSel} count={plans.length} h={COVER_H} />
+                      <RowRules count={plans.length} h={COVER_H} at={planSel} />
+                      {plans.map((plan, i) => (
+                        <PlanRow
+                          key={plan.id}
+                          plan={plan}
+                          slot={i}
+                          active={planSel === i}
+                          started={planStarted(plan)}
+                          onHover={() => homeKeys && setIdleSel(planBase + i)}
+                          onPick={() => startPlanNext(plan)}
+                        />
                       ))}
                     </div>
                   </Rise>
                 )}
                 {libReady.length > 0 && (
-                  <Rise key="ready" i={3}>
-                    <SectionLabel first={!resumeRows && !libCont.length}>Ready to run</SectionLabel>
-                    <ReadyList items={libReady} offset={libCont.length} sel={libSel} onSel={setIdleSel} keys={libKeys} onPick={startCached} />
+                  <Rise key="ready" i={4}>
+                    <SectionLabel first={!resumeRows && !libCont.length && !plans.length} count={libReady.length}>
+                      Ready to run
+                    </SectionLabel>
+                    <ReadyList items={libReady} sel={readySel} onSel={(i) => setIdleSel(readyBase + i)} keys={libKeys} onPick={startCached} />
                   </Rise>
                 )}
-                {suggestions.length > 0 && (
-                  <Rise key="try" i={4}>
-                    <SectionLabel first={!resumeRows && !libCont.length && !libReady.length}>Try asking</SectionLabel>
+                {topics.length > 0 && (
+                  <Rise key="try" i={5}>
+                    <SectionLabel first={!resumeRows && !libCont.length && !plans.length && !libReady.length}>Try asking</SectionLabel>
                     <SuggestionRows
-                      items={suggestions.map((s) => s.label)}
+                      items={topics.map((s) => s.label)}
                       active={askActive}
                       onHover={(i) => idleList && pickIdle(askBase + i)}
                       onPick={suggest}
@@ -1198,15 +1310,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               </Rise>
             ) : (
               slots > 0 && (
-                <div className="pt-[8px]">
+                <div style={{ paddingTop: 8 }}>
                   <div className="relative" style={{ height: slots * ROW_H }}>
-                    <motion.div
-                      className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
-                      style={{ height: ROW_H, background: fill.highlight }}
-                      initial={false}
-                      animate={{ y: Math.max(0, highlight) * ROW_H, opacity: highlight >= 0 ? 1 : 0 }}
-                      transition={spring}
-                    />
+                    <ListHighlight at={highlight} count={slots} h={ROW_H} />
+                    <RowRules count={slots} h={ROW_H} at={highlight} />
                     <AnimatePresence initial={false}>
                       {lessonRow && <LessonRow key="lesson" onHover={() => setSel(LESSON)} onPick={() => teach(goal)} />}
                       {(view === 'results' || view === 'searching') &&
@@ -1244,15 +1351,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           {/* Footer (Home-Launcher): a hairline, then the one line that helps ("Paste a YouTube link or type a goal")
               or what is wrong, and the keys that apply right now. One primary at most. */}
           <Rise i={5}>
-            <div className="h-px" style={{ background: fill.hairline }} />
-            <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
+            <div className="h-px" style={{ background: v4c.hair }} />
+            <div className="flex items-center gap-[4px]" style={{ height: FOOTER_H, paddingLeft: TEXT_X - 6, paddingRight: PAD_X - 2 }}>
               {/* No "New lesson" while a lesson runs (Michael's review A13): the ask panel is about this step, and the
                   footer's End lesson is the way out. ⌥Tab still flips to a new search, where "Back to step" (quiet, far
                   left, away from the primary: audit A20) is the way back. */}
               {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap={navKey('flip')} enabled onClick={switchMode} />}
               {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. No shortcut reaches it; Tab does, still two presses (Q15). */}
               {lesson.hasLesson && resumeRows && <EndLink armed={endArmed} onClick={tapEnd} />}
-              <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[12px]" style={{ color: note ? color.text : color.label }}>
+              <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[12.5px]" style={{ color: note ? color.text : color.label }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note ? (
                   <span className="truncate">{note}</span>
@@ -1282,11 +1389,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           </Rise>
         </motion.div>
 
-        {/* The glass edge: a hairline that follows the shape's radius, in with the content and gone before the island returns. */}
+        {/* The card's edge: v4's stronger hairline, following the shape's radius, in with the content and gone before the island returns. */}
         <motion.div
           aria-hidden
           className="pointer-events-none absolute inset-0 border"
-          style={{ borderColor: color.hairline, borderRadius: 'inherit' }}
+          style={{ borderColor: v4c.hair2, borderRadius: 'inherit' }}
           initial={{ opacity: 0 }}
           animate={{ opacity: exiting ? 0 : 1 }}
           transition={exiting ? contentOut : contentIn}
@@ -1307,48 +1414,30 @@ function IslandContent({ mode, ...motionProps }: { mode: IslandMode } & Pick<HTM
 }
 
 /**
- * The cached lessons' own highlight (Continue / Ready to run): slot `at - offset` of this list, hidden when the
- * highlighted cached lesson is in the other list. Never the search rows' highlight.
- */
-function SlotHighlight({ at, offset = 0, count, h }: { at: number; offset?: number; count: number; h: number }): ReactNode {
-  const i = at - offset
-  const on = at >= 0 && i >= 0 && i < count
-  return (
-    <motion.div
-      className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
-      style={{ height: h, background: fill.highlight }}
-      initial={false}
-      animate={{ y: Math.max(0, Math.min(count - 1, i)) * h, opacity: on ? 1 : 0 }}
-      transition={spring}
-    />
-  )
-}
-
-/**
- * "Ready to run" (Home-LauncherInContext): built, never started, one line each, in a slot range of their own (READY_H
- * rows numbered from 0 here; `offset` maps them onto readySel after the Continue rows). `keys`: the launcher lets ↑↓
- * reach them (no lesson running); otherwise they are click targets only, so no key can swap out a lesson.
+ * "Ready to run" (Home-LauncherInContext): built, never started, drawn like the Library's Ready rows, in a slot range of
+ * their own (`sel` is this list's own active line, -1 = elsewhere). `keys`: the launcher lets ↑↓ reach them (no lesson
+ * running); otherwise they are click targets only, so no key can swap out a lesson.
  */
 function ReadyList({
   items,
-  offset,
   sel,
   onSel,
   keys,
   onPick
 }: {
   items: LibraryItem[]
-  offset: number
   sel: number
   onSel: (i: number) => void
   keys: boolean
   onPick: (item: LibraryItem) => void
 }): ReactNode {
+  const at = keys ? sel : -1
   return (
-    <div className="relative" style={{ height: items.length * READY_H }}>
-      <SlotHighlight at={sel} offset={offset} count={items.length} h={READY_H} />
+    <div className="relative" style={{ height: items.length * COVER_H }} role="list" aria-label="Ready to run">
+      <ListHighlight at={at} count={items.length} h={COVER_H} />
+      <RowRules count={items.length} h={COVER_H} at={at} />
       {items.map((item, i) => (
-        <ReadyRow key={item.id} item={item} slot={i} hover={!keys} active={keys && sel === offset + i} onHover={() => keys && onSel(offset + i)} onPick={() => onPick(item)} />
+        <ReadyRow key={item.id} item={item} slot={i} hover={!keys} active={at === i} onHover={() => keys && onSel(i)} onPick={() => onPick(item)} />
       ))}
     </div>
   )

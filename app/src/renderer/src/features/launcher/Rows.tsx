@@ -1,31 +1,50 @@
 /**
- * Feature: launcher. The rows of the results list. Every row is ROW_H tall and absolutely placed in
- * its slot, so a skeleton and the result that replaces it crossfade in place (no reflow, no jump).
+ * Feature: launcher. The rows of the panel, in the v4 frame's look (Adrian's ui-next mock, Nov 23-24): no boxes, the row
+ * radius, hairlines between rows (parts.RowRules), a 14 / 550 name, 13 px meta in the label gray, the mock's 16:9
+ * thumbnails, the ink progress bar and the ghost chevron that wakes into the ↵ keycap on the active row.
+ *
+ * Every row is a fixed height and absolutely placed in its slot, so a skeleton and the result that replaces it crossfade
+ * in place (no reflow, no jump) and one highlight can glide between rows.
+ *   ROW_H      search rows (a video, "Just teach me", a skeleton, the empty / error row): two lines and room for the
+ *              learner line that may arrive later
+ *   COVER_H    v4's row with a cover (50): Continue, Plans, Ready to run, the lesson in progress, Settings
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { ChevronRight, CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { useState } from 'react'
+import type { PlanState } from '../../../../../../shared/contracts/events'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { StepBar } from '../shell/ui'
+import { Bar, ProgressRing, Tag } from '../shell/ui'
 import { TOOL_NAME } from '../library/parts'
+import { artForState } from '../plans/PlanPage'
+import { Thumb as ArtThumb } from '../plans/Thumb'
 import { Thumb } from '../../core/ui/atoms'
-import { clock, color, fill, font, spring, tone } from '../../core/theme'
+import { clock, color, fill, spring, tone, v4, v4c, v4type } from '../../core/theme'
+import { artOfItem } from './art'
 import { toolsLabel, type LibraryItem } from './library'
 import { navKey } from './keys'
 import { HOW_LABEL, NavKey, PRESS } from './parts'
+import { planLine } from './plans'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
 import { ease, fade, prefersReduced, sizeMove, springOut } from '../../core/ui/motion'
 
-/** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
-export const ROW_H = 64
-/** Home-Launcher's tile: 64×40, radius 8. */
+/** A search row: a 16:9 tile, two lines and the learner line under them (fixed, so a late learner line moves nothing). */
+export const ROW_H = 58
+/** v4's row with a cover: Continue, Plans, Ready to run, Settings. */
+export const COVER_H = v4.row.cover
+/** A search row's tile: 16:9, the v4 row radius. */
 const TILE_W = 64
-const TILE_H = 40
-/** A "Ready to run" row (Home-LauncherInContext): one line, 44 high. */
-export const READY_H = 44
+const TILE_H = 36
+/** A cover row's thumbnail: the Library's rows (56 × 32). */
+const ART_W = 56
+const ART_H = 32
+/** The progress bar on a Continue or plan row (the mock's Home plan rows). */
+const BAR_W = 64
+/** Room for the longest count ("12 of 12"). */
+const COUNT_W = 50
 
 const enter = { opacity: 0, y: 6 }
 const shown = { opacity: 1, y: 0 }
@@ -33,13 +52,14 @@ const gone = { opacity: 0, transition: fade.out }
 
 type Slot = { slot: number; delay?: number }
 
-function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { children: ReactNode; onHover?: () => void; onPick?: () => void }): ReactNode {
+/** One row: a button in its slot, v4's padding and radius. Hover tints come from the list's one highlight. */
+function RowShell({ slot, delay = 0, h = ROW_H, children, onHover, onPick, data }: Slot & { h?: number; children: ReactNode; onHover?: () => void; onPick?: () => void; data?: Record<string, string> }): ReactNode {
   return (
     <motion.button
       type="button"
       tabIndex={-1}
-      className="absolute inset-x-0 flex cursor-pointer items-center gap-[16px] px-[16px] text-left"
-      style={{ top: slot * ROW_H, height: ROW_H }}
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-[12px] text-left"
+      style={{ top: slot * h, height: h, padding: `0 ${v4.row.padX}px`, borderRadius: v4.radius.row, color: color.text }}
       initial={enter}
       animate={shown}
       exit={gone}
@@ -50,23 +70,39 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
       onMouseMove={onHover}
       onFocus={onHover}
       onClick={onPick}
+      {...data}
     >
       {children}
     </motion.button>
   )
 }
 
-/** 64×40 (Home-Launcher): the video's thumbnail, or a neutral tile with the source kind's glyph. */
+/** A neutral 16:9 tile with a glyph (the lesson row, Settings, the empty / error row): the mock's `.th` on the fill wash. */
+function GlyphTile({ children, w = TILE_W, h = TILE_H, glyph = color.label }: { children: ReactNode; w?: number; h?: number; glyph?: string }): ReactNode {
+  return (
+    <span
+      className="grid shrink-0 place-items-center"
+      style={{ width: w, height: h, borderRadius: v4.radius.row, background: v4c.fill2, boxShadow: `inset 0 0 0 1px ${v4c.hair}`, color: glyph }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** 64×36: the video's thumbnail, or a neutral tile with the source kind's glyph. */
 function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): ReactNode {
   if (kind === 'video') return <Thumb w={TILE_W} h={TILE_H} src={thumbnail} />
   const I = kind === 'repo' ? FolderGit2 : kind === 'notebook' ? FileCode2 : kind === 'paper' ? FileText : Newspaper
-  const tone = kindTone[kind]
+  const t = kindTone[kind]
+  if (!t)
+    return (
+      <GlyphTile>
+        <I size={15} strokeWidth={1.7} />
+      </GlyphTile>
+    )
   return (
-    <span
-      className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]"
-      style={tone ? { background: alpha(tone, 0.16), color: tone } : { background: fill.tile, color: fill.tileGlyph }}
-    >
-      <I size={16} strokeWidth={1.6} />
+    <span className="grid shrink-0 place-items-center" style={{ width: TILE_W, height: TILE_H, borderRadius: v4.radius.row, background: alpha(t, 0.16), color: t }}>
+      <I size={15} strokeWidth={1.7} />
     </span>
   )
 }
@@ -81,13 +117,16 @@ export function metaSegment(r: SearchResult): string | undefined {
   if (r.long && r.durationLabel) return r.durationLabel
 }
 
+/** A row's name and meta: v4's row name (14 / 550 ink) over its meta (13, the label gray). */
 function Text({ title, meta, extra, checked = false, warnings }: { title: string; meta: string; extra?: string; checked?: boolean; warnings?: string[] }): ReactNode {
   const quote = warnings?.find((w) => w.trim())?.replace(/\s+/g, ' ').trim()
   const more = (warnings?.length ?? 0) - 1
   return (
     <span className="min-w-0 flex-1">
-      <span className="block truncate text-[14px] font-medium leading-[18px] text-white">{title}</span>
-      <span className="flex min-w-0 text-[12.5px] leading-[17px]" style={{ color: color.faint }}>
+      <span className="block truncate" style={{ ...v4type.row, color: color.text }}>
+        {title}
+      </span>
+      <span className="flex min-w-0" style={{ ...v4type.meta, color: color.label }}>
         <span className="truncate">{meta}</span>
         {extra && <span className="shrink-0 whitespace-pre">{` · ${extra}`}</span>}
         {/* The engine opened this link itself (oEmbed / HTTP / API). Gray: green only means passed. */}
@@ -120,13 +159,26 @@ function Text({ title, meta, extra, checked = false, warnings }: { title: string
   )
 }
 
+/** The progress bar and its count ("3 of 8"), as on Home's plan rows and the Library's progress column. */
+function Progress({ value, count }: { value: number; count: string }): ReactNode {
+  return (
+    <span className="flex shrink-0 items-center gap-[10px]">
+      <Bar value={value} width={BAR_W} label={count} />
+      {/* A fixed width, so the bars of rows above each other line up ("3 of 8" over "1 of 10"). */}
+      <span className="whitespace-nowrap" style={{ ...v4type.meta, minWidth: COUNT_W, color: color.label }}>
+        {count}
+      </span>
+    </span>
+  )
+}
+
 export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: boolean; onHover: () => void; onPick: () => void }): ReactNode {
   return (
     <RowShell {...rest}>
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} extra={metaSegment(r)} checked={r.verified === true} warnings={r.warnings} />
       {best && (
-        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: tone.pink.fg }}>
+        <span className="shrink-0" style={{ ...v4type.meta, fontWeight: 550, color: tone.pink.fg }}>
           Best
         </span>
       )}
@@ -142,9 +194,9 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
 export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onHover={onHover} onPick={onPick}>
-      <span className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
-        <MiyagiMark size={18} />
-      </span>
+      <GlyphTile>
+        <MiyagiMark size={16} />
+      </GlyphTile>
       <Text title={HOW_LABEL.lesson} meta="A lesson built from the internet, no video" />
     </RowShell>
   )
@@ -154,7 +206,7 @@ export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: ()
  * During a lesson with nothing typed, the only row (highlighted, under "Continue"): back to the lesson where it was.
  * Enter, or a click, closes the launcher into the island, so the lesson is one key away and never restarted by
  * accident. Ending the lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts
- * EndLink). Home-LauncherInContext: no tile, the lesson's title, where you are, and the ↵ it answers to.
+ * EndLink). v4: the lesson-in-progress ring (the sidebar's Recent), the lesson's title, where you are, and the ↵.
  */
 export function ResumeRow({
   lessonTitle,
@@ -171,38 +223,53 @@ export function ResumeRow({
   onPick: () => void
 }): ReactNode {
   return (
-    <RowShell slot={0} onHover={onHover} onPick={onPick}>
+    <RowShell slot={0} h={COVER_H} onHover={onHover} onPick={onPick} data={{ 'data-resume': '' }}>
+      <span className="grid shrink-0 place-items-center" style={{ width: 20 }}>
+        <ProgressRing size={16} />
+      </span>
       <Text title={lessonTitle ?? 'The lesson in progress'} meta={where} />
-      <EnterCue active={active} />
+      <EnterCue active={active} label="Continue" />
     </RowShell>
   )
 }
 
 /**
- * The idle list's active line shows what Enter does there: the Enter keycap, and on a Continue line the word
- * ("Continue ↵"). It fades in and out as ↑↓ move, so the cue sits on the line Enter runs.
+ * The end of a row that opens something: v4's ghost chevron at rest, the Enter keycap on the idle list's active line
+ * (and on a Continue line the word, "Continue ↵"). They crossfade as ↑↓ move, so the cue sits on the line Enter runs.
  */
 function EnterCue({ active, label }: { active: boolean; label?: string }): ReactNode {
   return (
-    <motion.span className="flex shrink-0 items-center gap-[6px]" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint} aria-hidden>
-      {label && (
-        <span className="text-[12px] font-medium" style={{ color: color.text }}>
-          {label}
-        </span>
-      )}
-      <NavKey>{navKey('enter')}</NavKey>
-    </motion.span>
+    <span className="relative flex shrink-0 items-center justify-end" style={{ minWidth: 20 }} aria-hidden>
+      <motion.span className="flex items-center gap-[7px]" initial={false} animate={{ opacity: active ? 1 : 0 }} transition={fade.tint}>
+        {label && (
+          <span className="text-[12.5px]" style={{ fontWeight: 550, color: color.text }}>
+            {label}
+          </span>
+        )}
+        <NavKey>{navKey('enter')}</NavKey>
+      </motion.span>
+      <motion.span
+        className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center"
+        style={{ color: v4c.ghost }}
+        initial={false}
+        animate={{ opacity: active ? 0 : 1 }}
+        transition={fade.tint}
+      >
+        <ChevronRight size={14} strokeWidth={1.8} />
+      </motion.span>
+    </span>
   )
 }
 
 /** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
 export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
   return (
-    <RowShell slot={0} onPick={onPick}>
-      <span className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-        <Settings size={16} strokeWidth={1.6} />
-      </span>
+    <RowShell slot={0} h={COVER_H} onPick={onPick} data={{ 'data-settings-row': '' }}>
+      <GlyphTile w={ART_W} h={ART_H}>
+        <Settings size={15} strokeWidth={1.7} />
+      </GlyphTile>
       <Text title="Settings" meta="Keys and appearance" />
+      <EnterCue active />
     </RowShell>
   )
 }
@@ -212,11 +279,12 @@ export const LINK_H = 92
 
 /**
  * A pasted YouTube link (Home-Launcher "From your link"): no search, one clear preview, already the active row (the
- * hover tint) since it is the only thing Enter can do. A 16:9 thumbnail with the start time from the link (?t=), what
- * it is, where it starts, and one line saying what Enter does. When a cached lesson was built from this exact video,
- * the preview says so ("Already a lesson", "Ready instantly") and Enter starts it with library.start: zero model
+ * selected-row wash) since it is the only thing Enter can do. A 16:9 thumbnail with the start time from the link (?t=),
+ * what it is, where it starts, and one line saying what Enter does. When a cached lesson was built from this exact video,
+ * the preview says so ("Already a lesson", a "Ready instantly" tag) and Enter starts it with library.start: zero model
  * calls, nothing built twice. The thumbnail scales in from 0.96 on the house spring; a thumbnail that can't load (no
- * network) falls back to the neutral generated one, never a broken image.
+ * network) falls back to the neutral generated one, never a broken image. v4: the mock's home-link preview (thumbnail,
+ * a 15 / 600 title, 13 px meta), on the selected-row wash with the control radius.
  */
 export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?: LibraryItem; onPick: () => void }): ReactNode {
   const tools = toolsLabel(match?.tools)
@@ -229,8 +297,8 @@ export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?
       type="button"
       tabIndex={-1}
       data-link-preview={link.videoId}
-      className="relative flex w-full cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left"
-      style={{ height: LINK_H, background: fill.highlight }}
+      className="relative flex w-full cursor-pointer items-center gap-[16px] text-left"
+      style={{ height: LINK_H, padding: `0 ${v4.row.padX + 4}px 0 ${v4.row.padX + 2}px`, borderRadius: v4.radius.control, background: v4c.active, color: color.text }}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       whileTap={PRESS}
@@ -238,46 +306,32 @@ export function LinkPreview({ link, match, onPick }: { link: YouTubeLink; match?
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}
     >
-      <motion.span
-        className="relative shrink-0"
-        initial={reduce ? false : { scale: 0.96 }}
-        animate={{ scale: 1 }}
-        transition={spring}
-      >
+      <motion.span className="relative shrink-0" initial={reduce ? false : { scale: 0.96 }} animate={{ scale: 1 }} transition={spring}>
         <Thumb w={128} h={72} src={src} time={link.start ? clock(link.start) : undefined} />
         {/* Probe the thumbnail once: if it can't load, show the generated tile instead of a broken image. */}
         {src && <img src={src} alt="" className="hidden" onError={() => setBroken(true)} />}
       </motion.span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[12px] leading-[16px]" style={{ color: color.label }}>
+        <span className="block" style={{ ...v4type.sec, color: color.label }}>
           {match ? 'Already a lesson' : 'YouTube video'}
         </span>
-        <span className="mt-[2px] block truncate text-[15px] font-medium leading-[20px] text-white">{match ? match.title : where}</span>
-        <span className="mt-[2px] block truncate text-[12.5px] leading-[17px]" style={{ color: color.faint }}>
-          {match
-            ? `${match.steps} steps${tools ? ` in ${tools}` : ''}. Starts right away.`
-            : 'Builds a lesson that pauses at each step'}
+        <span className="mt-[3px] block truncate" style={{ fontSize: 15, lineHeight: '20px', fontWeight: 600, letterSpacing: '-0.005em', color: color.text }}>
+          {match ? match.title : where}
+        </span>
+        <span className="mt-[2px] block truncate" style={{ ...v4type.meta, color: color.label }}>
+          {match ? `${match.steps} steps${tools ? ` in ${tools}` : ''}. Starts right away.` : 'Builds a lesson that pauses at each step'}
         </span>
       </span>
-      {match && (
-        <span
-          className="inline-flex h-[24px] shrink-0 items-center rounded-full px-[8px] text-[12px]"
-          style={{ boxShadow: `inset 0 0 0 1px ${fill.hairline}`, color: fill.keycapText }}
-        >
-          Ready instantly
-        </span>
-      )}
+      {match && <Tag tone="out">Ready instantly</Tag>}
       <NavKey>{navKey('enter')}</NavKey>
     </motion.button>
   )
 }
 
-/** Two letters for the tool a cached lesson runs in (Home-Launcher's "Jn" tile). */
-
 /**
- * Home-Launcher "Continue": a cached lesson started on this Mac and not finished. Its tool's tag, the title, where it
- * was left ("Step 3 of 6 · Drop the empty rows") and a white meter. Click to pick it up (library.start). Its own slot
- * range: these rows never share slots with the search rows.
+ * Home-Launcher "Continue": a cached lesson started on this Mac and not finished, drawn like the Library's In progress
+ * row: its picture, the title over where it was left ("Step 3 · Drop the empty rows"), the ink bar with "2 of 6". Click
+ * (or ↵ on the active line) to pick it up (library.start). Its own slot range: never shared with the search rows.
  */
 export function LibraryContinueRow({
   item,
@@ -295,17 +349,51 @@ export function LibraryContinueRow({
 }): ReactNode {
   const p = item.progress
   return (
-    <RowShell slot={slot} onHover={onHover} onPick={onPick}>
-      <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1} of ${p.total}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
-      {p && <StepBar done={p.stepIndex} total={p.total} width={84} />}
+    <RowShell slot={slot} h={COVER_H} onHover={onHover} onPick={onPick} data={{ 'data-continue': item.id }}>
+      <ArtThumb art={artOfItem(item)} w={ART_W} h={ART_H} radius={v4.radius.row} />
+      <Text title={item.title} meta={p ? `Step ${p.stepIndex + 1}${p.stepTitle ? ` · ${p.stepTitle}` : ''}` : `${item.steps} steps`} />
+      {p && p.total > 0 && <Progress value={p.stepIndex / p.total} count={`${p.stepIndex} of ${p.total}`} />}
       <EnterCue active={active} label="Continue" />
     </RowShell>
   )
 }
 
 /**
- * Home-LauncherInContext "Ready to run": a cached lesson, built and never started. One line: the title and its step
- * count. 44 high, in its own slot range (READY_H), apart from the search rows and the Continue rows.
+ * v4 "Plans" (Home's plan rows, Adrian's ui-next mock): one of the learner's plans still going. Its picture (the
+ * Library's plan art), the plan's name over "Next · <lesson>", the ink bar with "3 of 8". Click (or ↵ on the active
+ * line) starts that next lesson (plans/store startNext).
+ */
+export function PlanRow({
+  plan,
+  slot,
+  active = false,
+  started,
+  onHover,
+  onPick
+}: {
+  plan: PlanState
+  slot: number
+  active?: boolean
+  /** The plan has begun: the cue says Continue, else Start. */
+  started: boolean
+  onHover: () => void
+  onPick: () => void
+}): ReactNode {
+  const line = planLine(plan)
+  return (
+    <RowShell slot={slot} h={COVER_H} onHover={onHover} onPick={onPick} data={{ 'data-plan': plan.id }}>
+      <ArtThumb art={artForState(plan)} w={ART_W} h={ART_H} radius={v4.radius.row} />
+      <Text title={plan.title} meta={line.next ? `Next · ${line.next}` : `${plan.total} lessons`} />
+      <Progress value={line.value} count={line.count} />
+      <EnterCue active={active} label={started ? 'Continue' : 'Start'} />
+    </RowShell>
+  )
+}
+
+/**
+ * Home-LauncherInContext "Ready to run": a cached lesson, built and never started, drawn like the Library's Ready row:
+ * its picture, the title, and on the right where it runs, its steps and minutes. A cover row in its own slot range
+ * (COVER_H), apart from the search rows and the Continue rows.
  */
 export function ReadyRow({
   item,
@@ -319,7 +407,7 @@ export function ReadyRow({
   slot: number
   /** The idle list's active line: it shows the Enter keycap. */
   active?: boolean
-  /** Its own hover fill (click-only rows during a lesson); with keys, the list's moving highlight shows it instead. */
+  /** Its own hover wash (click-only rows during a lesson); with keys, the list's moving highlight shows it instead. */
   hover?: boolean
   onHover: () => void
   onPick: () => void
@@ -329,9 +417,9 @@ export function ReadyRow({
       type="button"
       tabIndex={-1}
       data-ready={item.id}
-      className="absolute inset-x-0 flex cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left"
-      style={{ top: slot * READY_H, height: READY_H, backgroundColor: fill.clear }}
-      whileHover={hover ? { backgroundColor: fill.highlight } : undefined}
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-[12px] text-left"
+      style={{ top: slot * COVER_H, height: COVER_H, padding: `0 ${v4.row.padX}px`, borderRadius: v4.radius.row, backgroundColor: fill.clear, color: color.text }}
+      whileHover={hover ? { backgroundColor: v4c.hover } : undefined}
       initial={enter}
       animate={shown}
       exit={gone}
@@ -341,8 +429,11 @@ export function ReadyRow({
       onFocus={onHover}
       onClick={onPick}
     >
-      <span className="min-w-0 flex-1 truncate text-[14px] text-white">{item.title}</span>
-      <span className="shrink-0 text-[12px]" style={{ color: color.label }}>
+      <ArtThumb art={artOfItem(item)} w={ART_W} h={ART_H} radius={v4.radius.row} />
+      <span className="min-w-0 flex-1 truncate" style={{ ...v4type.row, color: color.text }}>
+        {item.title}
+      </span>
+      <span className="shrink-0 truncate" style={{ ...v4type.meta, color: color.label }}>
         {[(item.tools ?? []).map((t) => TOOL_NAME[t]).join(', '), item.steps === 1 ? '1 step' : `${item.steps} steps`, item.estMinutes ? `${item.estMinutes} min` : ''].filter(Boolean).join(' · ')}
       </span>
       <EnterCue active={active} />
@@ -354,40 +445,37 @@ export function ReadyRow({
 export function SkeletonRow({ slot }: { slot: number }): ReactNode {
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[16px] px-[16px]"
-      style={{ top: slot * ROW_H, height: ROW_H }}
+      className="absolute inset-x-0 flex items-center gap-[12px]"
+      style={{ top: slot * ROW_H, height: ROW_H, padding: `0 ${v4.row.padX}px` }}
       initial={{ opacity: 0 }}
       animate={{ opacity: [0.5, 1, 0.5] }}
       exit={gone}
       transition={{ duration: 1.4, repeat: Infinity, ease: ease.inOut, delay: slot * 0.12 }}
     >
-      <span className="h-[40px] w-[64px] shrink-0 rounded-[8px]" style={{ background: fill.skeleton }} />
+      <span className="shrink-0" style={{ width: TILE_W, height: TILE_H, borderRadius: v4.radius.row, background: v4c.fill2 }} />
       <span className="flex flex-1 flex-col gap-[8px]">
-        <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: fill.skeleton }} />
-        <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: fill.skeleton }} />
+        <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: v4c.fill2 }} />
+        <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: v4c.fill2 }} />
       </span>
     </motion.div>
   )
 }
 
 /** Empty / error: one quiet row with an icon, a title and a detail line. */
-export function MessageRow({ tone, title, detail, slot = 0 }: { tone: 'empty' | 'error'; title: string; detail: string; slot?: number }): ReactNode {
-  const I = tone === 'error' ? CircleAlert : SearchX
+export function MessageRow({ tone: kind, title, detail, slot = 0 }: { tone: 'empty' | 'error'; title: string; detail: string; slot?: number }): ReactNode {
+  const I = kind === 'error' ? CircleAlert : SearchX
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[16px] px-[16px]"
-      style={{ top: slot * ROW_H, height: ROW_H }}
+      className="absolute inset-x-0 flex items-center gap-[12px]"
+      style={{ top: slot * ROW_H, height: ROW_H, padding: `0 ${v4.row.padX}px` }}
       initial={enter}
       animate={shown}
       exit={gone}
       transition={spring}
     >
-      <span
-        className="grid h-[40px] w-[64px] shrink-0 place-items-center rounded-[8px]"
-        style={{ background: fill.tile, color: tone === 'error' ? color.text : fill.tileGlyph }}
-      >
-        <I size={17} strokeWidth={1.6} />
-      </span>
+      <GlyphTile glyph={kind === 'error' ? color.text : color.label}>
+        <I size={16} strokeWidth={1.7} />
+      </GlyphTile>
       <Text title={title} meta={detail} />
     </motion.div>
   )
