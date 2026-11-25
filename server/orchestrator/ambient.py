@@ -29,7 +29,7 @@ from server.ambient_errors.watcher import ErrorWatcher, apps_on_screen, scan
 log = logging.getLogger("orchestrator.ambient")
 
 COMMANDS = ("ambient.set", "error.explain", "error.dismiss")
-LESSON_PHASES = frozenset({"building", "preflight", "active"})
+LESSON_PHASES = frozenset({"searching", "building", "preflight", "active"})
 Reply = Callable[[str, dict], Awaitable[None]]
 
 

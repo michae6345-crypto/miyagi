@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .text import MASK, for_app, for_model, mask
+from .text import MASK, for_app, for_model
 from .watcher import Held, target
 
 try:
@@ -101,7 +101,8 @@ def _resolve(file: str | None, doc: str | None) -> Path | None:
 
 def source_lines(file: str | None, line: int | None, doc: str | None = None,
                  n: int = AMBIENT_CONTEXT_LINES_MAX) -> list[str]:
-    """At most `n` numbered lines around `line` of the error's file ("   3| import pandas as pd"), masked."""
+    """At most `n` numbered lines around `line` of the error's file ("   3| import pandas as pd"), redacted as the model
+    sees them (for_model: secrets masked, every absolute or ~ path cut to its file name)."""
     if not line or line < 1:
         return []
     path = _resolve(file, doc)
@@ -116,7 +117,7 @@ def source_lines(file: str | None, line: int | None, doc: str | None = None,
     lo = max(1, line - (n // 2))
     hi = min(len(lines), lo + n - 1)
     lo = max(1, hi - n + 1)
-    return [f"{i:>4}| {mask(lines[i - 1])[:200]}" for i in range(lo, hi + 1)]
+    return [f"{i:>4}| {for_model(lines[i - 1])[:200]}" for i in range(lo, hi + 1)]
 
 
 def context(held: Held) -> dict:

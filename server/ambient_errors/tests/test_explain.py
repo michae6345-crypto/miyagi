@@ -71,6 +71,27 @@ def test_context_cuts_paths_masks_secrets_and_reads_six_source_lines(tmp_path):
     assert str(tmp_path) not in blob and "/Users/" not in blob
 
 
+def test_paths_in_the_source_lines_are_cut_to_the_file_name(tmp_path):
+    """The learner's own code can name absolute and ~ paths: the model gets the file name only, never the home folder,
+    the username or the folders above it."""
+    src = tmp_path / "app.py"
+    src.write_text("import pandas as pd\n"
+                   'df = open("/Users/janedoe/Documents/clients/acme_payroll.csv")\n'
+                   "cfg = load('~/Desktop/secret_project/settings.json')\n"
+                   "print(df.colunms)\n")
+    rows = [Row("Traceback (most recent call last):"),
+            Row(f'  File "{src}", line 3, in <module>'),
+            Row("    cfg = load('~/Desktop/secret_project/settings.json')"),
+            Row("NameError: name 'load' is not defined")]
+    ctx = ex.context(held_from(find_errors(rows)[0]))
+    assert ctx["context_is"] == "source" and len(ctx["context"]) == 4
+    joined = "\n".join(ctx["context"])
+    assert "acme_payroll.csv" in joined and "settings.json" in joined
+    for sent in (joined, ex.user_text(ctx)):
+        for leak in ("janedoe", "/Users/", "Documents", "clients/", "~/", "Desktop", "secret_project"):
+            assert leak not in sent, leak
+
+
 def test_a_secret_file_is_never_read(tmp_path):
     env = tmp_path / ".env"
     env.write_text("A=1\nB=2\nC=3\n")

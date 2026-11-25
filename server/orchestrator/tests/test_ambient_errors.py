@@ -178,3 +178,40 @@ def test_gone_clears_and_a_lesson_keeps_it_quiet(amb):
         client.portal.call(eng.ambient.tick)
         assert eng.ambient.watcher.held == {}
     assert eng.ambient.conns == {}  # the connection closed: its settings went with it
+
+
+def test_no_error_seen_while_a_lesson_search_runs(amb, monkeypatch):
+    """The video search before a build ('searching') is a lesson phase: no peek, no screen reading for errors."""
+    from fastapi.testclient import TestClient
+
+    from server.orchestrator.ambient import LESSON_PHASES
+
+    assert "searching" in LESSON_PHASES
+    main, eng, clock, _calls, _reader = amb
+    sent: list[tuple[str, dict]] = []
+    real_send_to = eng.ambient.hub.send_to
+
+    async def send_to(ws, type_, payload):
+        sent.append((type_, payload))
+        return await real_send_to(ws, type_, payload)
+
+    monkeypatch.setattr(eng.ambient.hub, "send_to", send_to)
+    with TestClient(main.app) as client, client.websocket_connect("/") as ws:
+        ws.receive_json()
+        _set(ws, errors=True)
+        _settle(client, eng, lambda: eng.ambient.errors_on())
+
+        eng.session.phase = "searching"
+        assert eng.ambient.lesson_running() is True and eng.ambient.wants_screen() is False
+        client.portal.call(eng.on_screen, frame("tsc_error"))
+        client.portal.call(eng.ambient.on_obs, frame("tsc_error"))
+        for _ in range(4):
+            clock.t += 1.5
+            client.portal.call(eng.ambient.tick)
+        assert eng.ambient.watcher.held == {}
+        assert [t for t, _p in sent if t == "error.seen"] == []
+
+        # the search ends with no lesson: spotting resumes, and the first peek is the error on screen now
+        eng.session.phase = "idle"
+        seen = _spot(client, eng, clock, ws, "git_error")
+        assert not seen.get("clear") and [p for t, p in sent if t == "error.seen"][0]["id"] == seen["id"]
