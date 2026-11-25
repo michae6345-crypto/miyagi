@@ -123,7 +123,7 @@ export const peekOpen = (s: HoverState): boolean => s.open && !s.muted
 // The down-wheel stretch (optional): a scroll down over the island leans it open; past COMMIT it opens.
 // ---------------------------------------------------------------------------------------------------------------
 
-export const STRETCH = { commit: 200, minScale: 0.6, endMs: 300 } as const
+export const STRETCH = { commit: 200, lean: 0.08, endMs: 300 } as const
 export type Stretch = { progress: number; committed: boolean }
 export const STRETCH_IDLE: Stretch = { progress: 0, committed: false }
 
@@ -141,5 +141,9 @@ export function stretchWheel(s: Stretch, deltaY: number): { state: Stretch; comm
 export function stretchKeepsWheel(rect: { left: number; right: number; bottom: number }, x: number, y: number, deltaY: number, margin: number = HOVER.margin): boolean {
   return deltaY > 0 && x >= rect.left + margin && x <= rect.right - margin && y <= rect.bottom - margin
 }
-/** The island's scale while stretching: it grows with the wheel, never below 0.6. */
-export const stretchScale = (s: Stretch): number => Math.max(STRETCH.minScale, 1 + s.progress * 0.01)
+/**
+ * The island's scale while stretching: it leans open with the wheel, up to 1 + STRETCH.lean at the commit point and no
+ * further. (It was 1 + progress * 0.01 with progress in wheel pixels: 3x at the commit, so a scroll on the notch
+ * ballooned it to two or three times its size before the panel opened. MIC-83.)
+ */
+export const stretchScale = (s: Stretch): number => 1 + (Math.max(0, Math.min(s.progress, STRETCH.commit)) / STRETCH.commit) * STRETCH.lean

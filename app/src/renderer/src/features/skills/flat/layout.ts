@@ -104,7 +104,7 @@ export function pathFold(g: SkillGraph): { ids: string[]; fold?: Fold } {
 
 /**
  * The Path. `width`: the column it fills (gaps grow up to maxGap, then it stays left-aligned at its natural width;
- * below its minimum it reports the larger `w` and the view scales it).
+ * below its minimum it reports the larger `w` and the view pans it at full size).
  */
 export function pathLayout(g: SkillGraph, width: number, measure: Measure = estimate): FlatLayout {
   const { ids, fold } = pathFold(g)

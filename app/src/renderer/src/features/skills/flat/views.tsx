@@ -356,17 +356,44 @@ function KeepFresh({ g, onOpen }: { g: SkillGraph; onOpen: (id: string) => void 
   )
 }
 
+/** Room around the Path's strip inside its scroller, so a card's ring or shadow is never clipped at the edge. */
+const PATH_PAD = 6
+
 export function PathView({ g, query, selected, onOpen }: { g: SkillGraph; query: string; selected?: string; onOpen: (id: string) => void }): ReactNode {
   const [ref, width] = useWidth<HTMLDivElement>()
+  const strip = useRef<HTMLDivElement>(null)
   const l = useMemo(() => pathLayout(g, width, measure), [g, width])
   const hot = hotSet(g, selected)
   const found = matches(g, query)
-  const scale = l.w > width ? width / l.w : 1
+  // A path longer than the column pans sideways at full size (it never shrinks the words), like the Map.
+  const pans = l.w > width
+  const focusBox = l.boxes.find((b) => g.byId[b.id]?.isNext) ?? l.boxes.find((b) => b.id === g.goal?.id)
+  const [fade, setFade] = useState({ l: false, r: false, t: false, b: false })
+  const readFade = (): void => {
+    const el = strip.current
+    if (!el) return
+    const f = { l: el.scrollLeft > 1, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 1, t: false, b: false }
+    setFade((o) => (o.l === f.l && o.r === f.r ? o : f))
+  }
+  // Open with the next skill in view, near the middle.
+  useLayoutEffect(() => {
+    const el = strip.current
+    if (!el) return
+    el.scrollLeft = pans ? openingLeft(l.boxes, focusBox, l.w + 2 * PATH_PAD, el.clientWidth, 1, PATH_PAD) : 0
+    readFade()
+  }, [l.w, focusBox?.id, Math.round(width / 40)]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div ref={ref} data-skills-view="path" style={{ paddingTop: 36 }}>
-      <Stage l={l} scale={scale} dimEdge={hot ? (a, b) => !(hot.has(a) && hot.has(b)) : undefined}>
-        <Cards g={g} l={l} hot={hot} found={found} selected={selected} onOpen={onOpen} project={() => 'tall'} />
-      </Stage>
+    <div ref={ref} data-skills-view="path" style={{ paddingTop: 36 - PATH_PAD }}>
+      <div
+        ref={strip}
+        data-skills-path-strip
+        onScroll={readFade}
+        style={{ overflowX: pans ? 'auto' : 'visible', overflowY: pans ? 'hidden' : 'visible', padding: PATH_PAD, margin: `0 ${-PATH_PAD}px ${-PATH_PAD}px`, scrollbarWidth: 'none', ...(pans ? fadeMask(fade) : {}) }}
+      >
+        <Stage l={l} dimEdge={hot ? (a, b) => !(hot.has(a) && hot.has(b)) : undefined}>
+          <Cards g={g} l={l} hot={hot} found={found} selected={selected} onOpen={onOpen} project={() => 'tall'} />
+        </Stage>
+      </div>
       <StillToGo g={g} dim={!!hot} onOpen={onOpen} />
       <KeepFresh g={g} onOpen={onOpen} />
     </div>
