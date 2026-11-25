@@ -13,7 +13,10 @@ off the event loop. No rect -> no mark (a wrong circle is worse than none); Show
 Rules: one mark per annotate; never from idle, the evaluate loop or ticks; never the same mark twice in a row (same
 step + rect within 12 pt + same text is skipped on a step-start retry, and on a Not yet within 8 s of the last send);
 where? always re-sends with a new id. annotate {clear} goes once, only while a mark is up, on step.passed / a skip /
-lesson.ended / a new lesson. While a step's mark is up the session sends no spotlight rect for it (one pointer).
+lesson.ended / a new lesson. While a step's mark is up (for at most 20 s after its last send: the app fades it unseen
+on a click or Esc) the session sends no spotlight rect for it (one pointer). A Not yet re-circles only for a learner's
+press (pressed = not auto, like _emit_card's `mine`), never for the judge's auto card. Show me with nothing to circle
+sends where_card (the words, naming the app) and never reaches the model path.
 
 Hooks in LessonSession (each 1-3 lines, like ui_targets): _lesson_ready_payload (lesson.app), start_step (on_step),
 _emit_card (not_yet_card), the show_me branch (on_where), the ask branch (on_where_ask), _pass_step / _end_lesson /
@@ -36,6 +39,7 @@ HOLD_POLL_S = 0.5            # "Before you start" / "Continue?" up: wait for it 
 HOLD_WAIT_MAX_S = 600.0
 SAME_PT = 12.0               # a rect within this of the last one is the same mark
 NOT_YET_REPEAT_S = 8.0       # a Not yet re-sends the identical mark only after this
+HOLD_SPOT_S = 20.0           # a mark holds spotlights back this long at most: the app fades it on a click / Esc unseen
 TEXT_WORDS = 12
 LABEL_WORDS = 4
 MAX_KEYS = 3
@@ -108,11 +112,15 @@ def ready_app(s) -> dict | None:
 
 
 def holds_spot(s) -> bool:
-    """A mark is up for the current step: the session sends no spotlight rect for it (one pointer at a time)."""
+    """A mark is up for the current step: the session sends no spotlight rect for it (one pointer at a time). Only
+    for HOLD_SPOT_S after its last send: the app fades a text mark when the learner reaches it or presses Esc and the
+    engine never hears of it, so an older mark must not mute that step's off-track boxes for good."""
     live = _state(s)["live"]
     step = getattr(s, "step", None)
-    return bool(live) and step is not None and live.get("stepId") == step.get("id") \
-        and live.get("gen") == getattr(s, "step_gen", None)
+    if not live or step is None or live.get("stepId") != step.get("id") or live.get("gen") != getattr(s, "step_gen", None):
+        return False
+    now = s.clock() if callable(getattr(s, "clock", None)) else None
+    return now is None or now - float(live.get("t") or 0.0) < HOLD_SPOT_S
 
 
 # ------------------------------------------------------------------ copy: text, label, keys
@@ -298,15 +306,20 @@ async def _drop_spot(s) -> None:
     await s.emit("spotlight", {"clear": True})
 
 
-async def _send(s, step: dict, mark: dict, why: str, t: app_target.Target) -> None:
+async def _send(s, step: dict, mark: dict, why: str, t: app_target.Target, gen: int | None = None) -> bool:
+    """Send the ONE mark. gen: the step_gen it was resolved for; a pass / step change that lands while the spotlight
+    clear waits on its lock sends nothing (no mark may outlive its step). -> whether it went out."""
     st = _state(s)
     await _drop_spot(s)
+    if gen is not None and not _current(s, gen, step):
+        return False
     await s.emit("annotate", {"marks": [mark]})
     now = s.clock() if callable(getattr(s, "clock", None)) else 0.0
-    st["live"] = {**mark, "gen": getattr(s, "step_gen", None)}
+    st["live"] = {**mark, "gen": getattr(s, "step_gen", None), "t": now}
     st["last"] = {**mark, "gen": getattr(s, "step_gen", None), "t": now}
     log.info("on-screen coach (%s): circled %r via %s at %s", why, mark.get("label"), t.via,
              {k: mark[k] for k in ("x", "y", "w", "h")})
+    return True
 
 
 # ------------------------------------------------------------------ triggers
@@ -338,7 +351,7 @@ async def on_step(s, gen: int, step: dict) -> None:
         last = st["last"]
         if last is not None and last.get("gen") == gen and _same(last, step, mark):
             return
-        await _send(s, step, mark, "step", t)
+        await _send(s, step, mark, "step", t, gen)
         return
 
 
@@ -367,22 +380,41 @@ async def on_not_yet(s, step: dict) -> bool:
     now = s.clock() if callable(getattr(s, "clock", None)) else 0.0
     if last is not None and _same(last, step, mark) and now - float(last.get("t") or 0.0) < NOT_YET_REPEAT_S:
         return True  # the identical mark went out moments ago: it is still the answer
-    await _send(s, step, mark, "not yet", t)
-    return True
+    return await _send(s, step, mark, "not yet", t, gen)
 
 
 async def on_where(s, step: dict, phrase_list: list | None = None) -> bool:
-    """Show me / "where?": circle it now, always with a new id. False: nothing found (the where card goes instead)."""
+    """Show me / "where?": circle it now, always with a new id. False: nothing found (the where card goes instead).
+    True also when the step changed or passed while it looked: no mark and no words about a step that is gone."""
     if step is None or not is_app_lesson(s):
         return False
     gen = getattr(s, "step_gen", None)
     if not _current(s, gen, step):
         return False
     t = await _resolve(s, step, phrase_list)
-    if t is None or not _current(s, gen, step):  # the step changed or passed meanwhile: clear() has run
+    if not _current(s, gen, step):  # the step changed or passed meanwhile (clear() has run): nothing to say about it
+        return True
+    if t is None:
         return False
-    await _send(s, step, _mark(s, step, t), "where", t)
+    await _send(s, step, _mark(s, step, t), "where", t, gen)  # sends nothing if the step moves on meanwhile
     return True
+
+
+def where_card(s, step: dict) -> dict:
+    """Show me in an app lesson found nothing to circle: the where card in words (free, never a model). The words name
+    the app (the panel may be collapsed for the coach, so the step is said here); the screen is down: say why."""
+    sid = step.get("id")
+    try:
+        reason = s.screen_down_reason(include_ax=False) if hasattr(s, "screen_down_reason") else None
+    except Exception:  # noqa: BLE001
+        reason = None
+    if reason:
+        return {"stepId": sid, "kind": "hint", "title": "I can't see your screen", "body": s.screen_down_message(reason)}
+    app = _app(s) or {}
+    name = str(app.get("using") or app.get("label") or "the app").strip()
+    text = short_text(step.get("instructions") or step.get("title") or "")
+    return {"stepId": sid, "kind": "where", "title": "Where to work",
+            "body": f"In {name}: {text}" if text else f"Bring {name} to the front so I can see it."}
 
 
 _WHERE = re.compile(r"^\s*where(?:'s|\s+is|\s+are|\s+do\s+i\s+(?:find|click|go)|\s+can\s+i\s+find|\s+should\s+i\s+"

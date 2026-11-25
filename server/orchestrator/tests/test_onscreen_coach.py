@@ -565,7 +565,7 @@ def test_a_show_me_that_resolves_while_the_step_passes_sends_nothing(monkeypatch
         r.gate.set()
         return await task
 
-    assert run(go()) is False
+    assert run(go()) is True  # handled: no mark, and no where words about a step that is gone
     assert s.of("annotate") == []
 
 
@@ -587,3 +587,100 @@ def test_no_spotlight_clear_when_no_box_is_up():
     run(OC._send(s, s.step, {"id": "os-s1-1", "why": "point", "stepId": "s1", "x": 1, "y": 2, "w": 30, "h": 20},
                  "where", HIT))
     assert [t for t, _ in s.events] == ["annotate"]
+
+
+# ------------------------------------------------------------------ review round 2
+
+def test_an_auto_not_yet_from_a_task_spawned_inside_a_press_never_marks(rig, resolver):
+    """_spawn copies the press's contextvars: the judge task a press started keeps _ANSWERED set, but its auto
+    "Not yet" is the evaluate / judge loop, never a press."""
+    run(start(rig))
+    n, calls = len(marks(rig)), len(resolver.calls)
+
+    async def go():
+        tok = session_mod._ANSWERED.set(set())  # the learner's press (next / start / skip -> evaluate -> judge)
+        try:
+            task = rig.s._spawn(rig.s._emit_card({"stepId": "s1", "kind": "hint", "title": "Not yet",
+                                                  "verdict": "not_done", "body": "judge"}, window_s=0.0, auto=True))
+        finally:
+            session_mod._ANSWERED.reset(tok)
+        await task
+        await settle(rig)
+
+    rig.clock.t += 60
+    run(go())
+    assert len(resolver.calls) == calls and len(marks(rig)) == n
+
+
+def test_show_me_with_nothing_to_circle_sends_words_never_the_model(tmp_path, monkeypatch, fast):
+    """A live step-start mark, then Show me whose resolve finds nothing (the phrase is ambiguous now), in a Blender
+    lesson that is not lesson_mode: the where card in words, no spotlight, no m.show_me (a paid call)."""
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    r = Resolver(HIT)
+    monkeypatch.setattr(app_target, "resolve", r)
+    rg = Rig(tmp_path, screen=FakeScreen())
+    run(start(rg))
+    assert len(marks(rg)) == 1 and OC.holds_spot(rg.s) and not rg.s.lesson_mode
+    called: list = []
+
+    async def paid(*a, **kw):
+        called.append(a)
+        return {"targets": [{"x": 10, "y": 10, "w": 50, "h": 20}], "caption": "here", "where": "over there"}
+
+    monkeypatch.setattr(rg.s.m, "show_me", paid, raising=False)
+    monkeypatch.setattr(rg.s.m, "has_pointing", lambda: True, raising=False)
+
+    async def screen_ctx(step):
+        return object()  # the coach's screen context is there: the old path would ask the model
+
+    monkeypatch.setattr(rg.s, "_screen_for_coach", screen_ctx)
+    rg.s.last_obs = object()
+    r.result = None
+    mark = rg.mark()
+    run(rg.s.action("show_me"))
+    run(settle(rg))
+    after = rg.since(mark)
+    assert not called
+    assert not [e for e in after if e["type"] == "annotate"]
+    assert not [e for e in after if e["type"] == "spotlight" and e["payload"].get("rect")]
+    where = [e["payload"] for e in after if e["type"] == "card" and e["payload"].get("kind") == "where"]
+    assert len(where) == 1 and where[0]["body"].startswith("In Blender:")
+
+
+def test_a_mark_holds_spotlights_back_for_twenty_seconds_at_most(rig, resolver):
+    """The app fades a text mark on a click inside it / Esc and the engine never hears: off-track boxes come back."""
+    run(start(rig))
+    assert OC.holds_spot(rig.s)
+    rig.clock.t += OC.HOLD_SPOT_S + 1
+    assert not OC.holds_spot(rig.s)
+    mark = rig.mark()
+    run(rig.s._show_spot({"rect": {"x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0}, "caption": "here", "app": "Blender"}))
+    assert [e for e in rig.since(mark) if e["type"] == "spotlight" and e["payload"].get("rect")]
+
+
+def test_a_pass_during_the_spotlight_clear_sends_no_mark():
+    """_send waits on the spotlight lock to clear a box: a pass that lands meanwhile leaves no live mark behind."""
+    s = FakeS()
+    s.spot_rect = {"x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0}
+    lock = asyncio.Lock()
+    s._spot_lock = lambda: lock
+
+    async def go():
+        await lock.acquire()
+        task = asyncio.ensure_future(OC.on_where(s, s.step))
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if lock._waiters:
+                break
+        s.passed = True  # step.passed while the clear waited
+        lock.release()
+        return await task
+
+    monkey = Resolver(HIT)
+    orig = app_target.resolve
+    app_target.resolve = monkey
+    try:
+        assert run(go()) is True
+    finally:
+        app_target.resolve = orig
+    assert s.of("annotate") == [] and OC._state(s)["live"] is None

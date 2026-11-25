@@ -6232,8 +6232,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
                 await self.emit("video.play", {})
             gen = self.step_gen
-            if onscreen_coach.is_app_lesson(self) and await onscreen_coach.on_where(self, step):
-                skill_hooks.note_assist(self, "show_me", step)  # an app lesson: circled on screen, the step beside it
+            if onscreen_coach.is_app_lesson(self):  # an app lesson: circled on screen, else the where words (no model)
+                if await onscreen_coach.on_where(self, step):
+                    skill_hooks.note_assist(self, "show_me", step)
+                elif gen == self.step_gen:  # nothing to circle: the where card in words, never m.show_me
+                    await self._emit_card(onscreen_coach.where_card(self, step))
                 return
             if reason := self.screen_down_reason(include_ax=False):  # say at once why there's no spotlight (no capture attempt)
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
@@ -6753,7 +6756,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
         covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
                   or (self._nudge is not None and card is self._nudge.get("card")))
-        onscreen_coach.not_yet_card(self, card, pressed=_ANSWERED.get() is not None)  # an app lesson: circle it again
+        onscreen_coach.not_yet_card(self, card, pressed=not auto and _ANSWERED.get() is not None)  # app lesson: again
         if covers:  # card.closed lifts the hold only for THIS card (another card's close must not: Test 2, 01:09)
             self._carded_title = card.get("title") or ""
         elif self._carded_checks:  # E14: the app has ONE card slot: this card took the place of the one
