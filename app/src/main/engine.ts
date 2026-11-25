@@ -61,8 +61,16 @@ export function secureEngineUrl(url: string): boolean {
   return LOOPBACK.test(url) || /^wss:\/\//i.test(url)
 }
 
+/**
+ * Ambient help (shared/contracts/AMBIENT-HELP.md) goes to every window as it comes, but never into the replay log: a
+ * window that reloads lost the ids the learner closed (the overlay's seen / closedHelp sets), so a replay would bring
+ * back a chip they dismissed, a setup card they closed or a help walk-through bon already finished pointing at.
+ * setup.progress stays logged: a lesson's own setup card uses it too (the ambient store ignores tools it never started).
+ */
+export const NOT_REPLAYED: ReadonlySet<string> = new Set(['error.seen', 'error.explanation', 'setup.report', 'help.steps'])
+
 export class EngineLink {
-  /** Every event since the last learn/build, replayed to a window that reloads. */
+  /** Every event since the last learn/build (but ambient help, NOT_REPLAYED), replayed to a window that reloads. */
   readonly log: Incoming[] = []
   connected = false
   private ws?: WebSocket
@@ -407,6 +415,7 @@ export class EngineLink {
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
+    if (NOT_REPLAYED.has(e.type)) return this.notify(e)
     this.log.push(e)
     for (const l of this.listeners) l(e)
   }

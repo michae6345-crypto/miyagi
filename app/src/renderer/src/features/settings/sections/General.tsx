@@ -25,6 +25,7 @@ import { PushToTalk } from '../../ptt/SettingsRows'
 import { useHealth } from '../permissions'
 import { PanelRows, Select } from '../rows'
 import { Flat, Group, OnWord, PageHeader, Row } from '../ui'
+import { AmbientSettings } from '../../ambient/Settings'
 
 const PLACES: { value: IslandPlace; label: string }[] = [
   { value: 'notch', label: 'In the notch' },
@@ -108,6 +109,8 @@ export function General({ live }: { live: boolean }): ReactNode {
       <PushToTalk />
 
       <BuddyColor />
+
+      <AmbientSettings />
 
       <WorksWith health={health} inLesson={inLesson} />
 

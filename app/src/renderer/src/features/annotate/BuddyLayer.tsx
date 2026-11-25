@@ -21,6 +21,7 @@ import { isElectron } from '../../bridge'
 import { useIslandBox } from '../../core/Island'
 import { islandBottom } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
+import { getFeatures } from '../../core/registry'
 import { brand, color, ease, fade as fades, radius2, type2 } from '../../core/theme'
 import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, toOverlay, type Pt, type Rect } from './geometry'
 import { createReach, type DrawMark } from './marks'
@@ -36,7 +37,17 @@ const SLOW = !isElectron && typeof location !== 'undefined' && new URLSearchPara
 
 type Drawn = { mark: DrawMark; local: Rect; from: Pt }
 
+/**
+ * One stroke per mark: when features/buddy's character is in the build (its overlay layer 'buddy'), it flies to each
+ * mark and draws the loop itself, and this layer draws nothing (Adrian, Nov 23). Read on first render, not at import:
+ * the registry fills in while features load. index.tsx tells that feature this layer yields.
+ */
 export function BuddyLayer({ layout }: { layout: Layout }): ReactNode {
+  const buddyDraws = useMemo(() => getFeatures().some((f) => f.id === 'buddy' && f.overlayLayers?.some((l) => l.id === 'buddy')), [])
+  return buddyDraws ? null : <Strokes layout={layout} />
+}
+
+function Strokes({ layout }: { layout: Layout }): ReactNode {
   const marks = useAnnotate((s) => s.marks)
   const box = useIslandBox()
   const reduced = useReducedMotion()

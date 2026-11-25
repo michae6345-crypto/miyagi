@@ -10,11 +10,11 @@
  * Several marks are a tour: the buddy takes them one at a time. Only the one it is at gets its loop; the ones still
  * to come wear a small number, so the learner can see there is more and where.
  *
- * One stroke per mark, ever: Michael's features/annotate (michael/app-buddy-draw) draws the same `annotate` event.
- * The character is the one that draws (Adrian, Nov 23). While a cut of that feature that still draws is in the build,
- * this layer and the buddy draw NOTHING and only the bonsai's point pose (the lean) is kept going, so the two can be
- * merged in either order without a mark being circled twice; once that feature yields, this one draws (marks.ts
- * standsDown has the rule).
+ * One stroke per mark, ever: Michael's features/annotate (michael/app-buddy-draw) reads the same `annotate` event and
+ * spotlight boxes. The character is the one that draws (Adrian, Nov 23): features/annotate yields (its
+ * `yieldsToBuddy`, and its layer draws nothing while this feature is in the build), so bon circles every mark. A cut of
+ * that feature that still draws would make this layer and the buddy draw NOTHING (only the bonsai's lean is kept
+ * going), so a mark is never circled twice (marks.ts standsDown has the rule).
  *
  * Look: the buddy's own color, the one the learner picked (skin.ts). No glow, no gradient, no arrowhead. Like the spotlight's ring it sits on an
  * ink keyline so it reads over a light app. It never takes a click (no data-hit) and the stroke is not reported as
@@ -125,9 +125,9 @@ export function ReachLayer({ layout }: { layout: Layout }): ReactNode {
 
   const near = usePointer(el, here)
 
-  // A spotlight box is ringed by the spotlight itself: the buddy sits by it and points, and draws no second ring.
-  const bridged = usePointing((s) => s.bridged)
-  const show = standDown || bridged ? [] : drawn
+  // A spotlight box (the step's target) gets bon's loop too: bon is the one that circles, in its color (Michael,
+  // Nov 24: "bon draws the marks"); the spotlight only dims round it and says its words.
+  const show = standDown ? [] : drawn
   return (
     <div ref={el} className="pointer-events-none absolute inset-0" data-buddy-reach={show.length || undefined} data-stand-down={standDown || undefined}>
       <svg className="absolute inset-0 h-full w-full" style={{ overflow: 'visible' }} aria-hidden>

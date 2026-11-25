@@ -125,15 +125,18 @@ export function recentLine(r: Recent): string {
   return r.total ? `Step ${Math.min(r.passed + 1, r.total)} of ${r.total}` : 'In progress'
 }
 
-/** The one thing left to set up, as a button label and a short line. undefined = nothing to fix. */
+/**
+ * The one thing left to set up: the button's label (what to do) and a short line (where it stands). The two never say
+ * the same words, since the card shows both side by side. undefined = nothing to fix.
+ */
 export function setupFix(rows: Row[]): { label: string; line: string } | undefined {
   const r = rows.find((x) => x.state !== 'passed' && x.state !== 'unknown')
   if (!r) return undefined
   const L: Record<Row['id'], { label: string; line: string }> = {
-    screen: { label: 'Allow Screen Recording', line: 'Allow Screen Recording' },
-    accessibility: { label: 'Turn on Accessibility', line: 'Turn on Accessibility' },
-    companion: { label: 'Connect VS Code', line: 'Connect VS Code' },
-    engine: r.state === 'watching' ? { label: 'Starting miyagi', line: 'miyagi is starting' } : { label: 'Start miyagi', line: 'miyagi isn’t running' }
+    screen: { label: 'Allow Screen Recording', line: 'Screen Recording is off.' },
+    accessibility: { label: 'Turn on Accessibility', line: 'Accessibility is off.' },
+    companion: { label: 'Connect VS Code', line: 'VS Code isn’t connected yet.' },
+    engine: r.state === 'watching' ? { label: 'Starting miyagi', line: 'One moment.' } : { label: 'Start miyagi', line: 'miyagi isn’t running.' }
   }
   return L[r.id]
 }
@@ -202,6 +205,13 @@ export function submitAsk(connected: boolean): boolean {
   set({ sending: 'lesson' })
   stepAside()
   return true
+}
+
+/** Start a lesson for `goal` (a card's Start lesson, a suggested row), through the ask field like typing it would. */
+export function teach(goal: string, connected: boolean): boolean {
+  if (get().sending) return false
+  setAskText(goal)
+  return submitAsk(connected)
 }
 
 /**
