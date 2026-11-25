@@ -14,14 +14,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Character, type CharacterProps } from './Character'
 import { NAME } from './name'
-
-export type Trick = 'hop' | 'wiggle' | 'twirl'
-export const TRICKS: Trick[] = ['hop', 'wiggle', 'twirl']
-/** How long one trick plays, ms (buddy.css matches it). */
-export const TRICK_MS = 720
-
-/** The trick for the nth tap (0-based). */
-export const trickFor = (n: number): Trick => TRICKS[((n % TRICKS.length) + TRICKS.length) % TRICKS.length]
+import { TRICK_MS, trickFor, type Trick } from './tricks'
 
 export function PokeBon(props: CharacterProps): ReactNode {
   const taps = useRef(0)
