@@ -4,14 +4,17 @@
  * real starts, no engine needed). The primary is "Show me around"; "Skip" goes straight to home. Either way setup is
  * finished and the learner lands on Home: no lesson is ever started from here.
  * `again`: setup opened again over home; the primary is Done (back to home, no tour offered).
+ * Before it, once: Pick your buddy's color (BuddyStep.tsx).
  */
 import { motion, useReducedMotion } from 'motion/react'
 import { NotebookText } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { color, elevation, fill, font, highlight, radius2, surface, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { isSkinChosen } from '../buddy/skin'
 import { startTour } from '../tips/tourStore'
+import { BuddyStep } from './BuddyStep'
 import { thisDevice } from './device'
 import { STAGE_MAX_H, STAGE_TOP } from './Guided'
 import { LauncherHint, rise, stagger } from './parts'
@@ -29,13 +32,7 @@ const GROUP_TOP = 32
  * because the flow caps the walk's height). Until the flow passes `chrome` (a shell request), `mark={false}`, which only
  * the flow passes, means 'flow'.
  */
-export function Ready({
-  onStart,
-  onTour,
-  again,
-  mark,
-  chrome = mark === false ? 'flow' : 'window'
-}: {
+type ReadyProps = {
   rows?: RowData[]
   sum?: Summary
   onStart?: () => void
@@ -43,7 +40,20 @@ export function Ready({
   mark?: boolean
   again?: boolean
   chrome?: 'window' | 'flow'
-}): ReactNode {
+}
+
+/**
+ * The first time through, the learner picks their buddy's color first (BuddyStep.tsx), then this screen. Decided when
+ * it opens: a pick inside the step must not close it, only its Continue does. Not when setup is opened again: by then
+ * the color lives in Settings.
+ */
+export function Ready(props: ReadyProps): ReactNode {
+  const [picking, setPicking] = useState(() => !props.again && !isSkinChosen())
+  if (picking) return <BuddyStep chrome={props.chrome ?? (props.mark === false ? 'flow' : 'window')} onDone={() => setPicking(false)} />
+  return <ReadyScreen {...props} />
+}
+
+function ReadyScreen({ onStart, onTour, again, mark, chrome = mark === false ? 'flow' : 'window' }: ReadyProps): ReactNode {
   const home = onStart ?? startLearning
   const reduce = useReducedMotion()
   const tour = (): void => {

@@ -1,0 +1,38 @@
+{
+  "name": "buddy",
+  "on": {
+    "connect": "buddy_point"
+  },
+  "segments": {
+    "buddy_point": [
+      {
+        "wait": 900,
+        "type": "annotate",
+        "payload": {
+          "marks": [{ "id": "b1", "x": 100, "y": 563, "w": 380, "h": 18, "why": "point", "label": "The optimizer" }],
+          "holdMs": 4000
+        }
+      },
+      {
+        "wait": 2000,
+        "type": "annotate",
+        "payload": {
+          "marks": [{ "id": "b1", "x": 102, "y": 564, "w": 380, "h": 18, "why": "point", "label": "The optimizer" }],
+          "holdMs": 4000
+        }
+      },
+      {
+        "wait": 3200,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            { "id": "b2", "x": 514, "y": 474, "w": 156, "h": 34, "why": "point", "label": "Used here" },
+            { "id": "b3", "x": 70, "y": 714, "w": 420, "h": 85, "why": "answer" }
+          ],
+          "holdMs": 6000
+        }
+      },
+      { "wait": 7000, "type": "annotate", "payload": { "clear": true } }
+    ]
+  }
+}
