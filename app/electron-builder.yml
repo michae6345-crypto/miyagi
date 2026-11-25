@@ -10,6 +10,19 @@ directories:
 files:
   - out/**
   - package.json
+# License texts that must travel with the app (agents/app-font-licenses.md). The fonts are SIL OFL 1.1, whose condition 2
+# wants the copyright notice and the license with every copy of the font: the woff2 files ride in app.asar (out/renderer),
+# their OFL texts land here, in Contents/Resources/licenses on a Mac (resources\licenses on Windows). The npm packages'
+# MIT / ISC notices sit beside them (scripts/third-party-notices.mjs writes the file). Top-level, so electron-builder
+# merges it with mac: and win: extraResources below. Settings > About > Open-source licenses shows the same texts.
+# test/fontLicenses.test.ts pins these entries and that every bundled font has a license file beside it.
+extraResources:
+  - from: src/renderer/src/assets/fonts/BricolageGrotesque-OFL.txt
+    to: licenses/fonts/BricolageGrotesque-OFL.txt
+  - from: brand/fonts/OFL.txt
+    to: licenses/fonts/GoogleSansFlex-OFL.txt
+  - from: licenses/THIRD-PARTY-NOTICES.txt
+    to: licenses/THIRD-PARTY-NOTICES.txt
 # Chromium ships ~55 UI locales per platform (~9 MB on Mac); the app's copy is English only.
 electronLanguages: [en]
 # Electron fuses (app-harden lane; test/fuses.test.ts pins every value). Flipped inside the Electron binary at package

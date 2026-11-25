@@ -8,7 +8,7 @@
  * Real today: theme (core prefs), text size, density, reduce motion, sidebar, code samples, confirm skip and time left
  * (local.ts, applied by apply.ts or read where used), video speed and volume (the player's own saved record), tips, the start page
  * (apply.ts), sounds and the primary-press tap (features/sound), reminders (features/reminders), export progress,
- * reset tips, check for updates, send feedback.
+ * reset tips, check for updates, open-source licenses (LicensesView.tsx), send feedback.
  */
 import { ChevronDown } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -22,6 +22,7 @@ import { reachableInSettings } from '../reminders/store'
 import { setSoundMode, setSoundTaps, useSound } from '../sound/settings'
 import { resetTips, turnTipsOff, turnTipsOn, useTips } from '../tips/store'
 import { checkNow, useUpdates } from '../updates/store'
+import { openLicenses } from './licenses'
 import { CODE_SIZES, DENSITIES, MOTIONS, START_PAGES, TEXT_SIZES, progressJson, resetLocal, setLocal, useLocal, type Findable } from './local'
 import { RATE_OPTIONS, VOLUMES, useVideoPref } from './videoPrefs'
 import type { PanelId } from './panels'
@@ -282,7 +283,15 @@ export const SETTINGS: readonly Setting[] = [
     keywords: 'upgrade new release',
     control: { kind: 'button', label: 'Check now', run: () => void checkNow() }
   },
-  { id: 'licenses', panel: 'about', group: COMING, label: 'Open-source licenses', caption: 'The code miyagi is built on.', keywords: 'legal third party', control: { kind: 'soon', text: 'View' } },
+  {
+    id: 'licenses',
+    panel: 'about',
+    group: 'miyagi',
+    label: 'Open-source licenses',
+    caption: 'The fonts and code miyagi is built on.',
+    keywords: 'legal third party font ofl copyright notices',
+    control: { kind: 'button', label: 'View', run: openLicenses }
+  },
   {
     id: 'feedback',
     panel: 'about',
