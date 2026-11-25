@@ -20,6 +20,10 @@
  * timed. It stays while its step is live and goes on step.passed, a step.started for another step, lesson.ended, a new
  * (non-replay) lesson.ready, Esc, annotate {clear}, a replacing annotate, or the learner reaching it. Marks without text
  * keep the hold above.
+ * Only while its step is live: an annotate whose text mark names a step that is not running now (a late answer after
+ * step.passed, or after the next step.started) draws no text mark. And no text mark on idle: lesson.paused, a blocker
+ * (not a clear) or status "idle" withdraws the text marks (not remembered as gone, so the engine's re-send after
+ * lesson.resumed draws them again), and an annotate meanwhile draws none.
  * An explicit ask brings pointing back after the learner reached or dismissed it: a Show me press ("where?"), or a
  * "Not yet" card (verdict not_done) for the current step. The engine re-sends the point mark then (same id), and the
  * next annotate after the ask draws its marks again even if they are gone this step. If the re-send came first (it was
@@ -30,7 +34,7 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { fadeAt, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
+import { cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known, type OnscreenFields } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -52,6 +56,11 @@ let curStep: string | undefined
 let engineAsked = false
 /** The marks of this step's latest annotate that were skipped as gone (and its hold): a "Not yet" draws them again. */
 let dropped: { marks: Annotation[]; holdMs: number } | undefined
+/** The lesson is not live for the learner now: paused (lesson.paused), a blocker in the way (by kind), status "idle". */
+let paused = false
+const blockers = new Set<string>()
+let idle = false
+const quiet = (): boolean => paused || blockers.size > 0 || idle
 
 function stopHold(): void {
   clearTimeout(hold)
@@ -77,6 +86,9 @@ function forget(): void {
   lastSpot = undefined
   engineAsked = false
   dropped = undefined
+  paused = false
+  blockers.clear()
+  idle = false
   if (get().marks.length) set({ marks: [] })
 }
 
@@ -108,6 +120,21 @@ function withdraw(): void {
   if (get().marks.length) set({ marks: [] })
 }
 
+/** A mark that carries the coach's text (a "point" mark with text: mergeMarks keeps text for those only). */
+const textOf = (m: Annotation): boolean => m.why === 'point' && !!cleanText((m as Annotation & OnscreenFields).text)
+
+/** Not drawn now: a text mark for a step that is not the one running, or any text mark while the lesson is quiet. */
+const notLive = (m: Annotation): boolean => textOf(m) && (quiet() || (!!m.stepId && m.stepId !== curStep))
+
+/** The lesson went quiet (paused, a blocker, idle): the untimed text marks go, not remembered as gone, so a re-send
+ * once it is live again draws them. Timed marks keep their hold. */
+function withdrawText(): void {
+  const cur = get().marks
+  const left = cur.filter((m) => !hasText(m))
+  if (left.length !== cur.length) set({ marks: left })
+  if (!left.length) stopHold()
+}
+
 /** An explicit ask for this box (Show me): forget that it was reached or timed out, and let it be born again. */
 function askAgain(m: Annotation): void {
   for (const k of sameMarkKeys(m, gone.values())) gone.delete(k)
@@ -121,7 +148,12 @@ onMessage('annotate', (p) => {
   if (!p || typeof p !== 'object') return
   if ('clear' in p && p.clear) return fade()
   if (!('marks' in p)) return
-  const marks = validMarks(p.marks)
+  // A text mark for a step that is no longer live (a late answer) or while the lesson is quiet: not drawn, so a stale
+  // untimed mark never stays up. It is not remembered as gone either. An annotate with nothing live left is ignored: a
+  // late answer must not replace what the running step drew.
+  const valid = validMarks(p.marks)
+  const marks = valid.filter((m) => !notLive(m))
+  if (valid.length && !marks.length) return
   const holdMs = holdFor(p.holdMs)
   // The answer to an explicit ask (Show me, "Not yet"): its marks are born again even if reached or dismissed.
   if (engineAsked) {
@@ -144,13 +176,16 @@ onMessage('card', (p) => {
   // The engine's re-send came before the card and was skipped as gone: draw it again now.
   const again = dropped
   dropped = undefined
-  again.marks.forEach(askAgain)
-  show(again.marks, again.holdMs)
+  const live = again.marks.filter((m) => !notLive(m))
+  if (!live.length) return
+  live.forEach(askAgain)
+  show(live, again.holdMs)
 })
 
 onMessage('step.started', (p) => {
   if (p?.stepId) curStep = p.stepId
   if (p?.replay) return // a reconnect's replay of the step already running: not a new step
+  idle = false // a new step is running: the lesson is live
   const step = p?.stepId
   engineAsked = false
   dropped = undefined
@@ -173,9 +208,29 @@ onMessage('lesson.ended', () => {
 })
 // A reconnect's replay of the lesson already running is not a new lesson: what is drawn stays.
 onMessage('lesson.ready', (p) => {
+  // A reconnect replays the pause and the blockers after the step (engine v2_snapshot): start from live, they re-arrive.
+  paused = false
+  blockers.clear()
+  idle = false
   if (p?.replay) return
   curStep = undefined
   forget()
+})
+// No text mark on idle: the lesson waits (paused, a blocker in the way) or the engine is idle.
+onMessage('lesson.paused', () => {
+  paused = true
+  withdrawText()
+})
+onMessage('lesson.resumed', () => void (paused = false))
+onMessage('blocker', (p) => {
+  const kind = String(p?.kind ?? '')
+  if (p?.clear) return void blockers.delete(kind)
+  blockers.add(kind)
+  withdrawText()
+})
+onMessage('status', (p) => {
+  idle = p?.state === 'idle'
+  if (idle) withdrawText()
 })
 onUi('reset', () => {
   forget()

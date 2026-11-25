@@ -11,7 +11,7 @@
  *   labelSpot               where the optional label goes: beside the loop on its own line (the end of a line of text is
  *                           mostly empty), else under it, or over it near the screen bottom
  *   textSpot                where the on-screen coach's text box goes (Nov 24): right of the loop, else left, below, above;
- *                           never over the target or the loop, always 16 pt inside the display
+ *                           never over the target or the loop as drawn (loopBox), always 16 pt inside the display
  */
 
 export type Pt = { x: number; y: number }
@@ -184,6 +184,8 @@ export type BuddyPath = {
   join: Pt
   /** The branch, sampled (island to join): what the coach's text box keeps clear of (textSpot). */
   branch: Pt[]
+  /** The loop, sampled (its wobble runs up to LOOP_REACH of the ring: textSpot keeps clear of loopBox). */
+  loopPts: Pt[]
   branchLength: number
   loopLength: number
 }
@@ -203,6 +205,7 @@ export function buddyPath(from: Pt, box: Rect, seed: number): BuddyPath {
     ring,
     join,
     branch: branchPts,
+    loopPts: loop,
     branchLength: polyLength(branchPts),
     loopLength: polyLength(loop)
   }
@@ -267,6 +270,12 @@ const overlap = (a: Rect, b: Rect): number =>
 /** The ring's bounding box. */
 export const ringBox = (ring: Ring): Rect => ({ x: ring.cx - ring.rx, y: ring.cy - ring.ry, w: ring.rx * 2, h: ring.ry * 2 })
 
+/** The most the drawn loop's radius grows past the ring (loopPoints: both waves at their peak plus the full drift). */
+export const LOOP_REACH = 1 + WOBBLE.a1 + WOBBLE.a2 + WOBBLE.drift
+
+/** The box the drawn loop can reach: the ring's box grown by LOOP_REACH (about 12.5% of each radius for a big target). */
+export const loopBox = (ring: Ring): Rect => ringBox({ ...ring, rx: ring.rx * LOOP_REACH, ry: ring.ry * LOOP_REACH })
+
 const clamp = (v: number, lo: number, hi: number): number => (hi < lo ? lo : Math.min(hi, Math.max(lo, v)))
 
 /** Does the segment a-b cross the rect (Liang-Barsky clipping)? */
@@ -305,7 +314,9 @@ export function lineHitsRect(line: readonly Pt[], r: Rect, pad = 0): boolean {
  * Where the coach's text box goes (its top-left, window coordinates). `ring`: the loop; `target`: the circled box; `size`:
  * the display; `box`: the text box's size; `branch`: the buddy's line from the island to the loop (sampled), if drawn.
  *
- * Tries right of the loop (centered on its line), then left, below and above, LABEL_GAP from the loop. A side fits when
+ * Tries right of the loop (centered on its line), then left, below and above, LABEL_GAP from the loop as drawn (loopBox:
+ * the wobble carries the stroke up to LOOP_REACH past the ring, so a big target's loop would otherwise run under the
+ * words). A side fits when
  * the box lies TEXT_EDGE inside the display without moving toward the loop. On a side the line crosses, the box slides
  * along the loop (the smallest slide first) until it is BRANCH_CLEAR off the line; a side with no clear slide yields to
  * the next, and if no side is clear of the line the first side that fits is used anyway.
@@ -313,7 +324,7 @@ export function lineHitsRect(line: readonly Pt[], r: Rect, pad = 0): boolean {
  * those that leave the target uncovered (the box is data-ui: the engine's screen reader cannot see under it). Pure.
  */
 export function textSpot(ring: Ring, target: Rect, size: { width: number; height: number }, box: { w: number; h: number }, branch?: readonly Pt[]): TextSpot {
-  const rb = ringBox(ring)
+  const rb = loopBox(ring)
   const { w, h } = box
   const loX = TEXT_EDGE
   const hiX = size.width - TEXT_EDGE - w

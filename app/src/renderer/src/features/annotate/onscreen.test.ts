@@ -87,6 +87,9 @@ const startS1 = (): void => send('step.started', { stepId: 's1', index: 0, title
 const reach = (): void => fade([(useAnnotate.getState().marks[0] as { key: string }).key])
 
 describe('text mark hold (store.ts)', () => {
+  // The coach's marks are for a live step: each test starts with s1 running.
+  beforeEach(() => startS1())
+
   it('a text mark has no fade timer; a plain mark still fades at 6 s', () => {
     send('step.started', { stepId: 's1', index: 0, title: 'Add a torus', instructions: 'Add a torus' })
     send('annotate', { marks: [textMark], holdMs: 2000 })
@@ -195,6 +198,100 @@ describe('text mark hold (store.ts)', () => {
     send('annotate', { marks: [{ ...textMark, text: 'Pick Torus from the Mesh list' }] })
     assert.equal(marks()[0].text, 'Pick Torus from the Mesh list')
     assert.equal((useAnnotate.getState().marks[0] as { born: number }).born, born)
+  })
+})
+
+describe('only while its step is live (store.ts)', () => {
+  beforeEach(() => startS1())
+
+  it('an annotate after step.passed for that step draws no text mark', () => {
+    send('step.passed', { stepId: 's1' })
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+  })
+  it('an annotate for s1 after step.started s2 draws no text mark, and leaves what s2 drew', () => {
+    send('step.started', { stepId: 's2', index: 1, title: 't', instructions: 'i' })
+    const s2Mark = { ...textMark, id: 'os-s2-1', stepId: 's2', text: 'Scale it with S' }
+    send('annotate', { marks: [s2Mark] })
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s2-1'], 'the late s1 answer neither draws nor replaces')
+    mock.timers.tick(60_000)
+    assert.deepEqual(ids(), ['os-s2-1'])
+  })
+  it('a late text mark is not remembered as gone: its step running again draws it', () => {
+    send('step.passed', { stepId: 's1' })
+    send('annotate', { marks: [textMark] })
+    startS1()
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+  })
+  it('a plain mark for another step still draws, on its hold (as before)', () => {
+    send('step.started', { stepId: 's2', index: 1, title: 't', instructions: 'i' })
+    send('annotate', { marks: [plainMark] })
+    assert.deepEqual(ids(), ['plain-1'])
+    mock.timers.tick(6000)
+    assert.deepEqual(ids(), [])
+  })
+})
+
+describe('no text mark on idle (store.ts)', () => {
+  beforeEach(() => startS1())
+
+  it('lesson.paused withdraws it; an annotate while paused draws none; after lesson.resumed the re-send draws it', () => {
+    send('annotate', { marks: [textMark] })
+    send('lesson.paused', { reason: 'editor_closed', stepId: 's1' })
+    assert.deepEqual(ids(), [])
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [], 'not while paused')
+    send('lesson.resumed', { reason: 'editor_closed', stepId: 's1' })
+    assert.deepEqual(ids(), [], 'resume alone draws nothing')
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'], 'not remembered as gone: the re-send draws it')
+    assert.equal(marks()[0].text, 'Add a torus from the Add menu')
+  })
+  it('a pause keeps a plain mark on its own hold', () => {
+    send('annotate', { marks: [textMark, plainMark] })
+    send('lesson.paused', { reason: 'user' })
+    assert.deepEqual(ids(), ['plain-1'])
+    mock.timers.tick(6000)
+    assert.deepEqual(ids(), [])
+  })
+  it('a blocker withdraws it; its clear lets the re-send draw it', () => {
+    send('annotate', { marks: [textMark] })
+    send('blocker', { kind: 'editor_closed', title: 'Open it again' })
+    assert.deepEqual(ids(), [])
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+    send('blocker', { kind: 'editor_closed', clear: true })
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+  })
+  it('a blocker clear of another kind keeps it quiet', () => {
+    send('blocker', { kind: 'network' })
+    send('blocker', { kind: 'kernel', clear: true })
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+  })
+  it('status idle withdraws it; watching again lets the re-send draw it', () => {
+    send('annotate', { marks: [textMark] })
+    send('status', { state: 'idle' })
+    assert.deepEqual(ids(), [])
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), [])
+    send('status', { state: 'watching' })
+    send('annotate', { marks: [textMark] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+  })
+  it('a new step clears idle; a reconnect replay of lesson.ready starts from live', () => {
+    send('status', { state: 'idle' })
+    send('step.started', { stepId: 's2', index: 1, title: 't', instructions: 'i' })
+    send('annotate', { marks: [{ ...textMark, stepId: 's2' }] })
+    assert.deepEqual(ids(), ['os-s1-1'])
+    send('lesson.paused', { reason: 'network' })
+    assert.deepEqual(ids(), [])
+    send('lesson.ready', { lesson: { id: 'l1', mode: 'lesson' }, steps: [], replay: true })
+    send('annotate', { marks: [{ ...textMark, stepId: 's2' }] })
+    assert.deepEqual(ids(), ['os-s1-1'])
   })
 })
 

@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BRANCH_CLEAR, buddyPath, hashSeed, lineHitsRect, ringBox, ringFor, segmentHitsRect, textSpot, TEXT_EDGE, type Rect } from './geometry'
+import { BRANCH_CLEAR, buddyPath, hashSeed, lineHitsRect, loopBox, LOOP_REACH, ringBox, ringFor, segmentHitsRect, textSpot, TEXT_EDGE, type Rect } from './geometry'
 import { cleanKeys, cleanText, DEFAULT_HOLD_MS, fadeAt, mergeMarks, timedMarks, type Annotation } from './marks'
 
 /** Keycap labels as the engine spells them on a Mac (engine data, not app copy). */
@@ -110,7 +110,7 @@ describe('textSpot', () => {
     const t = cases.centre
     const ring = ringFor(t)
     const p = textSpot(ring, t, size, tb)
-    assert.equal(p.x, ring.cx + ring.rx + 8)
+    assert.equal(p.x, ring.cx + ring.rx * LOOP_REACH + 8)
     assert.equal(p.y, ring.cy - tb.h / 2)
     assert.ok(p.fits)
   })
@@ -147,6 +147,45 @@ describe('textSpot', () => {
     assert.equal(p.side, 'above')
     assert.equal(p.y, plain.y)
     assert.ok(!lineHitsRect(path.branch, { ...p, ...tb }, BRANCH_CLEAR))
+  })
+  it('never sits on the drawn loop, wobble included, for medium and large targets', () => {
+    // The loop's wobble runs up to LOOP_REACH past the ring: a whole area (VIEW_3D, PROPERTIES) is a common target.
+    const targets: Rect[] = [
+      { x: 620, y: 390, w: 200, h: 120 },
+      { x: 570, y: 350, w: 300, h: 200 },
+      { x: 470, y: 250, w: 500, h: 400 },
+      { x: 570, y: 150, w: 300, h: 600 },
+      { x: 1100, y: 300, w: 300, h: 200 },
+      { x: 100, y: 650, w: 500, h: 200 },
+      { x: 660, y: 430, w: 120, h: 40 }
+    ]
+    let checked = 0
+    for (const island of [{ x: 720, y: 30 }, { x: 300, y: 30 }]) {
+      for (const target of targets) {
+        for (let seed = 0; seed < 40; seed++) {
+          const key = `os-${seed}-${target.w}x${target.h}`
+          const path = buddyPath(island, target, hashSeed(key))
+          const p = textSpot(path.ring, target, size, tb, path.branch)
+          const r = { ...p, ...tb }
+          const at = `${target.w}x${target.h} at ${target.x},${target.y}, seed ${seed}, island ${island.x}`
+          assert.ok(!hits(p, target), `${at}: covers the target`)
+          if (!p.fits) continue
+          assert.ok(!lineHitsRect(path.loopPts, r), `${at}: on the loop`)
+          assert.ok(!hits(p, loopBox(path.ring)), `${at}: inside the loop's reach`)
+          checked++
+        }
+      }
+    }
+    assert.ok(checked > 400, `most cases fit (${checked})`)
+  })
+  it('the loop never runs past loopBox', () => {
+    for (const target of [{ x: 620, y: 390, w: 200, h: 120 }, { x: 470, y: 250, w: 500, h: 400 }, { x: 600, y: 400, w: 12, h: 12 }]) {
+      for (let seed = 0; seed < 60; seed++) {
+        const path = buddyPath({ x: 720, y: 30 }, target, seed * 7919)
+        const b = loopBox(path.ring)
+        for (const q of path.loopPts) assert.ok(q.x >= b.x - 0.01 && q.x <= b.x + b.w + 0.01 && q.y >= b.y - 0.01 && q.y <= b.y + b.h + 0.01)
+      }
+    }
   })
   it('segment and rect: crossing, inside, beside', () => {
     const r = { x: 10, y: 10, w: 20, h: 20 }
