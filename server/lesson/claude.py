@@ -22,7 +22,7 @@ from server import models as model_table
 from server import prompt_cache
 from server.untrusted import strip_injection, wrap, wrap_stable
 
-from . import cost, gemini
+from . import app_lesson, cost, gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
 from .transcript import _mmss as _ts
 
@@ -496,6 +496,12 @@ Transcript of this step (with a little context either side):
 
 STEP_PROMPT = STEP_HEAD + "\n\n" + STEP_BODY  # the two joined (tests and docs read the whole prompt)
 
+
+def step_head(goal: str, lesson: str, outline: str) -> str:
+    """STEP_HEAD for one build: the stack guide, plus how to check the scene when the lesson is a Blender one."""
+    return STEP_HEAD.format(goal=goal, lesson=lesson, outline=outline,
+                            stack_guide=gemini.STACK_GUIDE + app_lesson.scene_guide(lesson))
+
 STEP_DETAIL_SCHEMA = {
     "type": "object",
     "properties": {k: v for k, v in VIDEO_DRAFT_SCHEMA["properties"]["steps"]["items"]["properties"].items()
@@ -568,7 +574,7 @@ async def watch_transcript(info: dict, goal: str) -> dict:
             PRIORITY.set(True)  # this task only: step 1's call goes before the rest of the fan-out
         a, b = parse_ts(st.get("start")), parse_ts(st.get("end"))
         lines = [ln for ln in info["transcript"] if a is not None and b is not None and a - 15 <= ln["t"] <= b + 10]
-        head = STEP_HEAD.format(goal=goal, lesson=seg.get("title", ""), outline=outline, stack_guide=gemini.STACK_GUIDE)
+        head = step_head(goal, seg.get("title", ""), outline)
         prompt = STEP_BODY.format(index=i, title=st.get("title", ""),
                                     start=st.get("start"), end=st.get("end"), instructions=st.get("instructions", ""),
                                     slice=wrap("transcript", "\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)"))
