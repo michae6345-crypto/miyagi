@@ -9,6 +9,9 @@
  *   activity   'listening' while the learner holds the keys (it perks up and shows what it hears), 'thinking' from
  *              the moment they let go until the engine answers.
  *   say        a sentence of its own: an answer card's first sentence, said beside what the answer points at.
+ *   woken      the learner clicked it where it lives in the corner (home.ts): it stays put instead of going to the
+ *              pointer, and what it hears, thinks and says shows there. `menu`: its bubble is offering Ask and how to
+ *              talk to it. A second click, Esc, or a quiet while puts it back to rest.
  * And the learner can answer back without talking: the chips in its bubble (reply()).
  *
  * Wired to what is really there today: answer cards and Esc here (the bus), and in wire.ts the engine's status
@@ -23,12 +26,14 @@ import { firstSentence } from './trip'
 
 export type Activity = 'idle' | 'listening' | 'thinking'
 
-export const useTalk = create<{ summoned: boolean; activity: Activity; heard: string; say?: string; sayFor?: string }>(() => ({ summoned: false, activity: 'idle', heard: '' }))
+export const useTalk = create<{ summoned: boolean; activity: Activity; heard: string; say?: string; sayFor?: string; woken: boolean; menu: boolean }>(() => ({ summoned: false, activity: 'idle', heard: '', woken: false, menu: false }))
 const get = useTalk.getState
 const set = useTalk.setState
 
 /** After the last thing happened it stays by the pointer this long, then goes home. */
 export const LINGER_MS = 7000
+/** After Ask from its bubble it waits this long for the question to be typed and answered before it rests again. */
+export const ASK_WAIT_MS = 90_000
 let linger: ReturnType<typeof setTimeout> | undefined
 /** The learner asked something and the answer has not come yet: the engine's "thinking" is about that. */
 let asked = false
@@ -39,7 +44,13 @@ function stay(): void {
   linger = undefined
   if (!get().summoned) return
   if (get().activity !== 'idle' || usePointing.getState().marks.length) return
-  linger = setTimeout(() => set({ summoned: false, say: undefined, sayFor: undefined }), LINGER_MS)
+  linger = setTimeout(
+    () => {
+      asked = false
+      set({ summoned: false, woken: false, menu: false, say: undefined, sayFor: undefined })
+    },
+    asked ? ASK_WAIT_MS : LINGER_MS
+  )
 }
 
 /** Call it out to keep the pointer company. */
@@ -53,7 +64,33 @@ export function sendHome(): void {
   clearTimeout(linger)
   linger = undefined
   asked = false
-  set({ summoned: false, activity: 'idle', heard: '', say: undefined, sayFor: undefined })
+  set({ summoned: false, activity: 'idle', heard: '', say: undefined, sayFor: undefined, woken: false, menu: false })
+}
+
+/**
+ * The learner clicked it in its corner. It wakes and offers Ask and talking; clicked again while it is offering, it
+ * goes back to rest.
+ */
+export function wake(): void {
+  if (get().woken && get().menu) return sendHome()
+  asked = false
+  set({ summoned: true, woken: true, menu: true, say: undefined, sayFor: undefined })
+  stay()
+}
+
+/** What Ask opens: the ask field (the launcher). Set by wire.ts; the browser stage's try-out sets its own. */
+let asker: (() => void) | undefined
+export function setAsker(fn: typeof asker): void {
+  asker = fn
+}
+
+/** Ask, from its bubble: the ask field opens, and it waits where it is for the question and its answer. */
+export function ask(): void {
+  if (!get().woken) return
+  asked = true
+  set({ menu: false })
+  stay()
+  asker?.()
 }
 
 /** The learner is talking (`heard`: the words so far), has stopped and is waiting, or neither. */
@@ -61,7 +98,7 @@ export function setActivity(activity: Activity, heard = ''): void {
   if (activity !== 'idle') summon()
   if (activity === 'thinking') asked = true
   if (activity === 'idle') asked = false
-  if (get().activity !== activity || get().heard !== heard) set({ activity, heard, ...(activity === 'listening' ? { say: undefined, sayFor: undefined } : {}) })
+  if (get().activity !== activity || get().heard !== heard || (activity !== 'idle' && get().menu)) set({ activity, heard, ...(activity !== 'idle' ? { menu: false } : {}), ...(activity === 'listening' ? { say: undefined, sayFor: undefined } : {}) })
   stay()
 }
 
@@ -69,7 +106,7 @@ export function setActivity(activity: Activity, heard = ''): void {
 export function say(text?: string, forKey?: string): void {
   const line = text ? firstSentence(text) : undefined
   if (line) summon()
-  set({ say: line || undefined, sayFor: line ? forKey : undefined })
+  set({ say: line || undefined, sayFor: line ? forKey : undefined, ...(line ? { menu: false } : {}) })
   stay()
 }
 

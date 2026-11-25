@@ -151,6 +151,28 @@ Stage port 5251 (`npm run dev:web -- --port 5251`), or build it: `npx vite build
 - Whether the growing is wanted. (The learner's color is: see above.)
 - When the buddy says an answer the answer card also shows in the island. One of them should step back.
 
+## bon lives in the corner (Adrian, Nov 24; branch adrian/bon-corner, local, not pushed)
+
+Adrian: "bon should always be open on the corner ... if you click on bon then you can ask him or talk to him and then
+he moves around". Built on michael/app-ui-v4 (fe36496d), all in features/buddy:
+
+- `home.ts`: bon's home is the bottom right corner of the work area (default), or the notch as before
+  (`miyagi.buddy.home` in localStorage, stage `?bonhome=notch`). No Settings row yet.
+- `Companion.tsx`: at home in the corner bon is always shown, full size. Its trips to marks and to the pointer start
+  and end there (a hop, no shrinking into the island). The pointer near it: it looks.
+- A click on it (a 60 px `data-hit` square, only while it is home) wakes it: its bubble offers **Ask** (opens the ask
+  field, `launcher:toggle`) and says which keys to hold to talk. A second click, Esc or 7 s puts it back to rest.
+- `talk.ts` `woken` / `menu`, `wake()`, `ask()`: woken, it stays in the corner (it does not go to the pointer); push to
+  talk, the engine's thinking and an answer card's first sentence show there. After Ask it waits 90 s for the answer.
+- Tests: `test/buddyHome.test.ts` (13). Shots: `agents/shots/bon-corner-menu.jpg`, `bon-corner-ask.jpg`.
+
+For Michael to weigh in on (not settled):
+- This is the first thing that does not come out of the island ("every surface is born from the notch island"), and
+  the flying bon was click-through on purpose (PR #272). Adrian asked for both; `?bonhome=notch` is the old behaviour.
+- The corner square is reported in `overlay.bounds`, so the engine's reader skips those 60 px.
+- Not run in Electron (Windows laptop): the click relies on main's `overlay:hits` poll like every other data-hit.
+- Ask sends `launcher:toggle`: if the ask field is already open it closes it. A real "open" from main would be better.
+
 ## Core requests
 1. **The contract.** `annotate` and `Annotation` are on `claude/contract-circle-ask`, not on this branch. Until they land, `marks.ts` mirrors the type and `pointing.ts` casts `onMessage` to subscribe. Both go when the contract is merged.
 2. **`common/wire.ts` KNOWN needs `'annotate'`**, or the app's parser drops the event in Electron (the browser stage's mock does not go through the parser). Michael has this line in b3ffd388 on `michael/app-buddy-draw`.

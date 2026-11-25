@@ -12,13 +12,17 @@ import { createBonLink } from './engine'
 import { bonImported, LEVELS, localSteps, markBonImported, passStep, syncSteps } from './growth'
 import { words } from './name'
 import { askAgain, cheer, spotlit } from './pointing'
-import { engineThinking, say, setActivity, setEngine, summon } from './talk'
+import { engineThinking, say, setActivity, setAsker, setEngine, summon } from './talk'
 
 // Explain from the bubble is the step's Explain action; the mark's label goes with it.
 setEngine({
   canExplain: () => !!useLesson.getState().lesson,
   explain: (label) => sendAction('explain', label)
 })
+
+// Ask, from its bubble in the corner (talk.ts ask): the ask field. Main takes only a toggle; the field is closed then,
+// since the learner has just clicked the overlay.
+setAsker(() => bridge.emit('launcher:toggle'))
 
 // The engine is thinking about what the learner asked; when it stops, so does the buddy.
 useLesson.subscribe((s, prev) => {

@@ -21,6 +21,12 @@
  * it (beside a code row: that row's line number, which the engine reads to place the box). Only a bubble with buttons
  * takes the mouse (data-hit); nothing else here does.
  *
+ * Where it lives (home.ts): in the bottom right corner of the screen by default, always there, full size (Adrian,
+ * Nov 24). Its trips start and end there, and a click on it wakes it: its bubble offers Ask (the ask field) and how to
+ * talk to it, and what it hears, thinks and answers shows there (talk.ts woken). At home in the corner its body takes
+ * the mouse (data-hit, a 60 px square): the one place it does, so beside a code row it still hides nothing from the
+ * engine's reader. With home 'notch' it is tucked in the island as before and takes no click.
+ *
  * Reduced motion: no flights. It fades in where it would have landed, with its words whole, and fades out.
  * The character is the one that draws (Adrian, Nov 23). It stands down, with its loops, only for a cut of Michael's
  * features/annotate that still draws (Reach.tsx useStandDown, marks.ts standsDown).
@@ -29,16 +35,19 @@ import { animate, AnimatePresence, motion, useMotionValue, useReducedMotion, use
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import type { Point } from '../../core/geometry'
+import { useKey } from '../../core/keys'
 import { color, fill, shadows, text } from '../../core/theme'
 import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { ease, fade as fades, spring } from '../../core/ui/motion'
 import { Character, CHARACTERS, DEFAULT_CHARACTER, type CharacterKind, type Mood } from './Character'
 import { useGrowth } from './growth'
+import { cornerPoint, HOME, useHome } from './home'
+import { NAME } from './name'
 import { useSkin } from './skin'
 import { ringBox } from './marks'
 import { setTrip, usePointing } from './pointing'
 import { bonsaiPoint, frame, useHere, useStandDown } from './Reach'
-import { canExplain, reply, useTalk, type ReplyKind } from './talk'
+import { ask, canExplain, reply, useTalk, wake, type ReplyKind } from './talk'
 import { along, beside, BODY, buddyWhy, catchUp, flight, gazeAt, gazeOf, markWords, NOTICE_PX, perch, perchPrefer, said, scaleAt, tiltAt, type Flight } from './trip'
 
 /** Landing: it squashes this much (wider, shorter) and springs back. The hop when the learner gets there: this high, this long. */
@@ -96,6 +105,8 @@ type Model =
   | { kind: 'words'; text: string; footer: 'tour' | 'reply' | 'none'; step: number; total: number; forKey?: string }
   | { kind: 'listening'; heard: string }
   | { kind: 'thinking' }
+  /** Woken in its corner: Ask, and how to talk to it. */
+  | { kind: 'menu' }
 
 const ghost: CSSProperties = { height: 26, padding: '0 11px', borderRadius: 13, background: fill.chip, border: `1px solid ${fill.chipBorder}`, color: fill.chipText, fontSize: text.xs, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }
 
@@ -104,8 +115,18 @@ const ghost: CSSProperties = { height: 26, padding: '0 11px', borderRadius: 13, 
  * buttons are showing (they fold out under the words once it has said them). `measure`: the unseen copy the bubble
  * is sized from: everything open, nothing live.
  */
-function Says({ model, letters, open, onReply, measure = false }: { model: Model; letters: number; open: boolean; onReply?: (kind: ReplyKind) => void; measure?: boolean }): ReactNode {
+function Says({ model, letters, open, onReply, onAsk, measure = false }: { model: Model; letters: number; open: boolean; onReply?: (kind: ReplyKind) => void; onAsk?: () => void; measure?: boolean }): ReactNode {
   const skin = useSkin()
+  const askKey = useKey('launcher')
+  const talkKey = useKey('ptt')
+  if (model.kind === 'menu') {
+    return (
+      <span data-part={measure ? undefined : 'buddy-menu'} className="flex items-center gap-[10px] whitespace-nowrap">
+        <PrimaryButton label="Ask" kbd={askKey} onClick={() => onAsk?.()} />
+        {talkKey && <span style={{ color: color.faint }}>or hold {talkKey} and talk</span>}
+      </span>
+    )
+  }
   if (model.kind === 'thinking') {
     return (
       <span className="bd-dots">
@@ -181,21 +202,25 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const here = useHere(marks, layout)
   const first = standDown ? undefined : here[0]
   const key = first?.key
-  const goal: 'mark' | 'follow' | 'home' = key !== undefined ? 'mark' : talk.summoned && !standDown ? 'follow' : 'home'
+  /** It lives in the corner of the screen (home.ts), not tucked in the island. */
+  const corner = useHome((h) => h.place) === 'corner' && !standDown
+  // Woken in its corner it stays there: it does not go to the pointer.
+  const goal: 'mark' | 'follow' | 'home' = key !== undefined ? 'mark' : talk.summoned && !standDown && !(corner && talk.woken) ? 'follow' : 'home'
 
   // What it has to say right now.
   // A mark's own words first; a mark with none (a spotlight box) lets it say what it has to say anyway (it grew).
   const line = first ? (talk.sayFor === first.key && talk.say ? talk.say : (markWords(first) ?? (talk.sayFor ? undefined : talk.say))) : talk.sayFor ? undefined : talk.say
   const model = useMemo((): Model | undefined => {
-    if (goal === 'home') return undefined
+    if (goal === 'home' && !(corner && talk.woken)) return undefined
     if (talk.activity === 'thinking') return { kind: 'thinking' }
+    if (goal === 'home' && talk.menu && talk.activity === 'idle') return { kind: 'menu' }
     if (talk.activity === 'listening' && !key) return { kind: 'listening', heard: talk.heard }
     if (key !== undefined) {
       const footer = total > 1 ? 'tour' : line ? 'reply' : 'none'
       return line || footer === 'tour' ? { kind: 'words', text: line ?? '', footer, step: Math.max(1, total - marks.length + 1), total, forKey: key } : undefined
     }
     return line ? { kind: 'words', text: line, footer: 'none', step: 1, total: 1 } : undefined
-  }, [goal, talk.activity, talk.heard, key, line, total, marks.length])
+  }, [goal, corner, talk.woken, talk.menu, talk.activity, talk.heard, key, line, total, marks.length])
   const modelKey = model ? (model.kind === 'words' ? `w:${model.forKey ?? ''}:${model.text}:${model.footer}:${model.step}/${model.total}` : model.kind) : ''
   const heardLen = model?.kind === 'listening' ? Math.min(model.heard.length, 45) : 0
 
@@ -211,6 +236,9 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   }, [modelKey, heardLen])
 
   const wa = layout.workArea
+  const nest = cornerPoint({ x: wa.x, y: wa.y, w: wa.width, h: wa.height })
+  const cx = nest.x
+  const cy = nest.y
   const rx = first?.rect.x
   const ry = first?.rect.y
   const rw = first?.rect.w
@@ -243,8 +271,16 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   /** The learner's pointer, in this window's coordinates, once it has moved. */
   const pointer = useRef<Point | undefined>(undefined)
 
-  /** Put it in the island, small and unseen, ready to pop out. */
+  /** Put it in the island, small and unseen, ready to pop out. In the corner it is already there, full size. */
   const tuckIn = (): void => {
+    if (corner) {
+      x.set(cx)
+      y.set(cy)
+      scale.set(1)
+      tilt.set(0)
+      alpha.set(1)
+      return
+    }
     const home = bonsaiPoint(el.current, layout)
     x.set(home.x)
     y.set(home.y + 6)
@@ -322,7 +358,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       const run = animate(alpha, 1, fades.in)
       return () => run.stop()
     }
-    return fly(to, fromHome ? 'out' : 'hop', land)
+    return fly(to, fromHome && !corner ? 'out' : 'hop', land)
     // The trip is planned from the mark and its perch; the motion values and the layout are read as they are then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, bx, by, reduced])
@@ -351,7 +387,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       const run = animate(alpha, 1, fades.in)
       return () => run.stop()
     }
-    return fly(to, fromHome ? 'out' : 'hop', arrive)
+    return fly(to, fromHome && !corner ? 'out' : 'hop', arrive)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [goal, reduced])
 
@@ -400,13 +436,23 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
     let stop: (() => void) | undefined
     const arrive = (): void => {
       setTrip({ phase: 'home' })
-      alpha.set(0)
+      if (!corner) return alpha.set(0)
+      x.set(cx)
+      y.set(cy)
+      scale.set(1)
+      tilt.set(0)
+      alpha.set(1)
     }
     const go = (): void => {
       if (reduced) {
         const run = animate(alpha, 0, fades.out)
         void run.then(arrive)
         stop = () => run.stop()
+        return
+      }
+      // To the corner it hops, full size all the way; into the island it shrinks and fades.
+      if (corner) {
+        stop = fly({ x: cx, y: cy }, 'hop', arrive)
         return
       }
       const home = bonsaiPoint(el.current, layout)
@@ -418,11 +464,24 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       stop?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goal, reduced])
+  }, [goal, reduced, corner, cx, cy])
+
+  // At home in the corner it is simply there (and follows the corner when the screen or the Dock changes). With its
+  // home in the island it is unseen until it pops out.
+  useLayoutEffect(() => {
+    if (usePointing.getState().trip.phase !== 'home') return
+    if (!corner) return alpha.set(0)
+    x.set(cx)
+    y.set(cy)
+    scale.set(1)
+    tilt.set(0)
+    alpha.set(1)
+  }, [corner, cx, cy, x, y, scale, tilt, alpha])
 
   // It is where it means to be: its bubble can open.
   const perched = key !== undefined && trip.phase === 'perched' && trip.at === key
-  const settled = perched || (goal === 'follow' && trip.phase === 'follow')
+  const nested = corner && goal === 'home' && trip.phase === 'home'
+  const settled = perched || (goal === 'follow' && trip.phase === 'follow') || nested
   const words = model?.kind === 'words' ? model.text : ''
   const [letters, setLetters] = useState(0)
   useEffect(() => {
@@ -441,6 +500,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
 
   // It notices the learner: the pointer is tracked always, and while it is near the buddy turns to look at it.
   const away = trip.phase !== 'home'
+  const cornered = useRef(corner)
+  cornered.current = corner
   const [glance, setGlance] = useState<Point>()
   useEffect(() => {
     const move = (e: MouseEvent): void => {
@@ -448,7 +509,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       if (!fr) return
       const p = { x: (e.clientX - fr.box.left) * fr.k, y: (e.clientY - fr.box.top) * fr.k }
       pointer.current = p
-      if (usePointing.getState().trip.phase === 'home') return
+      if (usePointing.getState().trip.phase === 'home' && !cornered.current) return
       const dx = p.x - x.get()
       const dy = p.y - y.get()
       const d = Math.hypot(dx, dy)
@@ -467,17 +528,27 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   // Left of the loop it is mirrored (its bubble runs off to the left). It keeps the way it faced on the flight home.
   const facing = useRef(false)
   if (spot) facing.current = spot.mirrored
-  const mirrored = key !== undefined ? facing.current : false
+  // In its corner (bottom right) the bubble runs off to the left too.
+  const mirrored = key !== undefined ? facing.current : nested
   const point: -1 | 0 | 1 = perched && !beaming && spot && (spot.side === 'right' || spot.side === 'left') ? (spot.mirrored ? 1 : -1) : 0
   const end = (v: number): CSSProperties => (mirrored ? { right: v } : { left: v })
   const wide = useTransform(squash, (q) => 1 + SQUASH.wide * q)
   const short = useTransform(squash, (q) => 1 - SQUASH.short * q)
-  const ready = model?.kind === 'words' && model.footer !== 'none' && settled && letters >= words.length
+  const ready = (model?.kind === 'menu' && settled) || (model?.kind === 'words' && model.footer !== 'none' && settled && letters >= words.length)
   // The bubble hangs from the buddy's line: its first line is level with the buddy, and it is pulled up only when it
   // would run off the bottom of the screen.
   const hang = Math.min(-(BUBBLE.line / 2 + BUBBLE.padY), wa.y + wa.height - BUBBLE.edge - y.get() - size.h)
   const onReply = (kind: ReplyKind): void => {
     if (key !== undefined) reply(kind, key)
+  }
+  /** A click on it at home: it wakes with a small hop (or, already offering, goes back to rest). */
+  const onWake = (): void => {
+    const waking = !(talk.woken && talk.menu)
+    wake()
+    if (!waking) return
+    setBeaming(true)
+    setTimeout(() => setBeaming(false), 700)
+    if (!reduced) animate(hop, [0, -HOP.px, 0], { duration: HOP.seconds, ease: ease.out, times: [0, 0.4, 1] })
   }
   // Its body sits low in its 48-unit box (the sprout needs the room above): put the body, not the box, on the spot.
   const lift = BODY.size * (28 / 48)
@@ -488,7 +559,8 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
       className="pointer-events-none absolute inset-0"
       data-buddy={standDown ? 'stand-down' : trip.phase}
       data-buddy-why={buddyWhy({ standDown, marks: marks.length, here: here.length, summoned: talk.summoned })}
-      data-buddy-mood={away ? mood : undefined}
+      data-buddy-mood={away || corner ? mood : undefined}
+      data-buddy-home={corner ? 'corner' : 'notch'}
       data-letters={letters || undefined}
     >
       {model && (
@@ -496,7 +568,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
           <Says model={model} letters={words.length} open measure />
         </div>
       )}
-      {away && (
+      {(away || corner) && (
         <motion.div className="absolute left-0 top-0" style={{ x, y, opacity: alpha }}>
           <motion.div style={{ scale, rotate: tilt, y: hop }}>
             <motion.div style={{ scaleX: wide, scaleY: short, transformOrigin: `0px ${BODY.size * 0.3}px` }}>
@@ -508,6 +580,19 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
               </span>
             </motion.div>
           </motion.div>
+          {nested && (
+            <button
+              type="button"
+              data-hit
+              data-part="buddy-home"
+              aria-label={`Ask ${NAME ?? 'bon'}`}
+              aria-expanded={talk.woken}
+              className="pointer-events-auto absolute cursor-pointer"
+              style={{ left: -HOME.hit / 2, top: -HOME.hit / 2, width: HOME.hit, height: HOME.hit, borderRadius: HOME.hit / 2, background: 'transparent', border: 0, padding: 0 }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onWake}
+            />
+          )}
           <AnimatePresence>
             {model && settled && size.w > 0 && (
               <motion.div
@@ -526,7 +611,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
                 {/* Its tail, toward the buddy. */}
                 <span aria-hidden className="absolute" style={{ top: -hang - 4.5, ...end(-3.5), width: 9, height: 9, borderRadius: 2, background: color.island, transform: 'rotate(45deg)' }} />
                 <span className="relative block">
-                  <Says model={model} letters={letters} open={!!ready} onReply={onReply} />
+                  <Says model={model} letters={letters} open={!!ready} onReply={onReply} onAsk={ask} />
                 </span>
               </motion.div>
             )}
