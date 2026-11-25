@@ -5,7 +5,9 @@
  *
  *   engine.hello   bon.import once per Mac (the count growth.ts kept in localStorage), when the hello lists bon.import;
  *                  then bon.get, when it lists bon.get. Neither is ever sent to an engine that did not list it.
- *   bon            { steps, level, ... }: growth.ts syncSteps(steps). Quiet, and it never lowers the count shown.
+ *   bon            { steps, level, ... }: growth.ts syncSteps(steps). Quiet. The engine's count is the count, down
+ *                  too (Delete progress lowers bon). Only the first answer after this window's bon.import keeps the
+ *                  larger of it and the count handed over: the engine keeps the larger on import, and so does this.
  *   step.passed    a ui-v4 pass (it carries `counted`, or its hello listed bon.get and it carries the contract's `key`)
  *                  grows bon only when `counted: true`: the engine already left out skipped, already-done and
  *                  counted-before passes. Any other pass (an older engine, or a scenario written before ui-v4: the
@@ -65,6 +67,8 @@ export function counts(p: Passed, listed: boolean): boolean {
 }
 
 export function createBonLink(d: BonDeps): BonLink {
+  /** The count handed over by this window's bon.import, until the engine's first answer after it. */
+  let handed: number | undefined
   return {
     hello: (capabilities) => {
       const caps = Array.isArray(capabilities) ? capabilities.filter((c): c is string => typeof c === 'string') : []
@@ -72,13 +76,19 @@ export function createBonLink(d: BonDeps): BonLink {
         // Once per Mac: the engine keeps the larger count and adds `seen` to the keys it has counted.
         d.markImported()
         const kept = d.local()
-        if (kept) d.send('bon.import', { steps: kept.steps, seen: kept.seen })
+        if (kept) {
+          handed = kept.steps
+          d.send('bon.import', { steps: kept.steps, seen: kept.seen })
+        }
       }
       if (caps.includes('bon.get')) d.send('bon.get', {})
     },
     bon: (payload) => {
       const n = bonSteps(payload)
-      if (n !== undefined) d.sync(n)
+      if (n === undefined) return
+      // The import's answer: the larger count wins, as in the engine. Every later `bon` is followed as it is.
+      d.sync(handed !== undefined ? Math.max(n, handed) : n)
+      handed = undefined
     },
     passed: (p) => {
       if (!counts(p, d.canSend('bon.get')) || !p) return undefined
