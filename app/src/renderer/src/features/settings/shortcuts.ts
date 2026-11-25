@@ -8,7 +8,7 @@
 import type { ShortcutKind } from '../../../../main/platform'
 import { VOICE_ENABLED } from '../../../../common/flags'
 import { isAccelerator, type ShortcutPrefs } from '../../../../common/prefs'
-import { clashOf, isShortcutKind } from '../../../../common/shortcuts'
+import { clashOf, isShortcutKind, type ShortcutFallback } from '../../../../common/shortcuts'
 import type { KeyName } from '../../core/ui/Keycap'
 import type { OptionAction } from '../../core/theme'
 
@@ -96,6 +96,14 @@ export function clashLine(clash: ShortcutKind | 'quit' | 'taken'): string {
   if (clash === 'taken') return 'Another app uses that key.'
   if (clash === 'quit') return 'That key quits miyagi.'
   return `${SHORTCUT_ROWS.find((r) => r.key === clash)?.label ?? 'Another shortcut'} already uses that.`
+}
+
+/**
+ * The row's line for a saved key another app owns (main fell back, core/keys.ts useTaken): the default is in use
+ * instead, or no key at all. The override stays saved, so Reset is still there.
+ */
+export function takenLine(fallback: ShortcutFallback, defaultLabel: string | undefined): string {
+  return fallback === 'default' && defaultLabel ? `Another app uses that key. Using ${defaultLabel}.` : 'Another app uses that key.'
 }
 
 /** The map to save: this kind set to `value`, or its override removed (back to the default) when `value` is undefined. */

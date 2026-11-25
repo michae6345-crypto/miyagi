@@ -8,8 +8,13 @@
  *
  *   effectiveAccelerators(defaults, overrides)   every ShortcutKind's key in effect
  *   acceleratorLabel('Control+Alt+E', true)      '⌃⌥E'
- *   effectiveLabel(kind, platform, overrides)    the keycap text for a shortcut, live
+ *   effectiveLabel(kind, platform, overrides, fallbacks)   the keycap text for a shortcut, live (the key really bound)
  *   clashOf(value, kind, defaults, overrides)    which other shortcut (or quit) already uses that key
+ *   sanitizeFallbacks(x)                         main's 'shortcuts:taken' payload, validated
+ *
+ * A saved override another app owns when main registers it (startup, a lesson starting, the gate opening) falls back to
+ * the platform default, or to no key when the default won't take either (main/shortcutKeys.ts). The override stays in
+ * prefs; main tells every window which kinds fell back (ShortcutFallbacks), and the keycap shows the key really bound.
  */
 import type { KeyName, PlatformInfo, ShortcutKind } from '../main/platform'
 import { SHORTCUT_KINDS, type ShortcutPrefs } from './prefs'
@@ -94,12 +99,33 @@ export function acceleratorLabel(accelerator: string, mac: boolean): string {
 type Platformish = Pick<PlatformInfo, 'os' | 'keys'>
 
 /**
+ * A rebound shortcut whose saved key another app owns: main bound the platform default instead ('default'), or no key
+ * at all ('none'). Main's state, not saved: the override stays in prefs and is tried again on the next registration.
+ */
+export type ShortcutFallback = 'default' | 'none'
+export type ShortcutFallbacks = Partial<Record<ShortcutKind, ShortcutFallback>>
+
+/** main's 'shortcuts:taken' payload (IPC input): known kinds with a known fallback only. */
+export function sanitizeFallbacks(x: unknown): ShortcutFallbacks {
+  const out: ShortcutFallbacks = {}
+  if (!x || typeof x !== 'object') return out
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
+    if (isShortcutKind(k) && (v === 'default' || v === 'none')) out[k] = v
+  }
+  return out
+}
+
+/**
  * The keycap text for any key name, live: a rebindable shortcut with an override gets the override's label; everything
  * else (defaults, settings, dismiss, push to talk) keeps the platform's own label. Undefined when the platform has none.
+ * An override main could not bind (`fallbacks`) shows the key really bound: the platform's default, or none.
  */
-export function effectiveLabel(k: KeyName, platform: Platformish, overrides: ShortcutPrefs | undefined): string | undefined {
-  const override = isShortcutKind(k) ? overrides?.[k] : undefined
-  if (override) return acceleratorLabel(override, platform.os === 'mac')
+export function effectiveLabel(k: KeyName, platform: Platformish, overrides: ShortcutPrefs | undefined, fallbacks?: ShortcutFallbacks): string | undefined {
+  const kind = isShortcutKind(k) ? k : undefined
+  const override = kind ? overrides?.[kind] : undefined
+  const fell = kind && override ? fallbacks?.[kind] : undefined
+  if (fell === 'none') return undefined
+  if (override && !fell) return acceleratorLabel(override, platform.os === 'mac')
   return (platform.keys as Partial<Record<KeyName, string>>)[k] || undefined
 }
 

@@ -6,17 +6,26 @@
  * shortcuts are registered at all is index.ts's rule, through `live(kind)`: the launcher only while the login gate is
  * open, the lesson keys only while a lesson is active, the voice key never while voice is off.
  *
- *   rebind(current, want, ops, press)   pure: unregister what changed, register the new keys, put back the old key of
- *                                       any that failed (another app owns it). Returns what is bound and what failed.
+ *   rebind(current, want, ops, press, fallback)
+ *                                       pure: unregister what changed, register the new keys, put back the old key of
+ *                                       any that failed (another app owns it), else try its fallback (the platform
+ *                                       default). Returns what is bound and what failed.
  *   createShortcutKeys({...})           the controller index.ts keeps:
  *     .sync()                           bring the registered keys in line with live() and the prefs (startup, lesson
  *                                       start and end, the gate, any prefs change)
  *     .accept(next, prev)               a prefs patch's shortcuts (main/prefs.ts setShortcutCheck): an override another
  *                                       shortcut or another app already uses is refused and the previous key stays
  *     .bound()                          what is registered now (tests, logs)
+ *     .taken()                          the rebound shortcuts whose saved key another app owns: bound to the platform
+ *                                       default instead, or to nothing (onTaken tells the windows on every change)
+ *
+ * A saved override that won't register (startup, a lesson starting, the gate opening) falls back to the platform default
+ * when that default is free and no other shortcut uses it. The override stays in prefs (the learner's choice), and every
+ * later registration tries it again, so it works once the other app lets it go. A kind not registered now keeps what was
+ * last learned about it until its override changes.
  */
 import type { ShortcutPrefs } from '../common/prefs'
-import { clashOf, effectiveAccelerators, SHORTCUT_KINDS } from '../common/shortcuts'
+import { clashOf, effectiveAccelerators, sameAccelerator, SHORTCUT_KINDS, type ShortcutFallback, type ShortcutFallbacks } from '../common/shortcuts'
 import type { ShortcutKind } from './platform'
 
 export type KeyOps = {
@@ -32,9 +41,10 @@ export type Refusal = { kind: ShortcutKind; accelerator: string; reason: 'clash'
 /**
  * From `current` (registered now) to `want` (what should be). Only kinds whose key changed are touched. Every old key
  * goes first, so two shortcuts can trade keys. A key that won't register is reported in `failed`, and that kind gets its
- * old key back when it had one (and nothing else took it meanwhile); otherwise it is left unbound.
+ * old key back when it had one (and nothing else took it meanwhile), else its `fallback` key (the platform default, when
+ * the caller found it free of other shortcuts) if that registers; otherwise it is left unbound.
  */
-export function rebind(current: Bound, want: Bound, ops: KeyOps, press: (k: ShortcutKind) => () => void): RebindResult {
+export function rebind(current: Bound, want: Bound, ops: KeyOps, press: (k: ShortcutKind) => () => void, fallback: Bound = {}): RebindResult {
   const bound: Bound = { ...current }
   const changed = SHORTCUT_KINDS.filter((k) => current[k] !== want[k])
   for (const k of changed) {
@@ -52,7 +62,12 @@ export function rebind(current: Bound, want: Bound, ops: KeyOps, press: (k: Shor
   const inUse = (acc: string): boolean => Object.values(bound).includes(acc)
   for (const k of failed) {
     const old = current[k]
-    if (old && !inUse(old) && ops.register(old, press(k))) bound[k] = old
+    if (old && !inUse(old) && ops.register(old, press(k))) {
+      bound[k] = old
+      continue
+    }
+    const fb = fallback[k]
+    if (fb && fb !== want[k] && fb !== old && !inUse(fb) && ops.register(fb, press(k))) bound[k] = fb
   }
   return { bound, failed }
 }
@@ -70,6 +85,8 @@ export type ShortcutKeysDeps = {
   live: (k: ShortcutKind) => boolean
   /** A registered key was pressed. */
   press: (k: ShortcutKind) => void
+  /** The fallbacks changed (main/index.ts broadcasts them to every window as feat:shortcuts:taken). */
+  onTaken?: (taken: ShortcutFallbacks) => void
   warn?: (message: string) => void
 }
 
@@ -77,6 +94,7 @@ export type ShortcutKeys = {
   sync(): ShortcutKind[]
   accept(next: ShortcutPrefs, prev: ShortcutPrefs): { accepted: ShortcutPrefs; refused: Refusal[] }
   bound(): Bound
+  taken(): ShortcutFallbacks
 }
 
 export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
@@ -84,6 +102,9 @@ export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
   const warn = deps.warn ?? ((m: string) => console.warn(m))
   const press = (k: ShortcutKind) => (): void => deps.press(k)
   let bound: Bound = {}
+  /** Per kind: the override that would not register, and what is bound instead. */
+  const taken = new Map<ShortcutKind, { override: string; fallback: ShortcutFallback }>()
+  const takenNow = (): ShortcutFallbacks => Object.fromEntries([...taken].map(([k, t]) => [k, t.fallback]))
 
   const wanted = (overrides: ShortcutPrefs): Bound => {
     const now = effectiveAccelerators(defaults, overrides)
@@ -92,10 +113,47 @@ export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
     return out
   }
 
+  /** Each live override's fallback: the platform default, unless another shortcut (or quit) uses that default now. */
+  const fallbacks = (overrides: ShortcutPrefs): Bound => {
+    const out: Bound = {}
+    for (const k of SHORTCUT_KINDS) {
+      const o = overrides[k]
+      const d = defaults[k]
+      if (!o || !deps.live(k) || sameAccelerator(o, d)) continue
+      if (!clashOf(d, k, defaults, overrides, mac, deps.kinds)) out[k] = d
+    }
+    return out
+  }
+
+  /**
+   * After a rebind: what each override really got. A live kind whose override is bound is fine again; one bound to
+   * anything else fell back. A kind not live keeps its record until its override changes or goes.
+   */
+  const note = (overrides: ShortcutPrefs): void => {
+    const before = JSON.stringify(takenNow())
+    for (const k of SHORTCUT_KINDS) {
+      const o = overrides[k]
+      const rec = taken.get(k)
+      if (!o || (rec && rec.override !== o)) taken.delete(k)
+      if (!o || !deps.live(k)) continue
+      const b = bound[k]
+      if (b === o) {
+        taken.delete(k)
+        continue
+      }
+      const fallback: ShortcutFallback = b ? 'default' : 'none'
+      if (taken.get(k)?.fallback !== fallback) warn(`[keys] ${k} shortcut ${o} is taken by another app; ${b ? `using ${b}` : 'no key bound'}`)
+      taken.set(k, { override: o, fallback })
+    }
+    const now = takenNow()
+    if (JSON.stringify(now) !== before) deps.onTaken?.(now)
+  }
+
   const sync = (): ShortcutKind[] => {
-    const r = rebind(bound, wanted(deps.overrides()), ops, press)
+    const overrides = deps.overrides()
+    const r = rebind(bound, wanted(overrides), ops, press, fallbacks(overrides))
     bound = r.bound
-    for (const k of r.failed) warn(`[keys] ${k} shortcut ${wanted(deps.overrides())[k]} is taken by another app`)
+    note(overrides)
     return r.failed
   }
 
@@ -120,7 +178,7 @@ export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
     }
 
     // Registered now: swap for real, and put the old key back when the new one won't take.
-    const r = rebind(bound, wanted(accepted), ops, press)
+    const r = rebind(bound, wanted(accepted), ops, press, fallbacks(accepted))
     bound = r.bound
     for (const k of r.failed) {
       if (!changed.includes(k)) continue
@@ -140,8 +198,9 @@ export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
         revert(k)
       }
     }
+    note(accepted)
     return { accepted, refused }
   }
 
-  return { sync, accept, bound: () => ({ ...bound }) }
+  return { sync, accept, bound: () => ({ ...bound }), taken: takenNow }
 }
