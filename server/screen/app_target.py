@@ -22,6 +22,7 @@ latest frame can be minutes old, since the reader keeps it until something chang
 """
 from __future__ import annotations
 
+import importlib
 import logging
 import re
 import time
@@ -243,8 +244,8 @@ def app_window(obs, names: list[str]) -> Rect | None:
 def _bridge_ui() -> dict | None:
     """blender_ext.ui_rects(), imported here (never at module level: the bridge lane owns that module). Absent, missing
     ui_rects, None, a raise or not a dict: None."""
-    try:
-        from server.workspace import blender_ext
+    try:  # import_module reads sys.modules first (a test's fake), not the package attribute an earlier import set
+        blender_ext = importlib.import_module("server.workspace.blender_ext")
     except ImportError:
         return None
     fn = getattr(blender_ext, "ui_rects", None)

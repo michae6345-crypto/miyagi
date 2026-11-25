@@ -130,7 +130,8 @@ def test_bridge_returning_none_falls_through(monkeypatch):
 
 def test_the_bridge_is_imported_only_inside_a_function():
     src = open(T.__file__, encoding="utf-8").read().splitlines()
-    lines = [ln for ln in src if "blender_ext" in ln and ln.lstrip().startswith(("from ", "import "))]
+    lines = [ln for ln in src if "blender_ext" in ln
+             and (ln.lstrip().startswith(("from ", "import ")) or "import_module(" in ln)]
     assert lines and all(ln.startswith("        ") for ln in lines)  # inside a function body, never at module level
 
 
