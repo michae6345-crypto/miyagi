@@ -68,7 +68,8 @@ def test_101st_link_from_one_ip_is_429(make_cloud, caplog):
     with caplog.at_level(logging.INFO, logger="miyagi.cloud"):
         r = client.post("/v1/link", headers=headers, json={})
     err = assert_rate_limited(r, "ip_hourly")
-    assert int(r.headers["retry-after"]) > 60 and r.headers["x-should-retry"] == "false"
+    # the hourly window is clock-aligned, so near the top of the hour the wait can be under a minute (CI hit 48 s at 08:59)
+    assert 0 < int(r.headers["retry-after"]) <= 3600 and r.headers["x-should-retry"] == "false"
     assert "429" in caplog.text and "rl=ip_hourly" in caplog.text  # Guard (outer) logged it
     assert "203.0.113.7" not in caplog.text  # the log line carries no address
     # another client is not affected

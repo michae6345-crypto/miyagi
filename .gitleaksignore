@@ -10,3 +10,6 @@ feffca50dac33ce30e3ecabf2adc8bd9119399c6:server/tests/test_redact.py:private-key
 # app/agents/eng-drop-vendors.md: environment variable names set to empty ("keys empty: ..._API_KEY= ...")
 9ddc00efbaf5014fe27cfe21bb77ab058154e2e5:app/agents/eng-drop-vendors.md:generic-api-key:28
 c1d16021894de859c5b4ce37c0e6f7d265d8b92a:app/agents/eng-drop-vendors.md:generic-api-key:27
+
+# cloud/tests/test_link.py: a made-up HS256 secret ("legacy-test-secret-...") for the legacy-JWT test, checked 2026-11-25
+bb73bb028e093119b3bd8d634f65028ec7f7923e:cloud/tests/test_link.py:generic-api-key:25
