@@ -31,6 +31,7 @@ import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { Dots } from './Dots'
 import { MARK_ID } from './Intro'
 import type { Row } from './rows'
+import { stepGroup, stepRail } from './setupRail'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
 import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
 import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
@@ -91,51 +92,6 @@ export function regrantLines(id: StepId): string[] {
   return ['Already on? Switch miyagi off and on again.', 'Still stuck? Remove it with the minus, then add it back.']
 }
 
-/** The rail beside a step: how to turn it on, in three short lines (v4: a quiet rail, numbered rows). */
-function railFor(row: Row): { title: string; lines: Array<[string, string]> } | undefined {
-  if (row.id === 'screen')
-    return {
-      title: 'To turn on Screen Recording',
-      lines: [
-        ['Press Allow', 'System Settings opens.'],
-        ['Switch miyagi on', 'Privacy & Security, then Screen Recording.'],
-        ['Relaunch miyagi', 'macOS turns it on after a relaunch.']
-      ]
-    }
-  if (row.id === 'accessibility')
-    return {
-      title: 'To turn on Accessibility',
-      lines: [
-        ['Open System Settings', 'The button on the left opens it.'],
-        ['Switch miyagi on', 'Privacy & Security, then Accessibility.'],
-        ['Come back here', 'This turns green by itself.']
-      ]
-    }
-  if (row.id === 'companion')
-    return row.action?.id === 'get-vscode'
-      ? {
-          title: 'To connect VS Code',
-          lines: [
-            ['Get VS Code', 'Install it, then open it once.'],
-            ['Come back here', 'miyagi looks for it by itself.']
-          ]
-        }
-      : {
-          title: 'To connect VS Code',
-          lines: [
-            ['Install in VS Code', 'One click, VS Code opens.'],
-            ['Come back here', 'This turns green by itself.']
-          ]
-        }
-  return undefined
-}
-
-/** The rows a step shows: both macOS grants on either grant step (live checks side by side), else its own row. */
-function groupFor(row: Row, steps: Row[]): Row[] {
-  if (row.id === 'screen' || row.id === 'accessibility') return steps.filter((s) => s.id === 'screen' || s.id === 'accessibility')
-  return [row]
-}
-
 function StepPage({
   row,
   steps,
@@ -154,7 +110,8 @@ function StepPage({
   actions: ReactNode
 }): ReactNode {
   const c = STEP_COPY[row.id]
-  const how = railFor(row)
+  const how = stepRail(row)
+  const group = stepGroup(row, steps)
   return (
     <SetupPage
       top={top}
@@ -172,12 +129,12 @@ function StepPage({
       <SetupTitle title={c.title} lede={c.body} />
       <Rise style={{ marginTop: 26 }}>
         <SetupGroup label="Setup">
-          {groupFor(row, steps).map((r) => {
+          {group.map((r) => {
             const on = r.id === row.id
             return (
               <SetupRow
                 key={r.id}
-                current={on && groupFor(row, steps).length > 1}
+                current={on && group.length > 1}
                 name={r.label}
                 line={on ? statusLine(r) : r.why}
                 right={<LiveState state={r.state} word={on && r.state === 'passed' ? 'Done' : r.word} />}

@@ -36,9 +36,11 @@ export function Checklist({ rows, sum, onGuide, onStart, mark = true, again }: {
   const can = again || sum.canStart
   return (
     <div className="relative h-full w-full">
-      <SetupPage view="checklist" top={mark ? 'clamp(24px, 6vh, 64px)' : FLOW_TOP}>
+      {/* The setup window's top strip drags it (the traffic lights live there); the flow has its own strip. */}
+      {mark && <div data-drag className="absolute inset-x-0 top-0 z-[1] h-[28px]" />}
+      <SetupPage view="checklist" top={mark ? 'clamp(44px, 8vh, 72px)' : FLOW_TOP}>
         {mark && (
-          <Rise data={{ 'data-drag': true }} style={{ marginBottom: 18 }}>
+          <Rise style={{ marginBottom: 18 }}>
             <MiyagiMark size={32} />
           </Rise>
         )}
