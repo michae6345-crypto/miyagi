@@ -1,16 +1,19 @@
-"""A github.com repo link as a lesson's text: the README and docs/*.md, plus the repo's languages and file list.
+"""A github.com repo link as a lesson's text: the README (the repo root), plus the repo's languages and file list.
 
-Public endpoints only, no token (60 API calls an hour per IP; a link costs at most 4 API calls plus raw files):
+Public endpoints only, no token (60 API calls an hour per IP; a link costs at most 3 API calls plus raw files):
 
 - GET api.github.com/repos/{o}/{r}               name, description, default branch, language, owner
 - GET api.github.com/repos/{o}/{r}/git/trees/{ref}?recursive=1   every file path (GitHub truncates huge repos)
 - GET api.github.com/repos/{o}/{r}/languages     bytes per language
-- GET raw.githubusercontent.com/{o}/{r}/{ref}/{path}             the README, the docs files (not rate limited)
+- GET raw.githubusercontent.com/{o}/{r}/{ref}/{path}             the README, a docs folder's files (not rate limited)
 
 When the API says rate limited (403 / 429 with x-ratelimit-remaining: 0) the repo is read from raw files alone: the
 README at HEAD under its usual names, no file list. A 404 is "not found" (GitHub answers 404 for a private repo too).
 
-Link shapes: github.com/{o}/{r} (README + docs/), /tree/{ref}/{folder} (the .md files in that folder), /blob/{ref}/{path}
+The repo root reads the README alone, with or without the API, so the text (and the content hash and lesson cache key,
+ANY-LINK.md) of one repo never depends on GitHub's rate limit; a docs folder is its own link (/tree/{ref}/docs).
+
+Link shapes: github.com/{o}/{r} (the README), /tree/{ref}/{folder} (the .md files in that folder), /blob/{ref}/{path}
 (that file: a .md / .rst as text, any other text file as one code block). A ref with a slash in it (feature/x) is read
 as ref "feature" and path "x/...": GitHub's own URLs are ambiguous there; the API call then 404s and the link reads as
 not found. Every fetch goes through server.netsafe (fetch.py's `_get`).
@@ -31,7 +34,7 @@ log = logging.getLogger("server.linkread.github")
 
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
-MAX_DOCS = 10  # docs files read beside the README
+MAX_DOCS = 10  # files read from a docs folder link (beside its README)
 MAX_DOC_BYTES = 400 * 1024  # one README / docs file
 MAX_TOTAL_DOC_BYTES = 1024 * 1024  # all of them
 MAX_FILES_LISTED = 300  # paths kept in Extraction.github["files"]
@@ -42,7 +45,6 @@ _RESERVED = frozenset("about account apps blog collections contact customer-stor
 _NAME = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _README = re.compile(r"^readme(\.(md|markdown|mdown|mkdn|rst|txt))?$", re.IGNORECASE)
 _DOC_EXT = (".md", ".markdown", ".mdx", ".rst", ".txt")
-_DOCS_DIRS = ("docs/", "doc/", "documentation/")
 _EXT_LANG = {".py": "python", ".js": "javascript", ".mjs": "javascript", ".ts": "typescript", ".tsx": "tsx", ".jsx": "jsx",
              ".sh": "bash", ".rb": "ruby", ".go": "go", ".rs": "rust", ".java": "java", ".c": "c", ".h": "c", ".cpp": "cpp",
              ".cs": "csharp", ".swift": "swift", ".kt": "kotlin", ".php": "php", ".html": "html", ".css": "css",
@@ -185,13 +187,13 @@ async def read_repo(r: RepoRef, get, url: str) -> Extraction:
         paths = readme_here + [f for f in paths if f not in readme_here]
         paths = paths[:MAX_DOCS + 1]
     else:
+        # the README alone (not docs/): the rate-limited read below gets the same text, so one repo has one cache key
         readme = [f for f in files if "/" not in f and _README.match(f)]
         readme.sort(key=lambda f: (not f.lower().endswith((".md", ".markdown")), f))
-        docs = [f for f in files if f.lower().startswith(_DOCS_DIRS) and f.lower().endswith((".md", ".markdown", ".rst"))]
-        paths = readme[:1] + docs[:MAX_DOCS]
-        if not readme and not files:  # no file list (rate limited or an empty answer): the usual README names
+        paths = readme[:1]
+        if not files:  # no file list (rate limited or an empty answer): the usual README names
             paths = []
-            for name in ("README.md", "readme.md", "README.rst", "README", "Readme.md"):
+            for name in ("README.md", "Readme.md", "readme.md", "README", "README.rst"):  # the order the list picks in
                 rr = await get(_raw_url(r, ref, name), max_bytes=MAX_DOC_BYTES)
                 if rr.status_code == 200 and rr.text.strip():
                     blocks = _blocks_for(name, rr.text, r.html_url)

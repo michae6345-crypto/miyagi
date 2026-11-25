@@ -3,8 +3,11 @@ fixtures (server/linkread/tests/fixtures); nothing reaches the network or a mode
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
+import threading
+import time
 from pathlib import Path
 
 import httpx
@@ -432,14 +435,14 @@ def _gh_pages(**over) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_github_repo_readme_and_docs(site):
+async def test_github_repo_reads_the_readme(site):
     s = site(_gh_pages())
     ex = await fetch.read_link("https://github.com/Acme-Labs/TinyHTTP.git")
     assert ex.kind == "github" and ex.site == "github.com/acme-labs/tinyhttp" and ex.title == "tinyhttp"
     assert ex.author == "acme-labs" and ex.description == "A small, friendly HTTP client for Python"
     gh = ex.github
     assert gh["ref"] == "main" and gh["languages"] == ["Python", "Shell"] and gh["language"] == "Python"
-    assert gh["docs"] == ["README.md", "docs/advanced.md", "docs/quickstart.md"]
+    assert gh["docs"] == ["README.md"]  # the README alone: docs/ is its own link (/tree/main/docs)
     assert "src/tinyhttp/client.py" in gh["files"] and gh["fileCount"] == 10 and gh["filesTruncated"] is False
     text = ex.text()
     # badges, logo, screenshot, HTML comment and link reference definitions: gone
@@ -449,15 +452,13 @@ async def test_github_repo_readme_and_docs(site):
     heads = [(h.level, h.text, h.anchor) for h in ex.headings]
     assert heads[:3] == [(1, "tinyhttp", "tinyhttp"), (2, "Installation", "installation"), (2, "Quick start", "quick-start")]
     assert ex.page_ref(ex.headings[2]) == {"url": "https://github.com/acme-labs/tinyhttp#quick-start", "heading": "Quick start"}
-    retries = next(h for h in ex.headings if h.text == "Retries")
-    assert ex.page_ref(retries)["url"] == "https://github.com/acme-labs/tinyhttp/blob/main/docs/advanced.md#retries"
+    assert "Retries" not in text and "docs/advanced.md" not in text
     codes = [(c.lang, c.text) for c in ex.code_blocks]
     assert codes[0] == ("bash", "pip install tinyhttp")
     assert codes[1][0] == "python" and codes[1][1].startswith("import tinyhttp\n\nresp = tinyhttp.get(")
     assert codes[2] == (None, 'tinyhttp.post(url, json={"name": "lamp"})')  # an indented block
     assert "Method | What it does" in text and "`get` | Reads a resource" in text
     assert [b.number for b in ex.blocks if b.kind == "item"][:3] == [1, 2, 3]
-    assert "# docs/advanced.md" in text  # where the next file starts (it has no H1 of its own)
     assert not any("robots.txt" in c for c in s.calls)  # the public API and raw files: no robots read
     assert sum(c.startswith("https://api.github.com") for c in s.calls) == 3
 
@@ -502,6 +503,108 @@ async def test_github_docs_folder(site):
     ex = await fetch.read_link(f"{REPO}/tree/main/docs")
     assert ex.github["docs"] == ["docs/advanced.md", "docs/quickstart.md"] and ex.title == "tinyhttp: docs"
     assert "pip install tinyhttp" not in ex.text() and "Retries" in ex.text()
+    retries = next(h for h in ex.headings if h.text == "Retries")
+    assert ex.page_ref(retries)["url"] == "https://github.com/acme-labs/tinyhttp/blob/main/docs/advanced.md#retries"
+
+
+@pytest.mark.asyncio
+async def test_github_cache_key_does_not_depend_on_the_rate_limit(site):
+    """One repo, one lesson: the API read and the rate-limited raw read give the same text, so the same cache key."""
+    site(_gh_pages())
+    normal = await fetch.read_link(REPO)
+    limited = (403, json.dumps({"message": "API rate limit exceeded"}), {"x-ratelimit-remaining": "0"})
+    raw_head = "https://raw.githubusercontent.com/acme-labs/tinyhttp/HEAD/README.md"
+    site({**_gh_pages(), API: limited, raw_head: (200, fx("github/README.md"), {"content-type": "text/plain"})})
+    fallback = await fetch.read_link(REPO)
+    assert normal.github["files"] and not fallback.github["files"]  # really two different reads
+    assert normal.text() == fallback.text()
+    assert normal.content_hash == fallback.content_hash and normal.cache_key == fallback.cache_key
+
+
+@pytest.mark.asyncio
+async def test_github_rate_limited_after_the_repo_call_keeps_the_key(site):
+    """The tree call is the one rate limited (meta read): the README guesses at the default branch, same key."""
+    site(_gh_pages())
+    normal = await fetch.read_link(REPO)
+    limited = (403, json.dumps({"message": "API rate limit exceeded"}), {"x-ratelimit-remaining": "0"})
+    site(_gh_pages(**{f"{API}/git/trees/main?recursive=1": limited}))
+    fallback = await fetch.read_link(REPO)
+    assert fallback.github["files"] == [] and fallback.github["docs"] == ["README.md"]
+    assert normal.cache_key == fallback.cache_key
+
+
+# ------------------------------------------------------------------------------------------------ time cap and loop
+
+
+class SlowSite(Site):
+    """Every answer takes `delay` seconds (an async handler: the event loop stays free while it waits)."""
+
+    def __init__(self, pages: dict, delay: float) -> None:
+        super().__init__(pages)
+        self.delay = delay
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(self.delay)
+        return self(request)
+
+
+@pytest.mark.asyncio
+async def test_a_slow_github_repo_stops_at_the_read_deadline(monkeypatch):
+    """Each fetch is under its own timeout, but a repo link makes several: the whole read is capped."""
+    monkeypatch.setattr(fetch, "READ_DEADLINE_S", 0.3)
+    slow = SlowSite(_gh_pages(), delay=0.12)  # 3 API calls + the README = 0.48 s without the cap
+    monkeypatch.setattr(fetch, "TRANSPORT", httpx.MockTransport(slow.handle))
+    t0 = time.monotonic()
+    with pytest.raises(LinkUnreadable) as e:
+        await fetch.read_link(REPO)
+    took = time.monotonic() - t0
+    assert e.value.code == "offline" and e.value.reason == "github.com/acme-labs/tinyhttp took too long to answer."
+    assert e.value.site == "github.com/acme-labs/tinyhttp"
+    assert took < 0.45, took
+    assert len(slow.calls) < 4  # stopped before the README
+
+
+@pytest.mark.asyncio
+async def test_a_slow_web_page_stops_at_the_read_deadline(monkeypatch):
+    monkeypatch.setattr(fetch, "READ_DEADLINE_S", 0.2)
+    slow = SlowSite({BLOG: (200, fx("blog_flask_tutorial.html"), HTML)}, delay=0.15)  # robots.txt, then the page
+    monkeypatch.setattr(fetch, "TRANSPORT", httpx.MockTransport(slow.handle))
+    with pytest.raises(LinkUnreadable) as e:
+        await fetch.read_link(BLOG)
+    assert e.value.code == "offline" and e.value.reason == "bytegarden.example took too long to answer."
+
+
+@pytest.mark.asyncio
+async def test_html_extraction_runs_off_the_event_loop(site, monkeypatch):
+    """A big page's extraction is CPU only: it runs in a worker thread, so the engine's loop keeps answering."""
+    url = "https://big.example/guide"
+    site({url: (200, "<html><body><main><h1>Guide</h1>" + "<p>Some words to read here.</p>" * 40
+                + "</main></body></html>", HTML)})
+    loop_thread = threading.get_ident()
+    seen: list[int] = []
+    real = fetch.extract_html
+
+    def spy(text, *, site):
+        seen.append(threading.get_ident())
+        return real(text, site=site)
+
+    monkeypatch.setattr(fetch, "extract_html", spy)
+    ex = await fetch.read_link(url)
+    assert ex.title == "Guide" and seen and seen[0] != loop_thread
+
+
+@pytest.mark.asyncio
+async def test_a_too_deep_page_in_the_worker_thread_is_no_content(site, monkeypatch):
+    url = "https://deep.example/page"
+    site({url: (200, "<html><body><p>hello</p></body></html>", HTML)})
+
+    def boom(text, *, site):
+        raise RecursionError
+
+    monkeypatch.setattr(fetch, "extract_html", boom)
+    with pytest.raises(LinkUnreadable) as e:
+        await fetch.read_link(url)
+    assert e.value.code == "no_content" and "tangled" in e.value.reason
 
 
 @pytest.mark.parametrize("url, want", [

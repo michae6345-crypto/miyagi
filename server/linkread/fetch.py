@@ -6,6 +6,9 @@ The rules (shared/contracts/ANY-LINK.md "Fetch safely"):
   after every redirect (netsafe): "unsupported";
 - no cookie jar, no credentials, at most MAX_REDIRECTS redirects, TIMEOUT_S per read and DEADLINE_S for the whole page,
   at most MAX_PAGE_BYTES read (a longer page is read up to the cap, not refused);
+- READ_DEADLINE_S caps the whole read (robots.txt, the page, a redirect's robots.txt, every GitHub API call and raw
+  file): past it the link is "offline" ("<site> took too long to answer."), so link.get / learn_url never hang;
+- the HTML extraction (pure CPU, up to ~2 s on a 2 MB nested page) runs in a worker thread, off the engine's loop;
 - robots.txt is read first (ROBOTS_*): a Disallow for our token ("Miyagi") or for * is "blocked". A robots.txt that
   is missing (4xx) allows everything; one that cannot be read (5xx, timeout) is treated as allowing too: this is one
   page the learner asked for, as a browser would open it, not a crawl. The final host is checked again after a
@@ -17,6 +20,7 @@ Tests swap TRANSPORT for an httpx.MockTransport (netsafe still checks schemes an
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import urllib.robotparser
@@ -38,6 +42,7 @@ MAX_PAGE_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 5
 TIMEOUT_S = 10.0
 DEADLINE_S = 15.0
+READ_DEADLINE_S = 20.0  # the whole read_link, every fetch in it (a GitHub link makes up to 3 API calls + raw files)
 ROBOTS_TIMEOUT_S = 4.0
 ROBOTS_MAX_BYTES = 256 * 1024
 MAX_TEXT_CHARS = 120_000  # the extraction keeps the page's first sections up to this (the build cuts to its own budget)
@@ -176,10 +181,17 @@ async def read_link(url: str, *, client: httpx.AsyncClient | None = None) -> Ext
     _check(url)
     if link_kind(url) == "youtube":
         raise LinkUnreadable("unsupported", "That's a YouTube link: it's read as a video.")
-    if client is None:
-        async with netsafe.async_client(transport=TRANSPORT, timeout=TIMEOUT_S) as c:
-            return await _read(url, _Fetcher(c))
-    return await _read(url, _Fetcher(client))
+    repo = github.parse_repo_url(url)
+    site = repo.site if repo is not None else site_of(url)
+    try:
+        async with asyncio.timeout(READ_DEADLINE_S):
+            if client is None:
+                async with netsafe.async_client(transport=TRANSPORT, timeout=TIMEOUT_S) as c:
+                    return await _read(url, _Fetcher(c))
+            return await _read(url, _Fetcher(client))
+    except TimeoutError:
+        log.info("linkread: %s: no complete read within %g s", site, READ_DEADLINE_S)
+        raise LinkUnreadable("offline", f"{site} took too long to answer.", site=site) from None
 
 
 async def _read(url: str, f: _Fetcher) -> Extraction:
@@ -209,7 +221,7 @@ async def _read(url: str, f: _Fetcher) -> Extraction:
     text = _decode(resp, kind)
     if kind == "html":
         try:
-            page = extract_html(text, site=final_site)
+            page = await asyncio.to_thread(extract_html, text, site=final_site)  # CPU only: off the event loop
         except RecursionError:  # MAX_DEPTH keeps the tree shallow; this is the last guard
             raise LinkUnreadable("no_content", "This page is too tangled for me to read.", site=final_site,
                                  final_url=final) from None
