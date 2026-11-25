@@ -7,7 +7,7 @@
  *   err-limit (58)           "You have used today's free checks" (v2Cloud only, flagged)          Err-OfflineAndLimits
  *   err-crash (90)           "miyagi closed unexpectedly" (Esc = Don't save) (launch only, local only)     Err-CrashConsent
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, KeyRound } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -25,17 +25,30 @@ import { closeCard, decideCrash, restartEngine, TRIES, useErrors } from './store
 import { shellName, thisDevice } from '../onboarding/device'
 
 /** A text-only control (End lesson for now, View report): chrome, no fill. */
-function TextButton({ label, onClick, underline }: { label: string; onClick: () => void; underline?: boolean }): ReactNode {
+function TextButton({
+  label,
+  onClick,
+  underline,
+  armed,
+  onBlur
+}: {
+  label: string
+  onClick: () => void
+  underline?: boolean
+  armed?: boolean
+  onBlur?: () => void
+}): ReactNode {
   return (
     <button
       type="button"
       className="cursor-pointer"
+      data-armed={armed || undefined}
       style={{
         minHeight: 44,
         padding: underline ? 0 : '0 16px',
         background: 'transparent',
         border: 'none',
-        color: underline ? color.text : color.label,
+        color: underline || armed ? color.text : color.label,
         fontSize: type2.sm,
         fontWeight: 500,
         textDecoration: underline ? 'underline' : undefined,
@@ -43,10 +56,46 @@ function TextButton({ label, onClick, underline }: { label: string; onClick: () 
       }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
+      onBlur={onBlur}
     >
       {label}
     </button>
   )
+}
+
+/** How long "End lesson for now" stays armed after the first tap. */
+const END_ARM_MS = 4000
+
+/**
+ * "End lesson for now" in two taps, like the player's End lesson (QA Q03, MIC-56). The first tap only arms it
+ * ("Tap again to end"); a second tap within END_ARM_MS ends the lesson. A timeout, a blur or the window losing focus
+ * disarms it, so one stray click on this card never ends a lesson (closing a VS Code window raises it mid-demo).
+ */
+function EndForNow({ onEnd }: { onEnd: () => void }): ReactNode {
+  const [armed, setArmed] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  useEffect(() => {
+    if (!armed) return
+    const off = (): void => setArmed(false)
+    window.addEventListener('blur', off)
+    return () => window.removeEventListener('blur', off)
+  }, [armed])
+  const tap = (): void => {
+    clearTimeout(timer.current)
+    if (!armed) {
+      setArmed(true)
+      timer.current = setTimeout(() => setArmed(false), END_ARM_MS)
+      return
+    }
+    setArmed(false)
+    onEnd()
+  }
+  const disarm = (): void => {
+    clearTimeout(timer.current)
+    setArmed(false)
+  }
+  return <TextButton label={armed ? 'Tap again to end' : 'End lesson for now'} armed={armed} onClick={tap} onBlur={disarm} />
 }
 
 /** A rounded row on the card (the video, a file): neutral fill and hairline. */
@@ -170,7 +219,7 @@ export function EditorClosedCard(): ReactNode {
     >
       <div className="flex flex-col gap-2">
         <PrimaryButton size="lg" block label={guard(blocker?.action, `Reopen in ${name}`)} onClick={reopen} />
-        <TextButton label="End lesson for now" onClick={end} />
+        <EndForNow onEnd={end} />
       </div>
     </CardFrame>
   )
