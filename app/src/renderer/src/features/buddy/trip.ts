@@ -158,3 +158,37 @@ export function firstSentence(text: string): string {
   const cut = one.slice(0, SAY_MAX)
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), SAY_MAX - 24)).replace(/[\s,;:]+$/, '')}…`
 }
+
+/**
+ * Which side of a mark the buddy tries first. Something else already takes the right of it: the spotlight's caption
+ * (a spotlight box, `bridged`) or the on-screen coach's text box (a mark with text, `coach`, drawn by features/annotate
+ * right of the loop first: annotate/geometry.ts textSpot). Then the buddy takes the left; otherwise the right.
+ */
+export function perchPrefer(coach: boolean, bridged: boolean): 'right' | 'left' {
+  return bridged || coach ? 'left' : 'right'
+}
+
+/**
+ * The words the buddy says at a mark: its label, except on the on-screen coach's mark (with text), whose text box on
+ * the other side says them (features/annotate). One set of words per mark, as when features/annotate drew it alone.
+ */
+export function markWords(mark: { label?: string; text?: string } | undefined): string | undefined {
+  return mark?.text ? undefined : mark?.label
+}
+
+/**
+ * Why the buddy is where it is, for a live test (Companion's `data-buddy-why`): it tells an engine that sent nothing
+ * from an app that dropped what it sent.
+ *   stand-down   a cut of features/annotate still draws, so the buddy does not
+ *   no-mark      nothing to point at: no spotlight box or annotate reached the buddy
+ *   off-display  marks came, but none is on this display (the overlay covers the primary display only)
+ *   held         it is pointing at a mark
+ *   follow       nothing to point at, and it is keeping the learner company (called)
+ */
+export type BuddyWhy = 'stand-down' | 'no-mark' | 'off-display' | 'held' | 'follow'
+export function buddyWhy(s: { standDown: boolean; marks: number; here: number; summoned: boolean }): BuddyWhy {
+  if (s.standDown) return 'stand-down'
+  if (s.here > 0) return 'held'
+  if (s.summoned) return 'follow'
+  return s.marks > 0 ? 'off-display' : 'no-mark'
+}

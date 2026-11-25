@@ -11,7 +11,7 @@ import { sendAction, usePressed } from '../../core/shortcuts'
 import { createBonLink } from './engine'
 import { bonImported, LEVELS, localSteps, markBonImported, passStep, syncSteps } from './growth'
 import { words } from './name'
-import { cheer, spotlit } from './pointing'
+import { askAgain, cheer, spotlit } from './pointing'
 import { engineThinking, say, setActivity, setEngine, summon } from './talk'
 
 // Explain from the bubble is the step's Explain action; the mark's label goes with it.
@@ -55,6 +55,8 @@ if (typeof window !== 'undefined') {
       usePressed.subscribe((p, was) => {
         if (!p.kind || (p.kind === was.kind && p.at === was.at)) return
         showMeAsked = p.kind === 'show_me'
+        // Show me ("where?") asks the engine too: its next annotate is drawn even if the learner reached it (pointing.ts).
+        if (showMeAsked) askAgain()
       })
       onMessage('step.started', () => {
         showMeAsked = false

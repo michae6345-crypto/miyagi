@@ -44,15 +44,28 @@ type Drawn = { mark: DrawMark; local: Rect; from: Pt }
 
 /**
  * One stroke per mark: when features/buddy's character is in the build (its overlay layer 'buddy'), it flies to each
- * mark and draws the loop itself, and this layer draws nothing (Adrian, Nov 23). Read on first render, not at import:
- * the registry fills in while features load. index.tsx tells that feature this layer yields.
+ * mark and draws the loop itself, and this layer draws no stroke and no label (Adrian, Nov 23). Read on first render,
+ * not at import: the registry fills in while features load. index.tsx tells that feature this layer yields.
+ * The on-screen coach's text box is still drawn here then (live trace B4, Nov 24): the character has no text box of
+ * its own, and this store already knows when the step's text goes (untimed, quiet, stale steps). The character sits on
+ * the loop's left for a text mark (buddy/trip.ts perchPrefer), so the box keeps its first side, the right.
  */
 export function BuddyLayer({ layout }: { layout: Layout }): ReactNode {
-  const buddyDraws = useMemo(() => getFeatures().some((f) => f.id === 'buddy' && f.overlayLayers?.some((l) => l.id === 'buddy')), [])
-  return buddyDraws ? null : <Strokes layout={layout} />
+  const buddyDraws = useMemo(() => buddyInBuild(getFeatures()), [])
+  return <Strokes layout={layout} textOnly={buddyDraws} />
 }
 
-function Strokes({ layout }: { layout: Layout }): ReactNode {
+/** features/buddy's character is in the build: it draws the strokes, and this layer only the coach's text. */
+export function buddyInBuild(features: readonly { id: string; overlayLayers?: readonly { id: string }[] }[]): boolean {
+  return features.some((f) => f.id === 'buddy' && !!f.overlayLayers?.some((l) => l.id === 'buddy'))
+}
+
+/** What this layer draws for a mark: the stroke and the label, or (the character draws) only a text mark's text box. */
+export function drawnParts(mark: Pick<DrawMark, 'label' | 'text'>, textOnly: boolean): { stroke: boolean; label: boolean; text: boolean } {
+  return { stroke: !textOnly, label: !textOnly && !!mark.label && !mark.text, text: !!mark.text }
+}
+
+function Strokes({ layout, textOnly = false }: { layout: Layout; textOnly?: boolean }): ReactNode {
   const marks = useAnnotate((s) => s.marks)
   const box = useIslandBox()
   const reduced = useReducedMotion()
@@ -67,6 +80,7 @@ function Strokes({ layout }: { layout: Layout }): ReactNode {
   const drawn: Drawn[] = []
   const live = new Set<string>()
   for (const mark of marks) {
+    if (textOnly && !mark.text) continue // the character circles it; nothing of it is drawn here
     const local = toOverlay(mark.rect, layout.origin)
     if (!onOverlay(local, layout)) continue // on another display: the overlay only covers this one
     live.add(mark.key)
@@ -83,23 +97,25 @@ function Strokes({ layout }: { layout: Layout }): ReactNode {
     <div ref={root} className="pointer-events-none absolute inset-0" data-part="buddy-draw" aria-hidden>
       <svg width={layout.width} height={layout.height} className="absolute inset-0" style={{ overflow: 'visible' }}>
         <AnimatePresence>
-          {drawn.map((d) => (
-            <Stroke key={d.mark.key} d={d} reduced={!!reduced} />
-          ))}
+          {drawn
+            .filter((d) => drawnParts(d.mark, textOnly).stroke)
+            .map((d) => (
+              <Stroke key={d.mark.key} d={d} reduced={!!reduced} />
+            ))}
         </AnimatePresence>
       </svg>
       <AnimatePresence>
         {drawn
-          .filter((d) => d.mark.label && !d.mark.text)
+          .filter((d) => drawnParts(d.mark, textOnly).label)
           .map((d) => (
             <Label key={d.mark.key} d={d} layout={layout} reduced={!!reduced} />
           ))}
       </AnimatePresence>
       <AnimatePresence>
         {drawn
-          .filter((d) => d.mark.text)
+          .filter((d) => drawnParts(d.mark, textOnly).text)
           .map((d) => (
-            <TextBox key={d.mark.key} d={d} layout={layout} reduced={!!reduced} />
+            <TextBox key={d.mark.key} d={d} layout={layout} reduced={!!reduced} alone={textOnly} />
           ))}
       </AnimatePresence>
     </div>
@@ -166,7 +182,7 @@ function guessSize(text: string, keys: number): { w: number; h: number } {
 const nudge: Record<Side, { x?: number; y?: number }> = { right: { x: -6 }, left: { x: 6 }, below: { y: -6 }, above: { y: 6 } }
 
 /** The coach's text beside the loop: the step's action, then its keycaps (engine labels in the core Kbd atom). */
-function TextBox({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: boolean }): ReactNode {
+function TextBox({ d, layout, reduced, alone = false }: { d: Drawn; layout: Layout; reduced: boolean; alone?: boolean }): ReactNode {
   const el = useRef<HTMLDivElement>(null)
   const text = d.mark.text ?? ''
   const keys = d.mark.keys ?? []
@@ -180,7 +196,8 @@ function TextBox({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: bo
     if (w > 0 && h > 0 && (Math.abs(w - size.w) > 0.5 || Math.abs(h - size.h) > 0.5)) setSize({ w, h })
   }, [text, keys.join(' '), size.w, size.h]) // eslint-disable-line react-hooks/exhaustive-deps
   const path = useMemo(() => buddyPath(d.from, d.local, hashSeed(d.mark.key)), [d.from, d.local.x, d.local.y, d.local.w, d.local.h, d.mark.key]) // eslint-disable-line react-hooks/exhaustive-deps
-  const spot = textSpot(path.ring, d.local, layout, size, path.branch)
+  // `alone`: the character draws the loop from beside it, not a branch from the island, so there is no line to keep off.
+  const spot = textSpot(path.ring, d.local, layout, size, alone ? undefined : path.branch)
   const delay = reduced ? 0 : 0.45 * SLOW
   const from = reduced ? { opacity: 0 } : { opacity: 0, ...nudge[spot.side] }
   return (
