@@ -164,6 +164,33 @@ def _resolve(workdir: str, rel: str) -> str:
     return os.path.normpath(os.path.join(workdir, rel))
 
 
+def _exists_case_aside(workdir: str, path: str) -> bool:
+    """``path`` (already _resolve'd into the lesson folder) exists, letter case aside, as on the Mac's default
+    case-insensitive volume the learner works on: the lesson's gitgoing/index.html is the GitGoing/index.html that
+    ``gh repo clone LadyKerr/GitGoing`` made. A plain os.path.exists says the same on a Mac and the opposite on a
+    case-sensitive disk (Linux CI), so the same workspace would get two verdicts. Never leaves the lesson folder."""
+    root = os.path.realpath(workdir or ".")
+    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(workdir or "."))
+    if rel == ".." or rel.startswith(".." + os.sep):
+        return False
+    here = root
+    for part in rel.split(os.sep):
+        if part in ("", "."):
+            continue
+        try:
+            names = os.listdir(here)
+        except OSError:
+            return False
+        hit = part if part in names else next((n for n in sorted(names) if n.casefold() == part.casefold()), None)
+        if hit is None:
+            return False
+        here = os.path.join(here, hit)
+        real = os.path.realpath(here)
+        if real != root and not real.startswith(root + os.sep):
+            return False
+    return True
+
+
 def _refresh_scene(rel: str, path: str) -> None:
     """A Blender scene dump (mug.scene.json) is brought up to date from the learner's Blender before a check reads it
     (server/checks/scene_refresh.py; off unless the engine turned it on). Any other file is read as it is."""
@@ -2004,7 +2031,7 @@ def _ran_and_made(check: dict, ctx: RunContext, bl: list[blocks.Block]) -> Check
     if last is None or last.failure():
         return None
     paths = [_resolve(ctx.workdir, p) for p in proof]
-    if not all(p and os.path.exists(p) for p in paths):
+    if not all(p and _exists_case_aside(str(ctx.workdir), p) for p in paths):
         return None
     return _result(check, "pass", f"ran `{last.command}`; {proof[0]} is there")
 
