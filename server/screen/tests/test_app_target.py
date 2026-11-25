@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import time
 import types
+from pathlib import Path
 
 import pytest
 
@@ -84,9 +85,13 @@ def test_bridge_hit_is_via_bridge_and_ax_ocr_are_not_called(monkeypatch):
     assert t.via == "bridge" and t.label == "Torus" and t.rect == Rect(500, 400, 80, 60)
     assert ax.calls == [] and ocr.calls == []  # a bridge object: AX / OCR never asked
     # an area is the last resort: reached only after AX and OCR found no control
-    t = T.resolve(step("In the Properties editor, open the Modifier tab."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=ocr)
+    t = T.resolve(step("In the Properties editor, click Add Modifier."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=ocr)
     assert t is not None and t.via == "bridge" and t.rect == Rect(850, 300, 240, 400) and t.label == "Properties"
     assert ax.calls and ocr.calls
+    # "the Modifier tab" is a place, not a control: no AX / OCR for it; no tab column known -> the Properties area
+    ax2, ocr2 = Recorder(), Recorder()
+    t = T.resolve(step("In the Properties editor, open the Modifier tab."), BLENDER, obs(), [], ax_fn=ax2, ocr_fn=ocr2)
+    assert t is not None and t.via == "bridge" and t.label == "Properties" and ax2.calls == [] == ocr2.calls
     t = T.resolve(step("Add a Torus with Shift+A."), BLENDER, obs(), [], ax_fn=ax, ocr_fn=Recorder())
     assert t is None or t.label != "Torus"  # an object the step ADDS is never the one circled
 
@@ -129,7 +134,7 @@ def test_bridge_returning_none_falls_through(monkeypatch):
 
 
 def test_the_bridge_is_imported_only_inside_a_function():
-    src = open(T.__file__, encoding="utf-8").read().splitlines()
+    src = Path(T.__file__).read_text(encoding="utf-8").splitlines()
     lines = [ln for ln in src if "blender_ext" in ln
              and (ln.lstrip().startswith(("from ", "import ")) or "import_module(" in ln)]
     assert lines and all(ln.startswith("        ") for ln in lines)  # inside a function body, never at module level
@@ -375,3 +380,331 @@ def test_the_bridge_is_asked_once_per_resolve(monkeypatch):
     T.resolve(step("In the Properties editor, click Add Modifier."), BLENDER, o, [], ax_fn=Recorder(),
               ocr_fn=Recorder())
     assert calls == [1]
+
+
+# ------------------------------------------------------------------ round 4: the round-3 regressions, by name
+
+def ui_phrases(instr: str) -> list[str]:
+    return [p.text for p in T.phrases(step(instr)) if p.kind == "ui"]
+
+
+def test_r3_levels_viewport_field_is_no_view3d():
+    ps = T.phrases(step("Type 2 in the Levels Viewport field."))
+    assert ("VIEW_3D", "area") not in [(p.text, p.kind) for p in ps]
+    assert T.area_types("Type 2 in the Levels Viewport field.") == []
+
+
+def test_r3_ctrl_2_subdivision_modifier_is_no_properties():
+    ps = T.phrases(step("Press Ctrl+2 to add a Subdivision modifier"))
+    assert not any(p.text in ("PROPERTIES", "MODIFIER") for p in ps)
+    assert T.area_types("Press Ctrl+2 to add a Subdivision modifier") == []
+
+
+def test_r3_click_add_modifier_circles_the_button_never_the_properties_area(monkeypatch):
+    fake_bridge(monkeypatch, lambda: RAW_UI)  # the bridge has the PROPERTIES area
+    o = obs([blk("Add Modifier", 900, 300, 120)], windows=[Window("Blender", "donut.blend", MAIN)])
+    t = T.resolve(step("click Add Modifier"), BLENDER, o, [], ax_fn=Recorder())
+    assert t == T.Target(Rect(900, 300, 120, 16), "ocr", "Add Modifier")
+    t = T.resolve(step("click Add Modifier"), BLENDER, o, [], ax_fn=Recorder((Rect(890, 296, 130, 22), MAIN)))
+    assert t.via == "ax" and t.label == "Add Modifier"
+
+
+# ------------------------------------------------------------------ round 4: the reproduced wrong circle
+
+MODIFIER_TAB = "Open the Modifier tab in the Properties editor."
+
+
+def test_must_not_circle_modifier_inside_the_add_modifier_button(no_bridge):
+    # round 3: _CLICK took "Modifier" as a control and OCR found it inside the "Add Modifier" button
+    assert "Modifier" not in ui_phrases(MODIFIER_TAB)
+    assert [(p.text, p.kind) for p in T.phrases(step(MODIFIER_TAB))] == [("MODIFIER", "tab"), ("PROPERTIES", "area")]
+    o = obs([blk("Add Modifier", 900, 300, 120)])
+    assert T.resolve(step(MODIFIER_TAB), BLENDER, o, [], ax_fn=Recorder()) is None
+
+
+def test_must_not_circle_modifier_for_a_where_ask(no_bridge):
+    from server.orchestrator import onscreen_coach as OC
+
+    plist = OC.where_phrases("where is the Modifier tab?")
+    assert plist and not any(p.kind == "ui" for p in plist)
+    o = obs([blk("Add Modifier", 900, 300, 120)])
+    assert T.resolve(step(MODIFIER_TAB), BLENDER, o, [], ax_fn=Recorder(), phrase_list=plist) is None
+
+
+@pytest.mark.parametrize("instr,want", [
+    ('Click the "Modifier" tab.', [("MODIFIER", "tab"), ("PROPERTIES", "area")]),
+    ("Open the Modifier Properties", [("MODIFIER", "tab"), ("PROPERTIES", "area")]),
+    ("Open the Properties panel", [("PROPERTIES", "area")]),
+    ("Expand the Transform panel.", []),                     # a place miyagi doesn't know: nothing, never "Transform"
+    ("Go to the Material properties", [("MATERIAL", "tab")]),
+    ("Click the wrench icon.", [("MODIFIER", "tab")]),
+    ("Open the Object Data properties and add a UV map.", [("DATA", "tab")]),
+])
+def test_a_named_place_is_a_tab_or_area_never_a_control(instr, want):
+    assert [(p.text, p.kind) for p in T.phrases(step(instr))] == want
+
+
+def test_place_phrases():
+    assert T.place_phrases("Add Modifier") is None
+    assert T.place_phrases("Modifier tab") == [T.Phrase("MODIFIER", "tab"), T.Phrase("PROPERTIES", "area")]
+    assert T.place_phrases("material properties") == [T.Phrase("MATERIAL", "tab")]
+    assert T.place_phrases("Outliner area") == [T.Phrase("OUTLINER", "area")]
+    assert T.place_phrases("Transform panel") == []
+
+
+# ------------------------------------------------------------------ round 4: the bridge's /ui v2 (fakes)
+
+def raw_v2(*, objects=None, sidebar_px: int = 1, nav: bool = True, props: dict | None = None, extra_windows=()):
+    """The bridge's /ui with mode, active, regions, 3D Viewport objects and the Properties tab column (2000 x 1300 px:
+    a Retina window of 1000 x 650 pt)."""
+    view3d = {"type": "VIEW_3D", "ui_type": "VIEW_3D", "x": 0, "y": 0, "width": 1400, "height": 1300,
+              "regions": [{"type": "HEADER", "x": 0, "y": 1252, "width": 1400, "height": 48},
+                          {"type": "TOOLS", "x": 0, "y": 0, "width": 80, "height": 1252},
+                          {"type": "UI", "x": 1400 - sidebar_px, "y": 0, "width": sidebar_px, "height": 1252},
+                          {"type": "WINDOW", "x": 0, "y": 0, "width": 1400, "height": 1300}],
+              "objects": objects if objects is not None else [
+                  {"name": "Donut", "type": "MESH", "x": 600, "y": 500, "width": 200, "height": 100},
+                  {"name": "Plate", "type": "MESH", "x": 400, "y": 300, "width": 600, "height": 120},
+                  {"name": "Light", "type": "LIGHT", "x": 900, "y": 1000, "width": 24, "height": 24}]}
+    regions = [{"type": "HEADER", "x": 1400, "y": 852, "width": 600, "height": 48},
+               {"type": "WINDOW", "x": 1458, "y": 0, "width": 542, "height": 852}]
+    if nav:
+        regions.append({"type": "NAVIGATION_BAR", "x": 1400, "y": 0, "width": 58, "height": 852})
+    properties = {"type": "PROPERTIES", "ui_type": "PROPERTIES", "x": 1400, "y": 0, "width": 600, "height": 900,
+                  "regions": regions,
+                  "properties": props if props is not None else {
+                      "context": "OBJECT", "contexts": ["TOOL", "RENDER", "OUTPUT", "OBJECT", "MODIFIER", "MATERIAL"]}}
+    outliner = {"type": "OUTLINER", "ui_type": "OUTLINER", "x": 1400, "y": 900, "width": 600, "height": 400,
+                "regions": [{"type": "WINDOW", "x": 1400, "y": 900, "width": 600, "height": 400}]}
+    main = {"x": 0, "y": 0, "width": 2000, "height": 1300, "areas": [view3d, outliner, properties]}
+    return {"ok": True, "origin": "bottom-left", "pixel_size": 2.0, "mode": "OBJECT", "active": "Donut",
+            "windows": [main, *extra_windows]}
+
+
+RETINA = Rect(100, 50, 1000, 678)   # k = 0.5, 28 pt title bar: bottom at 728
+PLAIN = Rect(100, 50, 2000, 1328)   # k = 1.0, 28 pt title bar: bottom at 1378
+WIDE = Rect(0, 0, 2400, 1500)       # a primary display that holds PLAIN
+
+
+def bobs(blocks=(), win: Rect = RETINA, screen: Rect = PRIMARY, windows=None):
+    return obs(blocks, windows=windows if windows is not None else [Window("Blender", "donut.blend", win)],
+               screen=screen)
+
+
+def run(instr: str, ui, o=None, **kw):
+    return T.resolve(step(instr), BLENDER, o if o is not None else bobs(), [], bridge=lambda: ui,
+                     ax_fn=kw.pop("ax_fn", Recorder()), ocr_fn=kw.pop("ocr_fn", None), **kw)
+
+
+def test_bridge_shape_v2_maps_regions_objects_tabs_and_state():
+    shape = T.bridge_shape(raw_v2(sidebar_px=1), RETINA)
+    assert shape["mode"] == "OBJECT" and shape["active"] == "Donut" and shape["context"] == "OBJECT"
+    assert shape["contexts"][-1] == "MATERIAL"
+    assert dict(shape["objects"])["Donut"] == Rect(400, 428, 100, 50)      # (100 + 600/2, 728 - 600/2, 200/2, 100/2)
+    assert shape["tabs"] == Rect(800, 302, 29, 426)                        # the NAVIGATION_BAR region
+    kinds = {(a, t) for a, t, _ in shape["regions"]}
+    assert ("VIEW_3D", "TOOLS") in kinds and ("VIEW_3D", "UI") not in kinds  # a 1 px (hidden) sidebar is dropped
+    assert ("PROPERTIES", "NAVIGATION_BAR") in kinds
+    # the Properties editor's own tabs rect wins over the region
+    shape = T.bridge_shape(raw_v2(props={"context": "MODIFIER", "tabs": {"x": 1400, "y": 0, "width": 60,
+                                                                           "height": 800}}), RETINA)
+    assert shape["tabs"] == Rect(800, 328, 30, 400) and shape["context"] == "MODIFIER" and shape["contexts"] == []
+
+
+def test_modifier_tab_with_the_bridge_circles_the_tab_column(monkeypatch):
+    t = run(MODIFIER_TAB, raw_v2(), bobs([blk("Add Modifier", 900, 300, 120)]))
+    assert t == T.Target(Rect(800, 302, 29, 426), "bridge", "Modifier tab")
+    # through the default seam too (a fake blender_ext module)
+    fake_bridge(monkeypatch, lambda: raw_v2())
+    t = T.resolve(step(MODIFIER_TAB), BLENDER, bobs(), [], ax_fn=Recorder(), ocr_fn=Recorder())
+    assert t.via == "bridge" and t.rect == Rect(800, 302, 29, 426)
+    # no tab column: the Properties editor (the area), never the button's word
+    t = run(MODIFIER_TAB, raw_v2(nav=False), bobs([blk("Add Modifier", 900, 300, 120)]))
+    assert t.via == "bridge" and t.label == "Properties"
+
+
+def test_material_properties_circles_the_tab_column_never_one_tab():
+    assert T.TAB_LAYOUT_CONFIDENT is False
+    t = run("Go to the Material properties", raw_v2())
+    assert t == T.Target(Rect(800, 302, 29, 426), "bridge", "Material tab")
+    one = T.estimate_tab(Rect(800, 302, 29, 426), raw_v2()["windows"][0]["areas"][2]["properties"]["contexts"],
+                         "MATERIAL")
+    assert one is not None and t.rect != one  # the estimate exists, and is not used
+
+
+def test_material_properties_without_the_bridge_is_none(no_bridge):
+    assert T.resolve(step("Go to the Material properties"), BLENDER, bobs([blk("Material", 820, 400, 60)]), [],
+                     ax_fn=Recorder()) is None
+
+
+def test_one_tab_only_once_the_layout_is_trusted(monkeypatch):
+    monkeypatch.setattr(T, "TAB_LAYOUT_CONFIDENT", True)
+    t = run("Go to the Material properties", raw_v2())
+    # contexts TOOL | RENDER OUTPUT | OBJECT MODIFIER MATERIAL, unit 29: 0.25 pad, 5 cells and 2 gaps above MATERIAL
+    assert t.rect == Rect(800, 302 + 29 * (0.25 + 5 + 2 * 0.5), 29, 29) and t.label == "Material tab"
+    t = run("Open the Texture tab", raw_v2())  # not shown now: the column, never a guessed slot
+    assert t.rect == Rect(800, 302, 29, 426)
+
+
+def test_estimate_tab_hand_math():
+    col = Rect(10, 100, 20, 400)
+    ctxs = ["TOOL", "RENDER", "OUTPUT", "OBJECT", "MODIFIER"]
+    assert T.estimate_tab(col, ctxs, "TOOL") == Rect(10, 105, 20, 20)                  # 0.25 * 20 pad
+    assert T.estimate_tab(col, ctxs, "RENDER") == Rect(10, 135, 20, 20)                # + 1 cell + 1 gap (10)
+    assert T.estimate_tab(col, ctxs, "OUTPUT") == Rect(10, 155, 20, 20)
+    assert T.estimate_tab(col, ctxs, "MODIFIER") == Rect(10, 205, 20, 20)              # 4 cells + 2 gaps
+    assert T.estimate_tab(col, ctxs, "MATERIAL") is None                               # not shown
+    assert T.estimate_tab(None, ctxs, "TOOL") is None
+    assert T.estimate_tab(Rect(10, 100, 20, 60), ctxs, "MODIFIER") is None             # past the column's end
+    assert T.estimate_tab(col, ctxs, "OUTPUT", cell=1.5, gap=0.0, pad=0.0) == Rect(10, 160, 20, 30)
+
+
+# ------------------------------------------------------------------ round 4: objects
+
+@pytest.mark.parametrize("instr", ["Select the Donut", "select the donut", "Click on the Donut to select it."])
+def test_select_the_donut_circles_the_object(instr):
+    t = run(instr, raw_v2())
+    assert t == T.Target(Rect(400, 428, 100, 50), "bridge", "Donut")
+
+
+def test_object_mapping_at_k_1():
+    t = run("Select the Donut", raw_v2(), bobs(win=PLAIN, screen=WIDE))
+    assert t == T.Target(Rect(700, 778, 200, 100), "bridge", "Donut")  # (100 + 600, 1378 - 600, 200, 100)
+
+
+@pytest.mark.parametrize("instr", ["Add a Donut", "add a torus", "Add another Donut with Shift+A."])
+def test_an_added_object_is_never_circled(instr):
+    objs = [{"name": "Donut", "x": 600, "y": 500, "width": 200, "height": 100},
+            {"name": "Torus", "x": 900, "y": 500, "width": 200, "height": 100}]
+    t = run(instr, raw_v2(objects=objs))
+    assert t is None or t.label not in ("Donut", "Torus")
+
+
+def test_two_objects_with_one_casefolded_name_is_none():
+    objs = [{"name": "Donut", "x": 600, "y": 500, "width": 200, "height": 100},
+            {"name": "donut", "x": 900, "y": 500, "width": 200, "height": 100}]
+    assert run("Select the Donut", raw_v2(objects=objs)) is None
+
+
+def test_a_tiny_object_box_is_none():
+    objs = [{"name": "Donut", "x": 600, "y": 500, "width": 10, "height": 10}]  # 5 x 5 pt
+    assert run("Select the Donut", raw_v2(objects=objs)) is None
+
+
+def test_short_names_and_partial_words_never_match():
+    objs = [{"name": "Ob", "x": 600, "y": 500, "width": 200, "height": 100},
+            {"name": "Cube", "x": 900, "y": 500, "width": 200, "height": 100}]
+    assert run("Select the Ob", raw_v2(objects=objs)) is None
+    assert run("Select the Cubes", raw_v2(objects=objs)) is None
+    objs.append({"name": "Cube.001", "x": 200, "y": 500, "width": 200, "height": 100})
+    assert run("Select Cube.001", raw_v2(objects=objs)).rect == Rect(200, 428, 100, 50)
+
+
+def test_an_object_only_when_acted_on_while_a_control_is_named():
+    # "the Donut" is not acted on, "Shade Smooth" is the control: never the Donut box
+    o = bobs([blk("Shade Smooth", 300, 100, 90)])
+    t = run("With the Donut selected, click Shade Smooth.", raw_v2(), o)
+    assert t.via == "ocr" and t.label == "Shade Smooth"
+    assert run("With the Donut selected, click Shade Smooth.", raw_v2()) is None
+    # no control or tab named: an object the step names is circled
+    assert run("Look at the Donut from the side.", raw_v2()).label == "Donut"
+
+
+def test_select_in_the_outliner_reads_the_outliner_text():
+    # the Outliner: (1400, 900, 600, 400) px -> (800, 78, 300, 200) pt
+    o = bobs([blk("Donut", 830, 120, 40), blk("Donut", 420, 440, 40)])
+    t = run("Select the Donut in the Outliner", raw_v2(), o)
+    assert t == T.Target(Rect(830, 120, 40, 16), "ocr", "Donut")
+    # the Outliner has no such text: the viewport object, never the other text block
+    o = bobs([blk("Donut", 420, 440, 40)])
+    t = run("Select the Donut in the Outliner", raw_v2(), o)
+    assert t == T.Target(Rect(400, 428, 100, 50), "bridge", "Donut")
+
+
+# ------------------------------------------------------------------ round 4: regions
+
+def test_sidebar_region_only_when_shown():
+    assert run("Press N to open the sidebar.", raw_v2(sidebar_px=1)) is None       # hidden: dropped, no circle
+    t = run("Press N to open the sidebar.", raw_v2(sidebar_px=400))
+    assert t.via == "bridge" and t.label == "Sidebar" and t.rect == Rect(600, 102, 200, 626)  # (100 + 1000/2, ...)
+    t = run("Pick the Move tool in the toolbar.", raw_v2(), bobs())
+    assert t.label == "Toolbar" and t.rect == Rect(100, 102, 40, 626)
+    t = run("In the viewport header, open Shading.", raw_v2())
+    assert t.label == "3D Viewport header" and t.rect == Rect(100, 78, 700, 24)
+
+
+def test_region_words_that_are_not_regions():
+    assert T.region_types("Choose View > Sidebar.") == []
+    assert T.region_types("Click the header of the Subdivision panel.") == []
+    assert T.region_types("Open the Toggle Sidebar menu.") == []
+    assert T.region_types("Press N to open the N panel, then the toolbar.") == ["VIEW_3D:UI", "VIEW_3D:TOOLS"]
+
+
+# ------------------------------------------------------------------ round 4: calibration
+
+def test_a_miscalibrated_window_gives_no_bridge_rects():
+    win = Rect(100, 50, 1460, 1300 * 0.73 + 28)   # k = 0.73: neither Retina nor not
+    assert T.bridge_shape(raw_v2(), win) is None
+    o = bobs(win=win, screen=WIDE)
+    for instr in ("Select the Donut", MODIFIER_TAB, "Look around the 3D viewport."):
+        assert run(instr, raw_v2(), o) is None, instr
+
+
+@pytest.mark.parametrize("k,ok", [(0.5 * 1.029, True), (0.5 * 0.971, True), (1.0 * 1.029, True),
+                                  (0.5 * 1.04, False), (1.0 * 0.95, False), (0.75, False)])
+def test_scale_within_three_percent_of_a_backing_scale(k, ok):
+    win = Rect(0, 0, 2000 * k, 1300 * k + 28)
+    assert (T.bridge_shape(raw_v2(), win) is not None) is ok
+
+
+def test_fullscreen_blender_is_accepted():
+    full = Rect(0, 0, 1000, 650)                   # 2000 x 1300 px at 2 px / pt, no title bar
+    t = run("Select the Donut", raw_v2(), bobs(win=full))
+    assert t == T.Target(Rect(300, 350, 100, 50), "bridge", "Donut")   # (600/2, 650 - (500 + 100)/2, ...)
+    prefs = {"x": 0, "y": 0, "width": 1400, "height": 1100, "areas": []}
+    t = run("Select the Donut", raw_v2(extra_windows=[prefs]), bobs(win=full))
+    assert t is not None and t.rect == Rect(300, 350, 100, 50)
+
+
+def test_two_same_shaped_blender_windows_give_none():
+    twin = {**raw_v2()["windows"][0], "x": 40}
+    assert run("Select the Donut", raw_v2(extra_windows=[twin])) is None
+    assert run("Select the Donut", raw_v2(extra_windows=[twin]), bobs(win=Rect(0, 0, 1000, 650))) is None
+
+
+def test_no_screen_window_gives_no_bridge_rects():
+    assert T.bridge_shape(raw_v2(), None) is None
+    assert run("Select the Donut", raw_v2(), bobs(windows=[])) is None
+
+
+# ------------------------------------------------------------------ round 4: every source is gated, the bridge once
+
+def test_every_bridge_source_passes_the_gate_and_the_primary_display():
+    # under miyagi's overlay: refused
+    assert T.resolve(step("Select the Donut"), BLENDER, bobs(), [Rect(380, 410, 200, 100)],
+                     bridge=lambda: raw_v2(), ax_fn=Recorder()) is None
+    t = T.resolve(step(MODIFIER_TAB), BLENDER, bobs(), [Rect(780, 280, 60, 460)], bridge=lambda: raw_v2(),
+                  ax_fn=Recorder())
+    assert t is None or t.label == "Properties"  # never the covered tab column
+    # a Blender window on another display: refused (marks carry no displayId)
+    off = Rect(1500, 50, 1000, 678)
+    for instr in ("Select the Donut", MODIFIER_TAB, "Press N to open the sidebar."):
+        assert run(instr, raw_v2(sidebar_px=400), bobs(win=off)) is None, instr
+    # a tab column larger than 40% of the window is not one: never circled as the tab column
+    huge = raw_v2(props={"context": "OBJECT", "tabs": {"x": 0, "y": 0, "width": 1600, "height": 1100}})
+    t = run(MODIFIER_TAB, huge, bobs())
+    assert t is not None and t.label == "Properties"
+
+
+def test_the_bridge_is_asked_once_with_every_source():
+    calls = []
+
+    def ui():
+        calls.append(1)
+        return raw_v2()
+
+    for instr in ("Select the Donut", MODIFIER_TAB, "Press N to open the sidebar.", "click Add Modifier",
+                  "Select the Donut in the Outliner"):
+        calls.clear()
+        T.resolve(step(instr), BLENDER, bobs(), [], bridge=ui, ax_fn=Recorder(), ocr_fn=Recorder())
+        assert calls == [1], instr

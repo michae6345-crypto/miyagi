@@ -11,7 +11,8 @@ import types
 import pytest
 
 from server.lesson import app_lesson
-from server.orchestrator import curated, onscreen_coach as OC
+from server.orchestrator import curated
+from server.orchestrator import onscreen_coach as OC
 from server.orchestrator import session as session_mod
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.tests.test_session import Rig, run
@@ -373,7 +374,7 @@ def test_the_onscreen_path_never_calls_a_model(rig, monkeypatch, fast):
 
     for name in ("show_me", "point", "where", "explain", "describe"):
         monkeypatch.setattr(rig.s.m, name, boom, raising=False)
-    reader = types.SimpleNamespace(where=boom, describe=boom, overlay_rects=lambda: [],
+    reader = types.SimpleNamespace(where=boom, describe=boom, overlay_rects=list,
                                    latest=lambda: ScreenObservation(
                                        t=time.time(), app="Blender", windows=[Window("Blender", "d", Rect(0, 0, 1200, 800))],
                                        blocks=[Block("Add", Rect(400, 300, 40, 16), 0.9, app="Blender")],
@@ -429,6 +430,35 @@ def test_where_phrases():
     assert OC.where_phrases("how do I add a torus?") is None
     assert [p.text for p in OC.where_phrases("where's the outliner?")] == ["outliner", "OUTLINER"]
     assert OC.where_phrases("where is the thing I need to press to make the donut smooth?") is None  # > 8 words
+    assert [(p.text, p.kind) for p in OC.where_phrases("where is the Add menu?")] == [("Add menu", "ui"),
+                                                                                      ("Add", "ui")]
+
+
+def test_keys_keep_tab_after_then():  # review round 3, by name
+    assert OC.keys("Press Numpad 1 for front view, then Tab to enter Edit Mode.") == ["Numpad 1", "Tab"]
+
+
+@pytest.mark.parametrize("ask,want", [
+    ("where is the Modifier tab?", [("MODIFIER", "tab"), ("PROPERTIES", "area")]),
+    ("where are the material properties?", [("MATERIAL", "tab"), ("PROPERTIES", "area")]),
+    ("where's the properties editor?", [("PROPERTIES", "area")]),
+    ("where is the sidebar?", [("sidebar", "ui"), ("VIEW_3D:UI", "region")]),
+])
+def test_where_a_place_is_its_tab_area_or_region_never_the_bare_word(ask, want):
+    got = [(p.text, p.kind) for p in OC.where_phrases(ask)]
+    assert got == want
+    assert not any(kind == "ui" and text.lower() in ("modifier", "material", "properties") for text, kind in got)
+
+
+def test_where_an_unknown_place_is_not_a_where_ask():
+    assert OC.where_phrases("where is the Transform panel?") is None  # never the bare "Transform"
+
+
+def test_keys_and_text_agree_at_a_sentence_end():
+    instr = "Press Tab. Then press A to select all."
+    assert OC.short_text(instr) == "Press Tab." and OC.keys(instr) == ["Tab"]
+    assert OC.keys("Select the cube. Press Tab to enter Edit Mode.") == []
+    assert OC.keys("Press G, then Z, then type 2.") == ["G", "Z"]
 
 
 def test_contract_marks_validate():
@@ -484,7 +514,7 @@ def test_a_still_screens_old_frame_is_refreshed_and_circled(real_chain):
     class Bridge:  # ScreenBridge: fresh() captures + OCRs when the latest frame is older than max_age
         def __init__(self):
             self.ages: list[float] = []
-            self.reader = types.SimpleNamespace(latest=lambda: blender_frame(5.0), overlay_rects=lambda: [])
+            self.reader = types.SimpleNamespace(latest=lambda: blender_frame(5.0), overlay_rects=list)
 
         def fresh(self, max_age: float = 1.0):
             self.ages.append(max_age)

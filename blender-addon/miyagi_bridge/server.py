@@ -10,7 +10,8 @@ Routes (GET only, JSON, cache-control: no-store):
     /health          who is here: blender version, port, pid, open file. Never needs the token.
     /state           the open file, mode, active / selected objects and a "dump_scene.py 1" scene dump.
     /ops?since=<n>   operators the learner ran (window_manager.operators), each once, with an increasing seq.
-    /ui              window, area and region rectangles in raw Blender pixels (origin bottom-left).
+    /ui              window, area and region rectangles in raw Blender pixels (origin bottom-left), the mode and
+                     active object, each 3D Viewport's visible object boxes and each Properties editor's tabs.
 
 Blender's data may only be read on its main thread. /state and /ui are queued as jobs that pump() (a bpy.app.timers
 callback every 0.05 s) runs; the HTTP thread waits at most MAIN_WAIT_S for them, else answers 503 busy. /health and
@@ -272,8 +273,129 @@ def _rect(x) -> dict:
     return {"x": int(x.x), "y": int(x.y), "width": int(x.width), "height": int(x.height)}
 
 
+def _ui_geom():
+    """The pure projection helpers next to this file (miyagi_bridge.ui_geom)."""
+    if __package__:
+        from . import ui_geom
+
+        return ui_geom
+    import importlib
+
+    return importlib.import_module("ui_geom")
+
+
+MAX_UI_OBJECTS = 200        # object boxes per 3D Viewport
+MAX_UI_SCAN = 5000          # objects looked at per 3D Viewport (a huge scene must not stall the main thread)
+POINT_TYPES = frozenset({"LIGHT", "CAMERA", "EMPTY", "SPEAKER", "LIGHT_PROBE", "LIGHTPROBE"})
+_CONTEXTS = re.compile(r"not found in \(([^)]*)\)")
+
+
+def _space(area):
+    return getattr(getattr(area, "spaces", None), "active", None)
+
+
+def _visible(ob, space) -> bool:
+    try:
+        return bool(ob.visible_get(viewport=space))  # local view / viewport-hidden collections too
+    except TypeError:
+        return bool(ob.visible_get())
+
+
+def _view3d_objects(ctx, area) -> list[dict] | None:
+    """The boxes of the visible objects in one single-view 3D Viewport, in window pixels (bottom-left, like the area):
+    [{name, type, x, y, width, height}], at most MAX_UI_OBJECTS. None: no space / region_3d / WINDOW region, or a quad
+    view (four regions: a box could be on any of them). A broken object is skipped; this never raises."""
+    try:
+        geom = _ui_geom()
+        space = _space(area)
+        rv3d = getattr(space, "region_3d", None)
+        if space is None or rv3d is None or list(getattr(space, "region_quadviews", None) or []):
+            return None
+        region = next((r for r in area.regions if str(r.type) == "WINDOW"), None)
+        if region is None or int(region.width) <= 0 or int(region.height) <= 0:
+            return None
+        persmat = geom.matrix(rv3d.perspective_matrix)
+        rw, rh = float(region.width), float(region.height)
+        objects = getattr(getattr(ctx, "view_layer", None), "objects", None) or []
+    except Exception:  # noqa: BLE001 - no boxes rather than a 500
+        return None
+    out: list[dict] = []
+    for i, ob in enumerate(objects):
+        if i >= MAX_UI_SCAN or len(out) >= MAX_UI_OBJECTS:
+            break
+        try:
+            if not _visible(ob, space):
+                continue
+            kind = str(ob.type)
+            mw = geom.matrix(ob.matrix_world)
+            if kind in POINT_TYPES:
+                box = geom.point_box(geom.apply(mw, (0.0, 0.0, 0.0)), persmat, rw, rh)
+            else:
+                box = geom.object_box([geom.apply(mw, c) for c in ob.bound_box], persmat, rw, rh)
+            if box is None:
+                continue
+            x, y, w, h = box
+            out.append({"name": str(ob.name), "type": kind, "x": round(float(region.x) + x, 1),
+                        "y": round(float(region.y) + y, 1), "width": round(w, 1), "height": round(h, 1)})
+        except Exception:  # noqa: BLE001, S112 - a broken object is left out
+            continue
+    return out
+
+
+def _contexts(space) -> list[str] | None:
+    """The Properties editor's tabs available now, in order. Blender has no API for its dynamic context enum, but an
+    invalid value is refused before anything is set and the refusal lists them: read that, change nothing."""
+    try:
+        old = space.context
+        try:
+            space.context = "__miyagi_probe__"
+        except TypeError as err:
+            m = _CONTEXTS.search(str(err))
+            got = re.findall(r"'([A-Z_]+)'", m.group(1)) if m else []
+            return got or None
+        space.context = old  # not real Blender (a fake took the value): put it back
+        return None
+    except Exception:  # noqa: BLE001 - no list rather than a 500
+        return None
+
+
+def _properties(area) -> dict | None:
+    """A Properties editor: {context: the tab shown, tabs: its NAVIGATION_BAR (the tab column) rect or None,
+    contexts: the tabs available now, in order (left out when unreadable)}."""
+    space = _space(area)
+    if space is None or not isinstance(getattr(space, "context", None), str):
+        return None
+    nav = next((r for r in area.regions if str(r.type) == "NAVIGATION_BAR"), None)
+    out: dict = {"context": str(space.context), "tabs": _rect(nav) if nav is not None else None}
+    if (ctxs := _contexts(space)) is not None:
+        out["contexts"] = ctxs
+    return out
+
+
+def _area_payload(ctx, area) -> dict:
+    regions = [{"type": str(r.type), **_rect(r)} for r in area.regions]
+    out = {"type": str(area.type), "ui_type": str(getattr(area, "ui_type", area.type)), **_rect(area),
+           "regions": regions}
+    if out["type"] == "VIEW_3D" and (objs := _view3d_objects(ctx, area)) is not None:
+        out["objects"] = objs
+    elif out["type"] == "PROPERTIES":
+        with contextlib.suppress(Exception):
+            if (props := _properties(area)) is not None:
+                out["properties"] = props
+    return out
+
+
+def _active_name(ctx) -> str | None:
+    try:
+        active = getattr(getattr(getattr(ctx, "view_layer", None), "objects", None), "active", None)
+        return str(active.name) if active is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def ui_payload() -> dict:
-    """The /ui reply: every window's areas and regions in raw Blender pixels. Main thread only."""
+    """The /ui reply: every window's areas and regions in raw Blender pixels, the mode and active object, each
+    single-view 3D Viewport's object boxes and each Properties editor's tab column. Main thread only."""
     import bpy
 
     ctx = bpy.context
@@ -281,11 +403,7 @@ def ui_payload() -> dict:
     windows = []
     for win in getattr(ctx.window_manager, "windows", None) or []:
         screen = getattr(win, "screen", None)
-        areas = []
-        for area in getattr(screen, "areas", None) or []:
-            regions = [{"type": str(r.type), **_rect(r)} for r in area.regions]
-            areas.append({"type": str(area.type), "ui_type": str(getattr(area, "ui_type", area.type)),
-                          **_rect(area), "regions": regions})
+        areas = [_area_payload(ctx, area) for area in getattr(screen, "areas", None) or []]
         windows.append({**_rect(win), "screen": str(getattr(screen, "name", "")),
                         "workspace": str(getattr(getattr(win, "workspace", None), "name", "")), "areas": areas})
     return {
@@ -293,6 +411,8 @@ def ui_payload() -> dict:
         "pixel_size": float(getattr(system, "pixel_size", 1.0) or 1.0),
         "ui_scale": float(getattr(system, "ui_scale", 1.0) or 1.0),
         "origin": "bottom-left",
+        "mode": str(getattr(ctx, "mode", "") or "OBJECT"),
+        "active": _active_name(ctx),
         "windows": windows,
     }
 

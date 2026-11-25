@@ -125,12 +125,19 @@ def holds_spot(s) -> bool:
 
 # ------------------------------------------------------------------ copy: text, label, keys
 
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+
+
+def _first_sentence(instructions: str) -> str:
+    """The instructions' first sentence: all the mark shows (short_text), so all its keycaps come from (keys)."""
+    return _SENTENCE.split(" ".join(str(instructions or "").split()))[0]
+
+
 def short_text(instructions: str) -> str:
     """The step's action in <= 12 words, cut at a clause boundary when it is longer."""
-    s = " ".join(str(instructions or "").split())
-    if not s:
+    first = _first_sentence(instructions)
+    if not first:
         return ""
-    first = re.split(r"(?<=[.!?])\s+(?=[A-Z])", s)[0]
     words = first.split()
     if len(words) <= TEXT_WORDS:
         return first.rstrip(" ,;:-")
@@ -183,8 +190,10 @@ def _key_label(k: str) -> str:
 
 def keys(instructions: str) -> list[str]:
     """The shortcut, one keycap label per key pressed, in order, <= 3, spelled as bridge.platform.keys spells Mac keys:
-    "Shift+A" -> "⇧A", "Ctrl+Shift+Z" -> "⌃⇧Z", "⌘S" stays, "press G then Z" -> ["G", "Z"], "Numpad 1", Tab, F12."""
-    text = str(instructions or "")
+    "Shift+A" -> "⇧A", "Ctrl+Shift+Z" -> "⌃⇧Z", "⌘S" stays, "press G then Z" -> ["G", "Z"], "Numpad 1", Tab, F12.
+    Only the first sentence's keys: the mark's text is that sentence (short_text), so "Press Tab. Then press A." shows
+    "Press Tab." with Tab alone."""
+    text = _first_sentence(instructions)
     found: list[tuple[int, int, str]] = []
 
     def add(a: int, b: int, label: str) -> None:
@@ -436,8 +445,9 @@ _GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setti
 
 def where_phrases(text: str) -> list[app_target.Phrase] | None:
     """A short typed "where ...?" ask (<= 8 words) -> the phrases to find: what it names ("where is the Add menu?" ->
-    "Add menu", "Add"), or [] for a vague one ("where?", "where do I click?": the step's own target). None: not a
-    where ask."""
+    "Add menu", "Add"; a place by its tab / area / region: "where is the Modifier tab?" -> tab MODIFIER and area
+    PROPERTIES, never the bare word "Modifier"), or [] for a vague one ("where?", "where do I click?": the step's own
+    target). None: not a where ask, or a place miyagi doesn't know ("where is the Transform panel?")."""
     t = " ".join(str(text or "").split())
     if not t or len(t.split()) > 8:
         return None
@@ -447,12 +457,20 @@ def where_phrases(text: str) -> list[app_target.Phrase] | None:
     what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.I)
     if _VAGUE.match(what):
         return []
-    out = [app_target.Phrase(what, "ui")]
-    if (bare := _GENERIC.sub("", what)) and bare != what:
-        out.append(app_target.Phrase(bare, "ui"))
-    for area in app_target.area_types(what):
-        out.append(app_target.Phrase(area, "area"))
-    return out
+    placed = app_target.place_phrases(what)
+    if placed is not None:
+        # "the Modifier tab", "the properties editor": a place, never a control's words ("Modifier" would be found
+        # inside the "Add Modifier" button); a place miyagi doesn't know ("the Transform panel"): not a where ask
+        out = list(placed)
+    else:
+        out = [app_target.Phrase(what, "ui")]
+        if (bare := _GENERIC.sub("", what)) and bare != what:
+            out.append(app_target.Phrase(bare, "ui"))
+    extra = [app_target.Phrase(t, "tab") for t in app_target.tab_contexts(what)]
+    extra += [app_target.Phrase(r, "region") for r in app_target.region_types(what)]
+    extra += [app_target.Phrase(a, "area") for a in app_target.area_types(what)]
+    out += [p for p in extra if p not in out]
+    return out or None
 
 
 async def on_where_ask(s, step: dict | None, text: str | None) -> bool:

@@ -12,6 +12,7 @@ import; `register()` starts the server and a `bpy.app.timers` pump, `unregister(
 - `miyagi_bridge/__init__.py`: `bl_info`, `register()`, `unregister()`.
 - `miyagi_bridge/blender_manifest.toml`: the extension manifest (Blender 4.2+), with the network and files permissions.
 - `miyagi_bridge/server.py`: the server, guards and routes. Imports without `bpy` so tests can use a fake.
+- `miyagi_bridge/ui_geom.py`: the pure projection behind `/ui`'s object boxes (no `bpy`, no `mathutils`).
 - `miyagi_bridge/scene_dump.py`: the scene dumper (format `"dump_scene.py 1"`), owned by the dump lane.
 - `start_bridge.py`: starts the bridge in a Blender that does not have the add-on installed.
 - `dump_scene.py`: the headless dumper CLI, owned by the dump lane.
@@ -25,7 +26,28 @@ All GET, JSON, `cache-control: no-store`.
 | `/health` | `{ok, app: "blender", name: "miyagi_bridge", version, blender, port, pid, file}` |
 | `/state` | `{ok, app, port, file, dirty, mode, active, selected, frame_current, dump}`; `dump` is a `"dump_scene.py 1"` scene dump |
 | `/ops?since=<seq>` | `{ok, last_seq, ops: [{seq, idname, name, props, t}]}`: operators the learner ran, newest 200 kept |
-| `/ui` | `{ok, pixel_size, ui_scale, origin: "bottom-left", windows: [{x, y, width, height, screen, workspace, areas: [{type, ui_type, x, y, width, height, regions: [...]}]}]}` in raw Blender pixels |
+| `/ui` | `{ok, pixel_size, ui_scale, origin: "bottom-left", mode, active, windows: [{x, y, width, height, screen, workspace, areas: [{type, ui_type, x, y, width, height, regions: [{type, x, y, width, height}], objects?, properties?}]}]}` in raw Blender pixels (see below) |
+
+### `/ui` fields
+
+All rectangles are raw Blender pixels, origin bottom-left; area, region and object `x` / `y` are relative to the
+window. The engine (`server/screen/app_target.py`) places them on the Blender window it sees on screen and drops
+anything it cannot calibrate.
+
+- `mode`: `bpy.context.mode` (`OBJECT`, `EDIT_MESH`, ...). `active`: the active object's name, or `null`.
+- `regions`: every region of the area, hidden ones too (a hidden sidebar is 1 px wide; the engine drops regions
+  under 6 pt).
+- `objects` (a 3D Viewport with a single view; none in quad view): `[{name, type, x, y, width, height}]`, at most
+  200, the visible objects' screen boxes in window pixels. Each box is the object's 8 world-space bound-box corners
+  projected with the viewport's WINDOW region and `region_3d.perspective_matrix` (`ui_geom.project` mirrors
+  `bpy_extras.view3d_utils.location_3d_to_region_2d`). An object is listed only when `visible_get()` is true for
+  that viewport, every corner is in front of the view, its box's centre is inside the region and at least half of
+  the box survives clipping to the region (the clipped box is sent). Lights, cameras, empties, speakers and light
+  probes get a 24 px square around their origin. An object that raises while read is left out.
+- `properties` (a Properties editor): `{context, tabs, contexts?}`. `context` is the tab shown (`OBJECT`,
+  `MODIFIER`, ...), `tabs` the tab column (the `NAVIGATION_BAR` region) or `null`, and `contexts` the tabs shown now,
+  top-down. Blender has no API for that list; an invalid `context` value is refused before anything is set, and the
+  refusal names the valid ones, so the bridge reads them from it (`contexts` is left out when it cannot).
 
 Blender's data may only be read on its main thread, so `/state` and `/ui` are queued for the timer, which runs
 every 0.05 s. If the main thread does not get to them within 1.5 s (a long render, a modal operator), the reply is
@@ -55,3 +77,6 @@ ship this folder yet (`app/scripts/bundle-engine.mjs` would need `blender-addon`
 
 `server/workspace/tests/test_blender_addon_server.py` loads this package by file path with a fake `bpy` and a fake
 `scene_dump`; one smoke test runs the real Blender headless (`--background --factory-startup`) when it is installed.
+`server/workspace/tests/test_blender_ui_headless.py` checks `ui_geom` against Blender's own
+`location_3d_to_region_2d` and `world_to_camera_view` on the factory scene, and `/ui` on the factory screen, also
+headless only.
