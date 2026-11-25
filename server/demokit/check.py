@@ -23,17 +23,21 @@ from .common import (
     APP_PROC,
     ENGINE_PORT,
     FILE,
+    MISSING,
     TOOL_ENV,
     Layout,
     pgrep,
     port_open,
+    read_code,
     read_json,
     saved_lesson_id,
 )
 
 CLOUD_HEALTHZ = "https://miyagi-cloud.onrender.com/healthz"
 VSCODE_PROC = r"Visual Studio Code\.app/Contents/MacOS/"
-CAFFEINATE_PROC = r"(^|/)caffeinate( |$)"
+# only a caffeinate that keeps the display awake: -d among its options (before any command it runs), so the
+# `caffeinate -i ...` the test and update loops start does not count
+CAFFEINATE_PROC = r"(^|/)caffeinate( -[a-zA-Z]+( [0-9]+)?)* -[a-zA-Z]*d"
 RESET = "Quit miyagi, then run scripts/miyagi-demo-reset.sh"
 SETTINGS = "System Settings > Privacy & Security > {}: turn on miyagi, then quit and reopen miyagi"
 PANES = {"accessibility": ("Accessibility", "Accessibility"),
@@ -206,11 +210,10 @@ def lesson_rows(lay: Layout) -> list[Row]:
     left = []
     if folder.is_dir():
         nn = folder / FILE
-        try:
-            cur = nn.read_text(encoding="utf-8", errors="replace") if nn.is_file() else None
-        except OSError:
-            cur = None
-        if cur is not None and cur != lay.starter():
+        cur = read_code(nn)
+        if cur is None:
+            left.append(f"{FILE} can't be read")
+        elif cur is not MISSING and cur != lay.starter():
             left.append(f"{FILE} holds an earlier take")
     if saved_lesson_id(lay.state) == lid:
         left.append("a saved place would offer Continue")

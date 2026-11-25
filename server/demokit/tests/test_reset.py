@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -226,6 +227,76 @@ def test_two_resets_in_one_second_never_overwrite_the_archive(lay):
     reset.apply(reset.make_plan(lay, now=1_700_000_000), lay, calm=lambda f: False)
     kept = sorted(p.read_text() for p in (lay.attempts / folder.name).glob("nn-*.py"))
     assert kept == sorted([FINISHED, "second take\n"])
+
+
+def test_two_resets_with_the_same_now_leave_the_first_manifest_unchanged(lay):
+    folder = _used_lesson(lay)
+    calm = lambda f: False
+    reset.apply(reset.make_plan(lay, now=1_700_000_000), lay, calm=calm)
+    first = next(lay.backups.iterdir())
+    saved = {n: (first / n).read_bytes() for n in ("manifest.json", "recent.json")}
+    assert len(json.loads(saved["manifest.json"])["moves"]) > 2
+
+    second = reset.make_plan(lay, now=1_700_000_000)  # nothing left to move
+    assert second.empty and second.backup != first
+    reset.apply(second, lay, calm=calm)
+    assert {n: (first / n).read_bytes() for n in saved} == saved
+    assert list(lay.backups.iterdir()) == [first]
+
+    (folder / FILE).write_text("third take\n")
+    (lay.state / "current.json").write_text(json.dumps({"lessonId": LID, "stepIndex": 1}))
+    third = reset.make_plan(lay, now=1_700_000_000)
+    reset.apply(third, lay, calm=calm)
+    assert third.backup.name == f"{first.name}-1" and (third.backup / "current.json").is_file()
+    assert {n: (first / n).read_bytes() for n in saved} == saved
+
+
+def test_a_backup_folder_made_after_the_plan_is_never_reused(lay):
+    _used_lesson(lay)
+    plan = reset.make_plan(lay, now=1_700_000_000)
+    taken = plan.backup
+    taken.mkdir(parents=True)
+    (taken / "manifest.json").write_text("someone else's\n")
+    reset.apply(plan, lay, calm=lambda f: False)
+    assert (taken / "manifest.json").read_text() == "someone else's\n"
+    assert plan.backup == taken.with_name(taken.name + "-1")
+    moved = json.loads((plan.backup / "manifest.json").read_text())["moves"]
+    assert (plan.backup / "current.json").is_file()
+    assert all(not m["to"].startswith(str(taken) + "/") for m in moved)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_nn_py_is_archived_not_written_over(lay):
+    folder = lay.folder()
+    folder.mkdir(parents=True)
+    nn = folder / FILE
+    nn.write_text("the learner's work\n")
+    nn.chmod(0o200)
+    try:
+        code, lines = _run(lay)
+        assert code == 0 and any("could not be read" in ln for ln in lines)
+        kept = list((lay.attempts / folder.name).glob("nn-*.py"))
+        assert len(kept) == 1
+        kept[0].chmod(0o600)
+        assert kept[0].read_text() == "the learner's work\n"
+        assert nn.read_text() == STARTER
+    finally:
+        for p in [nn, *(lay.attempts / folder.name).glob("nn-*.py")]:
+            if p.exists():
+                p.chmod(0o600)
+
+
+def test_a_non_utf8_nn_py_is_archived_and_a_blank_one_is_not(lay):
+    folder = lay.folder()
+    folder.mkdir(parents=True)
+    (folder / FILE).write_bytes(b"\xff\xfe w = 1\n")
+    _run(lay)
+    kept = list((lay.attempts / folder.name).glob("nn-*.py"))
+    assert [p.read_bytes() for p in kept] == [b"\xff\xfe w = 1\n"]
+    (folder / FILE).write_text("  \n\n")
+    _run(lay)
+    assert len(list((lay.attempts / folder.name).glob("nn-*.py"))) == 1
+    assert (folder / FILE).read_text() == STARTER
 
 
 def test_running_reports_the_app_and_the_engine():

@@ -68,6 +68,21 @@ def read_json(p: Path):
         return None
 
 
+MISSING = object()  # read_code: nothing at that path
+
+
+def read_code(p: Path):
+    """The file's UTF-8 text, MISSING when nothing is there, or None when something is there but can't be read as
+    UTF-8 text (no read permission, a folder, binary bytes). None still holds the learner's work: move it, never
+    write over it."""
+    if not (p.exists() or p.is_symlink()):
+        return MISSING
+    try:
+        return p.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 @dataclass(frozen=True)
 class Layout:
     """Every path the kit reads or moves. Tests build one on a temp HOME and a temp app."""

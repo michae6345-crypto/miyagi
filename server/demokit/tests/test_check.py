@@ -234,3 +234,21 @@ def test_scripts_exist_and_are_executable():
     for name in ("miyagi-demo-check.sh", "miyagi-demo-reset.sh"):
         p = root / "scripts" / name
         assert p.is_file() and p.stat().st_mode & 0o111, name
+
+
+def test_only_a_display_awake_caffeinate_counts():
+    import re
+
+    rx = re.compile(check.CAFFEINATE_PROC)
+    for cmd in ("caffeinate -d", "caffeinate -di", "caffeinate -id", "/usr/bin/caffeinate -d",
+                "caffeinate -i -d", "caffeinate -t 3600 -d", "caffeinate -dims"):
+        assert rx.search(cmd), cmd
+    for cmd in ("caffeinate -i npm run update", "caffeinate", "caffeinate -i", "caffeinate -ims",
+                "caffeinate -i npm run update -d", "caffeinate -w 123", "notcaffeinate -d"):
+        assert not rx.search(cmd), cmd
+
+
+def test_an_unreadable_nn_py_says_run_the_reset(lay):
+    (lay.folder() / FILE).write_bytes(b"\xff\xfe")
+    rows = check.lesson_rows(lay)
+    assert rows[0].status == "fix" and "can't be read" in rows[0].text

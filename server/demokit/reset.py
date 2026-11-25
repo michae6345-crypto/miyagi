@@ -7,7 +7,8 @@ The lesson folder (~/miyagi/lessons/<slug>-<hash>):
                   the engine already keeps), then the clean starter is written
     other files   the learner's own (not dot entries, not README.md) move next to it, under <time>-files/
     .venv         kept, so NumPy stays installed; .vscode kept, and the calm view keys added (bigger font included)
-The lesson's resume state moves to ~/miyagi/state/.demo-backups/<time>/ (with manifest.json saying where each came from):
+The lesson's resume state moves to ~/miyagi/state/.demo-backups/<time>/ (a new folder each run, <time>-1/ when taken; with
+manifest.json saying where each came from, written only when something moves):
     current.json and its graph file (only when they are this lesson's), context/<lessonId>.*, the proofs of this lesson,
     and its recent.json entry (recent.json is rewritten without it; the whole old file is in the backup).
 Nothing else: other lessons, history, skills, prefs, onboarding and sign-in stay as they are.
@@ -26,7 +27,17 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .common import FILE, Layout, graph_name, lesson_key, read_json, running, tilde
+from .common import (
+    FILE,
+    MISSING,
+    Layout,
+    graph_name,
+    lesson_key,
+    read_code,
+    read_json,
+    running,
+    tilde,
+)
 
 QUIT_FIRST = "miyagi is running ({}): quit miyagi first (osascript -e 'quit app \"miyagi\"'), then run this again."
 KEEP_IN_FOLDER = {FILE, "README.md"}
@@ -58,23 +69,22 @@ def make_plan(lay: Layout, now: float | None = None) -> Plan:
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
     lid, _title = lay.lesson()
     folder = lay.folder()
-    backup = lay.backups / stamp
+    backup = _free(lay.backups / stamp)  # a second reset in the same second never reuses the first one's backup
     plan = Plan(folder=folder, backup=backup)
 
     # 1. the lesson folder
     if folder.is_dir():
         nn = folder / FILE
-        starter = lay.starter()
-        try:
-            cur = nn.read_text(encoding="utf-8", errors="replace") if nn.is_file() else None
-        except OSError:
-            cur = None
+        cur = read_code(nn)
         keep = lay.attempts / folder.name
-        if cur is not None and cur != starter:
+        if cur is None:  # there but unreadable (no read permission, not UTF-8 text): still the learner's, so move it
+            plan.moves.append(Move(nn, keep / f"nn-{stamp}.py", f"your last {FILE} (it could not be read)"))
+            plan.write_starter = True
+        elif cur is MISSING:
+            plan.write_starter = True
+        elif cur != lay.starter():
             if cur.strip():
                 plan.moves.append(Move(nn, keep / f"nn-{stamp}.py", f"your last {FILE}"))
-            plan.write_starter = True
-        elif cur is None:
             plan.write_starter = True
         for p in sorted(folder.iterdir()):
             if p.name in KEEP_IN_FOLDER or p.name.startswith("."):
@@ -139,6 +149,21 @@ def _free(dest: Path) -> Path:
     return n
 
 
+def _claim_backup(plan: Plan) -> None:
+    """Make the plan's backup folder, a new one only: if it showed up since make_plan (another reset), take the next
+    free name and point the plan's backup moves there."""
+    while True:
+        try:
+            plan.backup.mkdir(parents=True)
+            return
+        except FileExistsError:
+            old, new = plan.backup, _free(plan.backup)
+            for m in plan.moves:
+                if old in m.dest.parents:
+                    m.dest = new / m.dest.relative_to(old)
+            plan.backup = new
+
+
 def apply(plan: Plan, lay: Layout, *, calm=None) -> list[str]:
     """Do the plan. Returns notes on what it did beyond the plan. Raises OSError on a failed move (what moved stays
     listed in the backup's manifest.json)."""
@@ -148,10 +173,10 @@ def apply(plan: Plan, lay: Layout, *, calm=None) -> list[str]:
     manifest = {"lessonId": lay.lesson()[0], "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "folder": str(plan.folder),
                 "moves": [], "recentRemoved": plan.recent_drop, "done": False}
     if not plan.empty:
-        plan.backup.mkdir(parents=True, exist_ok=True)
+        _claim_backup(plan)
 
     def save_manifest() -> None:
-        if plan.backup.is_dir():
+        if not plan.empty:  # nothing moves: no manifest, so an earlier backup's record is never written over
             _write_atomic(plan.backup / "manifest.json", json.dumps(manifest, indent=1) + "\n")
 
     save_manifest()
