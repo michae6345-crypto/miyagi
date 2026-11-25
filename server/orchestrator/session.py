@@ -3557,6 +3557,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         seg = self._segment(st)
         if seg:
             summary["video"] = seg
+        ref = st.get("pageRef")  # any link (ANY-LINK.md): the part of the page this step comes from
+        if isinstance(ref, dict) and isinstance(ref.get("url"), str) and ref["url"].startswith(("https://", "http://")):
+            summary["pageRef"] = {k: ref[k] for k in ("url", "heading") if isinstance(ref.get(k), str) and ref[k]}
         return summary
 
     def _skill_ids(self) -> dict[str, list[str]]:
@@ -3597,6 +3600,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             info["builtBy"] = curated.BUILT_BY
         if lesson.get("goalMatch"):
             info["goalMatch"] = lesson["goalMatch"]
+        origin = lesson.get("origin")  # any link (ANY-LINK.md): the BuildSource a web / github lesson was built from
+        if isinstance(origin, dict) and origin.get("kind") in ("web", "github") and isinstance(origin.get("title"), str):
+            info["origin"] = {k: origin[k] for k in ("kind", "title", "url", "site", "author") if isinstance(origin.get(k), str)}
         if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
             info["primer"] = [
                 {k: v for k, v in item.items() if k in ("id", "title", "body", "code", "diagramPrompt") and v}
