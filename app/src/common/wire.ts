@@ -71,7 +71,12 @@ const KNOWN = new Set<string>([
   'proof',
   'data',
   // shared lesson cache (Nov 24, contract cloud.notice): features/signincard shows the sign-in card (401) or cap line (429)
-  'cloud.notice'
+  'cloud.notice',
+  // ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md): listed here once so the app lanes only add their onMessage handlers
+  'error.seen',
+  'error.explanation',
+  'setup.report',
+  'help.steps'
 ] satisfies (keyof EngineEvents | 'config.status')[])
 
 /**
@@ -82,7 +87,9 @@ export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'li
   // the engine's review.start / data.delete (listed in its hello since Nov 22), now in the contract
   'review.start', 'data.delete',
   // ui-v4 (Nov 24, shared/contracts/UI-V4.md), gated like the rest: sent only when engine.hello lists them
-  'activity.get', 'bon.get', 'bon.import', 'plans.list', 'plan.start', 'plan.remove', 'playlist.get', 'plan.propose', 'link.get', 'proof.get', 'data.get'] as const satisfies readonly (keyof AppCommands)[]
+  'activity.get', 'bon.get', 'bon.import', 'plans.list', 'plan.start', 'plan.remove', 'playlist.get', 'plan.propose', 'link.get', 'proof.get', 'data.get',
+  // ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md), gated like the rest
+  'ambient.set', 'error.explain', 'error.dismiss', 'setup.scan', 'setup.fix', 'help.ask', 'help.nav'] as const satisfies readonly (keyof AppCommands)[]
 export type V2Command = (typeof V2_COMMANDS)[number]
 
 /** Parse one WebSocket frame. Accepts `{type, payload}` (contract) and, leniently, flat `{type, ...fields}`. */

@@ -232,6 +232,24 @@ export interface EngineEvents {
   /** Answer to data.get and data.delete: what the engine keeps on this Mac, how big, and what it can delete (Settings, Your
    *  data). deleted: on a data.delete answer, the kinds really removed (a kind this engine cannot delete yet is left out). */
   "data": DataInventory;
+
+  // ---------- ambient help (Nov 24): help outside a lesson, in any app. shared/contracts/AMBIENT-HELP.md has an example of
+  // each. All additive; the app sends an ambient command only when engine.hello.capabilities lists it. ----------
+  /** An error Miyagi spotted on screen outside a lesson (a traceback, a failed command, a dialog), read on this Mac only: nothing
+   *  leaves the Mac until the learner presses Explain (error.explain). Sent only after ambient.set {errors: true}, never while a
+   *  lesson runs (its off-track covers that), at most one every 5 s. The same error again (same id) sets `again`, never a new
+   *  card. { id, clear: true }: it is gone (the next run printed no error, the dialog closed): fade its peek. */
+  "error.seen": SeenError | { id: string; clear: true };
+  /** Answer to error.explain: { id, pending: true } at once, then the explanation (or error: why there is none). */
+  "error.explanation": ErrorExplanation;
+  /** Answer to setup.scan, and sent again after each setup.fix finishes: what the open project needs on this Mac. Read from the
+   *  project's own files on this Mac (requirements.txt, pyproject.toml, package.json, .nvmrc, Dockerfile ...), no model call. */
+  "setup.report": SetupReport;
+  /** Answer to help.ask: 1 to HELP_STEPS_MAX short steps in the frontmost app, each with a place for bon to point at. { pending:
+   *  true } first, then the steps; sent again (same reqId) as the learner goes: current moves on when the step's target is
+   *  clicked or the screen changes the way the step expects, and target rects move when the window does. done: the last step
+   *  happened. */
+  "help.steps": HelpSteps;
 }
 
 // ---------- v2 shapes ----------
@@ -272,9 +290,10 @@ export interface Progress {
 
 /** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
 export interface SetupItem {
-  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "web_app"; why: string;
+  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "node_package" | "web_app"; why: string;   // node_package (ambient help, Nov 24): a project's package.json dependencies as one row
   needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
-  install: { method: "brew" | "brew_cask" | "pip" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)
+  install: { method: "brew" | "brew_cask" | "pip" | "npm" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)   // npm (ambient help): `npm install` in the project folder (setup.fix only)
+  from?: string;       // ambient help (Nov 24), setup.report: the project file (and line) that asked for it: "requirements.txt:4", ".nvmrc", "Dockerfile"
   // Nov 22, additive (server/workspace/apps.py). A licensed app (AutoCAD, Photoshop, Excel, MATLAB...) is never installed:
   // install.method is "download" with the vendor's page, and the row offers actions instead of Install.
   setupKind?: "package" | "free_app" | "licensed_app" | "web_app";   // package: pip / brew formula; free_app: allowlisted Homebrew cask (Install, confirm); licensed_app: never installed; web_app: Open
@@ -555,6 +574,55 @@ export interface DataItem { id: DataItemId | string; label: string; where: "this
                             detail?: string; delete?: DataDeleteKind | null }
 export interface DataInventory { items: DataItem[]; totalBytes?: number | null; deleted?: DataDeleteKind[]; canDelete?: DataDeleteKind[] }   // path: "~/..." (home shortened); canDelete: the kinds this engine can really delete today
 
+// ---------- ambient help shapes (Nov 24, shared/contracts/AMBIENT-HELP.md) ----------
+/** The most lines error.seen.lines carries: the error's first lines as read on screen. */
+export const AMBIENT_ERROR_LINES_MAX = 8
+/** On Explain, the most lines around the error (source lines at file:line, or the command before a failed one) sent with it. */
+export const AMBIENT_CONTEXT_LINES_MAX = 6
+/** help.steps carries 1 to this many steps. */
+export const HELP_STEPS_MAX = 5
+/** Model calls ambient help may make in any rolling hour on this Mac (error.explain and help.ask together, Haiku only). The
+ *  next one is answered with error "cap" and retryInS. */
+export const AMBIENT_CALLS_PER_HOUR = 20
+export type AmbientErrorKind = "python_traceback" | "js_error" | "compiler" | "shell_exit" | "notebook_cell" | "app_dialog"
+/** Why an ambient answer has nothing: cap = AMBIENT_CALLS_PER_HOUR reached (retryInS says when); offline = no network / cloud;
+ *  busy = the AI provider is overloaded; gone = the error id or help reqId is no longer held (dismissed, cleared, too old);
+ *  no_app = help.ask found no app to help with; failed = anything else. */
+export type AmbientFail = "cap" | "offline" | "busy" | "gone" | "no_app" | "failed"
+/** A place on screen for bon to point at (the buddy stroke / spotlight). x / y / w / h: screen points, top-left origin, the
+ *  ScreenRegion space; displayId absent = the primary display. label <= 4 words. via: how the engine found it, on this Mac:
+ *  ax = the app's accessibility tree (exact), ocr = on-device text recognition. Ambient help never sends a screenshot or a crop. */
+export interface AmbientTarget { x: number; y: number; w: number; h: number; displayId?: number; label?: string; app?: string; via?: "ax" | "ocr" }
+/** error.seen. id: stable for the same app + kind + title + file:line ("err-" + a short hash), so the same error again keeps its
+ *  id. title: <= 80 characters, usually the error's own last line ("ModuleNotFoundError: No module named 'pandas'").
+ *  lines: up to AMBIENT_ERROR_LINES_MAX, as read, with the home folder shortened to ~ and secret-looking values masked (••••).
+ *  file / line / col: where it points, when the error says (file as shown, home shortened). exitCode: shell_exit only.
+ *  rect: where the error text is on screen (the peek sits by it, bon points at it). at: ISO time first seen; again: times
+ *  seen again since. */
+export interface SeenError { id: string; app: string; kind: AmbientErrorKind; title: string; lines: string[]; file?: string; line?: number; col?: number;
+                             exitCode?: number; lang?: string; rect?: AmbientTarget; at: string; again?: number }
+/** error.explanation. title <= 8 words; why: what went wrong in plain words (<= 40); fix: the likely fix (<= 25 words).
+ *  diff: an optional unified diff for file (shown, never applied by itself). command: an optional terminal fix to copy
+ *  ("pip install pandas"). install: when the fix is installing a tool, its row (Install -> setup.fix {tool}). target: where
+ *  to look (the line in the editor, a dialog's button) for bon to point at. error + retryInS: no explanation (AmbientFail). */
+export interface ErrorExplanation { id: string; reqId?: string; pending?: boolean; title?: string; why?: string; fix?: string; diff?: string; file?: string; line?: number;
+                                    command?: string; install?: SetupItem; target?: AmbientTarget; error?: AmbientFail; retryInS?: number }
+/** One help step: text = one action, <= 12 words ("Click File, then Save As"); detail: optional, <= 25 words. advance: what
+ *  moves on from it: click = the target is clicked, screen = the screen changes as the step says (a menu / sheet / window
+ *  opens), next = only the learner's Next (help.nav). target absent: nothing to point at (or not found yet). */
+export interface HelpStep { id: string; text: string; detail?: string; target?: AmbientTarget; advance?: "click" | "screen" | "next" }
+/** help.steps. app: the app the steps are for ("Blender"); goal: the question as a title (<= 8 words, "Export as STL").
+ *  current: 0-based index of the step to do now. */
+export interface HelpSteps { reqId?: string; app: string; goal: string; steps: HelpStep[]; current: number; done?: boolean; pending?: boolean;
+                             error?: AmbientFail; retryInS?: number }
+export type SetupScanError = "no_project" | "unreadable" | "too_big"   // no_project: no folder given and none open in the frontmost editor; too_big: over the scan's file limit
+/** setup.report. root: the project folder (home shortened); name: its folder name. files: the project files read ("requirements.txt",
+ *  ".nvmrc"). items: one SetupItem per thing they ask for (from: the file and line), missing ones first; more: rows left out
+ *  (a long requirements file). env: the interpreters the checks used ("~/code/app/.venv (Python 3.12.4)", "node 20.11.1").
+ *  ready / total: items ok / items. scanning: a first quick answer, the full one follows. */
+export interface SetupReport { reqId?: string; root?: string; name?: string; files: string[]; items: SetupItem[]; ready: number; total: number; more?: number;
+                               env?: { python?: string; node?: string }; scanning?: boolean; error?: SetupScanError }
+
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo"; plan?: PlanLessonRef };   // plan (ui-v4): this lesson is lesson `index` of plan `id` (start it with query = that lesson's goal, mode "lesson"); the engine marks the plan lesson in_progress, then done when its last step passes   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
@@ -634,6 +702,32 @@ export interface AppCommands {
   "link.get": { url: string; reqId?: string };       // a link pasted in the ask field -> link.preview (with "link.any": any http(s) link, kinds "web" / "github" too; ANY-LINK.md)
   "proof.get": { id?: string; skillId?: string; reqId?: string };   // one Proof by id, or a skill's (newest first, <= 5) -> proof
   "data.get": {};                                    // -> data
+
+  // ---------- ambient help commands (Nov 24, AMBIENT-HELP.md): send one only when engine.hello.capabilities lists its type ----------
+  /** Turn spotting errors on or off (Settings; the app sends it on every connect). errors: watch for errors outside a lesson
+   *  (absent: unchanged; the engine starts with it off). mutedApps: app names never watched ("1Password"), <= 50. Local only. */
+  "ambient.set": { errors?: boolean; mutedApps?: string[] };
+  /** The learner pressed Explain on an error.seen peek. -> error.explanation. The one moment the error leaves the Mac: its
+   *  title, lines and up to AMBIENT_CONTEXT_LINES_MAX lines of context, redacted (paths cut to the file name, secrets masked),
+   *  plus the app name and kind; never a screenshot. One Haiku call, counted against AMBIENT_CALLS_PER_HOUR; the same id
+   *  again answers from the engine's memory. */
+  "error.explain": { id: string; reqId?: string };
+  /** The learner closed the peek: the engine forgets what it held for this id and does not send it again this session. */
+  "error.dismiss": { id: string };
+  /** Check a project for missing tools, runtimes and packages. path: the folder (absent: the folder open in the frontmost editor).
+   *  -> setup.report. */
+  "setup.scan": { path?: string; reqId?: string };
+  /** Install one setup.report row through the existing install path (action install's: brew, allowlisted casks, pip into the
+   *  project's own .venv when it has one, npm install in root; a licensed app is never installed). The row's button is the
+   *  learner's yes. -> setup.progress {tool} lines, then {done, ok}, then a fresh setup.report. */
+  "setup.fix": { tool: string; root?: string; reqId?: string };
+  /** "How do I X" about the app the learner is in, outside a lesson. text <= 300 characters. app: the app that was frontmost
+   *  before the ask field took focus (absent: the engine reads the frontmost app). -> help.steps. A new help.ask replaces the
+   *  one before. Sends the question, the app's name and the labels of its window's controls (accessibility tree, redacted),
+   *  never a screenshot; one Haiku call, counted against AMBIENT_CALLS_PER_HOUR. */
+  "help.ask": { text: string; reqId?: string; app?: string; source?: AskSource };
+  /** The help card's Next / Back / close. next / back -> help.steps with current moved; close: the engine stops watching, no reply. */
+  "help.nav": { reqId?: string; to: "next" | "back" | "close" };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;

@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { color, font, spring, type2 } from '../../core/theme'
+import { color, font, spring, type2, v4c } from '../../core/theme'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { EASE_OUT } from './parts'
 
@@ -75,7 +75,7 @@ export function Intro({ onDone, hold }: { onDone: () => void; hold?: boolean }):
           <motion.span
             aria-hidden
             className="absolute inset-0 block"
-            style={{ background: color.window }}
+            style={{ background: v4c.page }}
             initial={{ y: '0%' }}
             animate={{ y: '-101%' }}
             transition={{ duration: 1.05, delay: 0.08, ease: EASE_OUT }}
