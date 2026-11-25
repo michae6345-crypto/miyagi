@@ -289,49 +289,9 @@ jobs:
             dmgs=(Miyagi-Mac.dmg); [ -f Miyagi-Mac-x64.dmg ] && dmgs+=(Miyagi-Mac-x64.dmg)
             sha256sum "${dmgs[@]}" Miyagi-Mac-*.zip Miyagi-Mac-*.zip.blockmap latest-mac.yml > SHA256SUMS.txt
           )
-          unsigned="$(node -e '
-            const fs = require("node:fs")
-            const builds = fs.readdirSync("release").filter((f) => /^build-.*\.json$/.test(f)).map((f) => JSON.parse(fs.readFileSync("release/" + f, "utf8")))
-            process.stdout.write(builds.some((b) => !b.signed) ? "true" : "false")')"
-          engine="$(node -p 'require("./release/build-arm64.json").engine')"
-          title="miyagi $VERSION"
-          [ "$unsigned" = true ] && title="$title (unsigned)"
-          {
-            echo "Version: $VERSION"
-            echo
-            if [ -s release/WHATSNEW.txt ]; then
-              echo "## What's new"
-              echo
-              sed 's/^/- /' release/WHATSNEW.txt
-              echo
-            fi
-            if [ "$unsigned" = true ]; then
-              echo "**Unsigned build** (ad hoc, no Developer ID, not notarized). First open: open miyagi once, press Done,"
-              echo "then System Settings › Privacy & Security › **Open Anyway**. Every new build asks for Screen Recording again."
-            else
-              echo "Signed with a Developer ID and notarized by Apple."
-            fi
-            echo
-            echo "- Apple silicon: \`Miyagi-Mac.dmg\`"
-            [ -f release/Miyagi-Mac-x64.dmg ] && echo "- Intel: \`Miyagi-Mac-x64.dmg\`"
-            echo "- Engine inside: \`$engine\`"
-            echo
-            echo "SHA-256 (all files in SHA256SUMS.txt):"
-            echo
-            sed -n 's/^\([0-9a-f]\{64\}\)  \(Miyagi-Mac.*\.dmg\)$/sha256: \1 (\2)/p' release/SHA256SUMS.txt
-          } > release/NOTES.md
-          # The rolling "mac" release's notes (publish-github-public): the in-app update card shows the body's plain lines
-          # as "What's new" (manifest.ts cleanNotes drops the Version and sha256 lines), so only user-facing lines here.
-          {
-            echo "Version: $VERSION"
-            echo
-            [ -s release/WHATSNEW.txt ] && sed 's/^/- /' release/WHATSNEW.txt
-            [ "$unsigned" = true ] && echo "- Unsigned build: open it once, then System Settings › Privacy & Security › Open Anyway."
-            echo
-            sed -n 's/^\([0-9a-f]\{64\}\)  Miyagi-Mac\.dmg$/sha256: \1/p' release/SHA256SUMS.txt
-          } > release/ROLLING.md
-          printf '%s' "$title" > release/TITLE.txt
-          printf '%s' "$unsigned" > release/UNSIGNED.txt
+          # Title and notes: NOTES.md for vX.Y.Z, ROLLING.md for the rolling "mac" release (the in-app update card shows
+          # its plain lines as "What's new" and reads the version from the title), TITLE.txt, UNSIGNED.txt.
+          node .github/scripts/release-notes.mjs assemble release "$VERSION"
           cat release/NOTES.md >> "$GITHUB_STEP_SUMMARY"
           ls -l release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -432,15 +392,18 @@ jobs:
           # The update card only trusts adrian-erlikhman/miyagi (manifest.ts OFFICIAL_RELEASE_REPO), and the site's
           # download link points there too. Anywhere else, users never see this release.
           [ "$GH_REPO" = adrian-erlikhman/miyagi ] || echo "::warning::RELEASES_REPO is $GH_REPO; the update card and miyagi.study read adrian-erlikhman/miyagi"
-          # Stable names, both Apple silicon: Miyagi-Mac.dmg (update card, OFFICIAL_ASSETS.mac) and Miyagi-Mac.zip (the
-          # site's sealed download link today, and install.sh --app on claude/distribution).
+          # Stable names (.github/scripts/release-notes.mjs): Miyagi-Mac.dmg (Apple silicon: the site and the update card,
+          # OFFICIAL_ASSETS.mac), Miyagi-Mac.zip (the same app zipped: install.sh --app on claude/distribution, and the
+          # site's sealed link until it moves to the dmg) and, when Intel was built, Miyagi-Mac-x64.dmg.
           cp Miyagi-Mac-arm64.zip Miyagi-Mac.zip
+          rolling=(Miyagi-Mac.dmg Miyagi-Mac.zip)
+          [ -f Miyagi-Mac-x64.dmg ] && rolling+=(Miyagi-Mac-x64.dmg)
           if ! gh release view mac >/dev/null 2>&1; then
             gh release create mac --title "$(cat TITLE.txt)" --notes-file ROLLING.md --latest=false
           fi
-          gh release upload mac Miyagi-Mac.dmg Miyagi-Mac.zip --clobber
+          gh release upload mac "${rolling[@]}" --clobber
           gh release edit mac --title "$(cat TITLE.txt)" --notes-file ROLLING.md --latest=false
-          echo "rolling mac release on $GH_REPO now serves $VERSION (Miyagi-Mac.dmg, Miyagi-Mac.zip)" >> "$GITHUB_STEP_SUMMARY"
+          echo "rolling mac release on $GH_REPO now serves $VERSION (${rolling[*]})" >> "$GITHUB_STEP_SUMMARY"
 
   publish-r2:
     name: publish (Cloudflare R2)

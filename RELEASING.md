@@ -27,15 +27,23 @@ Users get the app from one place: the rolling **`mac`** release on **`adrian-erl
 
 1. Set the repo variables `RELEASE_TARGET=github-public` and `RELEASES_REPO=adrian-erlikhman/miyagi`, and add `RELEASES_REPO_TOKEN` (Contents: read and write on that repo only).
 2. Put the user-facing changes in `app/RELEASE-NOTES.txt`, one plain line each. The update card shows the first 6 as "What's new". Clear them after the release.
-3. Tag and push as above. The `vX.Y.Z` release on `adrian-erlikhman/miyagi` is a draft. Test its dmg (SHIP.md), then run the workflow again by hand (Actions › release › Run workflow, target `github-public`, `draft` off). That publishes `vX.Y.Z` and refreshes the rolling `mac` release with `Miyagi-Mac.dmg` and `Miyagi-Mac.zip` (a copy of the Apple silicon zip), titled `miyagi X.Y.Z`, with the user-facing notes. Only a non-draft, non-prerelease run does that: a draft or a beta never touches what users download.
+3. Tag and push as above. The `vX.Y.Z` release on `adrian-erlikhman/miyagi` is a draft. Test its dmg (SHIP.md), then run the workflow again by hand (Actions › release › Run workflow, target `github-public`, `draft` off). That publishes `vX.Y.Z` and refreshes the rolling `mac` release with `Miyagi-Mac.dmg`, `Miyagi-Mac.zip` (a copy of the Apple silicon zip) and, when Intel was built, `Miyagi-Mac-x64.dmg`. It is titled `miyagi X.Y.Z` and carries the user-facing notes. Only a non-draft, non-prerelease run does that: a draft or a beta never touches what users download.
 
 Who reads which name:
 
 | Name | Read by |
 |---|---|
-| `mac/Miyagi-Mac.dmg` | The in-app update card (`OFFICIAL_ASSETS.mac`). The site, once its link is re-sealed to the dmg. |
+| `mac/Miyagi-Mac.dmg` | The in-app update card (`OFFICIAL_ASSETS.mac`). The site, once its link is re-sealed to the dmg. Apple silicon. |
+| `mac/Miyagi-Mac-x64.dmg` | Intel. Nothing reads it yet: the update card offers it once `OFFICIAL_ASSETS.mac` lists it (see Open points). |
 | `mac/Miyagi-Mac.zip` | The site's download link today (sealed, `site-tools` seal script) and `install.sh --app` (on `claude/distribution`). |
+| the `mac` release's title and notes | The update card: the version comes from the title (`miyagi X.Y.Z`), "What's new" from the notes' plain lines, the hash from the `sha256:` line. A release with no version in its title or notes gives no offer. |
 | `vX.Y.Z/Miyagi-Mac-arm64.zip`, `-x64.zip`, `latest-mac.yml` | electron-updater, once auto-update (#245) is on. Needs signed builds. |
+
+The names, the title and both sets of notes come from one file, `.github/scripts/release-notes.mjs`. The workflow and `ship-mac.sh --publish` both call it, and `app/test/releaseNames.test.ts` checks that a release written this way is one the update card reads. Change a name there and in `manifest.ts` together, or that test fails.
+
+`npm run ship:mac -- --publish` (a hand build on a Mac) uploads the dmg and then sets the same title and notes. Before this it left the old title in place, so the update card found no version and never offered the build. `--x64` builds `Miyagi-Mac-x64.dmg` and a publish uploads only that file.
+
+The update card offers a release only to apps with a lower version, so bump `version` in `app/package.json` for every build you publish. Every line is on `0.1.0` today.
 
 When the first dmg is on `mac`, switch the site: re-seal its Mac link to `.../mac/Miyagi-Mac.dmg` and change the install tip from "unzip" to "open the dmg and drag miyagi to applications". Until then the tip says "unzip", which matches the zip it downloads.
 
@@ -98,7 +106,9 @@ The ad-hoc `codesign --deep -s -` step is skipped for these builds. `ship-mac.sh
 ## Open points for Adrian
 
 - **The in-app update card** reads the rolling `mac` release on `adrian-erlikhman/miyagi` (`src/main/features/updates.ts`, `manifest.ts`), not `vX.Y.Z` releases. A published `github-public` run now refreshes it (see "Ship it to users"). If the releases move to another repo or to R2, `OFFICIAL_RELEASE_REPO` and the URL allowlist in `manifest.ts` have to move with them.
-- **Intel in the update card**: `OFFICIAL_ASSETS.mac` only accepts `Miyagi-Mac.dmg`, so Intel users aren't offered `Miyagi-Mac-x64.dmg` yet.
+- **Intel in the update card**: `OFFICIAL_ASSETS.mac` only accepts `Miyagi-Mac.dmg`, so an Intel Mac is offered the Apple silicon dmg, which it can't run. The rolling release now holds `Miyagi-Mac-x64.dmg` when Intel was built; adding that name to `OFFICIAL_ASSETS.mac` is the whole fix (the card already picks the asset that names the Mac's arch). `releaseNames.test.ts` reports the gap and passes either way.
+- **`install.sh --app`** (on `claude/distribution`) downloads `mac/Miyagi-Mac.zip` and looks inside it for a folder named exactly `Miyagi.app`. Since the rename the app is `miyagi.app`, so that step likely stops with "no Miyagi.app inside" on any current build (read from the script, not run on a Mac). Either the script accepts `miyagi.app`, or `--app` is retired and `Miyagi-Mac.zip` leaves the rolling release once the site links the dmg.
+- **`ci.yml` `mac-build`** still makes a `Miyagi-Mac.zip` artifact with no engine inside on pushes to `main`, under the comment "The Mac download on miyagi.study". Nothing should publish that file any more; drop the job or rename its artifact once this workflow has shipped a release.
 - **Universal build**: `ship:mac --universal` still bundles the arm64 Python only. That's why the release makes one dmg per arch.
 - **Runner label**: if `macos-15-intel` gets retired, set `MAC_X64_RUNNER`, or turn Intel off with `RELEASE_INTEL=false`.
 - **Not run yet**: nobody has run this workflow on GitHub so far, and no signed or notarized build has been made, because there's no Apple account yet. Check the first run's logs and try the first dmg on a Mac before you trust it.
