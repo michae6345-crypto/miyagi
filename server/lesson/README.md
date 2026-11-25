@@ -97,6 +97,33 @@ model: the full lesson at ~31 s instead of ~36 s on a 10-minute video, ~38 s ins
 same steps on the deterministic fake. Nothing streams early (a batch is final only after the whole-lesson lint).
 `LESSON_BATCHED_ADAPT=0` turns it off.
 
+## Lessons from any link (`pagelesson.py`, lane eng-link-build)
+`build_page_lesson(page, workdir, on_update=None)` builds a lesson from a page's **extracted text** (an article, a docs
+page or a GitHub README; contract `shared/contracts/ANY-LINK.md`). The fetch and HTML extraction come before it: it
+takes an `ExtractedPage` (sections of heading, prose, code blocks and the page's anchor; or Markdown via
+`ExtractedPage.from_markdown`, GitHub anchors slugged as GitHub does; or the extractor's dict via `from_dict`).
+- **Same builder as "Just teach me"**: `textlesson._build_text_lesson(..., page=PageBuild)`. Plan (Sonnet, role
+  `segment`), step 1 first through `on_update`, the other steps in parallel (role `detail`), the same shaping, lint,
+  repair and check kinds (editor and terminal screen checks, `file_*` / `command_exit_ok` precision checks), then the
+  lesson's `.venv` / notebook passes as for a video lesson. Never Opus (roles only).
+- **The page is the research**: no web_search / web_fetch call. The page, numbered by section (§1, §2, ...), is an
+  `<untrusted source="page">` block in the plan prompt and in the cached prefix of every step prompt; `EXTRACT_RULE`
+  (its own code and commands are the task; `strip_injection` still blanks commands outside the allowlist). A section
+  that addresses an AI (`flag_injection`, strict) is left out; a page over `LESSON_PAGE_TEXT_BUDGET` (15 000 chars) is
+  cut at a section boundary and the overview says the lesson covers the first part.
+- **Each plan step names its section**; the built step carries `pageRef {url[#anchor], heading}` (never the page's
+  words), the orchestrator passes it to `StepSummary.pageRef` and `lesson.origin` to `lesson.ready`. Mode `lesson`, no
+  video; sources = the page (`blog` / `repo`, meta = site); lesson id `web-<key>`.
+- **Cache**: the contract's key, `link_cache_key(kind, url, content_hash)` + `LESSON_SCHEMA_VERSION`, at
+  `CACHE_DIR/links/<key>.s<version>.json` whatever the workdir (another spelling of the link hits it, an edited page
+  does not). `pagelesson.cached(kind, url, hash)` answers `link.preview.cached` for this Mac. The shared cloud cache
+  skips link lessons until miyagi-cloud's `/lessons/{id}` accepts `LINK_CACHE_KEY_RE` ids.
+- **Build-time metrics**: `build.metrics` (planS, firstStepS, totalS, sections used / dropped, code blocks, characters,
+  cut, cache hit, model calls, dollars), one `page_lesson.metrics {json}` log line and the `page_build` cost event.
+- Raises `pagelesson.NoContent` (`code = "no_content"`) for a page with no readable text.
+Tests: `tests/test_pagelesson.py` (fixtures in `fixtures/pages/`, deterministic fake model) and
+`server/orchestrator/tests/test_page_lesson_ready.py` (lesson.ready through the strict hub).
+
 ## Lesson shape rules (from S3's 5-tutorial eval)
 - Playable from an empty folder: step 1 sets up any code/data/repo state the tutorial prepared off camera.
 - Every step has at least one check any learner passes with their own names/data (tool output, API names);
