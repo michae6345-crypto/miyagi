@@ -30,14 +30,14 @@ import { duration, ease } from '../../core/ui/motionTokens'
  * claude/contract-circle-ask). A local mirror until that contract is on this branch; then use Payload<'annotate'>.
  * x / y / w / h are screen points, the spotlight.rect space.
  */
-export type Mark = { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string; why: 'point' | 'answer'; askId?: string; stepId?: string }
+export type Mark = { id?: string; x: number; y: number; w: number; h: number; displayId?: number; label?: string; why: 'point' | 'answer'; askId?: string; stepId?: string; text?: string; keys?: string[] }
 export type AnnotatePayload = { marks: Mark[]; holdMs?: number } | { clear: true }
 
 /**
  * A mark being drawn. `rect` stays in screen points (the layer maps it into its window). `born`: when it first
  * appeared (ms); a re-sent mark keeps it, so it is not drawn again and does not push the fade back.
  */
-export type Shown = { key: string; id?: string; rect: Rect; displayId?: number; label?: string; why: Mark['why']; stepId?: string; askId?: string; born: number }
+export type Shown = { key: string; id?: string; rect: Rect; displayId?: number; label?: string; why: Mark['why']; stepId?: string; askId?: string; text?: string; born: number }
 /** What a mark is remembered by (drawn now, or gone this step). */
 export type Known = Pick<Shown, 'key' | 'id' | 'rect' | 'why'>
 
@@ -135,6 +135,9 @@ export function mergeMarks(prev: readonly Shown[], incoming: readonly Mark[], go
     const was = prev.find((p) => p.key === (knownKey(m, prev) ?? keyOf(m)))
     if (was && out.includes(was)) continue
     const label = cleanLabel(m.label)
+    // The on-screen coach's step text (a "point" mark only, contract Annotation.text): bon does not say it (features/annotate
+    // draws the text box beside the loop), but a mark with text is the step's own and is not timed (untimed below).
+    const text = m.why === 'point' ? cleanCoachText(m.text) : undefined
     out.push({
       key: was ? was.key : keyOf(m),
       ...(id ? { id: m.id } : {}),
@@ -145,10 +148,27 @@ export function mergeMarks(prev: readonly Shown[], incoming: readonly Mark[], go
       why: m.why,
       ...(m.stepId ? { stepId: m.stepId } : {}),
       ...(m.askId ? { askId: m.askId } : {}),
+      ...(text ? { text } : {}),
       born: was ? was.born : now
     })
   }
   return out
+}
+
+/** The coach's text, as features/annotate/marks.ts cleanText keeps it: one line, the first 12 words; nothing when empty. */
+export const COACH_TEXT_WORDS = 12
+export function cleanCoachText(t: unknown): string | undefined {
+  if (typeof t !== 'string') return undefined
+  const words = t.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, COACH_TEXT_WORDS)
+  return words.length ? words.join(' ') : undefined
+}
+
+/**
+ * The marks the hold fades: every mark without the coach's text. A text mark is the step's action (an app lesson's
+ * on-screen coach): it stays while its step is live, like features/annotate/store.ts keeps its text box.
+ */
+export function timedMarks<T extends Pick<Shown, 'text'>>(marks: readonly T[]): T[] {
+  return marks.filter((m) => !m.text)
 }
 
 /** The engine's holdMs kept within reason; anything else is the default. */

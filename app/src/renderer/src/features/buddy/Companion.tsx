@@ -16,8 +16,10 @@
  *     pointer when it comes near, and hops and beams when they get there.
  * Trips, perches and timing are pure and in trip.ts.
  *
- * The bubble is island black, like the pill. It and the buddy are data-ui, so the engine never reads the buddy's
- * words as the learner's screen. Only a bubble with buttons takes the mouse (data-hit); nothing else here does.
+ * The bubble is island black, like the pill. It is data-ui, so the engine never reads the buddy's words as the
+ * learner's screen. The body is not: it has no words, and data-ui would make the engine's reader drop the lines under
+ * it (beside a code row: that row's line number, which the engine reads to place the box). Only a bubble with buttons
+ * takes the mouse (data-hit); nothing else here does.
  *
  * Reduced motion: no flights. It fades in where it would have landed, with its words whole, and fades out.
  * The character is the one that draws (Adrian, Nov 23). It stands down, with its loops, only for a cut of Michael's
@@ -37,7 +39,7 @@ import { ringBox } from './marks'
 import { setTrip, usePointing } from './pointing'
 import { bonsaiPoint, frame, useHere, useStandDown } from './Reach'
 import { canExplain, reply, useTalk, type ReplyKind } from './talk'
-import { along, beside, BODY, catchUp, flight, gazeAt, gazeOf, NOTICE_PX, perch, said, scaleAt, tiltAt, type Flight } from './trip'
+import { along, beside, BODY, buddyWhy, catchUp, flight, gazeAt, gazeOf, markWords, NOTICE_PX, perch, perchPrefer, said, scaleAt, tiltAt, type Flight } from './trip'
 
 /** Landing: it squashes this much (wider, shorter) and springs back. The hop when the learner gets there: this high, this long. */
 const SQUASH = { wide: 0.08, short: 0.13 } as const
@@ -183,7 +185,7 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
 
   // What it has to say right now.
   // A mark's own words first; a mark with none (a spotlight box) lets it say what it has to say anyway (it grew).
-  const line = first ? (talk.sayFor === first.key && talk.say ? talk.say : (first.label ?? (talk.sayFor ? undefined : talk.say))) : talk.sayFor ? undefined : talk.say
+  const line = first ? (talk.sayFor === first.key && talk.say ? talk.say : (markWords(first) ?? (talk.sayFor ? undefined : talk.say))) : talk.sayFor ? undefined : talk.say
   const model = useMemo((): Model | undefined => {
     if (goal === 'home') return undefined
     if (talk.activity === 'thinking') return { kind: 'thinking' }
@@ -213,11 +215,13 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const ry = first?.rect.y
   const rw = first?.rect.w
   const rh = first?.rect.h
+  /** The on-screen coach's mark: its text box (features/annotate) takes the right of the loop, so the buddy the left. */
+  const coach = !!first?.text
   const spot = useMemo(() => {
     if (rx === undefined || ry === undefined || rw === undefined || rh === undefined) return undefined
     const ring = ringBox({ x: rx, y: ry, w: rw, h: rh }, { x: 0, y: 0, w: layout.width, h: layout.height })
-    return { ...perch(ring, size, { x: wa.x, y: wa.y, w: wa.width, h: wa.height }, bridged ? 'left' : 'right'), ring }
-  }, [rx, ry, rw, rh, size, layout.width, layout.height, wa.x, wa.y, wa.width, wa.height, bridged])
+    return { ...perch(ring, size, { x: wa.x, y: wa.y, w: wa.width, h: wa.height }, perchPrefer(coach, bridged)), ring }
+  }, [rx, ry, rw, rh, size, layout.width, layout.height, wa.x, wa.y, wa.width, wa.height, bridged, coach])
   const bx = spot?.body.x
   const by = spot?.body.y
 
@@ -479,7 +483,14 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
   const lift = BODY.size * (28 / 48)
 
   return (
-    <div ref={el} className="pointer-events-none absolute inset-0" data-buddy={standDown ? 'stand-down' : trip.phase} data-buddy-mood={away ? mood : undefined} data-letters={letters || undefined}>
+    <div
+      ref={el}
+      className="pointer-events-none absolute inset-0"
+      data-buddy={standDown ? 'stand-down' : trip.phase}
+      data-buddy-why={buddyWhy({ standDown, marks: marks.length, here: here.length, summoned: talk.summoned })}
+      data-buddy-mood={away ? mood : undefined}
+      data-letters={letters || undefined}
+    >
       {model && (
         <div ref={ruler} aria-hidden className="pointer-events-none absolute left-0 top-0" style={{ ...bubbleBox, visibility: 'hidden', width: 'max-content', maxWidth: BUBBLE.maxText + BUBBLE.padX * 2 }}>
           <Says model={model} letters={words.length} open measure />
@@ -489,7 +500,10 @@ export function CompanionLayer({ layout }: { layout: Layout }): ReactNode {
         <motion.div className="absolute left-0 top-0" style={{ x, y, opacity: alpha }}>
           <motion.div style={{ scale, rotate: tilt, y: hop }}>
             <motion.div style={{ scaleX: wide, scaleY: short, transformOrigin: `0px ${BODY.size * 0.3}px` }}>
-              <span data-ui data-part="buddy-body" className="absolute" style={{ left: -BODY.size / 2, top: -lift, lineHeight: 0, filter: DROP }}>
+              {/* Not data-ui (live trace B6): the body has no words, and overlay.bounds makes the engine's reader drop and
+                  black out every line under it. Perched left of a code row it sat on that row's line number, the very
+                  thing the engine reads to keep the box on its line. Its bubble (words) stays data-ui. */}
+              <span data-part="buddy-body" className="absolute" style={{ left: -BODY.size / 2, top: -lift, lineHeight: 0, filter: DROP }}>
                 <Character kind={KIND} size={BODY.size} mood={mood} look={look} talking={talking} flying={flying} point={point} level={grown.level} grew={grown.grew} />
               </span>
             </motion.div>

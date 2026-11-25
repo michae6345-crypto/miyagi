@@ -142,3 +142,90 @@ describe('today’s pointing: the spotlight’s boxes (pointing.ts spotlit)', ()
     assert.equal(shown().length, 0)
   })
 })
+
+describe('the on-screen coach’s text mark (an app lesson): bon circles it for the whole step', () => {
+  const coach = { id: 'os-s1-1', why: 'point', stepId: 's1', label: 'Move it', text: 'Press  G to move   the cube', keys: ['G'], x: 700, y: 400, w: 120, h: 90 }
+  const texts = (): (string | undefined)[] => usePointing.getState().marks.map((m) => m.text)
+  beforeEach(() => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    emitUi('reset')
+    send('step.started', { stepId: 's1' })
+  })
+  afterEach(() => {
+    emitUi('reset')
+    mock.timers.reset()
+  })
+
+  test('kept with its text (cleaned), and not timed: no 6 s fade, no holdMs fade', () => {
+    send('annotate', { marks: [coach], holdMs: 2000 })
+    assert.deepEqual(texts(), ['Press G to move the cube'])
+    mock.timers.tick(HOLD.max + 1000)
+    assert.equal(shown().length, 1)
+  })
+
+  test('a text mark beside a plain one: only the plain one fades at the hold', () => {
+    send('annotate', { marks: [coach, { id: 'p2', why: 'point', x: 100, y: 100, w: 50, h: 20 }] })
+    mock.timers.tick(HOLD.base + 10)
+    assert.deepEqual(texts(), ['Press G to move the cube'])
+  })
+
+  test('it goes on step.passed, on another step, on Esc, on annotate {clear}, and when the learner gets there', () => {
+    send('annotate', { marks: [coach] })
+    send('step.passed', { stepId: 's1' })
+    assert.equal(shown().length, 0)
+    send('step.started', { stepId: 's1' })
+    send('annotate', { marks: [coach] })
+    send('step.started', { stepId: 's2' })
+    assert.equal(shown().length, 0)
+    send('step.started', { stepId: 's1' })
+    send('annotate', { marks: [coach] })
+    emitUi('dismiss')
+    assert.equal(shown().length, 0)
+    send('step.started', { stepId: 's1' })
+    send('annotate', { marks: [coach] })
+    send('annotate', { clear: true })
+    assert.equal(shown().length, 0)
+    send('step.started', { stepId: 's1' })
+    send('annotate', { marks: [coach] })
+    reached([usePointing.getState().marks[0].key])
+    assert.equal(shown().length, 0)
+  })
+
+  test('a late text mark for a step that is not running draws nothing and leaves what is drawn', () => {
+    send('annotate', { marks: [{ id: 'a', why: 'answer', x: 10, y: 10, w: 80, h: 30 }] })
+    send('annotate', { marks: [{ ...coach, stepId: 's0' }] })
+    assert.deepEqual(
+      shown().map((m) => m.why),
+      ['answer']
+    )
+  })
+
+  test('quiet (a blocker, idle) hides it and live again brings it back with no re-send', () => {
+    send('annotate', { marks: [coach] })
+    send('blocker', { kind: 'save' })
+    assert.equal(shown().length, 0)
+    send('blocker', { kind: 'save', clear: true })
+    assert.equal(shown().length, 1)
+    send('status', { state: 'idle' })
+    assert.equal(shown().length, 0)
+    send('status', { state: 'watching' })
+    assert.equal(shown().length, 1)
+    // A text mark that came while quiet waits, and shows once live.
+    send('annotate', { clear: true })
+    send('lesson.paused', { reason: 'user' })
+    send('annotate', { marks: [{ ...coach, id: 'os-s1-2', text: 'Now press Tab' }] })
+    assert.equal(shown().length, 0)
+    send('lesson.resumed', {})
+    assert.deepEqual(texts(), ['Now press Tab'])
+  })
+
+  test('“Not yet” for this step: the engine’s re-send is circled again, though the learner got there', () => {
+    send('annotate', { marks: [coach] })
+    reached([usePointing.getState().marks[0].key])
+    send('annotate', { marks: [coach] })
+    assert.equal(shown().length, 0, 'a re-send with no ask stays gone')
+    send('card', { verdict: 'not_done', stepId: 's1', kind: 'step' })
+    send('annotate', { marks: [coach] })
+    assert.equal(shown().length, 1)
+  })
+})
