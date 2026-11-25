@@ -938,8 +938,10 @@ def _ensure_venv(workdir, emit, env, timeout, popen) -> tuple[str | None, str]:
 
 
 def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[[str], None] | None = None,
-            timeout: float = 1800.0, popen=subprocess.Popen, net: Callable[[str], bool] | None = None) -> dict:
+            timeout: float = 1800.0, popen=subprocess.Popen, net: Callable[[str], bool] | None = None,
+            python: str | None = None) -> dict:
     """Install one requirements() item. Call ONLY after the learner confirmed it.
+    python: pip into this interpreter (a project's own venv/ or env/, project.fix) instead of <workdir>/.venv.
 
     brew / brew cask (HOMEBREW_NO_AUTO_UPDATE), or pip into `<workdir>/.venv` (created with the newest
     python3 if missing). Streams output lines to on_line. Without Homebrew, returns the download URL and
@@ -985,7 +987,7 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
         if not workdir:
             out["error"] = "pip installs go into the lesson's .venv: no lesson folder given"
             return out
-        py, err = ensure_venv(workdir, emit=emit, env=env, timeout=timeout, popen=popen)
+        py, err = (python, "") if python else ensure_venv(workdir, emit=emit, env=env, timeout=timeout, popen=popen)
         if py is None:
             out.update(error=err, **({"url": CATALOG["python"]["url"]} if err == NO_PYTHON else {}))
             return out
@@ -1003,11 +1005,18 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
             return out
         out.update(error=_last_error(txt) or f"exit {code}", url=r["url"])
         return out
-    after = check(dict(item), workdir=workdir)
+    after = check_python_packages_in(dict(item), python) if python and item.get("kind") == "python_package" \
+        else check(dict(item), workdir=workdir)
     out.update(ok=bool(after["installed"]), version=after.get("version", ""))
     if not after["installed"]:
         out["error"] = "installer finished but the tool still isn't found (open a new terminal / check PATH)"
     return out
+
+
+def check_python_packages_in(item: dict, py: str) -> dict:
+    """check() for one python_package row against a given interpreter (a project's own venv)."""
+    check_python_packages([item], py)
+    return item
 
 
 def _stream(argv: list[str], emit, env: dict, timeout: float, popen) -> tuple[int, str]:

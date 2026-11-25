@@ -1,0 +1,7 @@
+{
+  "name": "weather-app-ui",
+  "private": true,
+  "scripts": {"dev": "vite", "postinstall": "echo never run by a scan"},
+  "dependencies": {"react": "^18.3.1", "react-dom": "^18.3.1"},
+  "devDependencies": {"vite": "^5.4.0"}
+}

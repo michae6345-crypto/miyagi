@@ -110,6 +110,11 @@ try:
 except Exception as _e:  # noqa: BLE001
     log.warning("spaced review unavailable: %s", _e)
     review_mod = None  # type: ignore[assignment]
+try:  # ambient help (Nov 24): setup.scan / setup.fix / help.ask / help.nav (server/ambient/assist.py)
+    from server.ambient import assist as assist_mod
+except Exception as _e:  # noqa: BLE001
+    log.warning("ambient setup / how-do-I unavailable: %s", _e)
+    assist_mod = None  # type: ignore[assignment]
 
 
 # ============================================================================ v2 wire (BUILD-PLAN E2)
@@ -135,6 +140,9 @@ SKILL_INSTANT = frozenset({"proof.get"})
 # ui-v4 plans (server/plans/service.py): answered beside the queue. A plan lesson starts through learn / learn_url /
 # library.start carrying plan {id, index}.
 PLAN_INSTANT = frozenset(plans_service.COMMANDS)
+# ambient help (Nov 24, AMBIENT-HELP.md): project setup and how-do-I, answered beside the lesson queue (a scan, an install
+# or a help card never waits behind a build, and never holds the queue)
+ASSIST_INSTANT = frozenset(assist_mod.COMMANDS) if assist_mod is not None else frozenset()
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
@@ -373,6 +381,14 @@ def _erases_activity(what: Any) -> bool:
     if not what:
         return True
     return any(k in ("progress", "all", "activity", "bon") for k in what if isinstance(k, str))
+
+
+def lesson_holds_screen(s: Any) -> bool:
+    """A lesson is on screen, so an ambient help card stops watching: searching, building or a lesson in progress. A
+    finished lesson (phase "done": its completion screen, the graph still held) doesn't count."""
+    if getattr(s, "phase", None) in ("building", "searching"):
+        return True
+    return getattr(s, "graph", None) is not None and getattr(s, "phase", None) != "done"
 
 
 def parse_command(raw: dict) -> Any:
@@ -659,6 +675,13 @@ class Engine:
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
         # the plan lesson running now (ui-v4 plans): (plan id, index, engine lesson id once lesson.ready linked it)
         self._plan_ref: tuple[str, int, str | None] | None = None
+        self.assist: Any = None  # ambient help: setup.scan / setup.fix / help.ask / help.nav (server/ambient/assist.py)
+        if assist_mod is not None:
+            try:
+                s = self.session
+                self.assist = assist_mod.Assist(lesson_running=lambda: lesson_holds_screen(s))
+            except Exception as e:  # noqa: BLE001
+                log.warning("ambient setup / how-do-I unavailable: %s", e)
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -868,6 +891,8 @@ class Engine:
         caps.append("proof.get")  # ui-v4 skill tree: a pass's proof (server/skilltree/proofs.py); the tree rides on progress
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         caps += list(plans_service.COMMANDS)  # ui-v4 plans (server/plans); learn / learn_url / library.start take plan
+        if getattr(self, "assist", None) is not None:  # ambient help: project setup + how-do-I (server/ambient/assist.py)
+            caps += list(assist_mod.COMMANDS)
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -1339,6 +1364,9 @@ class Engine:
         elif msg.type in PLAN_INSTANT:
             s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
             await plans_service.handle(msg.type, p, reply)
+        elif msg.type in ASSIST_INSTANT:
+            if self.assist is not None:
+                await self.assist.handle(msg.type, p, reply)
         elif msg.type == "library.start":
             await self.plan_lesson(getattr(p, "plan", None), library_id=p.id)
             await self.library_start(p.id)
@@ -1663,7 +1691,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
             elif (raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT
-                  or raw.get("type") in PLAN_INSTANT):  # a read never waits behind a build
+                  or raw.get("type") in PLAN_INSTANT or raw.get("type") in ASSIST_INSTANT):  # never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)
