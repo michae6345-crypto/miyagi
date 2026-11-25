@@ -46,7 +46,7 @@ log = logging.getLogger("orchestrator.circle_ask")
 
 CAPTURE_S = 3.0  # one capture + OCR is ~0.3-0.5 s; never hold the learner's answer longer than this
 LAST_FRAME_S = 5.0  # a failed capture may still use the last frame's text when it is at most this old
-HOLD_MS = 6000  # how long the buddy's circle stays (the app also fades it on a click there or a step change)
+HOLD_MS = 10_000  # how long the buddy's circle stays, longer than 6 s so bon is seen there (Adrian, Nov 24; the app also fades it on a click there or a step change)
 # The contract's promise (Action ask + region): every circle ask is answered within about this many seconds; the
 # app (v2-integration features/circle) gives up at ASK_MAX_MS = 30 s. One deadline, ASK_DEADLINE_S after release_t,
 # covers everything: the app crop's OCR, the stream, its one retry (fast_ask.ask_stream deadline=) and the one-shot

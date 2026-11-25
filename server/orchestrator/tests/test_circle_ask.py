@@ -76,7 +76,7 @@ def test_circle_ask_without_a_lesson_answers_next_to_the_circle_and_circles_the_
     [ann] = rig.of("annotate")
     [mark] = ann["marks"]
     assert mark["why"] == "answer" and mark["askId"] == "ask-1" and mark["displayId"] == REGION["displayId"]
-    assert ann["holdMs"] > 0
+    assert ann["holdMs"] > 6000  # long enough to see bon there (Adrian, Nov 24)
     assert "error" not in rig.types()  # never "No lesson is running yet." for a circle
     assert "LEARNER ASKS: What is this?" in model.calls[0]["user_text"]
 
