@@ -5,7 +5,9 @@
  *   tabs        All · In progress · Ready · Finished · Plans, each with its count (the counts live here, no sentence)
  *   Your plans  the learner's plans: picture, next lesson, lessons left, a progress line ("3 of 8")
  *   tables      In progress / Ready to start / Finished: Lesson · Plan · Works in · Grows · Time · Progress · Opened.
- *               Columns drop as the pane narrows (Plan, Grows, Opened first). Green only on Passed.
+ *               Each column is sized to its content (easing out to the mock's widths when there's room); one every
+ *               row lacks is left out. Titles come first: Plan and Grows truncate, then columns drop (Plan, Grows,
+ *               Opened, Works in) only when the titles still don't fit (tableCols.ts). Green only on Passed.
  *   Start a plan four catalog plans the learner hasn't added, with All 40 plans
  *
  * First run (no lessons, no plans: -27): one line, the two ways to make a plan, eight plans to start, and five short
@@ -23,7 +25,7 @@
  * matches its title against the catalog for the Plan column and uses updatedAt for Opened.
  */
 import { CloudOff, ListPlus, Search, SquarePen, X, Check } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LibraryItem, PlanLesson, PlanState } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge, engineMode } from '../../bridge'
@@ -34,6 +36,7 @@ import { Empty, PageFrame, PageHeader, setCrumbs } from '../shell/ui'
 import { useShell } from '../shell/store'
 import { Skeleton, TOOL_NAME } from './parts'
 import { openDetail, setQuery, useLibrary } from './store'
+import { layoutCols, type ColKey, type ColsLayout } from './tableCols'
 import { aboutHours, FIRST_RUN, NEXT_UP, planById, planForLesson, PLANS, planShort, skillLabel, START_HERE, type CatalogPlan } from '../plans/catalog'
 import { PlanDialogs } from '../plans/Dialogs'
 import { primeSkills, useSkills } from '../skills/store'
@@ -129,10 +132,10 @@ const growsOf = (i: Item, known?: Map<string, string>): string[] =>
 const toolOf = (i: Item): string => (i.tools[0] ? TOOL_NAME[i.tools[0]] : (i.plan?.tool?.label ?? planOf(i)?.tool.label ?? ''))
 
 /** A short progress line: ink on the track (never green), a fixed width so every row's line lines up. */
-function ProgressLine({ done, total }: { done: number; total: number }): ReactNode {
+function ProgressLine({ done, total, width = 86 }: { done: number; total: number; width?: number }): ReactNode {
   const f = total ? Math.max(0, Math.min(1, done / total)) : 0
   return (
-    <span role="img" aria-label={`${done} of ${total}`} className="relative block shrink-0 overflow-hidden" style={{ width: 86, height: 3, borderRadius: radius2.round, background: fill.track }}>
+    <span role="img" aria-label={`${done} of ${total}`} className="relative block shrink-0 overflow-hidden" style={{ width, height: 3, borderRadius: radius2.round, background: fill.track }}>
       <span className="absolute inset-y-0 left-0 block" style={{ width: `${f * 100}%`, background: color.text, borderRadius: radius2.round }} />
     </span>
   )
@@ -151,127 +154,168 @@ function Passed(): ReactNode {
 
 // ---- lesson tables --------------------------------------------------------------------------------------------------
 
-/** `title`: the px the Lesson column needs for its longest title (titleWidth), so Plan and Grows give way first (QA Q20). */
-type Cols = { plan: boolean; grows: boolean; opened: boolean; tool: boolean; title?: number }
-function colsFor(w: number): Cols {
-  return { plan: w >= 900, grows: w >= 820, opened: w >= 700, tool: w >= 520 }
-}
+/** The grid's column gap (TableHead / TableRow's default). */
+const GAP = 16
+/** The row's progress line: the mock's 64 px bar, then "4 of 7". */
+const BAR = 64
+/** A chip's side padding (SkillChip: 0 6px) and the gap between two chips. */
+const CHIP_PAD = 12
+const CHIP_GAP = 4
+const HEAD = { plan: 'Plan', tool: 'Works in', grows: 'Grows', time: 'Time', progress: 'Progress', opened: 'Opened' } as const satisfies Record<ColKey, string>
 
-/** A lesson title's width in the row's own type (14 px, 600); the estimate when there is no canvas. */
+/** Text width in the page's own type (Bricolage); an estimate when there is no canvas. */
 let ctx: CanvasRenderingContext2D | null | undefined
-function textWidth(t: string): number {
+let family = ''
+function textWidth(t: string, size: number, weight = 400): number {
+  if (!t) return 0
   if (ctx === undefined) {
     try {
       ctx = document.createElement('canvas').getContext('2d')
-      if (ctx) ctx.font = `600 ${type2.md}px ${getComputedStyle(document.body).fontFamily || 'system-ui'}`
+      family = getComputedStyle(document.body).fontFamily || 'system-ui'
     } catch {
       ctx = null
     }
   }
-  return Math.ceil(ctx ? ctx.measureText(t).width : t.length * 7.6)
+  if (!ctx) return Math.ceil(t.length * size * (weight >= 600 ? 0.55 : 0.5))
+  ctx.font = `${weight} ${size}px ${family}`
+  return Math.ceil(ctx.measureText(t).width)
 }
-/** The Lesson column's floor: the thumb (56) + its gap (12) + the longest title, + a hair for the font's rounding. */
-function titleWidth(items: Item[]): number {
-  return items.reduce((m, i) => Math.max(m, textWidth(i.title)), 0) + 56 + 12 + 4
+const metaWidth = (t: string): number => textWidth(t, type2.sm)
+const chipWidth = (t: string): number => metaWidth(t) + CHIP_PAD
+
+/** When the lesson was opened (or passed): "Today", "Nov 21". Empty for one not started. */
+function openedOf(i: Item): string {
+  const done = finished(i)
+  if (!done && !inProgress(i)) return ''
+  return dayLabel(done ? (i.lesson?.doneAt ?? i.updatedAt) : (i.lesson?.openedAt ?? i.updatedAt))
+}
+/** The Progress cell's text: "Passed", "2 of 6", "Ready". */
+function progressText(i: Item): string {
+  if (finished(i)) return 'Passed'
+  if (inProgress(i) && i.progress) return `${i.progress.stepIndex} of ${i.progress.total}`
+  return i.ready ? 'Ready' : 'Not ready yet'
 }
 
-function template(c: Cols): string {
-  return [
-    // Whole titles first, but never more than half the table (a long title still truncates in a narrow pane).
-    c.title ? `minmax(min(${c.title}px, 50%),2.4fr)` : 'minmax(0,2.4fr)',
-    c.plan ? 'minmax(0,1.2fr)' : '',
-    // Works in holds one short word ("Jupyter", "Blender"): a fixed 76 leaves the rest to Plan and Grows.
-    c.tool ? '76px' : '',
-    c.grows ? 'minmax(0,1.4fr)' : '',
-    '56px',
-    '150px',
-    c.opened ? '76px' : ''
-  ]
-    .filter(Boolean)
-    .join(' ')
+/**
+ * The tables' layout for the rows on screen: each column sized to its longest cell (the header counts once a row has
+ * something), 0 when every row lacks it (left out), and the Lesson column's need from its longest title.
+ */
+function measureCols(items: Item[], width: number, known: Map<string, string>): ColsLayout {
+  const max = (k: ColKey, cell: (i: Item) => number): number => {
+    const m = items.reduce((n, i) => Math.max(n, cell(i)), 0)
+    return m > 0 ? Math.max(m, metaWidth(HEAD[k])) + 2 : 0
+  }
+  const title = items.reduce((m, i) => Math.max(m, textWidth(i.title, type2.md, 600)), 0) + 56 + 12 + 4
+  return layoutCols({
+    width,
+    gap: GAP,
+    title,
+    need: {
+      plan: max('plan', (i) => metaWidth(planName(i))),
+      tool: max('tool', (i) => metaWidth(toolOf(i))),
+      grows: max('grows', (i) => {
+        const g = growsOf(i, known)
+        return g.length ? g.reduce((n, t) => n + chipWidth(t), 0) + CHIP_GAP * (g.length - 1) : 0
+      }),
+      time: max('time', (i) => (i.estMinutes ? metaWidth(`${i.estMinutes} min`) : 0)),
+      progress: max('progress', (i) => {
+        const t = progressText(i)
+        return t === 'Passed' ? 18 + 8 + metaWidth(t) : inProgress(i) && i.progress ? BAR + 12 + metaWidth(t) : metaWidth(t)
+      }),
+      opened: max('opened', (i) => metaWidth(openedOf(i)))
+    }
+  })
 }
 
-function LessonTable({ label, items, cols, head }: { label: string; items: Item[]; cols: Cols; head: boolean }): ReactNode {
-  const t = template(cols)
+/** A Grows chip in a table cell: SkillChip's look, but it truncates instead of spilling over the next column. */
+function GrowChip({ children, max }: { children: string; max?: number }): ReactNode {
+  return (
+    <span title={children} className="inline-block min-w-0 truncate" style={{ height: 22, lineHeight: '22px', padding: '0 6px', maxWidth: max, borderRadius: radius2.keycap, background: fill.chip, color: color.text, fontSize: type2.sm }}>
+      {children}
+    </span>
+  )
+}
+
+/** The chips that fit the column: the first always (it truncates), the next only whole. */
+function Grows({ skills, width }: { skills: string[]; width: number }): ReactNode {
+  let used = 0
+  const shown = skills.filter((s, n) => {
+    const w = chipWidth(s) + (n ? CHIP_GAP : 0)
+    if (n && used + w > width) return false
+    used += w
+    return true
+  })
+  return (
+    <span className="flex min-w-0 overflow-hidden" style={{ gap: CHIP_GAP }}>
+      {shown.map((g, n) => (
+        <GrowChip key={g} max={n === 0 ? width : undefined}>
+          {g}
+        </GrowChip>
+      ))}
+    </span>
+  )
+}
+
+function LessonTable({ label, items, layout, head }: { label: string; items: Item[]; layout: ColsLayout; head: boolean }): ReactNode {
   return (
     <section data-lesson-table={label}>
       <SectionLabel count={items.length}>{label}</SectionLabel>
       <div role="table" aria-label={label}>
-        {head && (
-          <TableHead
-            template={t}
-            cols={[
-              { label: 'Lesson' },
-              ...(cols.plan ? [{ label: 'Plan' }] : []),
-              ...(cols.tool ? [{ label: 'Works in' }] : []),
-              ...(cols.grows ? [{ label: 'Grows' }] : []),
-              { label: 'Time' },
-              { label: 'Progress' },
-              ...(cols.opened ? [{ label: 'Opened', align: 'right' as const }] : [])
-            ]}
-          />
-        )}
+        {head && <TableHead template={layout.template} gap={GAP} cols={[{ label: 'Lesson' }, ...layout.cols.map((c) => ({ label: HEAD[c.key], align: c.key === 'opened' ? ('right' as const) : undefined }))]} />}
         {items.map((i) => (
-          <LessonRow key={i.id} item={i} cols={cols} template={t} />
+          <LessonRow key={i.id} item={i} layout={layout} />
         ))}
       </div>
     </section>
   )
 }
 
-function LessonRow({ item, cols, template: t }: { item: Item; cols: Cols; template: string }): ReactNode {
+function LessonRow({ item, layout }: { item: Item; layout: ColsLayout }): ReactNode {
   const known = useKnownSkills()
-  const plan = planName(item)
   const done = finished(item)
   const going = inProgress(item)
-  const opened = dayLabel(done ? (item.lesson?.doneAt ?? item.updatedAt) : (item.lesson?.openedAt ?? item.updatedAt))
+  const cell = (c: { key: ColKey; width: number }): ReactNode => {
+    switch (c.key) {
+      case 'plan':
+        return <span className="truncate" style={meta} title={planName(item) || undefined}>{planName(item)}</span>
+      case 'tool':
+        return <span className="truncate" style={meta}>{toolOf(item)}</span>
+      case 'grows':
+        return <Grows skills={growsOf(item, known)} width={c.width} />
+      case 'time':
+        return <span className="truncate" style={meta}>{item.estMinutes ? `${item.estMinutes} min` : ''}</span>
+      case 'progress':
+        return (
+          <span className="flex min-w-0 items-center gap-[12px]">
+            {done ? (
+              <Passed />
+            ) : going && item.progress ? (
+              <>
+                <ProgressLine done={item.progress.stepIndex} total={item.progress.total} width={BAR} />
+                <span className="whitespace-nowrap" style={meta}>
+                  {progressText(item)}
+                </span>
+              </>
+            ) : (
+              <span className="truncate" style={meta}>{progressText(item)}</span>
+            )}
+          </span>
+        )
+      case 'opened':
+        return <span className="truncate" style={{ ...meta, textAlign: 'right' }}>{openedOf(item)}</span>
+    }
+  }
   return (
-    <TableRow template={t} onClick={() => openDetail(item.id)} label={`${item.title}. Open its preview.`} height={48} data={{ 'data-lesson': item.id }}>
+    <TableRow template={layout.template} gap={GAP} onClick={() => openDetail(item.id)} label={`${item.title}. Open its preview.`} height={48} data={{ 'data-lesson': item.id }}>
       <span className="flex min-w-0 items-center gap-[12px]">
         <Thumb art={artOf(item)} w={56} h={32} radius={radius2.keycap} />
-        <span className="truncate" style={{ fontWeight: 600 }}>
+        <span className="truncate" style={{ fontWeight: 600 }} title={layout.titleFits ? undefined : item.title}>
           {item.title}
         </span>
       </span>
-      {cols.plan && (
-        <span className="truncate" style={meta}>
-          {plan}
-        </span>
-      )}
-      {cols.tool && (
-        <span className="truncate" style={meta}>
-          {toolOf(item)}
-        </span>
-      )}
-      {cols.grows && (
-        <span className="flex min-w-0 gap-[4px] overflow-hidden">
-          {growsOf(item, known).map((g) => (
-            <SkillChip key={g}>{g}</SkillChip>
-          ))}
-        </span>
-      )}
-      <span className="whitespace-nowrap" style={meta}>
-        {item.estMinutes ? `${item.estMinutes} min` : ''}
-      </span>
-      <span className="flex items-center gap-[12px]">
-        {done ? (
-          <Passed />
-        ) : going && item.progress ? (
-          <>
-            <ProgressLine done={item.progress.stepIndex} total={item.progress.total} />
-            <span className="whitespace-nowrap" style={meta}>
-              {item.progress.stepIndex} of {item.progress.total}
-            </span>
-          </>
-        ) : (
-          <span style={meta}>{item.ready ? 'Ready' : 'Not ready yet'}</span>
-        )}
-      </span>
-      {cols.opened && (
-        <span className="truncate" style={{ ...meta, textAlign: 'right' }}>
-          {going || done ? opened : ''}
-        </span>
-      )}
+      {layout.cols.map((c) => (
+        <Fragment key={c.key}>{cell(c)}</Fragment>
+      ))}
     </TableRow>
   )
 }
@@ -460,9 +504,6 @@ function LibraryList(): ReactNode {
       if (!useSkills.getState().raw && (canSend('progress.get') || engineMode() === 'inline')) bridge.send(cmd('progress.get', {}))
     })
   }, [])
-  // A column with nothing to say on any row (no lesson from a plan yet, no dates from the engine) is left out.
-  const fit = colsFor(w)
-  const cols: Cols = { ...fit, grows: fit.grows && items.some((i) => growsOf(i, known).length > 0), plan: fit.plan && items.some((i) => !!planName(i)), opened: fit.opened && items.some((i) => !!dayLabel(i.lesson?.openedAt ?? i.lesson?.doneAt ?? i.updatedAt)), title: titleWidth(items) }
   const cardCols = w < 640 ? 2 : 4
   const planCols = w < 760 ? 1 : 2
   const fresh = s.loaded && s.items.length === 0 && mine.length === 0
@@ -478,6 +519,10 @@ function LibraryList(): ReactNode {
     { id: 'plans', label: 'Plans', count: mine.length }
   ]
   const show = (t: LibTab): boolean => tab === 'all' || tab === t
+  // The tables share one layout, made from the rows on screen: a column every row lacks is left out (no lesson from a
+  // plan yet, no dates from the engine), titles get their room first, Plan and Grows give way (tableCols.ts).
+  const onScreen = [...(show('progress') ? going : []), ...(show('ready') ? ready : []), ...(show('finished') ? done : [])]
+  const layout = measureCols(onScreen, w, known)
 
   return (
     <div ref={ref} data-library-v4 className="flex flex-col" style={{ gap: 36 }}>
@@ -500,9 +545,9 @@ function LibraryList(): ReactNode {
             <Empty mark={<CloudOff aria-hidden size={28} strokeWidth={1.6} style={{ color: color.label }} />} title={`${copy.name} is offline.`} line="Your saved lessons show here when it connects." />
           )}
           {show('plans') && mine.length > 0 && !q && <YourPlans mine={mine} cols={planCols} />}
-          {show('progress') && going.length > 0 && <LessonTable label="In progress" items={going} cols={cols} head />}
-          {show('ready') && ready.length > 0 && <LessonTable label="Ready to start" items={ready} cols={cols} head={tab === 'ready' || going.length === 0} />}
-          {show('finished') && done.length > 0 && <LessonTable label="Finished" items={done} cols={cols} head={tab === 'finished' || (going.length === 0 && ready.length === 0)} />}
+          {show('progress') && going.length > 0 && <LessonTable label="In progress" items={going} layout={layout} head />}
+          {show('ready') && ready.length > 0 && <LessonTable label="Ready to start" items={ready} layout={layout} head={tab === 'ready' || going.length === 0} />}
+          {show('finished') && done.length > 0 && <LessonTable label="Finished" items={done} layout={layout} head={tab === 'finished' || (going.length === 0 && ready.length === 0)} />}
           {q && !going.length && !ready.length && !done.length && (
             <span className="flex items-center gap-[12px]" style={meta}>
               No lessons match.
