@@ -74,11 +74,18 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
  */
 export function DeleteAccount({
   onDeleted,
+  onBusy,
   label = DELETE.label,
   row = DELETE.row,
   button = 'Delete'
 }: {
   onDeleted?: (v: KeysView) => void
+  /**
+   * true when the delete starts, false again when nothing was deleted (offline, refused). The sign-out step clears the
+   * signed-in user mid-delete, so a page that draws this row only while signed in (the Account page) holds its
+   * signed-in layout while this is true: the deleted line shows and the restart timer runs.
+   */
+  onBusy?: (busy: boolean) => void
   label?: string
   row?: string
   button?: string
@@ -107,6 +114,7 @@ export function DeleteAccount({
   const erase = async (): Promise<void> => {
     if (step !== 'confirm' && step !== 'offline' && step !== 'refused') return
     setStep('deleting')
+    onBusy?.(true)
     const r = await deleteAccount((channel, payload) => bridge.invoke<unknown>(channel, payload), { lessons })
     if (r.deleted) {
       onDeleted?.(r.deleted.keys)
@@ -115,6 +123,7 @@ export function DeleteAccount({
     if (r.signedOut) useAuth.setState({ user: null })
     setLeftovers(!r.local)
     setStep(r.step)
+    if (r.step === 'offline' || r.step === 'refused') onBusy?.(false)
   }
 
   // Deleted: the line shows for a moment, then a built app starts again from the first-run screen.
@@ -213,8 +222,11 @@ export function DeleteAccount({
   )
 }
 
-/** Delete is always an outline, never the white primary: the first one only asks, the second one is not the default. */
-function OutlineButton({ label, onClick, aria = DELETE.label }: { label: string; onClick: () => void; aria?: string }): ReactNode {
+/**
+ * Delete is always an outline, never the white primary: the first one only asks, the second one is not the default.
+ * The Account page's Sign out uses it too, so its two rows match.
+ */
+export function OutlineButton({ label, onClick, aria = DELETE.label }: { label: string; onClick: () => void; aria?: string }): ReactNode {
   return (
     <motion.button
       type="button"

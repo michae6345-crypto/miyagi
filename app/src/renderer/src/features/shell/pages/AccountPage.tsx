@@ -11,7 +11,8 @@
  *   signed in    Profile (who you are, signed in with Google), Plan and usage (the plan and today's use from
  *                miyagi-cloud, features/session MIC-30: "$0.42 of $3.00 today · resets 4:00 PM", local time, with a
  *                4 px bar; Your own key), This Mac, Your account (Sign out asks first in the sheet; Delete my account
- *                keeps its in-place two-step confirm, settings/sections/Privacy DeleteAccount)
+ *                keeps its in-place two-step confirm, settings/sections/Privacy DeleteAccount; the page holds its
+ *                signed-in layout through the delete, so the deleted line shows and the restart runs)
  *   signed out   "Sign in to sync your progress across Macs", one primary (Sign in opens the sheet over this page)
  *   loading      the same groups as quiet skeleton lines until auth:get answers (no answer reads as signed out)
  * v2Cloud (mock data, stage or a VITE_MIYAGI_V2_CLOUD=1 build): the same page with the plan's name and what it
@@ -23,14 +24,14 @@
  * the sheet do that.
  */
 import { ChevronRight } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { bridge } from '../../../bridge'
 import { color, copy, type2 } from '../../../core/theme'
 import { PrimaryButtonV2, QuietButton, Skeleton } from '../../../core/ui/atoms'
 import { initialOf, planLabel, resetDay, v2Cloud, type Account, type HelpMeter } from '../../account/model'
 import { loadAccount, useAccount } from '../../account/store'
 import { Avatar } from '../../auth/Avatar'
-import { LIVE, PROVIDER_LABEL, authOn, type Provider } from '../../auth/model'
+import { LIVE, PROVIDER_LABEL, authOn, type Provider, type User } from '../../auth/model'
 import { loadAuth, useAuth } from '../../auth/store'
 import { capsLine, planLabel as sessionPlan, type Caps } from '../../session/model'
 import { loadSession, useSession } from '../../session/store'
@@ -38,7 +39,8 @@ import { useLibrary } from '../../library/store'
 import { thisDevice } from '../../onboarding/device'
 import { setPagePanel } from '../../settings/nav'
 import type { PanelId } from '../../settings/panels'
-import { DeleteAccount } from '../../settings/sections/Privacy'
+import type { KeysView } from '../../settings/keys'
+import { DeleteAccount, OutlineButton } from '../../settings/sections/Privacy'
 import { OWN_KEY } from '../../settings/words'
 import { Flat, Group, OnWord, Plain, Row } from '../../settings/ui'
 import { FOOT4, NAV4 } from '../../settings/v4/PageNav'
@@ -179,12 +181,24 @@ function ThisMac(): ReactNode {
   )
 }
 
-/** Sign out (asks first, in the sheet) and Delete my account (its in-place two-step confirm). Signed in only. */
-function YourAccount(): ReactNode {
+/** The keys are gone after a delete: "Your own key" reads Off (Settings' Your data panel does the same). */
+const keysCleared = (v: KeysView): void => useAccount.setState({ ownKey: Object.values(v.keys).some((k) => k?.set === true) })
+
+/**
+ * Sign out (asks first, in the sheet) and Delete my account (its in-place two-step confirm). Signed in only. Both are
+ * the quiet outline, so the two rows match. `onBusy`: the delete is in flight or done (LoginAccount holds the page).
+ */
+function YourAccount({ onBusy }: { onBusy?: (busy: boolean) => void }): ReactNode {
   return (
     <Group label="Your account">
-      <Row label="Sign out" caption={`Your lessons and progress stay on ${thisDevice()}.`} right={<QuietButton label="Sign out" onClick={() => openSheet('signout')} />} />
-      <DeleteAccount label="Delete my account" row={`Your account, and everything ${copy.name} keeps on this Mac.`} button="Delete account" />
+      <Row label="Sign out" caption={`Your lessons and progress stay on ${thisDevice()}.`} right={<OutlineButton label="Sign out" aria="Sign out" onClick={() => openSheet('signout')} />} />
+      <DeleteAccount
+        onDeleted={keysCleared}
+        onBusy={onBusy}
+        label="Delete my account"
+        row={`Your account, and everything ${copy.name} keeps on this Mac.`}
+        button="Delete account"
+      />
     </Group>
   )
 }
@@ -224,8 +238,14 @@ function Loading(): ReactNode {
 
 /** The shipped page: the real login (features/auth). */
 function LoginAccount(): ReactNode {
-  const user = useAuth((s) => s.user)
+  const live = useAuth((s) => s.user)
   const loaded = useAuth((s) => s.loaded)
+  // Delete my account signs out mid-delete (erase.ts step 4), in the same update as its "deleted" line. Without a hold
+  // the signed-out page would replace this one, unmount the row, and the line and the restart would never happen. So
+  // while a delete is in flight or done, the signed-in layout stays up with the user it started with, until the restart.
+  const [held, setHeld] = useState<User | null>(null)
+  const hold = (busy: boolean): void => setHeld(busy ? useAuth.getState().user : null)
+  const user = live ?? held
   useEffect(() => {
     void loadAuth()
     void loadAccount() // only for the "Your own key" On / Off (settings:get); account:get is null here
@@ -264,7 +284,7 @@ function LoginAccount(): ReactNode {
       right={
         <>
           <ThisMac />
-          <YourAccount />
+          <YourAccount onBusy={hold} />
         </>
       }
     />
