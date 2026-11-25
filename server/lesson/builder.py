@@ -21,9 +21,11 @@ from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
     REPO_ROOT,
+    allowed_for,
     SCREEN_TYPES,
     check_problems,
     is_output_check,
+    is_scene_check,
     lint,
     stack_of,
     standard_error_pattern,
@@ -1344,10 +1346,12 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
         i = s["index"]
         a = by_index.get(i) or {}
         draft_checks = s.get("checks") or []
-        checks = a.get("checks") or [c for c in draft_checks if c.get("type") in SCREEN_TYPES]
+        # a file_contains on a Blender scene dump (mug.scene.json) grades the live scene, so it stays a gating check
+        checks = a.get("checks") or [c for c in draft_checks if c.get("type") in SCREEN_TYPES or is_scene_check(c)]
         precision = a.get("precision_checks") or []
         if not a:  # adapt pass gave nothing for this step: keep the video draft's file/command checks as backups
-            precision = [c for c in draft_checks if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES]
+            precision = [c for c in draft_checks if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES
+                         and not is_scene_check(c)]
         targets = a.get("targets") if a.get("targets") else s.get("targets") or []
         checks = [c for j, raw in enumerate(checks, 1) if (c := clean_check(raw, f"s{i}c{j}"))]
         precision = [c for j, raw in enumerate(precision, 1) if (c := clean_check(raw, f"s{i}p{j}"))]
@@ -1699,12 +1703,14 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
     """Deterministically remove checks that lint still rejects; never leave a step ungradable."""
     g = copy.deepcopy(graph)
     for step in g["steps"]:
-        # file_*/command_* placed in the screen list: move them to the backups instead of dropping them
-        misplaced = [c for c in step.get("checks", []) if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES]
+        # file_*/command_* placed in the screen list: move them to the backups instead of dropping them. A file_contains on
+        # a Blender scene dump (mug.scene.json) belongs in `checks` (lint allows it there), so it stays.
+        misplaced = [c for c in step.get("checks", []) if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES
+                     and not is_scene_check(c)]
         step["checks"] = [c for c in step.get("checks", []) if c not in misplaced]
         step["precision_checks"] = step.get("precision_checks", []) + misplaced
         for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
-            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))
+            kept = [c for c in step.get(key, []) if not check_problems(c, allowed_for(c, key, allowed), key, info.metrics, set(info.files))
                     and not (key == "checks" and step_check_problems(c, step))]
             if key == "checks" and (step.get("run_command") or "").strip() and not any(is_output_check(c, step) for c in kept):
                 std = standard_output_check(step)  # a run step the model left without an output check

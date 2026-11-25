@@ -13,6 +13,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
+from server.lesson.app_lesson import SCENE_DUMP
 from server.safety.patterns import safe_search
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -317,7 +318,8 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
                 if cid in seen_ids:
                     problems.append(f"{sid}/{cid}: duplicate check id")
                 seen_ids.add(cid)
-                problems += [f"{sid}/{cid}: {p}" for p in check_problems(c, allowed, key, known_metrics, known_files)]
+                problems += [f"{sid}/{cid}: {p}" for p in check_problems(c, allowed_for(c, key, allowed), key, known_metrics,
+                                                                         known_files)]
     return problems
 
 
@@ -590,7 +592,19 @@ def _metric_known(name: str, known: set[str]) -> bool:
 def _creatable(path: str) -> bool:
     # Steps may legitimately ask the learner to create new files; allow simple
     # source-file names, flag anything that looks like a typo'd existing path.
-    return "/" not in path and path.endswith((".py", ".ipynb", ".txt", ".png"))
+    # A Blender scene dump (mug.scene.json) is written by the engine next to the .blend once the learner saves it.
+    return "/" not in path and (path.endswith((".py", ".ipynb", ".txt", ".png")) or bool(SCENE_DUMP.search(path)))
+
+
+def allowed_for(c: dict, key: str, allowed) -> list[str]:
+    """The check types `key` allows for this check: a file_contains on a scene dump may sit in `checks` too."""
+    return list(allowed) + ["file_contains"] if key == "checks" and is_scene_check(c) else list(allowed)
+
+
+def is_scene_check(c: dict) -> bool:
+    """A file_contains on a Blender scene dump (mug.scene.json): the engine keeps that file fresh from the live scene,
+    so it grades in screen mode like a screen check and may sit in a step's `checks` (Nov 24)."""
+    return isinstance(c, dict) and c.get("type") == "file_contains" and bool(SCENE_DUMP.search(str(c.get("file") or "").strip()))
 
 
 # --------------------------------------------------------------------------- #
