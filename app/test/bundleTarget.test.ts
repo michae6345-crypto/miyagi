@@ -140,4 +140,13 @@ describe('bundle-engine.mjs wiring', () => {
     assert.doesNotMatch(src, /353d5f1b4fd2715e/)
     assert.match(src, /if \(T\.checksLinks\)/)
   })
+  test('ships the Blender add-on (bridge + scene dump) with the engine source, not precompiled', () => {
+    const m = src.match(/const PATHS = \[([^\]]*)\]/)
+    assert.ok(m, 'PATHS is declared')
+    const paths = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
+    assert.ok(paths.includes('blender-addon'), `PATHS: ${paths.join(', ')}`)
+    for (const p of ['server', 'shared', 'cli', 'scripts', 'demo']) assert.ok(paths.includes(p), p)
+    // The add-on runs in Blender's own Python: the bundled CPython never compiles it.
+    assert.match(src, /const srcDirs = \['server', 'shared', 'cli'\]/)
+  })
 })
