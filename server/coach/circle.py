@@ -61,7 +61,7 @@ BODY_WORDS = 55  # the prompt asks for 45; the clamp only catches a runaway answ
 LABEL_WORDS = 4
 READ_WORDS = 20  # the no-model card quotes at most this much of the circled text: short and calm like any card
 SAME_AS_REGION = 0.85  # a box covering this much of the region is the circle itself: no second circle
-HOLD_MS = 6000
+HOLD_MS = 10_000  # how long the buddy's circle stays: longer than 6 s so bon is seen there (Adrian, Nov 24)
 
 CIRCLE_SYSTEM = """You are the teacher inside miyagi, a calm tutor overlay on the learner's Mac. The learner held a key, circled part of their screen and asked about it. You get the text read inside the circle (numbered boxes from OCR or accessibility, in screen points) and, when there is one, a picture of the circled area.
 

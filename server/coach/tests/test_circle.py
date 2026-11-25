@@ -60,7 +60,7 @@ def _valid(out):
     card = {k: v for k, v in out.items() if k != "marks" and not k.startswith("_")}
     Card.model_validate(card)
     if out["marks"]:
-        TypeAdapter(Annotate).validate_python({"marks": out["marks"], "holdMs": 6000})
+        TypeAdapter(Annotate).validate_python({"marks": out["marks"], "holdMs": circle.HOLD_MS})
     return card
 
 
