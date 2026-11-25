@@ -449,7 +449,7 @@ class Ob:
         self.seen_viewport = None
 
     def visible_get(self, view_layer=None, viewport=None):
-        self.seen_viewport = viewport
+        self.seen_viewport, self.seen_layer = viewport, view_layer
         return self._visible
 
 
@@ -526,6 +526,28 @@ def test_ui_payload_mode_active_and_object_boxes_in_window_pixels(server, monkey
     lt = boxes["Light"]
     assert (lt["x"], lt["y"], lt["width"], lt["height"]) == pytest.approx((468.0, 301.0, 24.0, 24.0), abs=0.06)
     assert donut.seen_viewport is space3d  # visibility asked of this viewport (local view, hidden collections)
+
+
+def test_ui_payload_each_window_projects_its_own_view_layer(server, monkeypatch):
+    # two main windows on different view layers (another scene): each viewport gets its own window's objects, never
+    # the context window's projected into it
+    donut, cube = Ob("Donut"), Ob("Cube")
+    fake, _, _ = ui_bpy([donut])
+    first = fake.context.window_manager.windows[0]
+    layer_a = fake.context.view_layer
+    layer_b = SimpleNamespace(objects=FakeObjects([cube], active=cube))
+    first.view_layer = layer_a
+    space_b = SimpleNamespace(region_3d=SimpleNamespace(perspective_matrix=PERSMAT), region_quadviews=[])
+    view_b = rect(0, 0, 800, 600, type="VIEW_3D", ui_type="VIEW_3D", spaces=SimpleNamespace(active=space_b),
+                  regions=[rect(0, 26, 800, 574, type="WINDOW")])
+    second = rect(1200, 20, 800, 600, screen=SimpleNamespace(name="Layout.001", areas=[view_b]),
+                  workspace=SimpleNamespace(name="Layout"), view_layer=layer_b)
+    fake.context.window_manager.windows.append(second)
+    body = ui_of(server, monkeypatch, fake)
+    assert [o["name"] for o in body["windows"][0]["areas"][0]["objects"]] == ["Donut"]
+    assert [o["name"] for o in body["windows"][1]["areas"][0]["objects"]] == ["Cube"]
+    assert donut.seen_layer is layer_a and cube.seen_layer is layer_b and cube.seen_viewport is space_b
+    assert body["active"] == "Donut"  # the context's active object
 
 
 def test_ui_payload_hidden_behind_and_off_screen_objects_are_left_out(server, monkeypatch):

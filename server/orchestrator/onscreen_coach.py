@@ -446,7 +446,8 @@ _GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setti
 def where_phrases(text: str) -> list[app_target.Phrase] | None:
     """A short typed "where ...?" ask (<= 8 words) -> the phrases to find: what it names ("where is the Add menu?" ->
     "Add menu", "Add"; a place by its tab / area / region: "where is the Modifier tab?" -> tab MODIFIER and area
-    PROPERTIES, never the bare word "Modifier"), or [] for a vague one ("where?", "where do I click?": the step's own
+    PROPERTIES, never the bare word "Modifier"; "where is the viewport / sidebar?" -> area VIEW_3D / region VIEW_3D:UI
+    only, never the word found inside "Levels Viewport"), or [] for a vague one ("where?", "where do I click?": the step's own
     target). None: not a where ask, or a place miyagi doesn't know ("where is the Transform panel?")."""
     t = " ".join(str(text or "").split())
     if not t or len(t.split()) > 8:

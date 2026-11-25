@@ -38,7 +38,8 @@ anything it cannot calibrate.
 - `regions`: every region of the area, hidden ones too (a hidden sidebar is 1 px wide; the engine drops regions
   under 6 pt).
 - `objects` (a 3D Viewport with a single view; none in quad view): `[{name, type, x, y, width, height}]`, at most
-  200, the visible objects' screen boxes in window pixels. Each box is the object's 8 world-space bound-box corners
+  200, the visible objects' screen boxes in window pixels. The objects are the window's own view layer's (a second
+  main window may show another scene), and visibility is asked of that view layer and viewport. Each box is the object's 8 world-space bound-box corners
   projected with the viewport's WINDOW region and `region_3d.perspective_matrix` (`ui_geom.project` mirrors
   `bpy_extras.view3d_utils.location_3d_to_region_2d`). An object is listed only when `visible_get()` is true for
   that viewport, every corner is in front of the view, its box's centre is inside the region and at least half of

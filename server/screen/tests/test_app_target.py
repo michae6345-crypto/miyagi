@@ -450,6 +450,16 @@ def test_place_phrases():
     assert T.place_phrases("material properties") == [T.Phrase("MATERIAL", "tab")]
     assert T.place_phrases("Outliner area") == [T.Phrase("OUTLINER", "area")]
     assert T.place_phrases("Transform panel") == []
+    # a name that IS an area or region: that place only (review round 2 of the targets lane)
+    assert T.place_phrases("Viewport") == [T.Phrase("VIEW_3D", "area")]
+    assert T.place_phrases("3D Viewport") == [T.Phrase("VIEW_3D", "area")]
+    assert T.place_phrases("Outliner") == [T.Phrase("OUTLINER", "area")]
+    assert T.place_phrases("Sidebar") == [T.Phrase("VIEW_3D:UI", "region")]
+    assert T.place_phrases("N panel") == [T.Phrase("VIEW_3D:UI", "region")]
+    assert T.place_phrases("Toolbar") == [T.Phrase("VIEW_3D:TOOLS", "region")]
+    assert T.place_phrases("viewport header") == [T.Phrase("VIEW_3D:HEADER", "region")]
+    for name in ("Levels Viewport", "Toggle Sidebar", "Outliner Filter", "Viewport Display"):
+        assert T.place_phrases(name) is None, name
 
 
 # ------------------------------------------------------------------ round 4: the bridge's /ui v2 (fakes)
@@ -574,7 +584,8 @@ def test_object_mapping_at_k_1():
 
 @pytest.mark.parametrize("instr", ["Add a Donut", "add a torus", "Add another Donut with Shift+A.",
                                    "Add a second Cube", "Add another mesh Cube", "Add a UV Sphere",
-                                   "Add a new UV Sphere next to the Cube."])
+                                   "Add a new UV Sphere next to the Cube.", "Add the Donut from the Add menu.",
+                                   "add the torus"])
 def test_an_added_object_is_never_circled(instr):
     objs = [{"name": "Donut", "x": 600, "y": 500, "width": 200, "height": 100},
             {"name": "Torus", "x": 900, "y": 500, "width": 200, "height": 100},
@@ -770,3 +781,70 @@ def test_the_bridge_is_asked_once_with_every_source():
         calls.clear()
         T.resolve(step(instr), BLENDER, bobs(), [], bridge=ui, ax_fn=Recorder(), ocr_fn=Recorder())
         assert calls == [1], instr
+
+
+# ------------------------------------------------------------------ review round 2: area / region names, common words
+
+LEVELS = blk("Levels Viewport", 300, 200, 120)
+TOGGLE = blk("Toggle Sidebar", 300, 260, 110)
+FILTER = blk("Outliner Filter", 300, 320, 110)
+VIEW3D_PT = Rect(100, 78, 700, 650)     # the 3D Viewport: (0, 0, 1400, 1300) px at k 0.5, bottom at 728
+SIDEBAR_PT = Rect(600, 102, 200, 626)   # a shown 400 px sidebar
+
+
+@pytest.mark.parametrize("instr", ["Click the Viewport and press G.", "Click the 3D Viewport, then press G.",
+                                   "Open the Sidebar.", "Open the N panel.", "Click the Outliner.",
+                                   "Select the Toolbar."])
+def test_an_area_or_region_name_is_never_a_ui_phrase(instr):
+    got = T.phrases(step(instr))
+    assert got and not any(p.kind == "ui" for p in got), got
+
+
+def test_must_not_circle_viewport_inside_levels_viewport():
+    o = bobs([LEVELS, TOGGLE, FILTER])
+    for instr in ("Click the Viewport and press G.", "Click the 3D Viewport, then press G."):
+        assert run(instr, None, o) is None, instr                       # no bridge: nothing, never the OCR word
+        t = run(instr, raw_v2(), o)
+        assert t == T.Target(VIEW3D_PT, "bridge", "3D Viewport"), (instr, t)
+
+
+def test_must_not_circle_sidebar_inside_toggle_sidebar():
+    o = bobs([LEVELS, TOGGLE, FILTER])
+    assert run("Open the Sidebar.", None, o) is None
+    assert run("Open the Sidebar.", raw_v2(sidebar_px=1), o) is None    # hidden: no region, never "Toggle Sidebar"
+    assert run("Open the Sidebar.", raw_v2(sidebar_px=400), o) == T.Target(SIDEBAR_PT, "bridge", "Sidebar")
+
+
+@pytest.mark.parametrize("ask,label", [("where is the viewport?", "3D Viewport"),
+                                       ("where is the sidebar?", "Sidebar"),
+                                       ("where is the outliner?", "Outliner")])
+def test_must_not_circle_a_where_asked_place_inside_a_longer_control(ask, label):
+    from server.orchestrator import onscreen_coach as OC
+
+    plist = OC.where_phrases(ask)
+    assert plist and not any(p.kind == "ui" for p in plist), plist
+    o = bobs([LEVELS, TOGGLE, FILTER])
+    assert run("Press G to move it.", None, o, phrase_list=plist) is None
+    t = run("Press G to move it.", raw_v2(sidebar_px=400), o, phrase_list=plist)
+    assert t is not None and t.via == "bridge" and t.label == label, (ask, t)
+
+
+AREA_EMPTY = [{"name": "Area", "type": "LIGHT", "x": 600, "y": 500, "width": 48, "height": 48},
+              {"name": "Empty", "type": "EMPTY", "x": 900, "y": 500, "width": 48, "height": 48}]
+
+
+@pytest.mark.parametrize("instr", ["Move the mouse over the viewport area and press G.",
+                                   "Hover over the 3D Viewport area, then press Shift+A.",
+                                   "If the field is empty, type 2.",
+                                   "Leave the name field empty and press Enter."])
+def test_must_not_circle_an_object_named_like_a_common_word(instr):
+    t = run(instr, raw_v2(objects=AREA_EMPTY))
+    assert t is None or t.label not in ("Area", "Empty"), (instr, t)
+
+
+def test_a_named_object_needs_its_exact_spelling_after_a_determiner():
+    assert run("Look at the Empty from above.", raw_v2(objects=AREA_EMPTY)).label == "Empty"
+    assert run("Look at the empty from above.", raw_v2(objects=AREA_EMPTY)) is None
+    assert run("Look at Empty from above.", raw_v2(objects=AREA_EMPTY)) is None
+    # a verb acting on it: case aside, as before
+    assert run("select the empty", raw_v2(objects=AREA_EMPTY)).label == "Empty"

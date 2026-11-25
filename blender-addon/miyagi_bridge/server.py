@@ -294,17 +294,21 @@ def _space(area):
     return getattr(getattr(area, "spaces", None), "active", None)
 
 
-def _visible(ob, space) -> bool:
+def _visible(ob, space, view_layer=None) -> bool:
+    """Visible in this viewport (local view, viewport-hidden collections) of this window's view layer."""
     try:
-        return bool(ob.visible_get(viewport=space))  # local view / viewport-hidden collections too
+        if view_layer is not None:
+            return bool(ob.visible_get(view_layer=view_layer, viewport=space))
+        return bool(ob.visible_get(viewport=space))
     except TypeError:
         return bool(ob.visible_get())
 
 
-def _view3d_objects(ctx, area) -> list[dict] | None:
+def _view3d_objects(ctx, area, view_layer=None) -> list[dict] | None:
     """The boxes of the visible objects in one single-view 3D Viewport, in window pixels (bottom-left, like the area):
-    [{name, type, x, y, width, height}], at most MAX_UI_OBJECTS. None: no space / region_3d / WINDOW region, or a quad
-    view (four regions: a box could be on any of them). A broken object is skipped; this never raises."""
+    [{name, type, x, y, width, height}], at most MAX_UI_OBJECTS. view_layer: the area's window's own (a second main
+    window may show another scene or view layer); None: the context's. None: no space / region_3d / WINDOW region, or
+    a quad view (four regions: a box could be on any of them). A broken object is skipped; this never raises."""
     try:
         geom = _ui_geom()
         space = _space(area)
@@ -316,7 +320,8 @@ def _view3d_objects(ctx, area) -> list[dict] | None:
             return None
         persmat = geom.matrix(rv3d.perspective_matrix)
         rw, rh = float(region.width), float(region.height)
-        objects = getattr(getattr(ctx, "view_layer", None), "objects", None) or []
+        view_layer = view_layer if view_layer is not None else getattr(ctx, "view_layer", None)
+        objects = getattr(view_layer, "objects", None) or []
     except Exception:  # noqa: BLE001 - no boxes rather than a 500
         return None
     out: list[dict] = []
@@ -324,7 +329,7 @@ def _view3d_objects(ctx, area) -> list[dict] | None:
         if i >= MAX_UI_SCAN or len(out) >= MAX_UI_OBJECTS:
             break
         try:
-            if not _visible(ob, space):
+            if not _visible(ob, space, view_layer):
                 continue
             kind = str(ob.type)
             mw = geom.matrix(ob.matrix_world)
@@ -372,11 +377,11 @@ def _properties(area) -> dict | None:
     return out
 
 
-def _area_payload(ctx, area) -> dict:
+def _area_payload(ctx, area, view_layer=None) -> dict:
     regions = [{"type": str(r.type), **_rect(r)} for r in area.regions]
     out = {"type": str(area.type), "ui_type": str(getattr(area, "ui_type", area.type)), **_rect(area),
            "regions": regions}
-    if out["type"] == "VIEW_3D" and (objs := _view3d_objects(ctx, area)) is not None:
+    if out["type"] == "VIEW_3D" and (objs := _view3d_objects(ctx, area, view_layer)) is not None:
         out["objects"] = objs
     elif out["type"] == "PROPERTIES":
         with contextlib.suppress(Exception):
@@ -403,7 +408,11 @@ def ui_payload() -> dict:
     windows = []
     for win in getattr(ctx.window_manager, "windows", None) or []:
         screen = getattr(win, "screen", None)
-        areas = [_area_payload(ctx, area) for area in getattr(screen, "areas", None) or []]
+        try:  # each window shows its own scene / view layer: its objects, never the context window's
+            view_layer = getattr(win, "view_layer", None)
+        except Exception:  # noqa: BLE001
+            view_layer = None
+        areas = [_area_payload(ctx, area, view_layer) for area in getattr(screen, "areas", None) or []]
         windows.append({**_rect(win), "screen": str(getattr(screen, "name", "")),
                         "workspace": str(getattr(getattr(win, "workspace", None), "name", "")), "areas": areas})
     return {

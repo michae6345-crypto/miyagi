@@ -428,7 +428,7 @@ def test_text_is_cut_at_a_clause():
 def test_where_phrases():
     assert OC.where_phrases("where do I click?") == []
     assert OC.where_phrases("how do I add a torus?") is None
-    assert [p.text for p in OC.where_phrases("where's the outliner?")] == ["outliner", "OUTLINER"]
+    assert [(p.text, p.kind) for p in OC.where_phrases("where's the outliner?")] == [("OUTLINER", "area")]
     assert OC.where_phrases("where is the thing I need to press to make the donut smooth?") is None  # > 8 words
     assert [(p.text, p.kind) for p in OC.where_phrases("where is the Add menu?")] == [("Add menu", "ui"),
                                                                                       ("Add", "ui")]
@@ -442,12 +442,20 @@ def test_keys_keep_tab_after_then():  # review round 3, by name
     ("where is the Modifier tab?", [("MODIFIER", "tab"), ("PROPERTIES", "area")]),
     ("where are the material properties?", [("MATERIAL", "tab"), ("PROPERTIES", "area")]),
     ("where's the properties editor?", [("PROPERTIES", "area")]),
-    ("where is the sidebar?", [("sidebar", "ui"), ("VIEW_3D:UI", "region")]),
+    ("where is the sidebar?", [("VIEW_3D:UI", "region")]),
+    # review round 2 of the targets lane: an area / region name is that place only, never a ui word (OCR would find
+    # "viewport" inside "Levels Viewport", "sidebar" inside "Toggle Sidebar", "outliner" inside "Outliner Filter")
+    ("where is the viewport?", [("VIEW_3D", "area")]),
+    ("where is the 3D viewport?", [("VIEW_3D", "area")]),
+    ("where is the outliner?", [("OUTLINER", "area")]),
+    ("where is the N panel?", [("VIEW_3D:UI", "region")]),
+    ("where is the toolbar?", [("VIEW_3D:TOOLS", "region")]),
+    ("where is the viewport header?", [("VIEW_3D:HEADER", "region"), ("VIEW_3D", "area")]),
 ])
 def test_where_a_place_is_its_tab_area_or_region_never_the_bare_word(ask, want):
     got = [(p.text, p.kind) for p in OC.where_phrases(ask)]
     assert got == want
-    assert not any(kind == "ui" and text.lower() in ("modifier", "material", "properties") for text, kind in got)
+    assert not any(kind == "ui" for _, kind in got)
 
 
 @pytest.mark.parametrize("ask,label", [

@@ -92,8 +92,13 @@ _PREV_WORD = re.compile(r"([A-Za-z][\w'’-]*)[ \t]+$")
 _SENTENCE_START = re.compile(r"(?:^|[.!?:;\n\"“(]\s*)$")
 _NOT_A_NAME = frozenset({"blender", "blender's", "blender’s"})  # "the Blender viewport" is the viewport
 # "add a Donut", "Add a second Cube", "Add another mesh Cube", "Add a UV Sphere": up to two words between the article
-# and the name (the new object's kind / ordinal), never the existing object of that name
-_ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:a|an|new|another)(?:[ \t]+[\w.-]+){0,2}[ \t]+$", re.IGNORECASE)
+# and the name (the new object's kind / ordinal), never the existing object of that name; "Add the Donut from the Add
+# menu": the one being added too
+_ADD_NEW = re.compile(r"\b(?:add|insert|create)\s+(?:(?:a|an|new|another)(?:[ \t]+[\w.-]+){0,2}|the)[ \t]+$",
+                      re.IGNORECASE)
+# a name the step only names (no verb acts on it) is an object only right after an article / determiner, exactly as
+# spelled: "the Empty is", never "the field is empty" or "the viewport area"
+_DETERMINER = re.compile(r"\b(?:the|your|this|that)[ \t]+$", re.IGNORECASE)
 # an object's name used as the head of a UI place or another name ("the Light properties", "Camera view", "the Light
 # settings", "Cube Mesh"): not the object itself
 _NAME_AS_HEAD = re.compile(r"^(?:['’]s)?[ \t]+(?:(?:properties|property|tabs?|panels?|editors?|views?|settings?|data|"
@@ -173,8 +178,10 @@ def phrases(step: dict) -> list[Phrase]:
     instructions, the first segment of a menu path ("Add > Mesh > Torus" -> "Add"), "Click <Name>", then Properties
     tabs, regions and Blender area words. A quoted or clicked name followed by tab / panel / properties / editor /
     area ("Open the Modifier tab") names a place, never a control: it becomes a tab or area phrase (place_phrases), or
-    nothing, so "Modifier" is never looked for inside the "Add Modifier" button. Object names are matched by the
-    bridge itself (_object_in)."""
+    nothing, so "Modifier" is never looked for inside the "Add Modifier" button. A name (also a target's match) that IS
+    an area or region ("Click the Viewport", "Open the Sidebar") is only that area / region phrase, never a control's
+    words found inside "Levels Viewport" / "Toggle Sidebar". Object names are matched by the bridge itself
+    (_object_in)."""
     out: list[Phrase] = []
     seen: set[str] = set()
 
@@ -199,7 +206,13 @@ def phrases(step: dict) -> list[Phrase]:
     for tg in step.get("targets") or []:
         m = tg.get("match") if isinstance(tg, dict) else None
         if isinstance(m, str) and m.strip() and not _REGEXY.search(m):
-            add(m)
+            whole = " ".join(m.split()).strip(" .:;,!?")
+            if (region := region_type(whole)) is not None:
+                add(region, "region")
+            elif not _PLACE.match(whole) and (area := _area_type(whole)) is not None:
+                add(area, "area")
+            else:
+                add(m)
     text = "\n".join(str(step.get(k) or "") for k in ("instructions", "title"))
     for m in _QUOTED.finditer(text):
         add_name(next(g for g in m.groups() if g), text[m.end():])
@@ -217,12 +230,19 @@ def phrases(step: dict) -> list[Phrase]:
 
 
 def place_phrases(name: str) -> list[Phrase] | None:
-    """A name that ends in tab / panel / properties / editor / area is a place: its Properties tab ("Modifier tab",
-    "Material properties" -> tab MODIFIER / MATERIAL) and / or area ("Properties editor", "Outliner area"); [] when it
-    names no place miyagi knows ("Transform panel"). None: not a place name (no such ending), a control's words."""
-    m = _PLACE.match(" ".join(str(name or "").split()).strip(" .:;,!?"))
+    """A name that IS a region or area ("Sidebar", "N panel", "Toolbar", "viewport header", "Viewport", "3D Viewport",
+    "Outliner") is that place alone, never a control's words ("Viewport" would be found inside "Levels Viewport",
+    "Sidebar" inside "Toggle Sidebar"). A name that ends in tab / panel / properties / editor / area is a place: its
+    Properties tab ("Modifier tab", "Material properties" -> tab MODIFIER / MATERIAL) and / or area ("Properties
+    editor", "Outliner area"); [] when it names no place miyagi knows ("Transform panel"). None: not a place name (no
+    such ending), a control's words."""
+    whole = " ".join(str(name or "").split()).strip(" .:;,!?")
+    if (region := region_type(whole)) is not None:
+        return [Phrase(region, "region")]
+    m = _PLACE.match(whole)
     if m is None:
-        return None
+        area = _area_type(whole)
+        return [Phrase(area, "area")] if area else None
     base, noun = m.group(1).strip(), m.group(2).lower()
     out: list[Phrase] = []
     tab = TAB_NAMES.get(norm(base))
@@ -278,6 +298,20 @@ def region_types(text: str) -> list[str]:
         if area and f"{area}:HEADER" not in out:
             out.append(f"{area}:HEADER")
     return out
+
+
+def region_type(name: str) -> str | None:
+    """The region a name IS, as a whole ("Sidebar", "N panel", "toolbar", "T-panel", "the 3D Viewport header" minus
+    the article): "VIEW_3D:UI" / "VIEW_3D:TOOLS" / "<AREA>:HEADER"; None for a name that only contains one ("Toggle
+    Sidebar", "Sidebar Tab")."""
+    p = " ".join(str(name or "").split()).strip(" .:;,!?")
+    for rx, region in REGION_WORDS:
+        if rx.fullmatch(p):
+            return region
+    m = _HEADER.fullmatch(p)
+    if m is not None and (area := _area_type(next(g for g in m.groups() if g))):
+        return f"{area}:HEADER"
+    return None
 
 
 def area_types(text: str) -> list[str]:
@@ -611,11 +645,13 @@ class ObjectHit:
 
 
 def _object_in(step: dict, ui: dict, *, acting: bool) -> ObjectHit | None:
-    """The bridge object the step names: whole word, case aside, names of MIN_OBJECT_NAME+ chars unique among the
-    objects (two that differ only in case: neither); never one it adds ("add a Donut", "Add a second Cube") and never a
-    name that heads a UI place or another name ("the Light properties", "Camera view", "Cube Mesh"). acting: only one
-    the step acts on ("Select the Donut"); else any it names, followed by nothing or a function word ("the Donut is",
-    never "the Light power"). The longest name first ("Cube.001" before "Cube")."""
+    """The bridge object the step names: whole word, names of MIN_OBJECT_NAME+ chars unique among the objects (two
+    that differ only in case: neither); never one it adds ("add a Donut", "Add a second Cube", "Add the Donut") and
+    never a name that heads a UI place or another name ("the Light properties", "Camera view", "Cube Mesh"). acting:
+    only one the step acts on ("Select the Donut", case aside: "select the donut"); else one a verb acts on, or one it
+    names exactly as spelled right after the / your / this / that, followed by nothing or a function word ("the Donut is"; never "the
+    Light power", "the viewport area" or "the field is empty" for objects Area / Empty). The longest name first
+    ("Cube.001" before "Cube")."""
     text = "\n".join(str(step.get(k) or "") for k in ("instructions", "title"))  # a line apart: no name runs on
     counts: dict[str, int] = {}
     for name, _ in ui.get("objects") or []:
@@ -626,6 +662,8 @@ def _object_in(step: dict, ui: dict, *, acting: bool) -> ObjectHit | None:
         for m in re.finditer(rf"(?<![\w.]){re.escape(name)}(?![\w]|\.\w)", text, re.IGNORECASE):
             before = text[:m.start()]
             if _ADD_NEW.search(before) or (acting and not _ACTS.search(before)):
+                continue
+            if not acting and not _ACTS.search(before) and (m.group(0) != name or not _DETERMINER.search(before)):
                 continue
             after = text[m.end():]
             if _NAME_AS_HEAD.match(after):
