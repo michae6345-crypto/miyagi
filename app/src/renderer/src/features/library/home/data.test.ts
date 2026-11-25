@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import type { Activity, LibraryItem, PlanState } from '../../../../../../../shared/contracts/events'
-import { starters } from './catalog'
+import { FEATURED, IDEAS, starters } from './catalog'
 import type { DashData } from '../../dashboard/types'
-import { agoLabel, buildHome, coverForTool, fromContract, greeting, hoursMinutes, isFirstRun, leftLabel, lessonMeta, nextRows, passRows, sizeLabel, weekBars, weekStats } from './data'
+import { agoLabel, buildHome, coverForTool, firstLessons, fromContract, hoursMinutes, railParts, isFirstRun, leftLabel, lessonMeta, nextRows, passRows, sizeLabel, weekBars, weekStats } from './data'
 import { sampleHome } from './sample'
 
 // Tuesday Nov 24 2026, 19:30 local.
@@ -13,9 +13,7 @@ const NOW = new Date(2026, 10, 24, 19, 30).getTime()
 const empty: DashData = { tracks: [], completed: [], inProgress: [], next: [], activity: null, review: null, settings: {} }
 const item = (id: string, over: Partial<LibraryItem> = {}): LibraryItem => ({ id, title: id, steps: 5, estMinutes: 15, tools: ['jupyter'], ready: true, ...over })
 
-test('greeting and labels', () => {
-  assert.equal(greeting(NOW, 'Sam Rivera'), 'Good evening, Sam')
-  assert.equal(greeting(new Date(2026, 10, 24, 9).getTime()), 'Good morning')
+test('labels', () => {
   assert.deepEqual(hoursMinutes(108), [['1', 'h'], ['48', 'min']])
   assert.deepEqual(hoursMinutes(22), [['22', 'min']])
   assert.equal(leftLabel(180), 'about 3 hours left')
@@ -91,6 +89,37 @@ test('first run: nothing started, nothing finished, no skill touched', () => {
   assert.equal(isFirstRun(empty, [item('a')], {}), true)
   assert.equal(isFirstRun(empty, [item('a', { progress: { stepIndex: 1, stepTitle: 'x', total: 5 } })], {}), false)
   assert.equal(isFirstRun({ ...empty, completed: [{ lessonId: 'x', title: 'X' }] }, [], {}), false)
+})
+
+test('the featured lesson leads: first card and first idea, the curated goal', () => {
+  assert.equal(FEATURED.title, 'A neural net from scratch')
+  assert.equal(FEATURED.goal, 'build a neural network from scratch')
+  assert.equal(IDEAS[0], 'Build a neural network from scratch')
+  assert.ok(!IDEAS.some((t) => /image classifier/i.test(t)))
+})
+
+test('first-run rows: saved lessons ready to start first, then suggestions, three at most', () => {
+  const picks = [
+    { id: 's1', title: 'S1', meta: 'm', cover: 'code' as const, goal: 'g1' },
+    { id: 's2', title: 'S2', meta: 'm', cover: 'code' as const, goal: 'g2' },
+    { id: 's3', title: 'S3', meta: 'm', cover: 'code' as const, goal: 'g3' }
+  ]
+  assert.deepEqual(firstLessons([], new Set(), picks).map((r) => r.id), ['s1', 's2', 's3'])
+  const rows = firstLessons([item('a'), item('b', { ready: false }), item('c')], new Set(['c']), picks)
+  assert.deepEqual(rows.map((r) => r.id), ['a', 's1', 's2'])
+  assert.equal(rows[0].saved, true)
+  assert.equal(rows[1].goal, 'g1')
+})
+
+test('the rail shows only parts with something in them', () => {
+  const m = buildHome({ data: empty, items: [], extra: {}, now: NOW, skip: new Set(), done: new Set() })
+  assert.deepEqual(railParts(m), { week: false, goal: false, skills: false, fresh: false, any: false })
+  const s = sampleHome(NOW)
+  const full = buildHome({ data: s.data, items: s.items, extra: s.extra, now: NOW, skip: new Set(), done: new Set() })
+  assert.equal(railParts(full).any, true)
+  // Steps counted but no bar this week: no chart of zeros, the rail stays empty.
+  const noBars = { ...m, stats: { steps: 0, mastered: 0 } }
+  assert.equal(railParts(noBars).week, false)
 })
 
 test('the sample learner builds the mock page with no zero rows', () => {

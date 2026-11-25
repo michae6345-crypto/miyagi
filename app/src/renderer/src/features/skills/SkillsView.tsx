@@ -16,8 +16,28 @@ import { useEffect, type ReactNode } from 'react'
 import { color, type2 } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { Skeleton } from '../library/parts'
 import { useShell, setPage } from '../shell/store'
-import { PageColumn } from '../shell/ui'
+import { PageColumn, V4_W } from '../shell/ui'
+
+/** The page's column: the v4 column (V4_W), so the title and the content start where every v4 page's do (MIC-54). */
+const COL = { maxWidth: V4_W }
+
+/** While the first `progress` is on its way: a lede and three rows that breathe (no bare title, no hue). */
+export function SkillsSkeleton(): ReactNode {
+  return (
+    <PageColumn wide style={COL}>
+      <div data-shell-skills-loading aria-busy aria-label="Loading your skills" className="flex flex-col" style={{ gap: 12 }}>
+        <Skeleton h={20} w={240} />
+        <Skeleton h={14} w={160} />
+        <div style={{ height: 12 }} />
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} h={44} />
+        ))}
+      </div>
+    </PageColumn>
+  )
+}
 import type { SkillGraph } from './model'
 import { GoalPicker } from './Goal'
 import { ListView } from './ListView'
@@ -39,7 +59,7 @@ export function SkillsHeaderTools(): ReactNode {
 /** No skills at all yet: the bonsai, one line, the way to a lesson. */
 function NoSkills(): ReactNode {
   return (
-    <PageColumn wide>
+    <PageColumn wide style={COL}>
       <div data-shell-skills-empty className="flex flex-col items-start" style={{ gap: 8 }}>
         <MiyagiMark size={40} />
         <span className="font-semibold" style={{ marginTop: 8, fontSize: type2.lg, color: color.text }}>
@@ -95,14 +115,14 @@ export function SkillsView({ g, now }: { g: SkillGraph | undefined; now: number 
   if (noGoal || picker)
     return (
       <div data-skills-page="picker" className="flex h-full min-h-0 flex-col overflow-y-auto">
-        <PageColumn wide top={noGoal ? 64 : 40}>
+        <PageColumn wide top={noGoal ? 64 : 40} style={COL}>
           <GoalPicker g={g} onPick={chooseGoal} onCancel={noGoal ? undefined : closePicker} />
         </PageColumn>
       </div>
     )
 
   const head = (
-    <PageColumn wide top={0} bottom={0}>
+    <PageColumn wide top={0} bottom={0} style={COL}>
       <Lede g={g} onChange={canChange ? openPicker : undefined} />
       <Tabs view={view} zoom={zoom} />
     </PageColumn>
@@ -113,7 +133,7 @@ export function SkillsView({ g, now }: { g: SkillGraph | undefined; now: number 
       {view === 'path' ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {head}
-          <PageColumn wide top={0} bottom={48}>
+          <PageColumn wide top={0} bottom={48} style={COL}>
             <PathView g={g} query={query} selected={peek} onOpen={open} />
           </PageColumn>
         </div>

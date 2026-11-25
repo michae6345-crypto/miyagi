@@ -4,7 +4,17 @@
  * ships with the plans lane (it replaces presets/packs.ts). Numbers are the catalog's own (lessons, minutes, project).
  */
 import type { CatalogPlan } from '../../../../../../../shared/contracts/events'
-import { coverForTool, endsWith, type StarterPlan } from './data'
+import { coverForTool, endsWith, type CoverKind, type StarterPlan } from './data'
+
+/**
+ * The lesson a new learner is offered first (Home's first-run card, the first ask chip). Data, not UI code: the engine's
+ * curated lesson (server/orchestrator/curated.py, lesson-nn-from-scratch) answers this goal with zero model calls.
+ */
+export type Featured = { title: string; goal: string; tool: string; steps: number; minutes: number; cover: CoverKind }
+export const FEATURED: Featured = { title: 'A neural net from scratch', goal: 'build a neural network from scratch', tool: 'VS Code', steps: 6, minutes: 15, cover: 'net' }
+
+/** The ask field's ideas: the featured lesson first, then the learner's own, topped up with these. */
+export const IDEAS = ['Build a neural network from scratch', 'Clean a messy CSV with pandas', 'Build a tiny web server']
 
 /** What a Start here card needs from a catalog plan (lessons: how many). */
 export type CatalogCard = Pick<CatalogPlan, 'id' | 'title' | 'tool' | 'minutes'> & { lessons: number; project: string }

@@ -1,62 +1,58 @@
 /**
- * Feature: library. Home v4, the page (Adrian's ui-next mock, `home` and `home-empty`, after the Nov 24 trim pass).
+ * Feature: library. Home v4, the page (Adrian's ui-next mock, `home` and `home-empty`, after the Nov 24 trim pass and
+ * the demo pass: no greeting, no date, no empty boxes).
  *
- * 1040 wide: a main column and a 316 px rail with one hairline between them; under ~960 px of pane the rail drops
- * under the main column. Rows and hairlines, no tiles; the only card is Continue.
+ * A main column and, when it has something to show, a 316 px rail with one hairline between them; under ~960 px of pane
+ * the rail drops under the main column. With nothing for the rail (a light learner) there is no rail and no hairline:
+ * one centered column. Rows and hairlines, no tiles; the only card is Continue (or Start here on the first run).
  *
- *   main    greeting and date · ask · Continue · Plans · Up next · Recently passed
- *   rail    This week (bars + practiced, steps passed, skills mastered) · Goal · Skills · Keep fresh
- *   first   Welcome · ask · Start here (three plans) · Or one short lesson · Make your own
- *           rail: Set up · How a lesson works · Pick a goal
+ *   main    ask · Continue · Plans · Up next · Recently passed
+ *   rail    This week (bars + practiced, steps passed, skills mastered) · Goal · Skills · Keep fresh, each only when
+ *           it has something in it
+ *   first   the one thing left to set up · ask · Start here (one lesson, one Start lesson) · Or try a short one ·
+ *           How a lesson works. One column, no rail.
  */
-import { Flag, ListVideo, RotateCcw, Sprout } from 'lucide-react'
+import { Flag, RotateCcw } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { openOnboarding } from '../../../core/surfaces'
 import { color, fill } from '../../../core/theme'
 import { QuietButton } from '../../../core/ui/buttons'
-import type { Row as SetupRow } from '../../onboarding/rows'
 import { setPage } from '../../shell/store'
 import { Pane } from '../layout'
 import { openDetail, setSection } from '../store'
-import { Bar, Check, Chev, Cover, Hollow, RailRow, RowBtn, Sec, T, Tag, WeekChart, hair, muted, rowCss } from './bits'
-import { agoLabel, hoursMinutes, leftLabel, longDate, sizeLabel, whenLabel, type GoalPick, type HomeModel, type ShortLesson, type StarterPlan } from './data'
+import { Bar, Check, Chev, Hollow, RailRow, RowBtn, Sec, T, Tag, WeekChart, hair, muted, rowCss } from './bits'
+import { agoLabel, hoursMinutes, leftLabel, railParts, whenLabel, type FirstRow, type HomeModel } from './data'
 import { focusAsk } from './Top'
 
 /** Pane width where the rail sits beside the main column (a static class string so Tailwind sees it). */
 const TWO = '@min-[960px]/pane:grid-cols-[minmax(0,1fr)_316px] @min-[960px]/pane:gap-x-[40px]'
 const RAIL = 'rail border-t pt-[8px] @min-[960px]/pane:border-t-0 @min-[960px]/pane:border-l @min-[960px]/pane:pt-0 @min-[960px]/pane:pl-[32px]'
+const PAD = 'mx-auto w-full px-[40px] @max-[760px]/pane:px-[24px]'
 
-function Frame({ main, rail, data }: { main: ReactNode; rail: ReactNode; data: string }): ReactNode {
+/** No rail: one centered column (720 wide), so a light learner's page has no empty third and no stray hairline. */
+function Frame({ main, rail, data }: { main: ReactNode; rail?: ReactNode; data: string }): ReactNode {
   return (
     <Pane data-home={data} className="flex flex-1 flex-col overflow-y-auto" style={{ color: color.text, scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
       <style>{rowCss}</style>
-      <div className="mx-auto w-full max-w-[1120px] px-[40px] @max-[760px]/pane:px-[24px]" style={{ paddingTop: 44, paddingBottom: 60 }}>
-        <div className={`grid grid-cols-1 items-start gap-y-[32px] ${TWO}`}>
+      {rail ? (
+        <div className={`${PAD} max-w-[1120px]`} style={{ paddingTop: 44, paddingBottom: 60 }}>
+          <div className={`grid grid-cols-1 items-start gap-y-[32px] ${TWO}`}>
+            <div data-home-main className="min-w-0">
+              {main}
+            </div>
+            <aside data-home-rail aria-label="Your week" className={RAIL} style={{ borderColor: hair, paddingBottom: 48, minWidth: 0 }}>
+              {rail}
+            </aside>
+          </div>
+        </div>
+      ) : (
+        <div className={`${PAD} max-w-[800px]`} style={{ paddingTop: 44, paddingBottom: 60 }}>
           <div data-home-main className="min-w-0">
             {main}
           </div>
-          <aside data-home-rail aria-label="Your week" className={RAIL} style={{ borderColor: hair, paddingBottom: 48, minWidth: 0, maxWidth: undefined }}>
-            {rail}
-          </aside>
         </div>
-      </div>
+      )}
     </Pane>
-  )
-}
-
-function Hello({ title, now, lede }: { title: string; now: number; lede?: string }): ReactNode {
-  return (
-    <>
-      <div className="flex flex-wrap items-baseline gap-x-[12px]">
-        <h1 className="m-0" style={{ fontSize: T.h1, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
-          {title}
-        </h1>
-        <span className="ml-auto" style={{ fontSize: T.meta, color: color.faint }}>
-          {longDate(now)}
-        </span>
-      </div>
-      {lede && <p style={{ margin: '6px 0 0', fontSize: 14.5, color: color.label }}>{lede}</p>}
-    </>
   )
 }
 
@@ -72,7 +68,7 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
       <div className="mg-h4-list">
         {m.plans.map((p) => (
           <RowBtn key={p.id} cols="minmax(0,1.25fr) 130px minmax(0,1fr) 14px" label={`${p.title}, ${p.done} of ${p.total}${p.next ? `, next ${p.next}` : ''}`} onClick={() => setSection('library')} data={{ 'data-plan': p.id }}>
-            <b className="truncate" style={{ fontWeight: 550, color: color.text }}>
+            <b className="line-clamp-2" title={p.title} style={{ fontWeight: 550, color: color.text, lineHeight: 1.3, padding: '6px 0' }}>
               {p.title}
             </b>
             <span className="flex items-center gap-[10px]">
@@ -81,7 +77,7 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
                 {p.done} of {p.total}
               </span>
             </span>
-            <span style={{ ...muted, whiteSpace: 'normal', lineHeight: 1.35, margin: '6px 0', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            <span title={p.next} style={{ ...muted, whiteSpace: 'normal', lineHeight: 1.35, margin: '6px 0', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
               {p.next ? `Next · ${p.next}` : ''}
             </span>
             <Chev />
@@ -92,23 +88,21 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
   )
 }
 
-function LessonRows({ rows, onOpen }: { rows: Array<{ id: string; title: string; skill?: string; meta: string; cover: ShortLesson['cover'] }>; onOpen: (id: string) => void }): ReactNode {
+/** Lesson rows: the title (two lines at most), the skill it grows, its size. No thumbnail: covers belong to the one card. */
+function LessonRows({ rows, onOpen }: { rows: Array<{ id: string; title: string; skill?: string; meta: string }>; onOpen: (id: string) => void }): ReactNode {
   return (
     <div className="mg-h4-list">
       {rows.map((r) => (
         <RowBtn key={r.id} cols={r.skill ? 'minmax(0,1fr) auto minmax(204px,max-content) 14px' : 'minmax(0,1fr) minmax(204px,max-content) 14px'} minH={50} label={`${r.title}. ${r.meta}.`} onClick={() => onOpen(r.id)} data={{ 'data-lesson': r.id }}>
-          <span className="flex min-w-0 items-center gap-[10px]" style={{ padding: '6px 0' }}>
-            <Cover kind={r.cover} width={54} radius={5} />
-            <b className="line-clamp-2" style={{ fontWeight: 550, color: color.text, lineHeight: 1.3 }}>
-              {r.title}
-            </b>
-          </span>
+          <b className="line-clamp-2" title={r.title} style={{ fontWeight: 550, color: color.text, lineHeight: 1.3, padding: '6px 0' }}>
+            {r.title}
+          </b>
           {r.skill && (
             <span className="min-w-0">
               <Tag>{r.skill}</Tag>
             </span>
           )}
-          <span className="truncate text-right" style={muted}>
+          <span className="truncate text-right" title={r.meta} style={muted}>
             {r.meta}
           </span>
           <Chev />
@@ -172,7 +166,7 @@ function Passed({ m, now }: { m: HomeModel; now: number }): ReactNode {
                 <td style={c}>
                   <span className="flex min-w-0 items-center gap-[10px]">
                     <Check />
-                    <b className="truncate" style={{ fontWeight: 550, color: color.text }}>
+                    <b className="truncate" title={p.step} style={{ fontWeight: 550, color: color.text }}>
                       {p.step}
                     </b>
                   </span>
@@ -209,8 +203,8 @@ function Stat({ parts, label, first }: { parts: Array<[string, string]>; label: 
 }
 
 function Week({ m }: { m: HomeModel }): ReactNode {
-  const any = m.week.some((b) => b.value > 0)
-  if (!any && !m.stats.steps) return null
+  // Only a week with a bar in it: never seven flat bars and a row of zeros (MIC-69).
+  if (!railParts(m).week) return null
   const unit = m.stats.minutes !== undefined ? 'min' : 'steps'
   // A zero is left out, like practiced with no minutes: the rail never shows a row of zeros.
   const stats: Array<[string, Array<[string, string]>]> = []
@@ -234,15 +228,17 @@ function Week({ m }: { m: HomeModel }): ReactNode {
   )
 }
 
-function Goal({ m }: { m: HomeModel }): ReactNode {
+function Goal({ m, first }: { m: HomeModel; first?: boolean }): ReactNode {
   const g = m.goal
   if (!g || !g.total) return null
   return (
     <section aria-labelledby="home-goal" data-home-goal>
-      <Sec id="home-goal">Goal</Sec>
+      <Sec id="home-goal" first={first}>
+        Goal
+      </Sec>
       <div className="flex items-center gap-[8px]" style={{ fontSize: 14 }}>
         <Flag aria-hidden size={15} strokeWidth={1.8} style={{ color: color.label }} />
-        <b className="truncate" style={{ fontWeight: 560, color: color.text }}>
+        <b className="line-clamp-2" title={g.title} style={{ fontWeight: 560, color: color.text, lineHeight: 1.3 }}>
           {g.title}
         </b>
       </div>
@@ -259,11 +255,11 @@ function Goal({ m }: { m: HomeModel }): ReactNode {
   )
 }
 
-function Skills({ m }: { m: HomeModel }): ReactNode {
+function Skills({ m, first }: { m: HomeModel; first?: boolean }): ReactNode {
   if (!m.skills.length) return null
   return (
     <section aria-labelledby="home-skills" data-home-skills>
-      <Sec id="home-skills" link={`${m.skillsDone} of ${m.skillsTotal} mastered`} onLink={() => setPage('skills')}>
+      <Sec id="home-skills" first={first} link={`${m.skillsDone} of ${m.skillsTotal} mastered`} onLink={() => setPage('skills')}>
         Skills
       </Sec>
       <div className="mg-h4-list">
@@ -284,11 +280,11 @@ function Skills({ m }: { m: HomeModel }): ReactNode {
   )
 }
 
-function Fresh({ m, now }: { m: HomeModel; now: number }): ReactNode {
+function Fresh({ m, now, first }: { m: HomeModel; now: number; first?: boolean }): ReactNode {
   if (!m.fresh.length) return null
   return (
     <section aria-labelledby="home-fresh" data-home-review>
-      <Sec id="home-fresh" link="Progress" onLink={() => setPage('progress')}>
+      <Sec id="home-fresh" first={first} link="Progress" onLink={() => setPage('progress')}>
         Keep fresh
       </Sec>
       <div className="mg-h4-list">
@@ -304,23 +300,23 @@ function Fresh({ m, now }: { m: HomeModel; now: number }): ReactNode {
 
 // ---- the pages --------------------------------------------------------------------------------------------------------
 
-export function HomePage({ m, now, ask, cont, greeting, notice }: { m: HomeModel; now: number; ask: ReactNode; cont: ReactNode; greeting: string; notice?: ReactNode }): ReactNode {
-  const rail = (
+export function HomePage({ m, now, ask, cont, notice }: { m: HomeModel; now: number; ask: ReactNode; cont: ReactNode; notice?: ReactNode }): ReactNode {
+  const r = railParts(m)
+  const rail = r.any ? (
     <>
       <Week m={m} />
-      <Goal m={m} />
-      <Skills m={m} />
-      <Fresh m={m} now={now} />
+      <Goal m={m} first={!r.week} />
+      <Skills m={m} first={!r.week && !r.goal} />
+      <Fresh m={m} now={now} first={!r.week && !r.goal && !r.skills} />
     </>
-  )
+  ) : undefined
   return (
     <Frame
       data="v4"
       main={
         <>
           {notice}
-          <Hello title={greeting} now={now} />
-          <div style={{ marginTop: 14 }}>{ask}</div>
+          {ask}
           {cont && <div style={{ marginTop: 14 }}>{cont}</div>}
           <Plans m={m} />
           <UpNext m={m} />
@@ -332,143 +328,66 @@ export function HomePage({ m, now, ask, cont, greeting, notice }: { m: HomeModel
   )
 }
 
-function StarterCard({ p }: { p: StarterPlan }): ReactNode {
+/** The one thing left to set up, above the ask: where it stands, and one quiet button that opens setup. */
+export function SetupNote({ label, line }: { label: string; line: string }): ReactNode {
   return (
-    <button type="button" data-starter={p.id} onClick={() => focusAsk(`Teach me ${p.title}`)} className="mg-press flex min-w-0 cursor-pointer flex-col items-stretch justify-start self-start rounded-[8px] text-left outline-offset-4 focus-visible:outline-2" style={{ outlineColor: color.text }}>
-      <Cover kind={p.cover} width="100%" />
-      <b className="mt-[10px] block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: color.text }}>
-        {p.title}
-      </b>
-      {/* One line, like the mock: the size drops its "about" to fit a 1280 window's three cards (the title has it). */}
-      <span className="mt-[2px] block truncate" title={[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes)].join(' · ')} style={{ fontSize: T.small, color: color.label }}>
-        {[p.tool, `${p.lessons} lessons`, sizeLabel(p.minutes).replace(/^about /, '')].join(' · ')}
+    <div data-home-setup className="flex items-center gap-[10px]" style={{ paddingBottom: 14, fontSize: T.meta, color: color.label }}>
+      <Hollow />
+      <span className="min-w-0 flex-1 truncate" title={line}>
+        {line}
       </span>
-      {p.ends && (
-        <span className="line-clamp-2" title={p.ends} style={{ fontSize: T.small, color: color.label }}>
-          {p.ends}
-        </span>
-      )}
-    </button>
+      <QuietButton label={label} onClick={() => void openOnboarding()} />
+    </div>
   )
 }
 
-function Way({ icon, title, line, onClick }: { icon: ReactNode; title: string; line: string; onClick: () => void }): ReactNode {
-  return (
-    <button type="button" onClick={onClick} className="flex min-w-0 cursor-pointer items-center gap-[12px] text-left outline-offset-2 hover:bg-(--s-row-hover) focus-visible:outline-2" style={{ height: 62, padding: '0 14px', borderRadius: 10, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}`, outlineColor: color.text }}>
-      <span className="shrink-0" style={{ color: color.label }}>
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <b className="block truncate" style={{ fontSize: 14, fontWeight: 560, color: color.text }}>
-          {title}
-        </b>
-        <span className="block truncate" style={{ fontSize: T.meta, color: color.label }}>
-          {line}
-        </span>
-      </span>
-      <Chev />
-    </button>
-  )
-}
+const HOW = ['miyagi shows one step.', 'You do it in the real app.', 'It checks your work, then the next.']
 
-const hoursWord = (min: number): string => {
-  const h = Math.round(min / 60)
-  return `about ${h} ${h === 1 ? 'hour' : 'hours'}`
-}
-
-export function FirstRunPage({ now, greeting, ask, starters, lessons, goals, setup, notice }: { now: number; greeting: string; ask: ReactNode; starters: StarterPlan[]; lessons: ShortLesson[]; goals: GoalPick[]; setup: SetupRow[]; notice?: ReactNode }): ReactNode {
-  const ok = setup.filter((r) => r.state === 'passed').length
-  const rail = (
-    <>
-      {setup.length > 0 && (
-        <section aria-labelledby="home-setup" data-home-setup>
-          <Sec id="home-setup" first link={`${ok} of ${setup.length}`} onLink={() => void openOnboarding()}>
-            Set up
-          </Sec>
-          <div className="mg-h4-list">
-            {setup.map((r) => (
-              <RailRow key={r.id} icon={r.state === 'passed' ? <Check /> : <Hollow />} right={r.state === 'passed' ? <span style={muted}>{r.word}</span> : r.action ? <QuietButton label={r.action.label} onClick={() => void openOnboarding()} /> : <span style={muted}>{r.word}</span>}>
-                {r.label}
-              </RailRow>
-            ))}
-          </div>
-        </section>
-      )}
-      <section aria-labelledby="home-how" data-home-how>
-        <Sec id="home-how" first={!setup.length}>
-          How a lesson works
-        </Sec>
-        <ol className="mg-h4-list m-0 list-none p-0">
-          {['miyagi shows one step.', 'You do it in the real app.', 'It checks your work, then the next.'].map((t, i) => (
-            <li key={i} className="mg-h4-row flex items-center gap-[10px]" style={{ minHeight: 33, fontSize: 13.5, color: color.text }}>
-              <span aria-hidden className="grid shrink-0 place-items-center" style={{ width: 16, height: 16, borderRadius: 999, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}`, fontSize: 10.5, fontWeight: 600, color: color.label }}>
-                {i + 1}
-              </span>
-              {t}
-            </li>
-          ))}
-        </ol>
-      </section>
-      {goals.length > 0 && (
-        <section aria-labelledby="home-goals" data-home-goals>
-          <Sec id="home-goals" link="Skills" onLink={() => setPage('skills')}>
-            Pick a goal
-          </Sec>
-          <div className="mg-h4-list">
-            {goals.map((g) => (
-              <RailRow key={g.title} tall label={`${g.title}. ${g.skills} skills, ${hoursWord(g.minutes)}.`} onClick={() => focusAsk(g.title)} right={<Chev />}>
-                <span className="block truncate" style={{ fontWeight: 520 }}>
-                  {g.title}
-                </span>
-                <span className="block" style={{ fontSize: T.small, fontWeight: 400, color: color.label }}>
-                  {g.skills} skills · {hoursWord(g.minutes)}
-                </span>
-              </RailRow>
-            ))}
-          </div>
-        </section>
-      )}
-    </>
-  )
+/**
+ * A new learner's Home: one lesson to start (`featured`, the card with the page's one primary), a few short ones that
+ * start on a click, and how a lesson works. One column, nothing empty.
+ */
+export function FirstRunPage({ ask, featured, lessons, onLesson, setup, notice }: { ask: ReactNode; featured: ReactNode; lessons: FirstRow[]; onLesson: (r: FirstRow) => void; setup?: ReactNode; notice?: ReactNode }): ReactNode {
   return (
     <Frame
       data="v4-first"
       main={
         <>
           {notice}
-          <Hello title={greeting} now={now} lede="Pick a plan, paste a video, or ask for anything you want to learn." />
-          <div style={{ marginTop: 8 }}>{ask}</div>
-          {starters.length > 0 && (
-            <section aria-labelledby="home-start" data-home-start>
-              <Sec id="home-start" link="All plans" onLink={() => setSection('library')}>
-                Start here
-              </Sec>
-              <div className="grid grid-cols-1 gap-x-[16px] gap-y-[20px] @min-[640px]/pane:grid-cols-3">
-                {starters.slice(0, 3).map((p) => (
-                  <StarterCard key={p.id} p={p} />
-                ))}
-              </div>
-            </section>
-          )}
+          {setup}
+          {ask}
+          <section aria-label="Start here" data-home-start style={{ marginTop: 14 }}>
+            {featured}
+          </section>
           {lessons.length > 0 && (
             <section aria-labelledby="home-short" data-home-short>
               <Sec id="home-short" link="Library" onLink={() => setSection('library')}>
-                Or one short lesson
+                Or try a short one
               </Sec>
-              <LessonRows rows={lessons} onOpen={(id) => focusAsk(lessons.find((l) => l.id === id)?.goal)} />
+              <LessonRows
+                rows={lessons}
+                onOpen={(id) => {
+                  const r = lessons.find((l) => l.id === id)
+                  if (r) onLesson(r)
+                }}
+              />
             </section>
           )}
-          <section aria-labelledby="home-own" data-home-own>
-            <Sec id="home-own">Make your own</Sec>
-            <div className="grid grid-cols-1 gap-[12px] @min-[640px]/pane:grid-cols-2">
-              <Way icon={<ListVideo aria-hidden size={18} strokeWidth={1.8} />} title="From a playlist" line="Paste a YouTube playlist link" onClick={() => focusAsk('')} />
-              <Way icon={<Sprout aria-hidden size={18} strokeWidth={1.8} />} title="From a goal" line="Say what you want to make" onClick={() => focusAsk('')} />
-            </div>
+          <section aria-labelledby="home-how" data-home-how>
+            <Sec id="home-how">How a lesson works</Sec>
+            <ol className="mg-h4-list m-0 list-none p-0">
+              {HOW.map((t, i) => (
+                <li key={i} className="mg-h4-row flex items-center gap-[10px]" style={{ minHeight: 33, fontSize: 13.5, color: color.text }}>
+                  <span aria-hidden className="grid shrink-0 place-items-center" style={{ width: 16, height: 16, borderRadius: 999, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}`, fontSize: 10.5, fontWeight: 600, color: color.label }}>
+                    {i + 1}
+                  </span>
+                  {t}
+                </li>
+              ))}
+            </ol>
           </section>
         </>
       }
-      rail={rail}
     />
   )
 }
-

@@ -58,7 +58,7 @@ import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { useLocal } from '../settings/local'
 import { pageLabel, Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
-import { COLUMN_W, LegacyPageHeader, PANEL, pageInset, TopBar, useCrumbs, WIDE_W } from './ui'
+import { COLUMN_W, LegacyPageHeader, PANEL, pageInset, TopBar, useCrumbs, V4_W, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -142,7 +142,9 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 
 function pageWidth(page: PageId): number {
   // Settings is a two-pane page (list + panel), so it takes the wide column too. Skills takes it always, its empty
   // state included (that state is a PageColumn wide), so its title starts where every v4 page's does (QA r1 Q01).
-  return page === 'skills' || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
+  // Skills draws the legacy title, so it takes the v4 column (V4_W, PageFrame's) to share that left edge (MIC-54).
+  if (page === 'skills') return V4_W
+  return page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {

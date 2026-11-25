@@ -7,8 +7,9 @@
  * Rows and hairlines, no tiles. Green only for passed (the check on a recent pass, a track's mastered bar); everything
  * else ink and gray. One primary per surface (Continue, or Start a lesson on the first run).
  *
- * First run (nothing passed yet): an empty week, ten-minute lessons and three plans to start, and goals to pick. Never
- * rows of zeros.
+ * First run (nothing passed yet): ten-minute lessons and three plans to start, and goals to pick; no week chart until a
+ * bar has something in it. Never rows of zeros. The primary is the lesson open now, else the one to continue, else
+ * Start a lesson, whether or not anything has passed yet.
  */
 import { Check, ChevronRight, Compass, Flag, Play, RefreshCw, SquarePen } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -36,7 +37,6 @@ import {
   allNums,
   bonSteps,
   closest,
-  EMPTY_V4,
   dayLabel,
   freshLabel,
   fromGraph,
@@ -115,7 +115,7 @@ function Sec({ children, link, onLink, first }: { children: ReactNode; link?: st
             <ChevronRight size={13} strokeWidth={1.8} />
           </button>
         ) : (
-          <span className="ml-auto" style={{ fontWeight: 450, color: color.faint }}>
+          <span className="ml-auto" style={{ fontWeight: 450, color: color.label }}>
             {link}
           </span>
         ))}
@@ -229,7 +229,7 @@ function Table({ cols, head, rows, rowH = 40, label }: { cols: string; head: Col
                 borderBottom: i < rows.length - 1 ? hair : undefined
               }}
             >
-              <div className={head[j]?.wrap ? 'min-w-0 flex-1' : 'min-w-0 flex-1 truncate'} style={{ textAlign: head[j]?.right ? 'right' : 'left', ...(head[j]?.wrap ? clamp2 : null) }}>
+              <div className={head[j]?.wrap ? 'min-w-0 flex-1' : 'min-w-0 flex-1 truncate'} title={cellText(c)} style={{ textAlign: head[j]?.right ? 'right' : 'left', ...(head[j]?.wrap ? clamp2 : null) }}>
                 {c}
               </div>
             </div>
@@ -265,7 +265,7 @@ function Stats({ items }: { items: Array<{ big: ReactNode; label: string }> }): 
           >
             {s.big}
           </div>
-          <div className="truncate" style={{ fontSize: 12.5, color: color.label }}>
+          <div className="truncate" title={s.label} style={{ fontSize: 12.5, color: color.label }}>
             {s.label}
           </div>
         </div>
@@ -323,7 +323,7 @@ function Bars({ bars, minutes, weekly, height, empty }: { bars: Bar[]; minutes: 
       {g && (
         <>
           <path d={`M0 ${base - (g.at / scale) * (base - top)}H${W}`} stroke={color.hairline} strokeDasharray="2 4" />
-          <text x={weekly ? 0 : W} y={base - (g.at / scale) * (base - top) - 5} textAnchor={weekly ? 'start' : 'end'} style={{ fontSize: 11.5, fill: color.faint }}>
+          <text x={weekly ? 0 : W} y={base - (g.at / scale) * (base - top) - 5} textAnchor={weekly ? 'start' : 'end'} style={{ fontSize: 11.5, fill: color.label }}>
             {g.label}
           </text>
         </>
@@ -362,7 +362,7 @@ function Bars({ bars, minutes, weekly, height, empty }: { bars: Bar[]; minutes: 
                 style={{
                   fontSize: 11.5,
                   fontWeight: b.now ? 600 : 400,
-                  fill: b.now ? color.text : color.faint
+                  fill: b.now ? color.text : color.label
                 }}
               >
                 {b.label}
@@ -483,7 +483,7 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <div data-progress-goal>
             <div className="flex items-center gap-[8px]" style={{ fontSize: type2.md }}>
               <Flag size={15} strokeWidth={1.8} style={muted} />
-              <b className="truncate" style={{ fontWeight: 560, color: color.text }}>
+              <b className="line-clamp-2" title={goal.title} style={{ fontWeight: 560, color: color.text, lineHeight: 1.3 }}>
                 {goal.title}
               </b>
             </div>
@@ -494,7 +494,9 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
               <span className="whitespace-nowrap">
                 {goal.mastered} of {goal.total} {goal.unit ?? 'skills'}
               </span>
-              <span className="truncate">{goalLine(goal)}</span>
+              <span className="truncate" title={goalLine(goal)}>
+                {goalLine(goal)}
+              </span>
             </div>
           </div>
         </>
@@ -589,14 +591,10 @@ function Cover({ kind, w }: { kind: Starter['cover']; w: number }): ReactNode {
 }
 
 function FirstMain({ wide }: { wide: boolean }): ReactNode {
-  const empty = weekBars({ ...EMPTY_V4, minutesKnown: true }, Date.now())
+  // No week yet: nothing passed means no chart at all, never seven flat bars (MIC-69). The starters lead.
   return (
     <>
-      <Sec first link="minutes a day">
-        This week
-      </Sec>
-      <Bars bars={empty} minutes weekly={false} height={96} empty />
-      <Sec link="Library" onLink={() => setPage('lessons')}>
+      <Sec first link="Library" onLink={() => setPage('lessons')}>
         Start with ten minutes
       </Sec>
       <div data-progress-starters>
@@ -617,6 +615,7 @@ function FirstMain({ wide }: { wide: boolean }): ReactNode {
               <Cover kind={s.cover} w={54} />
               <b
                 className="truncate"
+                title={s.title}
                 style={{
                   fontWeight: 550,
                   color: color.text,
@@ -628,7 +627,7 @@ function FirstMain({ wide }: { wide: boolean }): ReactNode {
             </span>
             {wide && <Tag>{s.grows}</Tag>}
             {wide && (
-              <span className="truncate text-right" style={{ fontSize: 13, color: color.label, ...num }}>
+              <span className="truncate text-right" title={`${s.tool} · ${s.steps} steps · ${s.minutes} min`} style={{ fontSize: 13, color: color.label, ...num }}>
                 {s.tool} · {s.steps} steps · {s.minutes} min
               </span>
             )}
@@ -655,6 +654,7 @@ function FirstMain({ wide }: { wide: boolean }): ReactNode {
             </span>
             <b
               className="truncate"
+              title={p.title}
               style={{
                 display: 'block',
                 fontSize: 14.5,
@@ -711,7 +711,7 @@ function FirstRail({ stacked }: { stacked: boolean }): ReactNode {
         {GOAL_PICKS.map((g) => (
           <RRow key={g.title} tall onClick={() => startGoal(g.query, ROUTE)}>
             <span className="min-w-0 flex-1">
-              <b className="block truncate" style={{ fontWeight: 520, color: color.text }}>
+              <b className="block truncate" title={g.title} style={{ fontWeight: 520, color: color.text }}>
                 {g.title}
               </b>
               <span className="block" style={{ fontSize: 12.5, color: color.label }}>
@@ -724,6 +724,15 @@ function FirstRail({ stacked }: { stacked: boolean }): ReactNode {
       </div>
     </aside>
   )
+}
+
+/** A table cell's plain text (a string, or a one-level element around one), for its tooltip. */
+function cellText(c: ReactNode): string | undefined {
+  if (typeof c === 'string' || typeof c === 'number') return String(c)
+  const kids = (c as { props?: { children?: unknown } } | null)?.props?.children
+  if (typeof kids === 'string' || typeof kids === 'number') return String(kids)
+  if (Array.isArray(kids) && kids.every((k) => typeof k === 'string' || typeof k === 'number')) return kids.join('')
+  return undefined
 }
 
 // ---- the page ---------------------------------------------------------------------------------------------------
@@ -768,18 +777,20 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
   // Never rows of zeros: the week waits for `activity` (no empty chart that then fills), and the 12 weeks and their
   // numbers show once there is something in them.
   const seen = v4.activitySeen
+  // A week with nothing in it is left out, like any part with nothing to show (MIC-69): no chart of flat bars.
+  const week = seen && wkBars.some((b) => b.value > 0)
   const any12 = seen && w12.some((b) => b.value > 0)
   return (
     <>
-      {seen && (
+      {week && (
         <>
           <Sec first link={minutes ? 'minutes a day' : 'steps a day'}>
             This week
           </Sec>
-          <Bars bars={wkBars} minutes={minutes} weekly={false} height={150} empty={!wkBars.some((b) => b.value > 0)} />
+          <Bars bars={wkBars} minutes={minutes} weekly={false} height={150} />
         </>
       )}
-      {seen && wkBars.some((b) => b.value > 0) && (
+      {week && (
         <Stats
           items={[
             ...(wk.minutes !== undefined
@@ -797,7 +808,9 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
       )}
       {any12 && (
         <>
-          <Sec link={minutes ? 'minutes a week' : 'steps a week'}>Last 12 weeks</Sec>
+          <Sec first={!week} link={minutes ? 'minutes a week' : 'steps a week'}>
+            Last 12 weeks
+          </Sec>
           <Bars bars={w12} minutes={minutes} weekly height={122} />
           <Stats
             items={[
@@ -817,7 +830,7 @@ function Main({ data, v4, now, wide }: { data: DashData; v4: V4; now: number; wi
       )}
       {tracks.length > 0 && (
         <>
-          <Sec first={!seen} link="Skills" onLink={() => setPage('skills')}>
+          <Sec first={!week && !any12} link="Skills" onLink={() => setPage('skills')}>
             Tracks
           </Sec>
           <Table
@@ -917,16 +930,14 @@ export function ProgressV4(): ReactNode {
   const two = w >= TWO_COL
   const mainWide = two ? w - RAIL_W - 40 >= 600 : w >= 600
 
-  const primary = first ? (
-    <PrimaryButton label="Start a lesson" icon={SquarePen} onClick={() => openLauncher()} />
-  ) : live ? (
+  const primary = live ? (
     <PrimaryButton label={`Continue ${live}`} icon={Play} onClick={() => void closeWindow(ROUTE)} />
   ) : cont ? (
     <PrimaryButton label={`Continue ${cont.title}`} icon={Play} disabled={!!starting} onClick={() => void startSaved(cont.libraryId, ROUTE)} />
   ) : (
-    <PrimaryButton label="Start a lesson" icon={Compass} onClick={() => openLauncher()} />
+    <PrimaryButton label="Start a lesson" icon={first ? SquarePen : Compass} onClick={() => openLauncher()} />
   )
-  const lede = first ? 'Nothing passed yet. Your first step grows bon.' : total ? `${mastered} of ${total} skills mastered.` : ''
+  const lede = first ? (live || cont ? 'Pick up where you left off.' : 'Nothing passed yet. Your first step grows bon.') : total ? `${mastered} of ${total} skills mastered.` : ''
 
   return (
     <Scroller>
@@ -934,7 +945,7 @@ export function ProgressV4(): ReactNode {
         <div ref={ref} className="w-full">
           {/* The lede right under the shell's title; the one primary on the title's row, as in the mock (TitleRight). */}
           <div className="flex items-center gap-[16px]" style={{ marginBottom: 26, minHeight: 20 }}>
-            <p className="m-0 min-w-0 flex-1 truncate" style={{ fontSize: 14.5, lineHeight: '20px', color: color.label }}>
+            <p className="m-0 min-w-0 flex-1 truncate" title={lede} style={{ fontSize: 14.5, lineHeight: '20px', color: color.label }}>
               {lede}
             </p>
             <TitleRight>{primary}</TitleRight>

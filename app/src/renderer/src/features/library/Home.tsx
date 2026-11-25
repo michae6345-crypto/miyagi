@@ -3,10 +3,12 @@
  * The page itself is in home/ (Page.tsx draws it, data.ts is its model, Top.tsx the ask and the Continue card); this file
  * keeps the Continue logic it shares with the rest of the library (which lesson, which one primary action).
  *
- *   returning learner  greeting · ask · Continue · Plans · Up next · Recently passed, and a rail with the week, the
- *                      goal, skills and keep fresh
- *   first run          welcome · ask · three plans to start · short lessons · make your own, and a rail with setup,
- *                      how a lesson works and goals to pick
+ *   returning learner  ask · Continue · Plans · Up next · Recently passed, and a rail with the week, the goal, skills
+ *                      and keep fresh when any of them has something to show (else one centered column)
+ *   first run          the one thing left to set up · ask · Start here (the featured lesson, one Start lesson) · a few
+ *                      short lessons that start on a click · how a lesson works
+ *
+ * No greeting and no date (Michael, Nov 21: simpler home, no greeting, no numbers).
  *
  * Continue comes from dashboard/continue.ts, the same list Lessons and Progress read. When setup is left, its button is
  * the one setup action instead ("Turn on Accessibility"), never a disabled Continue.
@@ -19,23 +21,19 @@ import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
 import { color, copy } from '../../core/theme'
 import { PrimaryButton } from '../../core/ui/buttons'
-import { v2Cloud } from '../account/model'
-import { useAccount } from '../account/store'
-import { authOn } from '../auth/model'
-import { useAuth } from '../auth/store'
 import { continueList } from '../dashboard/continue'
 import { useDashView } from '../dashboard/Dashboard'
 import { useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
-import { starters } from './home/catalog'
-import { buildHome, coverFor, coverForTool, fromContract, greeting, isFirstRun, type CoverKind } from './home/data'
-import { FirstRunPage, HomePage } from './home/Page'
+import { FEATURED } from './home/catalog'
+import { buildHome, coverFor, coverForTool, firstLessons, fromContract, isFirstRun, type CoverKind } from './home/data'
+import { FirstRunPage, HomePage, SetupNote } from './home/Page'
 import { FIRST_RUN, sampleHome, stageSample } from './home/sample'
 import { Ask, ContinueCard, pickIdeas, type ContView } from './home/Top'
 import { useAskV4, useV4 } from './home/v4'
 import { useSkillGraph } from '../skills/store'
-import { finishedIds, pickHero, setupFix, type Hero } from './homeModel'
+import { finishedIds, pickHero, setupFix, teach, useAsk, type Hero } from './homeModel'
 import { Ring } from './motion'
 import { start, useLibrary } from './store'
 
@@ -138,6 +136,26 @@ function ContAction({ hero, fix }: { hero: Hero; fix?: Fix }): ReactNode {
   )
 }
 
+/** The first-run card's one primary: start the featured lesson (learn {goal, mode: lesson}, as the ask field sends it). */
+function FeaturedAction(): ReactNode {
+  const connected = useLesson((s) => s.connected)
+  const sending = useAsk((s) => s.sending)
+  return (
+    <>
+      <Ring>
+        <PrimaryButton label="Start lesson" icon={Play} busy={sending === 'lesson'} disabled={!!sending} onClick={() => void teach(FEATURED.goal, connected)} />
+      </Ring>
+      {!connected && (
+        <span role="status" style={{ fontSize: 12.5, color: color.label }}>
+          miyagi is offline.
+        </span>
+      )}
+    </>
+  )
+}
+
+const featuredView: ContView = { kicker: 'Start here', title: FEATURED.title, sub: `${FEATURED.tool} · ${FEATURED.steps} steps · ${FEATURED.minutes} min`, cover: FEATURED.cover }
+
 // ---- the page -----------------------------------------------------------------------------------------------------
 
 export function Home(): ReactNode {
@@ -156,10 +174,6 @@ export function Home(): ReactNode {
   const extra = demo?.extra ?? (sample === 'first' ? {} : fromContract({ activity: v4.activity, plans: v4.plans, names }))
   const hero = useHero(data, dash.load === 'loading' && !sample, items)
   const connected = useLesson((s) => s.connected)
-  // The learner's name, from wherever the sidebar reads it (the cloud account, else the sign-in); none = no name.
-  const accountName = useAccount((s) => (s.account?.signedIn ? s.account.name : undefined))
-  const authName = useAuth((s) => s.user?.name)
-  const name = v2Cloud ? accountName : authOn ? authName : undefined
   const rows = useRows()
   const fix = summarize(rows).canStart || sample ? undefined : setupFix(rows)
   const offline = !connected && !data && dash.load !== 'loading' && !sample
@@ -181,8 +195,23 @@ export function Home(): ReactNode {
       {copy.name} is offline. Your lessons show when it connects.
     </p>
   ) : undefined
-  const first = sample === 'first' || (!demo && dash.load !== 'loading' && isFirstRun(data, items, extra) && !view)
-  if (first) return <FirstRunPage now={now} greeting={name ? `Welcome, ${name.trim().split(/\s+/)[0]}` : 'Welcome'} ask={ask} setup={rows} notice={notice} starters={sample ? FIRST_RUN.starters : starters(new Set((v4.plans ?? []).map((p) => p.catalogId ?? p.id)))} lessons={FIRST_RUN.shortLessons} goals={FIRST_RUN.goals} />
+  // First run from the learner's record alone: a saved lesson ready to start, or a step of setup left, no longer hides it.
+  // A lesson open or building right now always gets its card (the returning page).
+  const busy = hero.kind === 'live' || hero.kind === 'building'
+  const first = sample === 'first' || (!demo && !busy && dash.load !== 'loading' && isFirstRun(data, items, extra))
+  if (first) {
+    const lessons = firstLessons(sample ? [] : items, finishedIds(data), FIRST_RUN.shortLessons)
+    return (
+      <FirstRunPage
+        ask={ask}
+        notice={notice}
+        setup={fix && connected ? <SetupNote label={fix.label} line={fix.line} /> : undefined}
+        featured={<ContinueCard view={featuredView} action={<FeaturedAction />} />}
+        lessons={lessons}
+        onLesson={(r) => void (r.saved ? start(r.id) : teach(r.goal, connected))}
+      />
+    )
+  }
   const m = buildHome({ data, items, extra, now, skip, done: finishedIds(data), plans: demo ? undefined : v4.plans })
   // Keep fresh: the progress's review list, else the skill graph's keepFresh (progress.graph, read-only).
   if (!demo && !m.fresh.length && graph?.keepFresh.length)
@@ -190,5 +219,5 @@ export function Home(): ReactNode {
       const n = graph.byId[id]
       return n ? [{ label: n.label, at: n.lastPracticedAt ?? n.masteredAt }] : []
     })
-  return <HomePage m={m} now={now} greeting={greeting(now, name)} ask={ask} cont={view ? <ContinueCard view={view} action={action} /> : null} notice={notice} />
+  return <HomePage m={m} now={now} ask={ask} cont={view ? <ContinueCard view={view} action={action} /> : null} notice={notice} />
 }
