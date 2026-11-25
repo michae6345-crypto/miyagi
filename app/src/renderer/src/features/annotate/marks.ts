@@ -178,6 +178,25 @@ export function mergeMarks(prev: readonly DrawMark[], incoming: readonly Annotat
   return out
 }
 
+/** A drawn mark as the engine sent it (an Annotation, with the coach's text and keys), so it can be drawn again later
+ * (store.ts: a text mark withdrawn while the lesson was quiet comes back when it is live again). */
+export function asAnnotation(d: DrawMark): Annotation & { text?: string; keys?: string[] } {
+  return {
+    ...(d.id ? { id: d.id } : {}),
+    x: d.rect.x,
+    y: d.rect.y,
+    w: d.rect.w,
+    h: d.rect.h,
+    ...(d.displayId !== undefined ? { displayId: d.displayId } : {}),
+    ...(d.label ? { label: d.label } : {}),
+    why: d.why,
+    ...(d.stepId ? { stepId: d.stepId } : {}),
+    ...(d.askId ? { askId: d.askId } : {}),
+    ...(d.text ? { text: d.text } : {}),
+    ...(d.keys ? { keys: [...d.keys] } : {})
+  }
+}
+
 /** The pointer must rest inside a box this long (after coming in from outside) to count as "went there". */
 export const REACH_MS = 280
 /** The box counts a little bigger than drawn: the loop itself sits outside it. */

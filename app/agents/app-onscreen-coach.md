@@ -26,10 +26,15 @@ island; the steps list stays one click away (the Mini pill).
     Only while its step is live (review round 2): an annotate whose text mark names a stepId other than the running
     step (or arrives after step.passed) draws no text mark, and an annotate with nothing live left is ignored, so a
     late answer never replaces what the running step drew. No text mark on idle: `lesson.paused`, a `blocker` (not a
-    clear) or `status {state: "idle"}` withdraws the text marks without remembering them as gone (like a hidden
-    spotlight), and an annotate meanwhile draws none; after `lesson.resumed` / the blocker's clear / a non-idle status /
-    a new step, the engine's re-send draws them again. A replayed lesson.ready starts from live (the engine's
-    v2_snapshot re-sends the pause and blockers after it). Plain marks keep their own hold through all of this.
+    clear) or `status {state: "idle"}` hides the text marks, and an annotate meanwhile draws none. Hidden, not gone
+    (review round 3): the engine sends a step's point mark only on step start (not on replay or restore), a "Not yet"
+    and Show me, and never re-sends after `lesson.resumed`, a blocker clear or a status change (origin/claude/eng-onscreen-coach
+    `onscreen_coach.py`, which also keeps the spotlight off for that step). So the app keeps the hidden marks aside
+    (an annotate's text marks for this step that arrive while quiet replace them) and draws them again itself, with no
+    re-send, on `lesson.resumed`, the clear of the last blocker, or a status that is not idle, if their stepId is still
+    the running step. They are let go on step.started for another step, step.passed, lesson.ended, a non-replay
+    lesson.ready, annotate {clear} and Esc. A replayed lesson.ready starts from live (the engine's v2_snapshot re-sends
+    the pause and blockers after it); it does not restore by itself. Plain marks keep their own hold through all of this.
   - `geometry.ts`: pure `textSpot(ring, target, size, box, branch?)`: right of the loop, else left, below, above
     (LABEL_GAP from it); never over the target or the loop as drawn: `loopBox` grows the ring's box by `LOOP_REACH`
     (1 + the wobble's a1 + a2 + drift, about 12.5% of each radius), since the stroke runs past the nominal ellipse on
@@ -40,6 +45,9 @@ island; the steps list stays one click away (the Mini pill).
     (the engine's OCR ignores it), never `data-hit`, click-through. The instruction, then each key in the core `Kbd`.
     At most 280 pt wide and 2 lines (measured before paint). Island black, HUD text, `type2.sm`, `radius2.card`; no
     pass color. Fades in after the stroke with a small spring slide; reduced motion: fade in only.
+    The branch root is frozen at birth against growth only (review round 3, `geometry.ts rootFor`): when the island's
+    bottom moves more than 4 pt above it (the tall "Step done" card the next step's mark was born under goes back into
+    the pill after Continue), the root follows it up, so the line always comes out of the island.
   - `onscreen.ts` (new): on a non-replay lesson.ready whose lesson has `app.tool`, `emitUi('panel', 'collapse')` one tick
     later (after the drawer's own lesson.ready opened it). Never without app, never on a replay, once per lesson.ready
     (never re-collapses after the learner opens it). Nothing lesson-specific.
@@ -72,11 +80,14 @@ island; the steps list stays one click away (the Mini pill).
 Checks run (Nov 24): `npm run typecheck`; `node --import tsx --test src/renderer/src/features/annotate/*.test.ts`
 (87 pass, round 1: Show me / "Not yet" bring a reached or dismissed text mark back, a bare re-send does not; 99 pass,
 round 2: the text box never touches the drawn loop polyline for 200x120 to 500x400 and 300x600 targets over 40 seeds and
-two island positions (this test failed on the round-1 geometry); stale-step and paused / blocker / idle text marks);
+two island positions (this test failed on the round-1 geometry); stale-step and paused / blocker / idle text marks;
+round 3: resume / last blocker clear / watching restore a hidden text mark with no re-send, never after the step
+changed or passed, Esc and annotate {clear} let it go; `rootFor` follows a shrinking island, not a growing one);
 `npm test` (746 pass, no failures); brand lint on the added lines in app/src (no hex, rgba, hand-typed
 keycaps, Cursor, dangerouslySetInnerHTML, green, capital M; test keycaps are escaped engine data).
 
-Shots (headless Chromium, 1440x900, the stage scales a 1600x1000 display; retaken in round 2 after the loopBox change):
+Shots (headless Chromium, 1440x900, the stage scales a 1600x1000 display; retaken in round 2 after the loopBox change,
+and `-edge-right` / `-edge-bottom` again in round 3, where the line now starts at the island after Continue):
 `agents/shots/app-onscreen-coach-circle.png`, `-collapsed.png`, `-edge-right.png`, `-edge-bottom.png`, `-steps.png`.
 - `-collapsed.png` is its own capture (`&draw=slow`, mid-draw, the island collapsed to "Click to reopen · 1 of 3").
 - `-edge-right.png` / `-edge-bottom.png` are taken after pressing Continue on the held "Step done" card, so they show

@@ -6,7 +6,7 @@
  *   - Stroke: the brand mint (the notch glow's family; never green, green means passed) over a faint island-black casing,
  *     so it reads on a light editor and a dark one alike. No glow, no blur, no gradient.
  *   - The branch's root is frozen when a mark is born: a card that grows out of the island afterwards does not drag the
- *     line around.
+ *     line around. When the island shrinks above it (a card it was born under closed), the root moves up with it.
  *   - Reduced motion: no grow, the finished stroke fades in.
  *   - Click-through always: no data-hit anywhere. The stroke is not data-ui either (that would hide the circled text
  *     from the engine's screen reader); only the small label is, so the engine never reads miyagi's own words as the
@@ -27,7 +27,7 @@ import { islandBottom } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
 import { brand, color, ease, fade as fades, radius2, spring, type2 } from '../../core/theme'
 import { Kbd } from '../../core/ui/atoms'
-import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, textSpot, toOverlay, TEXT_MAX_W, type Pt, type Rect, type Side } from './geometry'
+import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, rootFor, textSpot, toOverlay, TEXT_MAX_W, type Pt, type Rect, type Side } from './geometry'
 import { createReach, type DrawMark } from './marks'
 import { fade, useAnnotate } from './store'
 
@@ -49,7 +49,9 @@ export function BuddyLayer({ layout }: { layout: Layout }): ReactNode {
   const nm = notchOf(layout)
   const anchorNow = islandAnchor(box.w > 0 && box.h > 0 ? box : undefined, { centerX: nm ? nm.x + nm.width / 2 : layout.width / 2, restBottom: islandBottom(layout) })
 
-  // Each mark's root, frozen at birth (keyed by mark key; dropped with the mark).
+  // Each mark's root, frozen at birth (keyed by mark key; dropped with the mark). Frozen against growth only: when the
+  // island's bottom moves up past the root (a tall card it was born under went back into the pill), the root follows
+  // it up, so a mark that stays the whole step (a text mark) never starts in mid-air below the island.
   const roots = useRef(new Map<string, Pt>())
   const drawn: Drawn[] = []
   const live = new Set<string>()
@@ -57,7 +59,9 @@ export function BuddyLayer({ layout }: { layout: Layout }): ReactNode {
     const local = toOverlay(mark.rect, layout.origin)
     if (!onOverlay(local, layout)) continue // on another display: the overlay only covers this one
     live.add(mark.key)
-    if (!roots.current.has(mark.key)) roots.current.set(mark.key, anchorNow)
+    const was = roots.current.get(mark.key)
+    const at = rootFor(was, anchorNow)
+    if (at !== was) roots.current.set(mark.key, at)
     drawn.push({ mark, local, from: roots.current.get(mark.key)! })
   }
   for (const k of [...roots.current.keys()]) if (!marks.some((m) => m.key === k)) roots.current.delete(k)

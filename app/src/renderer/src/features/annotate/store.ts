@@ -22,8 +22,12 @@
  * keep the hold above.
  * Only while its step is live: an annotate whose text mark names a step that is not running now (a late answer after
  * step.passed, or after the next step.started) draws no text mark. And no text mark on idle: lesson.paused, a blocker
- * (not a clear) or status "idle" withdraws the text marks (not remembered as gone, so the engine's re-send after
- * lesson.resumed draws them again), and an annotate meanwhile draws none.
+ * (not a clear) or status "idle" hides the text marks, and an annotate meanwhile draws none. Hidden, not gone: they are
+ * kept aside (with an annotate's text marks for this step that came meanwhile) and drawn again, with no re-send, when
+ * the lesson is live again (lesson.resumed, the last blocker's clear, a status that is not idle) and their step is still
+ * the one running. The engine sends a step's point mark once (step start, "Not yet", Show me), never after a resume, so
+ * this is the only way the pointing comes back. They are let go on another step, step.passed, lesson.ended, a new
+ * lesson.ready, annotate {clear} and Esc.
  * An explicit ask brings pointing back after the learner reached or dismissed it: a Show me press ("where?"), or a
  * "Not yet" card (verdict not_done) for the current step. The engine re-sends the point mark then (same id), and the
  * next annotate after the ask draws its marks again even if they are gone this step. If the re-send came first (it was
@@ -34,7 +38,7 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known, type OnscreenFields } from './marks'
+import { asAnnotation, cleanText, fadeAt, hasText, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known, type OnscreenFields } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -61,6 +65,10 @@ let paused = false
 const blockers = new Set<string>()
 let idle = false
 const quiet = (): boolean => paused || blockers.size > 0 || idle
+/** The text marks hidden while the lesson is quiet, to draw again when it is live (restoreText). */
+let hidden: Annotation[] = []
+/** The hold of the latest show(), so a restore keeps the plain marks on the same hold. */
+let lastHoldMs = DEFAULT_HOLD_MS
 
 function stopHold(): void {
   clearTimeout(hold)
@@ -86,6 +94,7 @@ function forget(): void {
   lastSpot = undefined
   engineAsked = false
   dropped = undefined
+  hidden = []
   paused = false
   blockers.clear()
   idle = false
@@ -108,6 +117,7 @@ export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_H
     gone.clear()
     lastAsk = ask
   }
+  lastHoldMs = holdMs
   const marks = mergeMarks(get().marks, incoming, gone.values(), now)
   set({ marks })
   holdTimed(marks, fadeAt(timedMarks(marks), holdMs), now)
@@ -126,13 +136,31 @@ const textOf = (m: Annotation): boolean => m.why === 'point' && !!cleanText((m a
 /** Not drawn now: a text mark for a step that is not the one running, or any text mark while the lesson is quiet. */
 const notLive = (m: Annotation): boolean => textOf(m) && (quiet() || (!!m.stepId && m.stepId !== curStep))
 
-/** The lesson went quiet (paused, a blocker, idle): the untimed text marks go, not remembered as gone, so a re-send
- * once it is live again draws them. Timed marks keep their hold. */
+/** The lesson went quiet (paused, a blocker, idle): the untimed text marks go out of sight but are kept aside (not
+ * remembered as gone), so restoreText draws them again once it is live. Timed marks keep their hold. */
 function withdrawText(): void {
   const cur = get().marks
+  const text = cur.filter(hasText)
+  if (!text.length) return
+  hidden = text.map(asAnnotation)
   const left = cur.filter((m) => !hasText(m))
-  if (left.length !== cur.length) set({ marks: left })
+  set({ marks: left })
   if (!left.length) stopHold()
+}
+
+/** The lesson is live again: draw the hidden text marks of the step still running (born again, with their text), next
+ * to what is drawn now. Nothing while still quiet; the rest are let go. */
+function restoreText(): void {
+  if (quiet() || !hidden.length) return
+  const back = hidden.filter((m) => !notLive(m))
+  hidden = []
+  if (!back.length) return
+  // An ask still waiting (Show me, "Not yet" while quiet, its answer kept aside here): born again even if reached.
+  if (engineAsked) {
+    engineAsked = false
+    back.forEach(askAgain)
+  }
+  show([...get().marks.map(asAnnotation), ...back], lastHoldMs)
 }
 
 /** An explicit ask for this box (Show me): forget that it was reached or timed out, and let it be born again. */
@@ -146,12 +174,20 @@ function askAgain(m: Annotation): void {
 onMessage('annotate', (p) => {
   engineAnnotates = true
   if (!p || typeof p !== 'object') return
-  if ('clear' in p && p.clear) return fade()
+  if ('clear' in p && p.clear) {
+    hidden = []
+    return fade()
+  }
   if (!('marks' in p)) return
   // A text mark for a step that is no longer live (a late answer) or while the lesson is quiet: not drawn, so a stale
   // untimed mark never stays up. It is not remembered as gone either. An annotate with nothing live left is ignored: a
   // late answer must not replace what the running step drew.
   const valid = validMarks(p.marks)
+  // While quiet, this step's text marks wait with the hidden ones (the newest win), to draw once it is live.
+  if (quiet()) {
+    const later = valid.filter((m) => textOf(m) && (!m.stepId || m.stepId === curStep))
+    if (later.length) hidden = later
+  }
   const marks = valid.filter((m) => !notLive(m))
   if (valid.length && !marks.length) return
   const holdMs = holdFor(p.holdMs)
@@ -190,6 +226,7 @@ onMessage('step.started', (p) => {
   engineAsked = false
   dropped = undefined
   const keep = get().marks.filter((m) => m.stepId && m.stepId === step)
+  hidden = hidden.filter((m) => m.stepId && m.stepId === step)
   stopHold()
   gone.clear()
   lastSpot = undefined
@@ -197,6 +234,7 @@ onMessage('step.started', (p) => {
   // A kept text mark stays with its step; kept plain marks get the default hold from now.
   const now = Date.now()
   holdTimed(keep, timedMarks(keep).length ? now + DEFAULT_HOLD_MS : undefined, now)
+  restoreText()
 })
 onMessage('step.passed', () => {
   curStep = undefined
@@ -221,23 +259,34 @@ onMessage('lesson.paused', () => {
   paused = true
   withdrawText()
 })
-onMessage('lesson.resumed', () => void (paused = false))
+// Live again: the hidden text marks come back (no re-send needed).
+onMessage('lesson.resumed', () => {
+  paused = false
+  restoreText()
+})
 onMessage('blocker', (p) => {
   const kind = String(p?.kind ?? '')
-  if (p?.clear) return void blockers.delete(kind)
+  if (p?.clear) {
+    blockers.delete(kind)
+    return restoreText()
+  }
   blockers.add(kind)
   withdrawText()
 })
 onMessage('status', (p) => {
   idle = p?.state === 'idle'
   if (idle) withdrawText()
+  else restoreText()
 })
 onUi('reset', () => {
   forget()
   engineAnnotates = false
 })
 // Esc: the learner wants the screen back.
-onUi('dismiss', () => fade())
+onUi('dismiss', () => {
+  hidden = []
+  fade()
+})
 
 // Today's pointing: a new spotlight box gets a buddy mark too (until the engine sends its own annotate).
 // Imported late, not at the top: features load A to Z and "annotate" is first, so a static import pulled the spotlight

@@ -73,6 +73,18 @@ export function islandAnchor(box: Rect | undefined, fallback: { centerX: number;
   return { x: fallback.centerX, y: fallback.restBottom - 2 }
 }
 
+/** A frozen root moves to the island's bottom once that bottom is this far (pt) above it. */
+export const REROOT_PT = 4
+
+/**
+ * A mark's branch root this frame: its root from birth (`was`), frozen while the island grows (a card coming out of it
+ * does not drag the line), but moved up to `now` once the island's bottom is above it by more than REROOT_PT (the card
+ * it was born under went back into the pill), so a long-lived mark never starts in mid-air below the island.
+ */
+export function rootFor(was: Pt | undefined, now: Pt): Pt {
+  return !was || now.y < was.y - REROOT_PT ? now : was
+}
+
 /** Room around the box: at least this much, more for a wide one (a whole line of code). */
 export const RING_PAD = { x: 12, xShare: 0.1, y: 8 } as const
 /** The smallest loop: a tiny icon still gets a circle a finger could point at. */
