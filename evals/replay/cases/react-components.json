@@ -110,8 +110,8 @@
     {"type": "file_contains", "file": "my-react-app/src/App.jsx", "pattern": "<>\\s*<Header/>\\s*<Footer/>\\s*</>"}
    ],
    "actions": [
-    {"do": "mistake", "note": "returns <Header/> and <Footer/> side by side without a fragment (Vite: Adjacent JSX elements)", "caught_by_spec_rows": ["x0"], "caught": false,
-     "finding": "s6's precision check is only <Footer, so App.jsx with no fragment passes in precision mode while Vite shows 'Adjacent JSX elements must be wrapped in an enclosing tag'",
+    {"do": "mistake", "note": "returns <Header/> and <Footer/> side by side without a fragment (Vite: Adjacent JSX elements)", "caught_by_spec_rows": ["x0"], "caught": true,
+     "fixed_finding": "fixed by ded4f478 (adjacent JSX roots rule), Nov 24; was: s6's precision check is only <Footer, so App.jsx with no fragment passes in precision mode while Vite shows 'Adjacent JSX elements must be wrapped in an enclosing tag'",
      "actions": [
       {"do": "write", "file": "my-react-app/src/App.jsx", "text": "import Header from \"./Header.jsx\"\nimport Footer from \"./Footer.jsx\"\n\nfunction App() {\n  return (\n    <Header/>\n    <Footer/>\n  );\n}\n\nexport default App\n"},
       {"do": "browser", "lines": ["[plugin:vite:react-babel] /Users/me/react-lab/my-react-app/src/App.jsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (7:4)"]}

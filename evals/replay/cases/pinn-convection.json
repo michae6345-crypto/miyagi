@@ -277,8 +277,8 @@
    "step": "s7",
    "about": "a full 4000-epoch run, loss still decreasing",
    "match": "4000|converg",
-   "expect": "fail",
-   "finding": "a correct learner can never pass s7: its metric_trend rows have window 5 (training steps), and a trend needs >= 8 points in the window, so even a metric logged every step gives 6 at most (also: the title says 'Compare with non-dimensionalized PINN' but the step only reruns 4000 epochs)",
+   "expect": "pass",
+   "fixed_finding": "fixed by 2b86a0db (trend window widens to the logging cadence), Nov 22; was: a correct learner can never pass s7: its metric_trend rows have window 5 (training steps), and a trend needs >= 8 points in the window, so even a metric logged every step gives 6 at most (also: the title says 'Compare with non-dimensionalized PINN' but the step only reruns 4000 epochs)",
    "expect_checks": [
     {
      "type": "screen_contains",
