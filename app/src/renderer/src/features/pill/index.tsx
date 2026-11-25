@@ -33,6 +33,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
+import { useKey } from '../../core/keys'
 import { shellName } from '../onboarding/device'
 import { useDock } from '../../core/dock'
 import { notify, useCurrentStep, useLesson, useStepPhase, useThinking } from '../../core/lesson'
@@ -128,6 +129,7 @@ function continueLabel(o: SavedOffer): { id: string; title?: string; count?: { n
 }
 
 function Idle(): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const offline = usePill((s) => s.offline)
   const resuming = usePill((s) => s.resuming)
   const offer = usePill((s) => s.offer)
@@ -200,7 +202,7 @@ function Idle(): ReactNode {
           It rises in when miyagi is up (getting ready, then ask miyagi). */}
       {!offline && !cont && !ready && (
         <motion.span className="ml-[10px] inline-flex" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0, transition: enter(beat) }}>
-          <Kbd className="!h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
+          <Kbd className="!h-[20px] !rounded-full !px-[8px]">{launcherKey}</Kbd>
         </motion.span>
       )}
       {/* The status dot on the right, like every pill state (BRAND.md): gray watching, hollow gray offline (audit A21).

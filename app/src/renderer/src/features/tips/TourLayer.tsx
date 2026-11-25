@@ -23,6 +23,7 @@ import { PrimaryButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { HelpRow } from '../../core/ui/HelpRow'
 import { Keycap, keyLabel, type KeyName } from '../../core/ui/Keycap'
+import { useKey } from '../../core/keys'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { enter, fade, springOut } from '../../core/ui/motion'
 import { StepDots } from '../../core/ui/StepDots'
@@ -52,7 +53,7 @@ function KeyItem({ k, label, keyFirst = true }: { k: KeyName; label: string; key
 
 /** The sample lesson panel: the real one's shape and spacing, every part inert. */
 function SamplePanel({ x, y }: { x: number; y: number }): ReactNode {
-  const launch = keyLabel('launcher')
+  const launch = useKey('launcher')
   // Same rule as the real keys line (drawer/v2/KeysRow): a long launcher key leaves room for "ask miyagi" only.
   const askLabel = launch && launch.length > 3 ? copy.ask : copy.launcherPlaceholder
   return (

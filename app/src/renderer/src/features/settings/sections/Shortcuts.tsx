@@ -1,23 +1,23 @@
 /**
- * Feature: settings. Shortcuts (Set-Shortcuts). Every keycap is the platform's own (bridge.platform.keys through
- * core/ui/Keycap): ⌃⌥ on a Mac, Alt on Windows, never the mockup's ⌥ literals.
+ * Feature: settings. Shortcuts (Set-Shortcuts). Every keycap is live (core/ui/Keycap through core/keys.ts): the
+ * platform's own (⌃⌥ on a Mac, Alt on Windows) or, for a rebound shortcut, the learner's own key in the same style.
  *
  * Explain, Hint, Show me and Diagram wear their pastel chip (theme.actionTone, options only); the rest are plain.
  * Watch has no shortcut this push (decision 3). Dismiss is fixed.
  *
- * The recorder is off (env.canRecord) until live rebinding ships (wave 2); the rows are read-only. When on: click a row, press new keys,
- * and the accelerator is validated (common/prefs isAccelerator, never a bare key, no clash with another shortcut) and
- * stored in prefs.shortcuts. A stored key shows as words with "Not active yet", since the app doesn't listen to it
- * yet. Esc cancels the recording before it closes the sheet. In Electron the rows are read-only.
+ * Click a row, press new keys: the accelerator is validated (common/prefs isAccelerator, never a bare key, no clash with
+ * another shortcut or the quit key) and saved to prefs.shortcuts. Main registers it at once (main/shortcutKeys.ts); when
+ * another app owns it, main keeps the old key and the row says "Another app uses that key." Esc cancels the recording
+ * before it closes the sheet. A rebound row has Reset (back to the default); "Reset all" clears every override.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ShortcutKind } from '../../../../../main/platform'
 import { bridge } from '../../../bridge'
-import { setPrefs, usePrefs } from '../../../core/prefs'
+import { savePrefs, usePrefs } from '../../../core/prefs'
 import { Keycap } from '../../../core/ui/atoms'
 import { actionTone, color, fill, radius2, type2 } from '../../../core/theme'
 import { canRecord, stage } from '../env'
-import { conflictWith, isShortcutKind, record, SHORTCUT_ROWS, words, type ShortcutRow } from '../shortcuts'
+import { clashLine, conflictWith, isShortcutKind, record, SHORTCUT_ROWS, withShortcut, type ShortcutRow } from '../shortcuts'
 import { Group, PageHeader, TextButton } from '../ui'
 
 const mac = bridge.platform.os === 'mac'
@@ -36,15 +36,21 @@ export function Shortcuts(): ReactNode {
     setProblem(undefined)
     setRecording(undefined)
   }
-  const save = (k: ShortcutKind, value: string): void => {
-    const clash = conflictWith(value, k, bridge.platform.accelerators, stored)
-    if (clash) {
-      setProblem(`${SHORTCUT_ROWS.find((r) => r.key === clash)?.label ?? 'Another shortcut'} already uses that.`)
-      return
-    }
-    // prefs.shortcuts replaces the whole map on prefs:set: send all of it.
-    setPrefs({ shortcuts: { ...stored, [k]: value } })
+  const save = async (k: ShortcutKind, value: string): Promise<void> => {
+    const clash = conflictWith(value, k, bridge.platform.accelerators, stored, mac)
+    if (clash) return setProblem(clashLine(clash))
+    // prefs.shortcuts replaces the whole map on prefs:set: send all of it. Main answers with what it kept.
+    const saved = await savePrefs({ shortcuts: withShortcut(stored, k, value) })
+    if (saved && saved.shortcuts[k] !== value) return setProblem(clashLine('taken'))
     cancel()
+  }
+  const reset = (k: ShortcutKind): void => {
+    cancel()
+    void savePrefs({ shortcuts: withShortcut(stored, k, undefined) })
+  }
+  const resetAll = (): void => {
+    cancel()
+    void savePrefs({ shortcuts: {} })
   }
 
   return (
@@ -52,7 +58,7 @@ export function Shortcuts(): ReactNode {
       <PageHeader
         title="Shortcuts"
         caption={canRecord ? 'Click a shortcut, then press the new keys.' : 'Shortcuts work while miyagi is open, in any app.'}
-        right={canRecord && any ? <TextButton label="Restore defaults" onClick={() => (cancel(), setPrefs({ shortcuts: {} }))} /> : undefined}
+        right={canRecord && any ? <TextButton label="Reset all" onClick={resetAll} /> : undefined}
       />
       <Group label="Keyboard shortcuts">
         {SHORTCUT_ROWS.map((r) => {
@@ -65,15 +71,16 @@ export function Shortcuts(): ReactNode {
               recording={!!kind && recording === kind}
               problem={kind && recording === kind ? problem : undefined}
               onStart={kind && canRecord && !r.fixed ? () => start(kind) : undefined}
+              onReset={kind && canRecord && stored[kind] ? () => reset(kind) : undefined}
               onCancel={cancel}
-              onRecorded={(v) => kind && save(kind, v)}
+              onRecorded={(v) => kind && void save(kind, v)}
               onProblem={setProblem}
             />
           )
         })}
       </Group>
       <p className="m-0" style={{ fontSize: type2.xs, color: color.label }}>
-        {canRecord ? (any ? 'New shortcuts take effect in a later update.' : 'Shortcuts work while miyagi is open, in any app.') : 'Changing them comes in a later update.'}
+        Shortcuts work while miyagi is open, in any app.
       </p>
     </>
   )
@@ -85,6 +92,7 @@ function Line({
   recording,
   problem,
   onStart,
+  onReset,
   onCancel,
   onRecorded,
   onProblem
@@ -94,6 +102,7 @@ function Line({
   recording: boolean
   problem?: string
   onStart?: () => void
+  onReset?: () => void
   onCancel: () => void
   onRecorded: (accelerator: string) => void
   onProblem: (p: string | undefined) => void
@@ -124,11 +133,19 @@ function Line({
   )
 
   return (
-    <div className="flex min-h-[48px] items-center justify-between gap-[12px] pl-[16px] pr-[8px]" style={{ background: recording ? fill.group : undefined }}>
+    <div
+      data-shortcut-row={row.key}
+      data-override={override ? '' : undefined}
+      className="flex min-h-[48px] items-center justify-between gap-[12px] pl-[16px] pr-[8px]"
+      style={{ background: recording ? fill.group : undefined }}
+    >
       <div className="flex min-w-0 flex-col gap-[2px] py-[6px]">
         {label}
-        {recording && problem && <span style={{ fontSize: type2.xs, color: color.text }}>{problem}</span>}
-        {!recording && override && <span style={{ fontSize: type2.xs, color: color.faint }}>Not active yet</span>}
+        {recording && problem && (
+          <span role="status" style={{ fontSize: type2.xs, color: color.text }}>
+            {problem}
+          </span>
+        )}
       </div>
       {recording ? (
         <div className="flex items-center gap-[8px]">
@@ -145,21 +162,20 @@ function Line({
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          aria-label={onStart ? `Change shortcut for ${row.label}` : `${row.label} shortcut`}
-          disabled={!onStart}
-          className="flex h-[36px] min-w-[88px] cursor-pointer items-center justify-end gap-[4px] px-[8px] disabled:cursor-default"
-          style={{ borderRadius: radius2.control }}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onStart}
-        >
-          {override ? (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: type2.xs, color: color.text }}>{words(override, mac)}</span>
-          ) : (
+        <div className="flex items-center gap-[4px]">
+          {onReset && <TextButton label="Reset" onClick={onReset} />}
+          <button
+            type="button"
+            aria-label={onStart ? `Change shortcut for ${row.label}` : `${row.label} shortcut`}
+            disabled={!onStart}
+            className="flex h-[36px] min-w-[88px] cursor-pointer items-center justify-end gap-[4px] px-[8px] disabled:cursor-default"
+            style={{ borderRadius: radius2.control }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onStart}
+          >
             <Keycap k={row.key} size="md" />
-          )}
-        </button>
+          </button>
+        </div>
       )}
     </div>
   )

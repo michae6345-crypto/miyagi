@@ -20,7 +20,7 @@
 import { motion } from 'motion/react'
 import { ChevronLeft, GitBranch, Library, List, PenLine, Search, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { bridge } from '../../bridge'
+import { useKey } from '../../core/keys'
 import { color, fill, focus, highlight, radius2, status, surface, v4, v4c, v4type } from '../../core/theme'
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
@@ -105,6 +105,7 @@ function SideLabel({ children }: { children: ReactNode }): ReactNode {
 const icon = (I: LucideIcon): ReactNode => <I size={16} strokeWidth={1.6} />
 
 function Nav({ compact }: { compact: boolean }): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const page = useShell((s) => s.page)
   const ref = useRef<HTMLElement>(null)
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
@@ -124,7 +125,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   }, [page])
   return (
     <nav ref={ref} aria-label="Pages" className="flex flex-col" onKeyDown={onKey}>
-      <SideRow icon={icon(Search)} label="Search" right={bridge.platform.keys.launcher} compact={compact} onClick={openLauncher} data={{ 'data-shell-search': '' }} />
+      <SideRow icon={icon(Search)} label="Search" right={launcherKey} compact={compact} onClick={openLauncher} data={{ 'data-shell-search': '' }} />
       {MAIN.map((id) => {
         const p = PAGES.find((x) => x.id === id)!
         const index = PAGES.findIndex((x) => x.id === id)

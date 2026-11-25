@@ -1,13 +1,14 @@
 /**
- * Feature: settings. The Shortcuts section's rows and the stage-only recorder's key handling (pure, no React).
+ * Feature: settings. The Shortcuts section's rows and the recorder's key handling (pure, no React).
  *
- * Keycaps on the rows come from bridge.platform.keys only (core/ui/Keycap). A key the learner records is stored in
- * prefs.shortcuts as an Electron accelerator (validated by common/prefs isAccelerator) and shown as
- * plain words, never as a keycap: live rebinding is wave 2, so a stored key is not what the app listens to yet.
+ * A key the learner records is stored in prefs.shortcuts as an Electron accelerator (validated by common/prefs
+ * isAccelerator) and is live: main registers it (main/shortcutKeys.ts) and every keycap shows it (core/keys.ts, built
+ * from the accelerator in the platform's glyph style, never typed by hand).
  */
 import type { ShortcutKind } from '../../../../main/platform'
 import { VOICE_ENABLED } from '../../../../common/flags'
 import { isAccelerator, type ShortcutPrefs } from '../../../../common/prefs'
+import { clashOf, isShortcutKind } from '../../../../common/shortcuts'
 import type { KeyName } from '../../core/ui/Keycap'
 import type { OptionAction } from '../../core/theme'
 
@@ -32,8 +33,9 @@ export const SHORTCUT_ROWS: readonly ShortcutRow[] = ([
   { key: 'dismiss', label: 'Dismiss', fixed: true }
 ] satisfies ShortcutRow[]).filter((r) => VOICE_ENABLED || r.key !== 'voice_toggle') // voice is off for now (common/flags)
 
-const SHORTCUT_KINDS: readonly string[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
-export const isShortcutKind = (k: unknown): k is ShortcutKind => typeof k === 'string' && SHORTCUT_KINDS.includes(k)
+export { isShortcutKind }
+/** The rebindable shortcuts on the page (voice drops out while voice is off, so its unused key is free to take). */
+export const ROW_KINDS: readonly ShortcutKind[] = SHORTCUT_ROWS.map((r) => r.key).filter(isShortcutKind)
 
 const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'AltGraph', 'CapsLock', 'Fn', 'OS'])
 const NAMED: Record<string, string> = {
@@ -84,21 +86,22 @@ export function record(e: { code: string; key: string; ctrlKey: boolean; altKey:
   return isAccelerator(value) ? { kind: 'accelerator', value } : { kind: 'invalid', reason: 'That key can’t be used.' }
 }
 
-/** Which other shortcut already uses this accelerator (the platform default or a stored one). */
-export function conflictWith(value: string, kind: ShortcutKind, defaults: Record<ShortcutKind, string>, stored: ShortcutPrefs): ShortcutKind | undefined {
-  const norm = (a: string): string => a.toLowerCase().replace(/cmdorctrl|commandorcontrol/g, 'command').replace(/\boption\b/g, 'alt')
-  const want = norm(value)
-  for (const k of SHORTCUT_KINDS as ShortcutKind[]) {
-    if (k === kind) continue
-    if (norm(stored[k] ?? defaults[k]) === want) return k
-  }
-  return undefined
+/** Which other shortcut on the page (its default or its override), or quit, already uses this accelerator. */
+export function conflictWith(value: string, kind: ShortcutKind, defaults: Record<ShortcutKind, string>, stored: ShortcutPrefs, mac: boolean): ShortcutKind | 'quit' | undefined {
+  return clashOf(value, kind, defaults, stored, mac, ROW_KINDS)
 }
 
-/** An accelerator as words for the row ("Control Option J" on a Mac). Words, not keycap symbols. */
-export function words(accelerator: string, mac: boolean): string {
-  return accelerator
-    .split('+')
-    .map((p) => (p === 'Alt' && mac ? 'Option' : p))
-    .join(' ')
+/** The row's line under a refused key: another shortcut has it, quit has it, or another app owns it (main said so). */
+export function clashLine(clash: ShortcutKind | 'quit' | 'taken'): string {
+  if (clash === 'taken') return 'Another app uses that key.'
+  if (clash === 'quit') return 'That key quits miyagi.'
+  return `${SHORTCUT_ROWS.find((r) => r.key === clash)?.label ?? 'Another shortcut'} already uses that.`
+}
+
+/** The map to save: this kind set to `value`, or its override removed (back to the default) when `value` is undefined. */
+export function withShortcut(stored: ShortcutPrefs, kind: ShortcutKind, value: string | undefined): ShortcutPrefs {
+  const next: ShortcutPrefs = { ...stored }
+  if (value) next[kind] = value
+  else delete next[kind]
+  return next
 }

@@ -24,6 +24,20 @@ export function setPrefs(patch: Partial<Prefs>): void {
   bridge.invoke<Prefs>('prefs:set', patch).then((p) => p && usePrefs.setState(p)).catch(() => undefined)
 }
 
+/**
+ * Change preferences and wait for main's answer (not optimistic): the prefs as saved, or undefined when main is not
+ * there. Settings > Shortcuts uses it, since main may keep the old key (another app owns the new one).
+ */
+export function savePrefs(patch: Partial<Prefs>): Promise<Prefs | undefined> {
+  return bridge
+    .invoke<Prefs>('prefs:set', patch)
+    .then((p) => {
+      if (p) usePrefs.setState(p)
+      return p ?? undefined
+    })
+    .catch(() => undefined)
+}
+
 // Browser stage: no main process. Preferences aren't secret, so the stage keeps them in localStorage.
 if (!isElectron) {
   const KEY = 'miyagi.prefs'

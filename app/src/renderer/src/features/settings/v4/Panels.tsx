@@ -13,7 +13,7 @@ import { setPrefs, usePrefs } from '../../../core/prefs'
 import { openOnboarding } from '../../../core/surfaces'
 import { color, copy, fill, highlight, radius2, type2 } from '../../../core/theme'
 import { Keycap, QuietButton, StatusGlyph, Toggle } from '../../../core/ui/atoms'
-import { keyLabel } from '../../../core/ui/Keycap'
+import { useKey } from '../../../core/keys'
 import { splitKeys } from './facts'
 import { planLabel } from '../../account/model'
 import { useAccount } from '../../account/store'
@@ -353,7 +353,7 @@ export function Sees4({ secure }: { secure?: boolean }): ReactNode {
 }
 
 function KeyCaps({ k }: { k: 'launcher' }): ReactNode {
-  const label = keyLabel(k)
+  const label = useKey(k)
   if (!label) return null
   const parts = splitKeys(label)
   if (parts.length < 2) return <Keycap k={k} />

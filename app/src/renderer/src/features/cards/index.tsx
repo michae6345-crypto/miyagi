@@ -22,6 +22,7 @@ import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footpr
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
+import { useKeys } from '../../core/keys'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
@@ -249,7 +250,7 @@ const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
-  const keys = bridge.platform.keys
+  const keys = useKeys() // live: a rebound shortcut shows its own key
   // Michael, test 6: the Not yet card carries its own Hint / Show me again (the bar's alone read as "no actions"),
   // limited to what the engine offers when it lists any of them.
   const offered = OFFTRACK_OPTIONS.filter((x) => o.actions.includes(x.action))
@@ -831,7 +832,7 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
   const plan = setup ? planSetup(card, installs, !!queue) : undefined
   const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a)) && !(setup && PLAN_ACTIONS.has(a)))
   const primary = plan?.primary ? undefined : primaryOf(card, known)
-  const keys = bridge.platform.keys
+  const keys = useKeys() // live: a rebound shortcut shows its own key
   const row = useRef<HTMLDivElement>(null)
   const planned = plan?.primary ? [planLabel(plan.primary)] : []
   // One row, always (A22): too wide, the labels go short (1), then the quiet buttons go icon-only (2). Never a wrap.

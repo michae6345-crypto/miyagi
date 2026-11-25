@@ -1,6 +1,7 @@
 /**
- * Core (v2, W0-3): a keycap. The label ALWAYS comes from bridge.platform.keys (⌃⌥E on a Mac, Alt+E on Windows): pass
- * the key's name, never a label. A name the platform doesn't have renders nothing (never a guess).
+ * Core (v2, W0-3): a keycap. The label ALWAYS comes from bridge.platform.keys (⌃⌥E on a Mac, Alt+E on Windows), or the
+ * learner's own key for a rebound shortcut (core/keys.ts, live): pass the key's name, never a label. A name the platform
+ * doesn't have renders nothing (never a guess).
  *
  *   <Keycap k="explain" />                 on a dark surface (panel, island, window)
  *   <Keycap k="hint" on="accent" />        inside a white button (follows the theme)
@@ -9,16 +10,15 @@
  */
 import type { ReactNode } from 'react'
 import type { KeyName } from '../../../../main/platform'
-import { bridge } from '../../bridge'
+import { liveKeyLabel, useKey } from '../keys'
 import { fill, highlight, paper, radius2, type2 } from '../theme'
 
 export type { KeyName }
 export type KeycapOn = 'dark' | 'accent' | 'pastel' | 'paper'
 
-/** The label for a key name, or undefined when this platform has none. */
+/** The label for a key name right now (the learner's own key for a rebound shortcut), or undefined when there is none. In a component, prefer useKey (core/keys.ts): it re-renders when the key changes. */
 export function keyLabel(k: KeyName): string | undefined {
-  const keys = bridge.platform.keys as Partial<Record<KeyName, string>>
-  return keys[k] || undefined
+  return liveKeyLabel(k)
 }
 
 /** Polish: a keycap stands on its surface (a darker bottom lip, a faint top edge) so it reads as a key, not a tag. */
@@ -30,7 +30,7 @@ const TONE: Record<KeycapOn, { bg: string; fg: string; border?: string; lip?: st
 }
 
 export function Keycap({ k, on = 'dark', size = 'md' }: { k: KeyName; on?: KeycapOn; size?: 'sm' | 'md' }): ReactNode {
-  const label = keyLabel(k)
+  const label = useKey(k)
   if (!label) return null
   const t = TONE[on]
   const h = size === 'sm' ? 18 : 22
