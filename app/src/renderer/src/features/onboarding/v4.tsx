@@ -13,6 +13,7 @@
  * Tokens only (v4c, v4type, color): no new colors. Neutral chrome; green only for passed; no pastel here.
  */
 import { motion } from 'motion/react'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { color, v4c, v4type } from '../../core/theme'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
@@ -210,6 +211,22 @@ export function Actions({ children, end, style }: { children: ReactNode; end?: R
         {end && <span className="ml-auto flex items-center">{end}</span>}
       </div>
     </Rise>
+  )
+}
+
+/** Back, as quiet text with its chevron (chrome: the label gray, ink on hover), never a second boxed button. */
+export function BackLink({ onClick }: { onClick: () => void }): ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseDown={(e) => e.preventDefault()}
+      className="mg-v4-link inline-flex h-[32px] cursor-pointer items-center gap-[4px] rounded-[6px] px-[6px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
+      style={{ ...v4type.body, fontWeight: 500, color: color.label, outlineColor: color.text, background: 'none', border: 0 }}
+    >
+      <ChevronLeft aria-hidden size={15} strokeWidth={1.8} />
+      Back
+    </button>
   )
 }
 

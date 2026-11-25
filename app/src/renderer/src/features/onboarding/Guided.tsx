@@ -5,8 +5,10 @@
  *            (green = done, white = this step, the track = not reached; done and earlier bars jump back)
  *   body     v4 (Adrian's ui-next onboard-2, Nov 24; v4.tsx SetupPage): the title and one line of why, then a group of
  *            live rows (both macOS grants side by side on either grant step, each with its check mark; the step's own
- *            row elsewhere), the step's row saying where it stands; under it the ONE primary, a quiet second action
- *            (Skip for now, Open System Settings) and Back at the far right. A quiet rail on the right says how, in
+ *            row elsewhere), the step's row saying where it stands with the ONE primary on its right when it is the
+ *            row's own fix (Allow, Open System Settings, Install in VS Code, Retry; Continue and the waits sit under
+ *            the group instead); under it a quiet second action (Skip for now, Open System Settings) and Back at the
+ *            far right. A quiet rail on the right says how, in
  *            numbered lines (dropped under 860). Top-anchored, never centered vertically.
  *
  * Moving: a step that turns green while it is on screen shows Done for ~1 s (a thin bar fills under the status), then
@@ -23,7 +25,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
-import { ChevronLeft } from 'lucide-react'
 import { useCapability } from '../../core/lesson'
 import { color, fill, radius2, spring, status as tone, v4c } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
@@ -35,7 +36,7 @@ import { stepGroup, stepRail } from './setupRail'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
 import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
 import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
-import { Actions, FLOW_TOP, LiveState, RailRow, RailSection, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
+import { Actions, BackLink, FLOW_TOP, LiveState, RailRow, RailSection, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
 
 /** How long a step that just turned green stays up before the walk moves on. */
 export const ADVANCE_MS = 1100
@@ -99,7 +100,8 @@ function StepPage({
   stuck,
   top,
   enterDelay,
-  actions
+  actions,
+  inRow
 }: {
   row: Row
   steps: Row[]
@@ -108,6 +110,9 @@ function StepPage({
   top?: string
   enterDelay: number
   actions: ReactNode
+  /** The ONE primary, when it is this row's own fix (Allow, Open System Settings, Install in VS Code, Retry): it sits
+   * in the row, on the right, as in the mock; otherwise (Continue, a wait) it leads the actions under the group. */
+  inRow?: ReactNode
 }): ReactNode {
   const c = STEP_COPY[row.id]
   const how = stepRail(row)
@@ -137,7 +142,7 @@ function StepPage({
                 current={on && group.length > 1}
                 name={r.label}
                 line={on ? statusLine(r) : r.why}
-                right={<LiveState state={r.state} word={on && r.state === 'passed' ? 'Done' : r.word} />}
+                right={on && inRow ? inRow : <LiveState state={r.state} word={on && r.state === 'passed' ? 'Done' : r.word} />}
                 data={{ 'data-onb-row': r.id, 'data-state': r.state, ...(on ? { 'data-onb-status': r.state } : {}) }}
               >
                 {on && settling(r) && <SoftProgress />}
@@ -336,9 +341,18 @@ export function Guided({
   const custom: Slide = { d: dir, delay: first.current ? enterDelay : 0 }
   const top = chrome === 'flow' ? FLOW_TOP : undefined
 
-  const actions = (
-    <Actions end={idx !== undefined && idx > 0 ? <span data-onb-back><QuietButton icon={ChevronLeft} label="Back" onClick={back} /></span> : undefined}>
-      {primary && (
+  // The primary goes in the step's row when it is that row's own fix (row.action, not yet done), like the mock's
+  // "Open System Settings" beside Accessibility; Continue and the waits lead the actions under the group.
+  const primaryInRow = !!row?.action && row.state !== 'passed' && row.state !== 'unknown'
+  const primaryNode = primary && (
+    <span data-onb-primary data-label={primary.label}>
+      <PrimaryButton label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
+    </span>
+  )
+  const hasBack = idx !== undefined && idx > 0
+  const actions = (primaryNode && !primaryInRow) || secondary || hasBack ? (
+    <Actions end={hasBack ? <span data-onb-back><BackLink onClick={back} /></span> : undefined}>
+      {primary && !primaryInRow && (
         <span data-onb-primary data-label={primary.label}>
           <PrimaryButton label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
         </span>
@@ -349,7 +363,7 @@ export function Guided({
         </span>
       )}
     </Actions>
-  )
+  ) : null
 
   return (
     <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col" style={{ background: v4c.page }}>
@@ -384,7 +398,7 @@ export function Guided({
               className="absolute inset-0"
               aria-label={`Step ${(idx ?? 0) + 1} of ${steps.length}: ${STEP_COPY[row.id].short}`}
             >
-              <StepPage row={row} steps={steps} advancing={advancing} stuck={stuck} top={top} enterDelay={custom.delay} actions={actions} />
+              <StepPage row={row} steps={steps} advancing={advancing} stuck={stuck} top={top} enterDelay={custom.delay} actions={actions} inRow={primaryInRow ? primaryNode : undefined} />
             </motion.section>
           </AnimatePresence>
         ) : (
