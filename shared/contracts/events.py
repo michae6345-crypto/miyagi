@@ -917,7 +917,9 @@ class SkillGraphInfo(_Model):
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "hint", "show_me", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
+                     "retry", "hint", "show_me", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender, with the miyagi bridge); label setup.actionLabels.open_in_app; text? = tool id; holdVideo false
+# have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -1841,7 +1843,9 @@ class BuildLesson(_Model):
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
+                     "retry", "start", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender, with the miyagi bridge); label setup.actionLabels.open_in_app; text? = tool id; holdVideo false
+# have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
 class AskCapture(_Model):

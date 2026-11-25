@@ -62,6 +62,7 @@ from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX t
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
 from . import setup_apps  # Nov 22: licensed apps (AutoCAD): I have it / Get it / free alternative, noticed when in front
+from . import open_in_app  # Nov 24: a Blender lesson's setup card opens its scene in Blender, the bridge loaded
 from . import context_memory  # Nov 22: short local notes of what the lesson saw and did, for context-aware coaching
 from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
@@ -109,7 +110,7 @@ ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "vide
                  "annotate"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
 QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser",
-                 "have_it", "get_it", "alternative"}
+                 "have_it", "get_it", "alternative", "open_in_app"}
 # t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
 # position in an older read, then jumped 454 pt to where it was on screen)
 OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "1.0"))
@@ -979,6 +980,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
                 self._setup_card = card
                 await self.emit("card", card)
+            elif offer := await asyncio.to_thread(open_in_app.open_card, self, items or []):  # Nov 24: Blender
+                await self.emit("card", offer)  # lesson, nothing missing: Open in Blender
             await self._maybe_pass_setup_step()
             return
         coding = self._editor_lesson(graph, items)
@@ -1000,8 +1003,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     await self.emit("card", card)  # keep the video's files one tap away
             elif not missing and not found and setup_apps.app_lesson(items):
                 # fix round 2: an app lesson with nothing missing (AutoCAD found, or "I have it" / FreeCAD remembered)
-                # gets no waiting card: the app holds the video under any setup card with actions, Skip included
-                if note := setup_apps.ready_note(items):
+                # gets no waiting card: the app holds the video under any setup card with actions, Skip included.
+                # Nov 24: a Blender lesson's card offers Open in Blender instead (setup.holdVideo false: never held)
+                if offer := await asyncio.to_thread(open_in_app.offer_card, self, items):
+                    await self.emit("card", offer)
+                elif note := setup_apps.ready_note(items):
                     await self.emit("card", setup_apps.note_card(note))
             else:  # something is missing: the setup card (install buttons)
                 card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
@@ -1248,8 +1254,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if res.get("ok") and settled and not self.pending_pick \
                     and "install" not in ((self._setup_card or {}).get("actions") or []):
                 self._setup_card = None  # nothing pending any more
-                await self.emit("card", {"kind": "setup", "title": status, "body": "", "actions": [],
-                                         "dismissAfterMs": 4000})  # the app closes it after 4 s (or the learner does)
+                # Nov 24: Blender just installed for a Blender lesson: Open in Blender instead of the passing line
+                offer = await asyncio.to_thread(open_in_app.open_card, self, self.reqs or [])
+                await self.emit("card", offer or {"kind": "setup", "title": status, "body": "", "actions": [],
+                                                  "dismissAfterMs": 4000})  # the app closes it after 4 s (or the learner does)
             elif self._setup_rows_card():  # t9 V12: more to install: the same card, this row flipped (or its error)
                 await self.emit("card", self._setup_card)
             else:
@@ -4821,7 +4829,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                "apply_fix", "confirm", "back", "use_this_folder", "undo",
                                # t6: Install on the setup card left step 1 held; any learner press begins it
                                "install", "install_all", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
-                               "retry", "have_it", "get_it", "alternative"})  # they begin a held step
+                               "retry", "have_it", "get_it", "alternative", "open_in_app"})  # they begin a held step
     WORK_TERMINALS = ("terminal", "iterm", "warp")
 
     @property
@@ -6144,7 +6152,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # Setup and help presses aren't work on the step: they must not open the check gate or start the
     # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
     NOT_WORK_ACTIONS = frozenset({"install", "install_all", "skip_setup", "open_editor", "open_in_browser", "download",
-                                  "have_it", "get_it", "alternative",
+                                  "have_it", "get_it", "alternative", "open_in_app",
                                   "use_this_folder", "voice_toggle", "build", "pick_another",
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
@@ -6417,6 +6425,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind in setup_apps.ACTIONS:  # text = an app row's tool id: I have it / Get it / free alternative
             await setup_apps.act(self, kind, text)
+            return
+        if kind == "open_in_app":  # Nov 24: the setup card's Open in Blender (text? = the app's tool id)
+            await open_in_app.act(self, text)
             return
         if kind == "voice_toggle":
             if not config.voice_enabled():  # voice is off for now (MIYAGI_VOICE): the toggle does nothing

@@ -207,8 +207,11 @@ async def refresh(s: Any, note: str | None) -> None:
     waiting = bool(new) and any(a in (new.get("actions") or []) for a in ("install", "have_it", "get_it", "alternative"))
     if not waiting:
         s._setup_card = None
-        if note:
-            await s.emit("card", note_card(note))
+        if note:  # Nov 24: Blender just found / installed for a Blender lesson: Open in Blender instead of the note
+            from . import open_in_app
+
+            offer = await asyncio.to_thread(open_in_app.open_card, s, list(s.reqs or []))
+            await s.emit("card", offer or note_card(note))
         return
     s._setup_card = setup_rows.with_install_all(setup_rows.carry(old, new, rows) if old else new)
     if s._setup_card and getattr(s, "editor_open", False):

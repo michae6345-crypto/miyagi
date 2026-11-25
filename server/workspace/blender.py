@@ -128,3 +128,66 @@ def dump_blend(blend_path: str | os.PathLike, out_path: str | os.PathLike | None
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+# ------------------------------------------------------------------ a new scene (Open in Blender, Nov 24)
+NEW_BLEND_EXPR = "import bpy,sys; bpy.ops.wm.save_as_mainfile(filepath=sys.argv[-1])"
+BLEND_MAGIC = (b"BLENDER", b"\x28\xb5\x2f\xfd", b"\x1f\x8b")  # plain, zstd- and gzip-compressed .blend
+
+
+def new_blend_argv(out_path: str | os.PathLike, *, blender: str) -> list[str]:
+    """The headless command line that saves Blender's factory scene (cube, camera, light) to out_path."""
+    return [blender, "--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "1",
+            "--python-expr", NEW_BLEND_EXPR, "--", str(out_path)]
+
+
+def has_content(path: str | os.PathLike) -> bool:
+    """A file that is there and not empty (lesson mode touches step files: a 0-byte .blend was never saved)."""
+    try:
+        return os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def _looks_like_blend(path: Path) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return False
+    return any(head.startswith(m) for m in BLEND_MAGIC)
+
+
+def create_blend(path: str | os.PathLike, *, runner: Runner | None = None, blender: str | None = None,
+                 timeout: float = 60.0) -> bool:
+    """Make path a new .blend from Blender's factory scene, headless (--background --factory-startup
+    --disable-autoexec). Blender writes a temp file next to path; it replaces path only while path is still missing
+    or empty, so a scene the learner saved meanwhile is never rewritten. -> True when path now holds a scene (also
+    when it already did: nothing runs then), False on any failure (no Blender, a non-zero exit, no or a bad output
+    file). The temp file never stays behind. Never raises."""
+    tmp: Path | None = None
+    try:
+        out = Path(path).expanduser().absolute()
+        if has_content(out):
+            return True
+        exe = blender or find_blender()
+        if not exe or not out.parent.is_dir():
+            return False
+        tmp = out.with_name(f".{out.stem}.{uuid.uuid4().hex[:8]}.tmp.blend")
+        code = (runner or run_blender)(new_blend_argv(tmp, blender=exe), timeout)
+        if code != 0 or not has_content(tmp) or not _looks_like_blend(tmp):
+            return False
+        if has_content(out):  # the learner saved while Blender ran: theirs stays
+            return True
+        os.replace(tmp, out)
+        tmp = None
+        return True
+    except Exception:  # noqa: BLE001 - the contract: a failed create is False, never an exception
+        return False
+    finally:
+        if tmp is not None:
+            for leftover in (tmp, tmp.with_name(tmp.name + "1")):  # and Blender's .blend1 backup, if it made one
+                try:
+                    leftover.unlink(missing_ok=True)
+                except OSError:
+                    pass

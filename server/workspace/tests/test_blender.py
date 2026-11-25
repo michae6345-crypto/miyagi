@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import stat
 import subprocess
 import sys
@@ -295,3 +294,127 @@ def test_scene_dump_socket_values(scene_dump):
     assert scene_dump._socket_value((0.8, 0.8, 0.8, 1.0)) == [0.8, 0.8, 0.8, 1.0]
     assert scene_dump._socket_value("text") is None
     assert scene_dump._socket_value(object()) is None
+
+
+# ------------------------------------------------------------------ create_blend (Open in Blender, Nov 24)
+BLEND_BYTES = b"BLENDER-v405" + b"\0" * 64
+
+
+class NewBlend:
+    """A fake headless Blender for new_blend_argv: records argv, writes `data` to the temp path, returns `code`."""
+
+    def __init__(self, code: int = 0, data: bytes | None = BLEND_BYTES):
+        self.code, self.data, self.calls = code, data, []
+
+    def __call__(self, argv: list[str], timeout: float) -> int:
+        self.calls.append(list(argv))
+        if self.data is not None:
+            Path(argv[-1]).write_bytes(self.data)
+        return self.code
+
+
+def test_new_blend_argv_is_headless_factory_and_no_autoexec(tmp_path):
+    out = tmp_path / "x.blend"
+    assert blender.new_blend_argv(out, blender="/B") == [
+        "/B", "--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "1",
+        "--python-expr", "import bpy,sys; bpy.ops.wm.save_as_mainfile(filepath=sys.argv[-1])", "--", str(out)]
+
+
+def test_create_blend_writes_a_temp_then_replaces(tmp_path):
+    run = NewBlend()
+    target = tmp_path / "donut.blend"
+    assert blender.create_blend(target, runner=run, blender="/B") is True
+    assert len(run.calls) == 1
+    tmp = Path(run.calls[0][-1])
+    assert tmp.parent == tmp_path and tmp != target and tmp.name.startswith(".donut.")
+    assert target.read_bytes() == BLEND_BYTES
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["donut.blend"]  # no temp left
+
+
+def test_create_blend_fills_a_zero_byte_file(tmp_path):
+    target = tmp_path / "donut.blend"
+    target.touch()  # lesson mode touches step files
+    run = NewBlend()
+    assert blender.create_blend(target, runner=run, blender="/B") is True
+    assert len(run.calls) == 1 and target.read_bytes() == BLEND_BYTES
+
+
+def test_create_blend_never_rewrites_a_saved_scene(tmp_path):
+    target = tmp_path / "donut.blend"
+    target.write_bytes(b"BLENDER learner's own")
+    run = NewBlend()
+    assert blender.create_blend(target, runner=run, blender="/B") is True
+    assert run.calls == [] and target.read_bytes() == b"BLENDER learner's own"
+
+
+def test_create_blend_keeps_a_scene_saved_while_blender_ran(tmp_path):
+    target = tmp_path / "donut.blend"
+
+    def run(argv, timeout):
+        Path(argv[-1]).write_bytes(BLEND_BYTES)
+        target.write_bytes(b"BLENDER saved meanwhile")
+        return 0
+
+    assert blender.create_blend(target, runner=run, blender="/B") is True
+    assert target.read_bytes() == b"BLENDER saved meanwhile"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["donut.blend"]
+
+
+@pytest.mark.parametrize("run", [NewBlend(code=1), NewBlend(data=None), NewBlend(data=b""),
+                                 NewBlend(data=b"not a blend")],
+                         ids=["rc1", "no-output", "empty-output", "not-a-blend"])
+def test_create_blend_failures_leave_nothing(tmp_path, run):
+    target = tmp_path / "donut.blend"
+    assert blender.create_blend(target, runner=run, blender="/B") is False
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_blend_failure_keeps_the_zero_byte_file(tmp_path):
+    target = tmp_path / "donut.blend"
+    target.touch()
+    assert blender.create_blend(target, runner=NewBlend(code=1), blender="/B") is False
+    assert [p.name for p in tmp_path.iterdir()] == ["donut.blend"] and target.stat().st_size == 0
+
+
+def test_create_blend_without_blender_or_folder(nowhere):
+    run = NewBlend()
+    lesson_dir = nowhere / "lesson"
+    lesson_dir.mkdir()
+    assert blender.create_blend(lesson_dir / "donut.blend", runner=run) is False  # no Blender anywhere
+    assert blender.create_blend(lesson_dir / "missing" / "donut.blend", runner=run, blender="/B") is False
+    assert run.calls == [] and list(lesson_dir.iterdir()) == []
+
+
+def test_create_blend_never_raises(tmp_path):
+    def boom(argv, timeout):
+        raise RuntimeError("runner broke")
+
+    assert blender.create_blend(tmp_path / "donut.blend", runner=boom, blender="/B") is False
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_blend_default_runner_is_the_clean_env_one(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen.update(kw)
+        Path(argv[-1]).write_bytes(BLEND_BYTES)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert blender.create_blend(tmp_path / "donut.blend", blender="/B") is True
+    assert "ANTHROPIC_API_KEY" not in seen["env"]
+
+
+@pytest.mark.skipif(blender.find_blender() is None, reason="Blender is not installed")
+def test_create_blend_with_real_headless_blender(tmp_path, monkeypatch):
+    """The real thing, headless only (--background --factory-startup, no window): Blender's factory scene saved,
+    then read back by dump_blend."""
+    for k in blender.PAID_KEYS:
+        monkeypatch.delenv(k, raising=False)
+    target = tmp_path / "donut.blend"
+    assert blender.create_blend(target, timeout=120) is True
+    assert target.stat().st_size > 0 and [p.name for p in tmp_path.iterdir()] == ["donut.blend"]
+    doc = blender.dump_blend(target, timeout=120)
+    assert doc is not None and "Cube" in [o["name"] for o in doc["objects"]]
