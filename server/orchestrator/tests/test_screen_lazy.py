@@ -17,6 +17,7 @@ import pytest
 from server.orchestrator.modules import Modules
 from server.orchestrator.screen_bridge import ScreenBridge
 from server.orchestrator.session import LessonSession
+from server.screen.reader import ScreenReader
 
 
 class FakeReader:
@@ -26,7 +27,8 @@ class FakeReader:
         self.last_error = None
         self.starts = 0
         self.stops = 0
-        self.subs: list = []
+        self._lock = threading.RLock()
+        self._subs: list = []  # (cb, loop), as the real reader keeps them
         self.front_cbs: list = []
         self.ax_reader = None
         self.events = None
@@ -39,9 +41,13 @@ class FakeReader:
     def stop(self) -> None:
         self.stops += 1
 
-    def subscribe(self, cb):
-        self.subs.append(cb)
-        return lambda: self.subs.remove(cb)
+    # The real reader's subscribe, not a stand-in: it asks for a running loop for a coroutine callback, so a bridge
+    # that forgets to pass the engine's loop from a worker thread fails here as it did live (Nov 21-24)
+    subscribe = ScreenReader.subscribe
+
+    @property
+    def subs(self) -> list:
+        return [cb for cb, _loop in self._subs]
 
     def on_frontmost_change(self, cb, interval: float = 0.25):
         self.front_cbs.append(cb)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 
 import pytest
@@ -20,6 +21,7 @@ from server.orchestrator import stubs
 from server.orchestrator import workspace as wsmod
 from server.orchestrator.modules import Modules
 from server.orchestrator.session import LessonSession
+from server.screen.reader import ScreenReader
 
 QUIET_CARDS = ("resume", "step", "setup", "preflight")
 
@@ -36,6 +38,8 @@ class FakeReader:
         self.ax_reader = None
         self.events = None
         self._thread = None
+        self._lock = threading.RLock()
+        self._subs: list = []
 
     def start(self):
         self.starts += 1
@@ -44,8 +48,9 @@ class FakeReader:
     def stop(self) -> None:
         pass
 
-    def subscribe(self, cb):
-        return lambda: None
+    # The real reader's subscribe: the engine boots the bridge in a worker thread, where a coroutine callback with no
+    # loop raises. The old `lambda: None` stand-in let the live screen reader stay dead for three days (Nov 21-24).
+    subscribe = ScreenReader.subscribe
 
     def on_frontmost_change(self, cb, interval: float = 0.25):
         self.front_cbs.append(cb)
