@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<title>Using the Fetch API - Web APIs | MDN</title>
+<meta property="og:title" content="Using the Fetch API - Web APIs | MDN">
+<meta name="description" content="The Fetch API provides a JavaScript interface for making HTTP requests and processing the responses.">
+</head>
+<body>
+<ul id="nav-access" class="a11y-nav"><li><a href="#content">Skip to main content</a></li><li><a href="#search">Skip to search</a></li></ul>
+<div class="page-wrapper">
+<div class="top-navigation-main">
+  <nav class="main-nav" aria-label="Main menu"><ul class="main-menu"><li>References</li><li>Guides</li><li>Plus</li><li>Curriculum</li><li>Blog</li></ul></nav>
+  <div class="header-search"><form role="search"><input type="search" placeholder="Search MDN"></form></div>
+</div>
+<div class="article-actions-container"><nav class="breadcrumbs-container"><ol><li>References</li><li>Web APIs</li><li>Fetch API</li></ol></nav></div>
+<div class="main-wrapper">
+<aside class="sidebar"><nav class="sidebar-inner"><h4>Fetch API</h4><ol><li>Guides</li><li>Using Fetch</li><li>Interfaces</li><li>Request</li><li>Response</li><li>Headers</li></ol></nav></aside>
+<main id="content" class="main-content" role="main">
+<article class="main-page-content" lang="en-US">
+<header><h1>Using the Fetch API</h1></header>
+<div class="section-content">
+<p>The Fetch API lets JavaScript make HTTP requests and handle what comes back. In this guide you write a small script that
+asks a server for JSON, checks that the request worked, and reads the data.</p>
+<p>We use Node.js 18 or later, where <code>fetch()</code> is built in, so the whole guide runs in a terminal. Put the code in <code>fetch-demo.mjs</code>.</p>
+</div>
+<section aria-labelledby="making_a_request"><h2 id="making_a_request"><a href="#making_a_request">Making a request</a></h2>
+<div class="section-content">
+<p>Call <code>fetch()</code> with a URL. It returns a promise for a <code>Response</code>, so write the code in an async function:</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div>
+<pre class="brush: js notranslate"><code>async function getData() {
+  const url = "https://example.org/products.json";
+  const response = await fetch(url);
+  console.log(response.status);
+}
+
+getData();</code></pre></div>
+</div></section>
+<section aria-labelledby="checking_the_status"><h2 id="checking_the_status"><a href="#checking_the_status">Checking that the request worked</a></h2>
+<div class="section-content">
+<p><code>fetch()</code> only rejects when the network fails. A 404 or a 500 is still a response, so look at <code>response.ok</code> before using the body:</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div>
+<pre class="brush: js notranslate"><code>if (!response.ok) {
+  throw new Error(`Response status: ${response.status}`);
+}</code></pre></div>
+</div></section>
+<section aria-labelledby="reading_the_body"><h2 id="reading_the_body"><a href="#reading_the_body">Reading the response body</a></h2>
+<div class="section-content">
+<p>The body arrives as a stream. <code>response.json()</code> reads all of it and parses it as JSON:</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div>
+<pre class="brush: js notranslate"><code>const json = await response.json();
+console.log(json.products.length);</code></pre></div>
+</div></section>
+<section aria-labelledby="handling_errors"><h2 id="handling_errors"><a href="#handling_errors">Handling errors</a></h2>
+<div class="section-content">
+<p>Wrap the work in <code>try</code> / <code>catch</code> so a network failure or a bad status prints a message instead of crashing the script:</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div>
+<pre class="brush: js notranslate"><code>try {
+  const data = await getData();
+} catch (error) {
+  console.error(error.message);
+}</code></pre></div>
+<p>Run the script with Node:</p>
+<div class="code-example"><div class="example-header"><span class="language-name">bash</span></div>
+<pre class="brush: bash notranslate"><code>node fetch-demo.mjs</code></pre></div>
+</div></section>
+<aside class="metadata"><div class="metadata-content-container"><div id="on-github" class="on-github"><h3>Help improve MDN</h3><p>Was this page helpful to you?</p></div>
+<p class="last-modified-date">This page was last modified on <time datetime="2026-10-02">Oct 2, 2026</time> by MDN contributors.</p></div></aside>
+</article>
+</main>
+</div>
+<footer id="nav-footer" class="page-footer"><div class="page-footer-nav"><a href="/">MDN</a> Your blueprint for a better internet.</div>
+<p>Portions of this content are ©1998–2026 by individual mozilla.org contributors.</p></footer>
+</div>
+</body>
+</html>

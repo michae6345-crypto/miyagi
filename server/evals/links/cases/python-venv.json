@@ -1,0 +1,27 @@
+{
+  "id": "python-venv",
+  "url": "https://docs.python.org/3/tutorial/venv.html",
+  "page": "python-venv.html",
+  "notes": "Python docs (Sphinx): every block is a shell command, some behind a '$' or '(tutorial-env) $' prompt with output under it. The freeze block (a '>' redirect) and the bare python / deactivate session are left out of `code`: a lesson rightly never runs those.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Virtual Environments and Packages",
+    "site": "docs.python.org",
+    "code": [
+      "python3 -m venv tutorial-env",
+      "source tutorial-env/bin/activate",
+      "python -m pip install requests",
+      "python -m pip list",
+      "python -m pip install -r requirements.txt"
+    ],
+    "absent": [
+      "Report a Bug",
+      "Last updated on",
+      "Previous topic"
+    ]
+  }
+}

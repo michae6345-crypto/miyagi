@@ -1,0 +1,23 @@
+{
+  "id": "gh-tasky-readme",
+  "url": "https://github.com/example-learn/tasky",
+  "page": "gh-tasky-readme.md",
+  "notes": "A teaching README that builds tasky.py in four python blocks (file named in a comment) and runs it.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "tasky",
+    "site": "github.com/example-learn/tasky",
+    "code": [
+      "DB = Path(\"tasks.json\")",
+      "tasks.append({\"text\": text, \"done\": False})",
+      "tasks[n - 1][\"done\"] = True",
+      "cmd, *rest = sys.argv[1:] or [\"show\"]",
+      "python3 tasky.py add \"water the plants\"",
+      "python3 tasky.py done 1"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "blender-python-quickstart",
+  "url": "https://docs.blender.org/api/current/info_quickstart.html",
+  "page": "blender-python-quickstart.html",
+  "notes": "Blender's Python API docs: bpy scripts run inside Blender (Text Editor, Alt-P), never with python3 in a terminal, plus a >>> console session.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Quickstart",
+    "site": "docs.blender.org",
+    "code": [
+      "for obj in bpy.context.scene.objects:",
+      "bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 1))",
+      "cube.rotation_euler[2] = 0.785",
+      "mat = bpy.data.materials.new(\"Wood\")",
+      "cube.data.materials.append(mat)"
+    ],
+    "never": [
+      "python3 scene_tools.py",
+      "python scene_tools.py"
+    ],
+    "absent": [
+      "Search docs",
+      "Last updated on"
+    ]
+  }
+}

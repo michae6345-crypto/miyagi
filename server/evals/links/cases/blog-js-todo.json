@@ -1,0 +1,30 @@
+{
+  "id": "blog-js-todo",
+  "url": "https://inesokafor.example.dev/posts/todo-list-plain-js",
+  "page": "blog-js-todo.html",
+  "notes": "A blog tutorial with three files (index.html, style.css, app.js) in Jekyll <figure class='highlight'> blocks, and every kind of blog chrome: cookie banner, share bar, newsletter box, related posts, comments.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Build a to-do list in plain JavaScript",
+    "author": "Ines Okafor",
+    "site": "inesokafor.example.dev",
+    "code": [
+      "<ul id=\"tasks\"></ul>",
+      "li.done { opacity: 0.5; text-decoration: line-through; }",
+      "function render() {",
+      "tasks.push({ text: input.value, done: false });",
+      "tasks[i].done = !tasks[i].done;"
+    ],
+    "absent": [
+      "Accept all cookies",
+      "Sign up for our newsletter",
+      "Share on X",
+      "Great post! Worked first try.",
+      "Related posts"
+    ]
+  }
+}
