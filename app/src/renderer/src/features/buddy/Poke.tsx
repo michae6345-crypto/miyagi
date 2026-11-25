@@ -5,7 +5,7 @@
  *   hop     it crouches, jumps, lands with a squash
  *   wiggle  it rocks side to side on its feet
  *   twirl   it hops and spins once in the air
- * All three smile (mood happy) and the leaves open. About 0.7 s; a tap while one is playing starts the next one.
+ * All three smile (mood happy). About 0.7 s; a tap while one is playing starts the next one.
  * Transform only, from its feet. With reduced motion nothing moves: it only smiles (buddy.css).
  *
  * A plain button with no chrome, so it is reachable by keyboard too. Never on the flying lesson bon (Companion.tsx):
@@ -25,21 +25,21 @@ export const trickFor = (n: number): Trick => TRICKS[((n % TRICKS.length) + TRIC
 
 export function PokeBon(props: CharacterProps): ReactNode {
   const taps = useRef(0)
-  // `run` changes on every tap so the same trick can play twice in a row (the key restarts the animation).
-  const [play, setPlay] = useState<{ trick: Trick; run: number } | null>(null)
+  // `run` changes only on a tap, so a tap restarts the animation (the key) and the end of a trick does not remount bon.
+  const [play, setPlay] = useState<{ trick: Trick; run: number; on: boolean }>({ trick: 'hop', run: -1, on: false })
   useEffect(() => {
-    if (!play) return
-    const id = setTimeout(() => setPlay(null), TRICK_MS)
+    if (!play.on) return
+    const id = setTimeout(() => setPlay((p) => ({ ...p, on: false })), TRICK_MS)
     return () => clearTimeout(id)
-  }, [play])
+  }, [play.on, play.run])
   const poke = (): void => {
     const n = taps.current++
-    setPlay({ trick: trickFor(n), run: n })
+    setPlay({ trick: trickFor(n), run: n, on: true })
   }
   return (
     <button type="button" className="ch-poke" data-poke-bon aria-label={`Say hi to ${NAME ?? 'bon'}`} onClick={poke}>
-      <span key={play?.run ?? 'rest'} className="ch-poke-move" data-trick={play?.trick}>
-        <Character {...props} mood={play ? 'happy' : props.mood} />
+      <span key={play.run} className="ch-poke-move" data-trick={play.on ? play.trick : undefined}>
+        <Character {...props} mood={play.on ? 'happy' : props.mood} />
       </span>
     </button>
   )
