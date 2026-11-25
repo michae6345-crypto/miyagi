@@ -574,7 +574,7 @@ class VideoJump(_Model):
 
 
 class SetupInstall(_Model):
-    method: Literal["brew", "brew_cask", "pip", "download", "open", "none"]
+    method: Literal["brew", "brew_cask", "pip", "npm", "download", "open", "none"]  # npm: ambient help (Nov 24), setup.fix only
     command: str | None = None
     url: str | None = None
 
@@ -588,7 +588,7 @@ class SetupAlternative(_Model):
 class SetupItem(_Model):
     tool: str
     label: str
-    kind: Literal["editor", "app", "runtime", "cli", "python_package", "web_app"]
+    kind: Literal["editor", "app", "runtime", "cli", "python_package", "node_package", "web_app"]  # node_package: ambient help (Nov 24)
     why: str
     needed: bool
     installed: bool
@@ -605,6 +605,8 @@ class SetupItem(_Model):
     haveIt: bool | None = None
     using: str | None = None
     noMac: bool | None = None
+    # ambient help (Nov 24), setup.report: the project file (and line) that asked for it ("requirements.txt:4", ".nvmrc")
+    from_: str | None = Field(default=None, alias="from")
 
 
 class SetupResource(_Model):
@@ -1611,6 +1613,130 @@ class DataInventory(_Model):
     canDelete: list[DataDeleteKind] | None = None  # the kinds this engine can really delete today
 
 
+# ---------- ambient help (Nov 24): help outside a lesson, in any app. See events.ts and AMBIENT-HELP.md ----------
+AMBIENT_ERROR_LINES_MAX = 8  # error.seen.lines: the error's first lines as read on screen
+AMBIENT_CONTEXT_LINES_MAX = 6  # on Explain: the most lines of context sent with the error
+HELP_STEPS_MAX = 5  # help.steps carries 1 to this many steps
+AMBIENT_CALLS_PER_HOUR = 20  # model calls (error.explain + help.ask, Haiku only) per rolling hour on this Mac; then error "cap"
+AmbientErrorKind = Literal["python_traceback", "js_error", "compiler", "shell_exit", "notebook_cell", "app_dialog"]
+AmbientFail = Literal["cap", "offline", "busy", "gone", "no_app", "failed"]
+SetupScanError = Literal["no_project", "unreadable", "too_big"]
+
+
+class AmbientTarget(_Model):
+    """A place for bon to point at. Screen points, top-left origin (the ScreenRegion space); displayId None = the primary
+    display. via: how the engine found it on this Mac (ax: accessibility tree, ocr: on-device text recognition). Ambient
+    help never sends a screenshot or a crop."""
+
+    x: float
+    y: float
+    w: float
+    h: float
+    displayId: int | None = None
+    label: str | None = None  # <= 4 words
+    app: str | None = None
+    via: Literal["ax", "ocr"] | None = None
+
+
+class SeenError(_Model):
+    """error.seen: an error spotted on screen outside a lesson, read on this Mac only (nothing leaves it before Explain).
+
+    id: stable for the same app + kind + title + file:line. title <= 80 characters. lines: as read, home shortened to ~,
+    secret-looking values masked. rect: where the error text is. at: ISO time first seen; again: times seen again since.
+    """
+
+    id: str = Field(min_length=1, max_length=80)
+    app: str
+    kind: AmbientErrorKind
+    title: str = Field(max_length=80)
+    lines: list[str] = Field(default_factory=list, max_length=AMBIENT_ERROR_LINES_MAX)
+    file: str | None = None
+    line: int | None = None
+    col: int | None = None
+    exitCode: int | None = None  # shell_exit
+    lang: str | None = None
+    rect: AmbientTarget | None = None
+    at: str
+    again: int | None = None
+
+
+class SeenErrorClear(_Model):
+    id: str
+    clear: Literal[True]  # the error is gone: fade its peek
+
+
+ErrorSeen = SeenError | SeenErrorClear
+
+
+class ErrorExplanation(_Model):
+    """error.explanation: {id, pending: True} at once, then the explanation, or error (AmbientFail) + retryInS.
+    title <= 8 words; why <= 40 words; fix <= 25 words. diff: unified diff for file (shown, never applied by itself).
+    command: a terminal fix to copy. install: the row to install (Install -> setup.fix). target: where bon points."""
+
+    id: str
+    reqId: str | None = None
+    pending: bool | None = None
+    title: str | None = None
+    why: str | None = None
+    fix: str | None = None
+    diff: str | None = None
+    file: str | None = None
+    line: int | None = None
+    command: str | None = None
+    install: SetupItem | None = None
+    target: AmbientTarget | None = None
+    error: AmbientFail | None = None
+    retryInS: int | None = None
+
+
+class HelpStep(_Model):
+    """One step: text = one action (<= 12 words); detail <= 25 words. advance: click (the target is clicked), screen (the
+    screen changes as the step says), next (only the learner's Next)."""
+
+    id: str
+    text: str
+    detail: str | None = None
+    target: AmbientTarget | None = None
+    advance: Literal["click", "screen", "next"] | None = None
+
+
+class HelpSteps(_Model):
+    """help.steps: {pending: True} first, then 1..HELP_STEPS_MAX steps; re-sent (same reqId) as current moves or targets
+    move. current: 0-based. done: the last step happened."""
+
+    reqId: str | None = None
+    app: str = ""
+    goal: str = ""
+    steps: list[HelpStep] = Field(default_factory=list, max_length=HELP_STEPS_MAX)
+    current: int = Field(default=0, ge=0)
+    done: bool | None = None
+    pending: bool | None = None
+    error: AmbientFail | None = None
+    retryInS: int | None = None
+
+
+class SetupEnv(_Model):
+    python: str | None = None  # "~/code/app/.venv (Python 3.12.4)"
+    node: str | None = None  # "node 20.11.1"
+
+
+class SetupReport(_Model):
+    """setup.report: what the open project needs on this Mac, read from its own files (no model call). root: home
+    shortened. items: missing first; more: rows left out. scanning: a first quick answer, the full one follows."""
+
+    reqId: str | None = None
+    root: str | None = None
+    name: str | None = None
+    files: list[str] = Field(default_factory=list)
+    items: list[SetupItem] = Field(default_factory=list)
+    ready: int = 0
+    total: int = 0
+    more: int | None = None
+    env: SetupEnv | None = None
+    scanning: bool | None = None
+    error: SetupScanError | None = None
+
+
 ENGINE_EVENTS: dict[str, Any] = {
     "search.result": SearchResult,
     "search.done": SearchDone,
@@ -1659,6 +1785,11 @@ ENGINE_EVENTS: dict[str, Any] = {
     "link.preview": LinkPreview,
     "proof": ProofEvent,
     "data": DataInventory,
+    # ambient help (Nov 24)
+    "error.seen": TypeAdapter(ErrorSeen),
+    "error.explanation": ErrorExplanation,
+    "setup.report": SetupReport,
+    "help.steps": HelpSteps,
 }
 
 EngineEventType = Literal[
@@ -1671,6 +1802,7 @@ EngineEventType = Literal[
     "screen.avoid",
     "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
     "activity", "bon", "plans", "playlist", "plan.proposal", "link.preview", "proof", "data",
+    "error.seen", "error.explanation", "setup.report", "help.steps",
 ]
 
 
@@ -1923,6 +2055,50 @@ class DataGet(_Model):
     pass
 
 
+# ---------- ambient help commands (Nov 24): sent only when engine.hello.capabilities lists the type ----------
+class AmbientSet(_Model):
+    """Spot errors on / off (None: unchanged; the engine starts with it off). mutedApps: app names never watched."""
+    errors: bool | None = None
+    mutedApps: list[str] | None = Field(default=None, max_length=50)
+
+
+class ErrorExplain(_Model):
+    """Explain pressed: the one moment the error leaves the Mac (redacted text, never a screenshot). -> error.explanation"""
+    id: str = Field(min_length=1, max_length=80)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class ErrorDismiss(_Model):
+    id: str = Field(min_length=1, max_length=80)
+
+
+class SetupScan(_Model):
+    """path None: the folder open in the frontmost editor. -> setup.report"""
+    path: str | None = Field(default=None, max_length=1024)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class SetupFix(_Model):
+    """Install one setup.report row through the existing install path. -> setup.progress, then setup.report"""
+    tool: str = Field(min_length=1, max_length=80)
+    root: str | None = Field(default=None, max_length=1024)
+    reqId: str | None = Field(default=None, max_length=64)
+
+
+class HelpAsk(_Model):
+    """"How do I X" in the frontmost app, outside a lesson. app: the app frontmost before the ask field took focus."""
+    text: str = Field(min_length=1, max_length=300)
+    reqId: str | None = Field(default=None, max_length=64)
+    app: str | None = Field(default=None, max_length=120)
+    source: str | None = None  # "typed" | "voice" | "circle" (AskSource); a plain str, as Action.source
+
+
+class HelpNav(_Model):
+    """next / back -> help.steps with current moved; close: stop watching, no reply."""
+    reqId: str | None = Field(default=None, max_length=64)
+    to: Literal["next", "back", "close"]
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -1959,6 +2135,14 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "link.get": LinkGet,
     "proof.get": ProofGet,
     "data.get": DataGet,
+    # ambient help (Nov 24)
+    "ambient.set": AmbientSet,
+    "error.explain": ErrorExplain,
+    "error.dismiss": ErrorDismiss,
+    "setup.scan": SetupScan,
+    "setup.fix": SetupFix,
+    "help.ask": HelpAsk,
+    "help.nav": HelpNav,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
@@ -1966,7 +2150,8 @@ AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.
                          "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
                          "set_goal", "skills.ack", "ask.warm", "review.start", "data.delete",
                          "activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get", "plan.propose",
-                         "link.get", "proof.get", "data.get"]
+                         "link.get", "proof.get", "data.get",
+                         "ambient.set", "error.explain", "error.dismiss", "setup.scan", "setup.fix", "help.ask", "help.nav"]
 
 # v2: the command types an engine may list in engine.hello.capabilities.
 V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
@@ -1974,6 +2159,8 @@ V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.li
 # ui-v4 (Nov 24): the commands an engine lists in engine.hello.capabilities once it answers them.
 UI_V4_CAPABILITIES: tuple[str, ...] = ("activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get",
                                        "plan.propose", "link.get", "proof.get", "data.get")
+# ambient help (Nov 24, AMBIENT-HELP.md): the commands an engine lists in engine.hello.capabilities once it answers them.
+AMBIENT_CAPABILITIES: tuple[str, ...] = ("ambient.set", "error.explain", "error.dismiss", "setup.scan", "setup.fix", "help.ask", "help.nav")
 CONTRACT_VERSION = "2026-11-20"
 
 

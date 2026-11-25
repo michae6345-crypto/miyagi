@@ -1,4 +1,47 @@
-# miyagi at judging: run of show
+# miyagi demo
+
+## Before any demo (5 minutes)
+
+Every demo starts the same way: one clean VS Code window, step 1 of 6, the clean `nn.py`. Run this from the repo
+root on the Mac you'll present from. It works on the installed app's own data (`~/miyagi`).
+
+1. **Quit miyagi and VS Code.** `osascript -e 'quit app "miyagi"'`, then Cmd+Q in VS Code.
+2. **Reset the lesson.** `scripts/miyagi-demo-reset.sh` (add `--dry-run` to see the moves first). It puts the clean
+   `nn.py` back and moves the lesson's saved place aside, so there is no Continue card and no finished code. Nothing is
+   deleted: the old `nn.py` goes to `~/miyagi/lessons/.miyagi-state/attempts/`, the saved place to
+   `~/miyagi/state/.demo-backups/<time>/` (its `manifest.json` lists every move). `.venv` stays, so NumPy stays.
+   Other lessons, sign-in and prefs are not touched. It also gives the lesson's VS Code a calm view: no Welcome tab,
+   minimap, breadcrumbs or tips, and a slightly bigger font. It refuses while miyagi runs.
+3. **Check the Mac.** `scripts/miyagi-demo-check.sh`. Fix every `fix` line (the exact fix is under it) until it
+   says `All set.` Then do the `note` lines: Do Not Disturb on, `caffeinate -d` in a spare Terminal tab, charger in.
+4. **Open miyagi** (Spotlight: miyagi). Wait for the pill under the notch, then run `scripts/miyagi-demo-check.sh`
+   once more: now it also checks the engine, Accessibility and Screen Recording.
+5. **Start the lesson.** Option+Space, type `teach me to build a neural network from scratch`, pick **Just teach
+   me** (or the **Demo** chip if your build has it), Enter. VS Code opens one window on `nn.py`, step 1 of 6.
+
+Do one full take the day before on the same Wi-Fi if you can (it installs NumPy into the lesson the first time),
+then run steps 1 to 5 again right before you go on.
+
+## If something breaks live
+
+Stay calm and say what you're doing ("Let me take that from the top").
+
+| What you see | Do this |
+|---|---|
+| Old code, a later step, or a Continue card | Don't press Continue. End the lesson in the bar (two taps), then Option+Space and type the goal again: a fresh start puts the clean `nn.py` back at step 1. |
+| A second VS Code window | Close the extra one (Cmd+Shift+W). Keep going in the window that shows `nn.py`. |
+| The pill is gone or stops answering | Quit miyagi and open it again (about 10 s). The lesson starts again from the launcher. |
+| "Install NumPy" card | It needs Wi-Fi. No Wi-Fi: press Skip and talk through the steps; Run it for me will fail without NumPy. |
+| Wi-Fi drops mid-lesson | Keep going. The lesson's own cards answer; a typed question may take about 10 s, then the step's own explanation answers. |
+| A banner or the screen dims | Do Not Disturb and `caffeinate -d` (step 3). |
+| Anything in the Demo chip run of show | Section 3 below. |
+
+After the demo, to bring an earlier take back: `manifest.json` in the newest `~/miyagi/state/.demo-backups/` folder
+lists where each file came from. Move them back by hand with miyagi quit.
+
+---
+
+# Judging run of show (Nov 15)
 
 For Michael, on your Mac, judging at about 12:30 PM. The talk is about 2.5 minutes. Sections 1 to 3 are for the
 day. Section 4 explains what happens underneath. Keep it to yourself.

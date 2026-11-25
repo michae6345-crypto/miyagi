@@ -1,0 +1,24 @@
+{
+  "kind": "web",
+  "url": "http://www.Docs.Example.org/guide/csv-basics/?utm_source=newsletter#top",
+  "finalUrl": "https://docs.example.org/guide/csv-basics",
+  "title": "Reading CSV files with the csv module",
+  "site": "docs.example.org",
+  "author": "Docs Team",
+  "sections": [
+    {"heading": "", "text": "This guide shows how to read a small CSV file in Python and sum one of its columns.", "code": []},
+    {"heading": "Write a sample file", "anchor": "sample-file", "level": 2,
+     "text": "Save a few rows of prices to prices.csv so there is something to read.",
+     "code": [{"lang": "text", "code": "item,price\napple,1.20\nbread,2.50\nmilk,0.99"}]},
+    {"heading": "Open and read the rows", "anchor": "reading", "level": 2,
+     "text": "csv.DictReader turns each row into a dictionary keyed by the header.",
+     "code": [{"lang": "python", "code": "import csv\n\nwith open('prices.csv', newline='') as f:\n    rows = list(csv.DictReader(f))"}]},
+    {"heading": "Sum a column", "anchor": "sum", "level": 2,
+     "text": "Convert each price to a float and add them up.",
+     "code": [{"lang": "python", "code": "total = sum(float(r['price']) for r in rows)\nprint(f'Total: {total:.2f}')"}]},
+    {"heading": "Run it", "anchor": null, "level": 2,
+     "text": "Run the script from the terminal; it prints the total.",
+     "code": ["python3 prices.py", "Total: 4.69"]},
+    {"heading": "Further reading", "anchor": "further", "level": 2, "text": "The csv module also writes files; see its reference page.", "code": []}
+  ]
+}

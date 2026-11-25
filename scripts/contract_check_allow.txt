@@ -32,3 +32,18 @@ command:plan.propose  # ui-v4: "New plan from a goal"
 command:link.get      # ui-v4: the ask field's link preview
 command:proof.get     # ui-v4: the skill panel's proof
 command:data.get      # ui-v4: Settings, Your data
+
+# ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md): contract first, so the app and engine lanes build in parallel. Each
+# entry goes when the app lane (features/ambient) lands its handler or starts sending the command; the mock
+# (app/mock/scenarios/ambient-help.json) has them all.
+event:error.seen          # ambient: the error peek
+event:error.explanation   # ambient: the Explain card
+event:setup.report        # ambient: the project setup card
+event:help.steps          # ambient: the how-do-I card
+command:ambient.set       # ambient: Settings, Spot errors
+command:error.explain     # ambient: Explain on the error peek
+command:error.dismiss     # ambient: closing the error peek
+command:setup.scan        # ambient: Check this project
+command:setup.fix         # ambient: Install on a project setup row
+command:help.ask          # ambient: "how do I" outside a lesson
+command:help.nav          # ambient: the help card's Next / Back / close
