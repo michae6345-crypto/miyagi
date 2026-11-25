@@ -271,20 +271,52 @@ final class SFSession: SttSession {
 // ---------------------------------------------------------------------------------------------------------------------
 // Test double (protocol tests only)
 // ---------------------------------------------------------------------------------------------------------------------
+/// lagMs < 0: its text is whole from the start. lagMs >= 0: it lags like SpeechAnalyzer (measured in ACCURACY.md): the
+/// last word is missing from bestText() and the partials until lagMs after the input ends, then one partial brings it.
+/// So a tail that sends a quiet recognizer's text too early loses that word. startDelayMs: start() takes this long.
 final class FakeStt: SttSession {
     private let text: String
     private let finalDelayMs: Int
+    private let lagMs: Int
+    private let startDelayMs: Int
+    private let lock = NSLock()
+    private var current: String
+    private var onPartial: ((String) -> Void)?
     private var cancelled = false
-    init(text: String, finalDelayMs: Int) { self.text = text; self.finalDelayMs = finalDelayMs }
+
+    init(text: String, finalDelayMs: Int, lagMs: Int = -1, startDelayMs: Int = 0) {
+        self.text = text; self.finalDelayMs = finalDelayMs; self.lagMs = lagMs; self.startDelayMs = startDelayMs
+        let words = text.split(separator: " ")
+        current = lagMs >= 0 && words.count > 1 ? words.dropLast().joined(separator: " ") : text
+    }
 
     func start(onPartial: @escaping (String) -> Void) async throws {
-        if !text.isEmpty { onPartial(text) }
+        if startDelayMs > 0 { try? await Task.sleep(nanoseconds: UInt64(startDelayMs) * 1_000_000) }
+        self.onPartial = onPartial
+        let now = bestText()
+        if !now.isEmpty { onPartial(now) }
     }
     func feed(_ buffer: AVAudioPCMBuffer) {}
     func finish() async -> String {
+        if lagMs >= 0 {
+            let lag = lagMs
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(lag) * 1_000_000)
+                self?.catchUp()
+            }
+        }
         if finalDelayMs > 0 { try? await Task.sleep(nanoseconds: UInt64(finalDelayMs) * 1_000_000) }
+        catchUp()
         return text
     }
-    func bestText() -> String { text }
-    func cancel() { cancelled = true }
+    private func catchUp() {
+        lock.lock()
+        let changed = current != text && !cancelled
+        if changed { current = text }
+        let cb = onPartial
+        lock.unlock()
+        if changed { cb?(text) }
+    }
+    func bestText() -> String { lock.lock(); defer { lock.unlock() }; return current }
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
 }

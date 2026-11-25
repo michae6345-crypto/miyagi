@@ -1,0 +1,83 @@
+{
+ "name": "blender-open",
+ "on": {
+  "connect": "bo_connect"
+ },
+ "segments": {
+  "bo_connect": [
+   {
+    "wait": 100,
+    "type": "status",
+    "payload": {
+     "state": "idle"
+    }
+   },
+   {
+    "wait": 200,
+    "type": "lesson.ready",
+    "payload": {
+     "lesson": {
+      "id": "bo-donut",
+      "title": "Model a donut in Blender",
+      "sources": [],
+      "complete": true,
+      "builtBy": "claude",
+      "mode": "lesson",
+      "app": {
+       "tool": "blender",
+       "label": "Blender"
+      }
+     },
+     "steps": [
+      {
+       "id": "bo1",
+       "index": 0,
+       "title": "Add a torus",
+       "what": "Add a torus from the Add menu",
+       "estMinutes": 2
+      },
+      {
+       "id": "bo2",
+       "index": 1,
+       "title": "Smooth it",
+       "what": "Add a Subdivision Surface modifier",
+       "estMinutes": 3
+      }
+     ]
+    }
+   },
+   {
+    "wait": 200,
+    "type": "step.started",
+    "payload": {
+     "stepId": "bo1",
+     "index": 0,
+     "title": "Add a torus",
+     "instructions": "Add a torus from the Add menu.",
+     "kind": "read"
+    }
+   },
+   {
+    "wait": 300,
+    "type": "card",
+    "payload": {
+     "kind": "setup",
+     "title": "Blender is ready",
+     "body": "Open the lesson scene to start.",
+     "actions": [
+      "open_in_app"
+     ],
+     "setup": {
+      "editorNeeded": false,
+      "items": [],
+      "resources": [],
+      "holdVideo": false,
+      "actionLabels": {
+       "open_in_app": "Open in Blender"
+      }
+     }
+    }
+   }
+  ]
+ }
+}

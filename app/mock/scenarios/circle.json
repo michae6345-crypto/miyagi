@@ -1,0 +1,44 @@
+{
+  "name": "circle",
+  "on": {
+    "connect": "circle_connect"
+  },
+  "segments": {
+    "circle_connect": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "circle_answer": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "kind": "answer",
+          "title": "The training loop",
+          "body": "Each pass runs the model, measures the loss, and nudges the weights to lower it. backward() finds the nudges; step() applies them."
+        }
+      },
+      { "wait": 0, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "circle_stream": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 350, "type": "annotate", "payload": { "marks": [{ "x": 128, "y": 566, "w": 250, "h": 40, "why": "answer", "label": "the loop" }] } },
+      { "wait": 450, "type": "answer.delta", "payload": { "text": "Each pass runs the model," } },
+      { "wait": 140, "type": "answer.delta", "payload": { "text": " measures the loss," } },
+      { "wait": 140, "type": "answer.delta", "payload": { "text": " and nudges the weights to lower it." }, "pause": true },
+      { "wait": 160, "type": "answer.delta", "payload": { "text": " backward() finds the nudges;" } },
+      { "wait": 140, "type": "answer.delta", "payload": { "text": " step() applies them." } },
+      { "wait": 120, "type": "answer.delta", "payload": { "text": "", "done": true } },
+      {
+        "wait": 200,
+        "type": "card",
+        "payload": {
+          "kind": "answer",
+          "title": "The training loop",
+          "body": "Each pass runs the model, measures the loss, and nudges the weights to lower it. backward() finds the nudges; step() applies them."
+        }
+      },
+      { "wait": 0, "type": "status", "payload": { "state": "watching" } }
+    ]
+  }
+}

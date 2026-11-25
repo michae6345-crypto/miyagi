@@ -191,7 +191,7 @@ function PrimerCard({ item }: { item: PrimerItem }): ReactNode {
         </div>
       )}
       {item.code && (
-        <pre className="mt-[7px] overflow-x-auto whitespace-pre text-[12px] leading-[17px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
+        <pre data-code-pre className="mt-[7px] overflow-x-auto whitespace-pre leading-[17px]" style={{ fontFamily: font.mono, fontSize: 'var(--mg-code-size, 12px)', color: glass.text, ...thinScroll }}>
           {item.code}
         </pre>
       )}
@@ -368,10 +368,10 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
       <div className="relative">
         {/* Lines never wrap (Michael, test 10: "sparse_categoric / al_crossentropy" broke inside a name, and typing it as
             shown fails); long lines scroll sideways. */}
-        <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
+        <pre ref={pre} data-code-pre className="overflow-x-auto whitespace-pre px-[12px] py-[9px] leading-[18px]" style={{ fontFamily: font.mono, fontSize: 'var(--mg-code-size, 12px)', color: glass.text, ...thinScroll }}>
           <code>
             {shown.split(/\r?\n/).map((line, i) => (
-              <span key={i} className="block">
+              <span key={i} data-code-line className="block">
                 {line || ' '}
               </span>
             ))}

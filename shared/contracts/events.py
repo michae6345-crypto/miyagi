@@ -293,6 +293,16 @@ class ReviewQueue(_Model):
     items: list[ReviewItem]
 
 
+class LessonApp(_Model):
+    """On-screen coach (Nov 24): the desktop app a no-code lesson is done in (server.lesson.app_lesson.adapt). tool: the
+    server.workspace.apps id ("blender"); label: its name ("Blender"); using: the app the learner really works in when it
+    isn't the one the lesson names ("FreeCAD"). Never set for a code or VS Code lesson."""
+
+    tool: str
+    label: str
+    using: str | None = None
+
+
 class LessonInfo(_Model):
     id: str
     title: str
@@ -309,6 +319,7 @@ class LessonInfo(_Model):
     prerequisites: list[Prerequisite] | None = None  # learn-anything: "You'll need" / the "Needs" chip
     learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
     outline: LessonOutline | None = None  # every step from the start (absent: a build whose step count isn't known yet)
+    app: LessonApp | None = None  # on-screen coach: a desktop-app lesson (absent: a code / VS Code lesson)
 
 
 class LessonReady(_Model):
@@ -443,6 +454,76 @@ class AvoidRect(_Model):
 
 class ScreenAvoid(_Model):
     rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
+
+
+
+class ScreenRegion(_Model):
+    """Circle to ask (Nov 22): the bounding box of the ink the learner drew while holding Fn+Control.
+
+    Screen POINTS, TOP-LEFT origin, in Electron's global screen space (the spotlight.rect space: the primary display's
+    frame starts at 0,0; another display has its own offset, maybe negative). displayId: Electron's Display.id, which on
+    macOS is the CGDirectDisplayID (server/screen/sck.py capture(display_id)). scale: that display's pixels per point.
+    """
+
+    x: float
+    y: float
+    w: float
+    h: float
+    displayId: int
+    scale: float
+
+
+class Annotation(_Model):
+    """Buddy draws (Nov 22): one thing the app circles with a hand-drawn stroke grown from the island (event annotate).
+
+    x / y / w / h: screen points, the ScreenRegion space. displayId None = the primary display (spotlight.rect).
+    why "answer": the thing a circle-to-ask answer names, inside the circled region (askId = that ask).
+    why "point" (Nov 24, on-screen coach): only in an app lesson (lesson.app), ONE mark at a step start, a "Not yet" or
+    Show me ("where?"), with text (+ keys). A mark with text is not timed (holdMs does not apply to it): it stays until
+    the step passes or changes, the learner reaches it, Esc, lesson.ended or annotate {clear}. Other pointing still
+    reaches the app as spotlight {rect, caption}, card.targets and offtrack targets, and is not repeated as annotate.
+    label: <= 4 words. id: stable per mark, so a re-sent annotate keeps a circle still drawn instead of drawing it again.
+    """
+
+    id: str | None = None
+    x: float
+    y: float
+    w: float
+    h: float
+    displayId: int | None = None
+    label: str | None = None
+    why: Literal["point", "answer"]
+    askId: str | None = None
+    stepId: str | None = None
+    text: str | None = None  # on-screen coach, why "point" only: the step's action, <= 12 words, drawn next to the circle
+    keys: list[str] | None = None  # the shortcut: one keycap label per key, in order (<= 3), spelled as bridge.platform.keys spells keys ("⇧A", "⌘S", "Tab")
+
+
+class AnnotateMarks(_Model):
+    """annotate: circle these. A new annotate replaces the marks drawn before; the overlay stays click-through. The app
+    fades them on a click inside one, a step change, lesson.ended, or after holdMs (None: the app's default, a few s);
+    a mark with text ignores holdMs."""
+
+    marks: list[Annotation]
+    holdMs: int | None = None
+
+
+class AnnotateClear(_Model):
+    clear: Literal[True]  # fade every mark now
+
+
+Annotate = AnnotateMarks | AnnotateClear
+
+
+class AnswerDelta(_Model):
+    """answer.delta (Circle to ask, streamed, Nov 22): the answer to action ask {askId} as the model writes it. text: the
+    NEW text to append (never the whole text so far), the answer card's body, plain prose. done: true on the last delta
+    (its text may be ""). The full answer still follows as card {kind: "answer", askId, region}, which replaces the
+    streamed text even when it differs (cleaned text, or a fallback card). The engine may send no deltas at all."""
+
+    askId: str
+    text: str = ""
+    done: bool | None = None
 
 
 class VideoSeek(_Model):
@@ -730,9 +811,13 @@ class SkillGraphInfo(_Model):
     portfolio: list[PortfolioItem] | None = None
 
 
+# open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend,
+# opened with the miyagi bridge); label in setup.actionLabels.open_in_app; text = the app's tool id (absent: the lesson's app);
+# the card sends setup.holdVideo false
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "hint", "show_me", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
+                     "retry", "hint", "show_me", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -749,6 +834,8 @@ class Card(_Model):
     diff: str | None = None  # unified diff preview ("Apply this fix?")
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
+    askId: str | None = None  # Circle to ask (Nov 22): kind "answer" to action ask {askId}: the app matches it to its circle
+    region: ScreenRegion | None = None  # Circle to ask: the circled region, echoed back so the card sits next to it
     setup: Setup | None = None  # kind "setup"
     items: list[SetupItem] | None = None  # kind "preflight": early tool check
     warning: str | None = None  # kind "preflight": the video doesn't fit the goal (goalMatch < 0.5)
@@ -955,6 +1042,8 @@ ENGINE_EVENTS: dict[str, Any] = {
     "spotlight": TypeAdapter(Spotlight),
     "screen.seen": ScreenSeen,
     "screen.avoid": ScreenAvoid,
+    "annotate": TypeAdapter(Annotate),  # Buddy draws (Nov 22)
+    "answer.delta": AnswerDelta,  # Circle to ask, streamed (Nov 22)
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -980,6 +1069,8 @@ ENGINE_EVENTS: dict[str, Any] = {
 }
 
 EngineEventType = Literal[
+    "annotate",
+    "answer.delta",
     "cloud.token_invalid",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
@@ -1004,10 +1095,33 @@ class BuildLesson(_Model):
     resultIds: list[str]
 
 
+# open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend,
+# opened with the miyagi bridge); label in setup.actionLabels.open_in_app; text = the app's tool id (absent: the lesson's app);
+# the card sends setup.holdVideo false
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "start", "have_it", "get_it", "alternative"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
+                     "retry", "start", "have_it", "get_it", "alternative",
+                     "open_in_app"]  # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
+
+
+class AskCapture(_Model):
+    """Circle to ask, fast path (Nov 22): the circled region, already captured by the app's helper (miyagi-listen) while
+    the keys were still held, so the engine skips its own capture after release. Rides on action ask with a region.
+
+    path: a 0600 JPEG, cap-<uuid>.jpg in the per-user temp folder miyagi-capture (0700). The engine checks it (realpath
+    inside that folder, that name, a regular file of this user with mode 0600), reads it and deletes it; the helper
+    deletes it anyway about 30 s after writing. w / h: its pixels (long edge <= 1092). rect: the box really captured,
+    in screen points (margin added, clamped to the display): crop pixel (px, py) -> screen point
+    (rect.x + px * rect.w / w, rect.y + py * rect.h / h). None, or a file that is gone or fails a check: the engine
+    captures as before. Used for this one ask only, never stored or logged. Reader: shared/capture_file.py.
+    """
+
+    path: str
+    w: int
+    h: int
+    rect: ScreenRect
+    displayId: int
 
 
 class Action(_Model):
@@ -1015,6 +1129,15 @@ class Action(_Model):
     # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
     # {kind: "explain", title: "About `<start of the selection>`", body}. explain without text: the current step.
     text: str | None = None
+    # ask + region (Circle to ask, Nov 22): the learner held Fn+Control and circled part of the screen. text = the
+    # spoken words, or "What is this?" when nothing was said (also the engine's default for empty text). Works with
+    # or without a lesson. The engine crops region, reads the text boxes inside it, answers with a card
+    # {kind: "answer", askId, region}, then maybe annotate {marks: [{why: "answer", askId, ...}]}. The crop is used
+    # for this one ask only, never stored or logged.
+    region: ScreenRegion | None = None
+    source: str | None = None  # "typed" | "voice" | "circle"; a plain str so a new tag from the app is not rejected
+    askId: str | None = None  # the app's id for this ask; the answer card echoes it
+    capture: AskCapture | None = None  # ask + region (circle to ask): the region the app already captured (AskCapture)
 
 
 class VideoState(_Model):
@@ -1110,6 +1233,16 @@ class PanelState(_Model):
     rect: ScreenRect | None = None
 
 
+class AskWarm(_Model):
+    """Nov 22 (push to talk speed): the push-to-talk hold passed the minimum and the mic is open; open or reuse the
+    keep-alive links and warm the prompt cache for the ask. The app sends it on every hold that passes the minimum
+    (never for a tap or an aborted chord). The engine always opens or reuses the links (free; keep-alive links close
+    seconds after their last use) and throttles only the paid prompt-cache write (under the 5-minute cache lifetime).
+    No reply. pttId: the hold's id, for logs only."""
+
+    pttId: str | None = Field(default=None, max_length=64)
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -1131,15 +1264,17 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "panel.state": PanelState,
     "set_goal": SetGoal,
     "skills.ack": SkillsAck,
+    "ask.warm": AskWarm,
 }
 
 AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
                          "card.shown", "card.closed",
                          "health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
-                         "set_goal", "skills.ack"]
+                         "set_goal", "skills.ack", "ask.warm"]
 
 # v2: the command types an engine may list in engine.hello.capabilities.
-V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state")
+V2_CAPABILITIES: tuple[str, ...] = ("health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state",
+                                    "ask.warm")
 CONTRACT_VERSION = "2026-11-20"
 
 

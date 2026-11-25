@@ -1,0 +1,17 @@
+{
+  "name": "annotate",
+  "on": {
+    "connect": "annotate_point"
+  },
+  "segments": {
+    "annotate_point": [
+      { "wait": 50, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 700, "type": "annotate", "payload": { "marks": [ { "id": "buddy-point-1", "x": 100, "y": 563, "w": 380, "h": 18, "why": "point", "label": "Start here" } ], "holdMs": 30000 } },
+      { "wait": 2000, "type": "annotate", "payload": { "marks": [ { "id": "buddy-point-1", "x": 101, "y": 564, "w": 380, "h": 18, "why": "point", "label": "Start here" } ], "holdMs": 30000 } },
+      { "wait": 30000, "goto": "annotate_answer" }
+    ],
+    "annotate_answer": [
+      { "wait": 0, "type": "annotate", "payload": { "marks": [ { "id": "buddy-answer-1", "x": 70, "y": 714, "w": 420, "h": 85, "why": "answer", "askId": "ask-stage-1" } ], "holdMs": 30000 } }
+    ]
+  }
+}

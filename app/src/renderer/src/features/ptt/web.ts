@@ -4,7 +4,7 @@
  * A scripted mock helper prints the same JSON lines the real one does; they go through the REAL parser (main/pttProtocol)
  * and the REAL reducer (common/pttState), then into the store, so the stage shows what Electron would.
  *
- *   ?ptt=<script>   listen | send | happy | short | empty | cancel | stale | error-mic | error-input | error-speech |
+ *   ?ptt=<script>   listen | send | tail | wake | happy | short | empty | cancel | stale | error-mic | error-input | error-speech |
  *                   card | card-denied | card-input | idle (helper ready, nothing pressed)
  *   ?ptt-perm=<p>   granted (default) | mic-undetermined | mic-denied | input-denied   (the Settings rows)
  *   ?ptt-hold=1     keep an error up (no 4 s auto-clear), so a shot can catch it
@@ -16,12 +16,13 @@
 import { PTT_REST, reducePtt, type PttInput, type PttState } from '../../../../common/pttState'
 import { parseLine } from '../../../../main/pttProtocol'
 import { isElectron, registerWebHandler } from '../../bridge'
-import { receive, routeFinal } from './store'
+import { finalFromHelper, pauseTail, receive, receiveDown, receivePartial } from './store'
 
 type Step = [ms: number, line: object]
 
 const PARTIALS = ['why', 'why does', 'why does the loss', 'why does the loss go down', 'why does the loss go down when the learning rate is smaller']
 const SENTENCE = 'why does the loss go down when the learning rate is smaller'
+const WAKE_PARTIALS = ['Hey', 'Hey Miyagi', 'Hey Miyagi, what', 'Hey Miyagi, what is this', 'Hey Miyagi, what is this error']
 
 const hold = (id: string, upto: number): Step[] => [
   [0, { type: 'ptt', state: 'down', id }],
@@ -33,6 +34,10 @@ const SCRIPTS: Record<string, Step[]> = {
   idle: [],
   listen: hold('a1', 4),
   send: [...hold('a2', 5), [200, { type: 'ptt', state: 'up', id: 'a2' }]],
+  // Release with no final from the helper (an old helper, a lost line): the safety net (tail.ts) sends the last partial SAFETY_MS after the keys come up.
+  tail: [...hold('t1', 5), [200, { type: 'ptt', state: 'up', id: 't1' }]],
+  // A wake word first: the pill and the ask show only "What is this error".
+  wake: [[0, { type: 'ptt', state: 'down', id: 'w1' }], [260, { type: 'listening', id: 'w1' }], ...WAKE_PARTIALS.map((t, i): Step => [180 + i * 140, { type: 'partial', id: 'w1', text: t }]), [200, { type: 'ptt', state: 'up', id: 'w1' }], [150, { type: 'final', id: 'w1', text: 'Hey Miyagi, what is this error?' }]],
   happy: [...hold('a3', 5), [200, { type: 'ptt', state: 'up', id: 'a3' }], [300, { type: 'final', id: 'a3', text: SENTENCE }]],
   short: [[0, { type: 'ptt', state: 'down', id: 'b1' }], [140, { type: 'ptt', state: 'up', id: 'b1' }], [20, { type: 'cancelled', id: 'b1', reason: 'short' }]],
   empty: [[0, { type: 'ptt', state: 'down', id: 'c1' }], [260, { type: 'listening', id: 'c1' }], [600, { type: 'ptt', state: 'up', id: 'c1' }], [300, { type: 'final', id: 'c1', text: '  ' }]],
@@ -77,11 +82,15 @@ if (!isElectron && typeof location !== 'undefined') {
     clearTimeout(errTimer)
     if (state.phase === 'error' && !keepErrors) errTimer = setTimeout(() => apply({ type: 'clear-error' }), 4000)
     receive(state)
-    if (r.final) routeFinal(r.final)
+    // The same side signals main sends (main/features/ptt.ts): the keys went down, a new partial of the hold in flight.
+    if (e.type === 'ptt' && e.state === 'down' && state.id === e.id) receiveDown({ id: e.id })
+    if (e.type === 'partial' && state.id === e.id) receivePartial({ id: e.id, text: e.text })
+    if (r.final) finalFromHelper(r.final)
   }
 
   const play = (name: string, at = 0): void => {
     for (const t of timers.splice(0)) clearTimeout(t)
+    pauseTail(name === 'send')
     apply({ type: 'reset' })
     let t = at
     for (const [dt, line] of SCRIPTS[name] ?? []) {

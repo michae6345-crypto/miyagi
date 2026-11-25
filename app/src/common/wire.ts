@@ -48,6 +48,10 @@ const KNOWN = new Set<string>([
   'config.status',
   // Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts)
   'screen.avoid',
+  // Buddy draws (Nov 22, contract annotate): features/annotate draws a stroke from the island to each mark
+  'annotate',
+  // Circle to ask, streamed (contract answer.delta): features/circle shows the answer as it is written
+  'answer.delta',
   // v2 (BUILD-PLAN W0-1): all optional; a feature that doesn't subscribe never sees them
   'engine.hello',
   'health',

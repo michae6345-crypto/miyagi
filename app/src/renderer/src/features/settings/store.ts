@@ -6,7 +6,7 @@
 import { create } from 'zustand'
 import { bridge } from '../../bridge'
 import { onMessage } from '../../core/bus'
-import { isSection, type SettingsSection } from './env'
+import { isPanel, type PanelId } from './panels'
 
 /** `place: 'notch'` + `radii`: the island lives in the notch (the sheet starts flat on the display top with the notch's radii). */
 export type Size = { w: number; h: number; place?: 'notch'; radii?: { top: number; bottom: number } }
@@ -19,7 +19,7 @@ type SettingsState = {
   /** Bumped on every config.status from the engine. */
   statusSeq: number
   /** The sidebar section on show. An open request with a section switches to it; without one, the last stays. */
-  section: SettingsSection
+  section: PanelId
   /**
    * How the section was reached: 'keys' = ↑ / ↓ / Home / End in the sidebar (focus stays on the section list so the
    * arrows keep working); undefined = opened from outside (openSettings) or clicked, so the section may take focus.
@@ -30,7 +30,7 @@ type SettingsState = {
 export const useSettings = create<SettingsState>(() => ({ open: { seq: 0 }, close: 0, statusSeq: 0, section: 'general' }))
 
 export function requestOpen(from?: Size, section?: unknown): void {
-  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from }, section: isSection(section) ? section : s.section, via: undefined }))
+  useSettings.setState((s) => ({ open: { seq: s.open.seq + 1, from }, section: isPanel(section) ? section : s.section, via: undefined }))
 }
 
 export function requestClose(): void {
@@ -38,7 +38,7 @@ export function requestClose(): void {
 }
 
 export function setSection(section: unknown, via?: 'keys'): void {
-  if (isSection(section)) useSettings.setState({ section, via })
+  if (isPanel(section)) useSettings.setState({ section, via })
 }
 
 onMessage('config.status', () => useSettings.setState((s) => ({ statusSeq: s.statusSeq + 1 })))

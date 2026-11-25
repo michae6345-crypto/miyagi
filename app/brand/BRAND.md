@@ -96,7 +96,16 @@ The overlay should feel like a first-party Apple feature (Spotlight, Dynamic Isl
 - The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, hollow white ring off track, green passed.
 - The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "ask miyagi anything".
 - One spring everywhere: stiffness 420, damping 34, mass 0.9. Radii 14 / 20 / 28.
-- No annotations: no hand-drawn notes, arrows or doodles anywhere this weekend.
+- No annotations: no hand-drawn notes, arrows or doodles anywhere this weekend. *(One exception since Nov 22: the buddy stroke, below.)*
+
+**The buddy stroke, Nov 22** (Michael, Clicky-style buddy: "Clicky is able to draw on your screen, or just circle stuff"). This is the one hand-drawn mark allowed, and only exactly this: when the coach points at something (or answers a circle-to-ask), ONE thin stroke grows out of the notch island along a smooth curve and ends in a loose loop around the thing (`features/annotate`). Its rules:
+- Color: `brand.pastel.mint` (the notch glow's family), over a faint island-black casing. Never green (green means passed), no other hue.
+- Thin (about 2 pt), solid, no glow, no blur, no gradient, no fill, no arrowheads, no doodles or notes.
+- It always grows from the island (surfaces grow from the island) and never takes the mouse: the layer is click-through.
+- It holds a few seconds, then fades; it also fades when the learner goes there, the step changes, or on Esc.
+- An optional label of at most 4 words sits beside the loop.
+- Reduced motion: no grow, the finished stroke fades in.
+The learner's own circle-to-ask ink (drawn while Fn+Control is held) is theirs, not an annotation, and keeps the same no-green, no-glow rules.
 
 ## Files
 
@@ -127,7 +136,7 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 3. Green means passed, a hollow white ring means off track, gray means watching. Nothing else is green, and nothing is amber. No red. Pastels (`brand.pastel` in `core/theme.ts`) are for options only, never status.
 4. Buttons: ink on light, white on dark. Never system blue, never green.
 5. App text in the system font; brand headings in Google Sans Flex. No Inter.
-6. No gradients, glows, sparkles, emoji or hand-drawn annotations.
+6. No gradients, glows, sparkles, emoji or hand-drawn annotations (the one exception is the buddy stroke, Nov 22, under "The app": one thin mint stroke from the island, never green, no glow, click-through, fades).
 7. Copy: short, calm, plain. At most about 12 words of body per card, and at most one Miyagi line per card.
 
 **Off track has no hue** (Adrian, Sat 5 PM, after apricot still read orange): a hollow white ring and the words "Not yet". Offline is the gray ring. Green still means passed. *(Superseded:)* **Off track is apricot, not amber** (Adrian, Sat 4 PM: the kit's amber `#FFB020` "is the most AI slop yellow"). Off track is now the soft apricot `#FFC4A3` from the pastel family (`brand.offTrack`, `color.amber` in code so call sites didn't change); `#C8693A` for text on a light surface. It still means only one thing: off track. Green still means passed.

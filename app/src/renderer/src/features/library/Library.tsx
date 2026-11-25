@@ -2,6 +2,7 @@
  * Feature: library. The Lessons page of the home window (features/shell): Continue (lessons left mid-way), Ready to
  * run (every cached lesson, filtered by tool and search), and a last row to paste a link. Redraft (Adrian, Nov 21):
  * plain rows on the content panel (title, then the tool in words, steps and minutes), no cards, tiles or pills.
+ * Under the line, the skills it teaches and uses (skills/extras SkillChips), only when the engine sent them.
  * The page title and the search field (LessonSearch) are the shell's page header, not this file's. The list sits on the
  * shared 720 column (layout.tsx), the same column the shell lane's PageHeader (michael/app-layout-shell) puts the title
  * and search on, so they line up once that lands; with this branch's older shell header they sit at the pane's 40 px
@@ -25,7 +26,9 @@ import { Column, Pane, SectionLabel, rhythm } from './layout'
 import { Ring, Rise } from './motion'
 import { FILTER_TOOLS, Skeleton, TOOL_NAME, minutesLabel, stepsLabel } from './parts'
 import { contLine, continueList, type Cont } from '../dashboard/continue'
+import { LessonSkills } from '../skills/extras/SkillChips'
 import { useDash } from '../dashboard/store'
+import { PresetLibraries } from './presets/PresetLibraries'
 import { openDetail, setQuery, setTool, start, useLibrary, visible } from './store'
 
 /** New lesson / Paste a link: the launcher takes a goal or a pasted YouTube link (it builds; the library never does). */
@@ -94,6 +97,7 @@ function ContinueRow({ c, first }: { c: Cont; first: boolean }): ReactNode {
           <span className="truncate" style={meta}>
             {contLine(c)}
           </span>
+          {item && <LessonSkills item={item} />}
         </span>
         <span className="relative hidden items-center @min-[640px]/pane:flex" style={{ marginRight: 8 }}>
           <ProgressLine done={c.passed} total={c.total} />
@@ -119,6 +123,7 @@ function LessonRow({ item }: { item: LibraryItem }): ReactNode {
         <span className="truncate" style={meta}>
           {line}
         </span>
+        <LessonSkills item={item} />
       </span>
       <RowChevron />
     </Row>
@@ -285,6 +290,11 @@ export function Lessons(): ReactNode {
               </section>
             </Rise>
           </>
+        )}
+        {s.loaded && (
+          <Rise i={2}>
+            <PresetLibraries />
+          </Rise>
         )}
       </Column>
     </Pane>

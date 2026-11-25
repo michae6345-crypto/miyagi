@@ -36,6 +36,7 @@ import { LinkText } from './LinkText'
 import { isEditor, useFrontApp } from './front'
 import { useDock } from '../../core/dock'
 import { useRoutedAway } from './panel'
+import { skipLabel, useSkipArmed } from '../settings/guard'
 import { act, cardAct, installAll, itemDone, jumpTo, setupFolded, setupKey, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 import { isEditorSheet, SHEET_W, VSCodeSheet } from './VSCodeSheet'
 import { drawnOnCard, rowSettled, rowWaiting } from './setupHold'
@@ -219,7 +220,7 @@ function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff'
     </div>
   )
   return (
-    <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: fill.field }}>
+    <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono leading-[18px]" style={{ background: fill.field, fontSize: 'calc(var(--mg-code-size, 12px) + 0.5px)' }}>
       {row('expected', color.label, diff.expected)}
       {!expectedOnly && row(diff.line ? `yours · L${diff.line}` : 'yours', color.faint, diff.yours, true)}
     </div>
@@ -540,7 +541,10 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   // calm plan (setupPlan.ts) draws them and picks the one white primary: Get it, or I have it when the scan saw the app.
   have_it: { label: 'I have it', Icon: Check },
   get_it: { label: 'Get it', Icon: ExternalLink },
-  alternative: { label: 'Free alternative', Icon: Download }
+  alternative: { label: 'Free alternative', Icon: Download },
+  // An app lesson's setup card (Nov 24): open the lesson's scene in its desktop app. The engine names the app
+  // (setup.actionLabels.open_in_app); no text, the engine knows the lesson's app. Settles after a short spin (store SETTLE).
+  open_in_app: { label: 'Open in app', Icon: ExternalLink, primary: true }
 }
 
 /** Card actions drawn as pastel OptionButtons with keycaps (like the off-track card), not as quiet buttons. */
@@ -562,6 +566,7 @@ function actionLabel(c: EngineCard, a: CardAction, short?: boolean): string {
   }
   // "Type this for you?" (a fix preview): the confirm types the diff into the learner's file.
   if (a === 'confirm' && c.diff) return 'Type it'
+  if (a === 'skip_step') return skipLabel(ACTION[a]!.label)
   return ACTION[a]!.label
 }
 
@@ -593,7 +598,7 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
   const lines = diff.split(/\r?\n/).filter((l) => l && !l.startsWith('+++') && !l.startsWith('---') && !l.startsWith('@@') && !l.startsWith('diff '))
   const shown = lines.slice(0, 14)
   return (
-    <div data-diff className="mt-[12px] overflow-hidden rounded-[12px] py-[6px] font-mono text-[12px] leading-[18px]" style={{ background: fill.field }}>
+    <div data-diff className="mt-[12px] overflow-hidden rounded-[12px] py-[6px] font-mono leading-[18px]" style={{ background: fill.field, fontSize: 'var(--mg-code-size, 12px)' }}>
       {shown.map((l, i) => {
         const add = l.startsWith('+')
         const del = l.startsWith('-')
@@ -816,6 +821,7 @@ function startOver(): void {
 }
 
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
+  useSkipArmed()
   const busy = useBusyIcon()
   // Hint / Show me (the judge's "Not yet" card) are the bar's while it's up (A11): the card keeps only its own buttons.
   const barHelp = useBarHelp()
@@ -971,7 +977,7 @@ function Output({ text }: { text: string }): ReactNode {
   const shown = all.slice(-OUTPUT_LINES)
   const hidden = all.length - shown.length
   return (
-    <div data-output className="mt-[12px] rounded-[12px] py-[8px] font-mono text-[12px] leading-[17px]" style={{ background: fill.field }}>
+    <div data-output className="mt-[12px] rounded-[12px] py-[8px] font-mono leading-[17px]" style={{ background: fill.field, fontSize: 'var(--mg-code-size, 12px)' }}>
       {hidden > 0 && (
         <div className="px-[12px] pb-[2px] font-sans text-[11px]" style={{ color: color.faint }}>
           {hidden} earlier line{hidden === 1 ? '' : 's'}

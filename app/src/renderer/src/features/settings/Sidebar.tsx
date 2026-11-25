@@ -1,27 +1,20 @@
 /**
- * Feature: settings. The sidebar (Set-* mockups): the same three window lights as every other miyagi window (close
- * works and shows its ✕ on hover or focus; minimize and zoom are drawn but inactive, as on a macOS sheet), the five
- * sections, and the bonsai with the lowercase wordmark and the version at the foot.
+ * Feature: settings. The sidebar (Set-* mockups), Notion-style: search on top, the panels in labeled groups, and (in the
+ * sheet) the same three window lights as every other miyagi window (close works; minimize and zoom are drawn but
+ * inactive, as on a macOS sheet) and the bonsai with the lowercase wordmark and the version at the foot.
  *
- * The section list is a vertical tablist: ↑ / ↓ (and Home / End) move between sections and switch at once, the active
+ * The panel list is a vertical tablist: ↑ / ↓ (and Home / End) move between panels and switch at once, the active
  * row's highlight slides on the house spring (layoutId), and the active row takes focus when the sheet opens.
+ * `Nav` is also the home window's Settings page list (Sidebar's lights and foot are the sheet's only).
  */
 import { motion, useReducedMotion } from 'motion/react'
-import { KeyRound, Keyboard, Lock, ShieldCheck, SlidersHorizontal, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { X } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { color, copy, fill, radius2, spring, type2 } from '../../core/theme'
-import type { SettingsSection } from './env'
-import { OWN_KEY } from './words'
 import { fade, press } from '../../core/ui/motion'
-
-export const NAV: readonly { id: SettingsSection; label: string; icon: LucideIcon }[] = [
-  { id: 'general', label: 'General', icon: SlidersHorizontal },
-  { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
-  { id: 'privacy', label: 'Privacy', icon: Lock },
-  { id: 'account', label: OWN_KEY, icon: KeyRound },
-  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard }
-]
+import { SearchField } from './Search'
+import { GROUPS, PANELS, type PanelId } from './panels'
 
 /** The window's three lights: neutral dots (OS chrome, never a hue), close is the only live one. */
 function Lights({ onClose }: { onClose: () => void }): ReactNode {
@@ -46,17 +39,10 @@ function Lights({ onClose }: { onClose: () => void }): ReactNode {
   )
 }
 
-function Nav({
-  section,
-  onSelect,
-  focusOnMount
-}: {
-  section: SettingsSection
-  onSelect: (s: SettingsSection, via?: 'keys') => void
-  focusOnMount: boolean
-}): ReactNode {
+export function Nav({ section, onSelect, focusOnMount, tight }: { section: PanelId; onSelect: (s: PanelId, via?: 'keys') => void; focusOnMount: boolean; tight?: boolean }): ReactNode {
   const reduce = useReducedMotion()
-  const refs = useRef<Partial<Record<SettingsSection, HTMLButtonElement | null>>>({})
+  const uid = useId()
+  const refs = useRef<Partial<Record<PanelId, HTMLButtonElement | null>>>({})
 
   useEffect(() => {
     if (focusOnMount) refs.current[section]?.focus({ preventScroll: true })
@@ -72,58 +58,65 @@ function Nav({
     return () => window.removeEventListener('keydown', on, true)
   }, [kbd])
 
-  const go = (id: SettingsSection, via?: 'keys'): void => {
+  const go = (id: PanelId, via?: 'keys'): void => {
     onSelect(id, via)
     refs.current[id]?.focus({ preventScroll: true })
   }
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
-    const i = NAV.findIndex((n) => n.id === section)
+    const i = PANELS.findIndex((n) => n.id === section)
     const to =
-      e.key === 'ArrowDown' ? (i + 1) % NAV.length : e.key === 'ArrowUp' ? (i - 1 + NAV.length) % NAV.length : e.key === 'Home' ? 0 : e.key === 'End' ? NAV.length - 1 : -1
+      e.key === 'ArrowDown' ? (i + 1) % PANELS.length : e.key === 'ArrowUp' ? (i - 1 + PANELS.length) % PANELS.length : e.key === 'Home' ? 0 : e.key === 'End' ? PANELS.length - 1 : -1
     if (to < 0) return
     e.preventDefault()
-    go(NAV[to].id, 'keys')
+    go(PANELS[to].id, 'keys')
   }
 
   return (
-    <div role="tablist" aria-orientation="vertical" aria-label="Settings sections" className="flex flex-col gap-[2px]" onKeyDown={onKey}>
-      {NAV.map(({ id, label, icon: I }) => {
-        const on = id === section
-        return (
-          <motion.button
-            key={id}
-            ref={(el) => {
-              refs.current[id] = el
-            }}
-            type="button"
-            role="tab"
-            id={`settings-tab-${id}`}
-            aria-selected={on}
-            aria-controls="settings-panel"
-            tabIndex={on ? 0 : -1}
-            data-nav={id}
-            className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium"
-            data-kbd={kbd || undefined}
-            style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label, ...(kbd ? {} : { outlineStyle: 'none' }) }}
-            whileHover={on ? undefined : { color: color.text }}
-            whileTap={{ scale: press.scale }}
-            transition={{ ...fade.tint, scale: spring }}
-            onClick={() => go(id)}
-          >
-            {on && (
-              <motion.span
-                layoutId="settings-nav-on"
-                aria-hidden
-                className="absolute inset-0"
-                style={{ borderRadius: radius2.control, background: fill.navActive }}
-                transition={reduce ? { duration: 0 } : spring}
-              />
-            )}
-            <I size={15} strokeWidth={1.8} className="relative shrink-0" aria-hidden />
-            <span className="relative truncate">{label}</span>
-          </motion.button>
-        )
-      })}
+    <div role="tablist" aria-orientation="vertical" aria-label="Settings sections" className="flex flex-col" style={{ gap: tight ? 10 : 14 }} onKeyDown={onKey}>
+      {GROUPS.map((g) => (
+        <div key={g.label} role="presentation" className="flex flex-col gap-[2px]">
+          <span className="px-[10px] font-medium" style={{ fontSize: type2.micro, color: color.faint, height: 20, lineHeight: '20px' }}>
+            {g.label}
+          </span>
+          {g.panels.map(({ id, label, icon: I }) => {
+            const on = id === section
+            return (
+              <motion.button
+                key={id}
+                ref={(el) => {
+                  refs.current[id] = el
+                }}
+                type="button"
+                role="tab"
+                id={`settings-tab-${id}`}
+                aria-selected={on}
+                aria-controls="settings-panel"
+                tabIndex={on ? 0 : -1}
+                data-nav={id}
+                className="relative flex cursor-pointer items-center gap-[9px] text-left font-medium"
+                data-kbd={kbd || undefined}
+                style={{ height: 30, padding: '0 10px', borderRadius: radius2.control, fontSize: type2.sm, color: on ? color.text : color.label, ...(kbd ? {} : { outlineStyle: 'none' }) }}
+                whileHover={on ? undefined : { color: color.text }}
+                whileTap={{ scale: press.scale }}
+                transition={{ ...fade.tint, scale: spring }}
+                onClick={() => go(id)}
+              >
+                {on && (
+                  <motion.span
+                    layoutId={`settings-nav-on-${uid}`}
+                    aria-hidden
+                    className="absolute inset-0"
+                    style={{ borderRadius: radius2.control, background: fill.navActive }}
+                    transition={reduce ? { duration: 0 } : spring}
+                  />
+                )}
+                <I size={15} strokeWidth={1.8} className="relative shrink-0" aria-hidden />
+                <span className="relative truncate">{label}</span>
+              </motion.button>
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }
@@ -135,19 +128,20 @@ export function Sidebar({
   version,
   focusOnMount = true
 }: {
-  section: SettingsSection
-  onSelect: (s: string, via?: 'keys') => void
+  section: PanelId
+  onSelect: (s: PanelId, via?: 'keys') => void
   onClose: () => void
   version?: string
   focusOnMount?: boolean
 }): ReactNode {
   return (
-    <div className="flex h-full w-[208px] shrink-0 flex-col gap-[16px] px-[12px] py-[16px]" style={{ background: fill.group, boxShadow: `inset -1px 0 0 ${fill.hairline}` }}>
+    <div className="flex h-full w-[208px] shrink-0 flex-col gap-[12px] px-[12px] py-[16px]" style={{ background: fill.group, boxShadow: `inset -1px 0 0 ${fill.hairline}` }}>
       <Lights onClose={onClose} />
-      <div className="mt-[8px]">
-        <Nav section={section} onSelect={onSelect} focusOnMount={focusOnMount} />
+      <SearchField />
+      <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+        <Nav section={section} onSelect={onSelect} focusOnMount={focusOnMount} tight />
       </div>
-      <div className="mt-auto flex items-center gap-[8px] px-[8px]">
+      <div className="flex items-center gap-[8px] px-[8px]">
         <MiyagiMark size={20} />
         <span className="font-medium" style={{ fontFamily: 'var(--font-brand)', fontSize: type2.md, color: color.text }}>
           {copy.name}

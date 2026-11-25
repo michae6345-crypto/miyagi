@@ -421,3 +421,52 @@ input {
     scroll-behavior: auto;
   }
 }
+
+/*
+ * Settings > Appearance > Reduce motion (features/settings/apply.ts sets <html data-reduce-motion>): the same softening
+ * as the OS setting above, for CSS transitions. motion's springs follow MotionConfig (features/settings Content.tsx).
+ */
+:root[data-stage-zoom] .mg-page-frame {
+  zoom: var(--mg-text-scale);
+}
+:root[data-reduce-motion] .mg-press::after {
+  transition-duration: 0ms;
+}
+:root[data-reduce-motion] .mg-lift:hover,
+:root[data-reduce-motion] .mg-lift:active {
+  transform: none;
+}
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  scroll-behavior: auto;
+  transition-duration: 0.01ms !important;
+}
+
+/*
+ * Settings > Editor (features/settings/apply.ts sets <html data-code-wrap, data-code-lines> and --mg-code-size): code
+ * samples in the steps panel can wrap long lines and number their lines. A [data-code-pre] is a code block.
+ */
+:root[data-code-wrap='on'] [data-code-pre] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+[data-code-pre] {
+  counter-reset: mg-line;
+}
+:root[data-code-lines='on'] [data-code-pre] [data-code-line] {
+  counter-increment: mg-line;
+  padding-left: 3em;
+  text-indent: -3em;
+}
+:root[data-code-lines='on'] [data-code-pre] [data-code-line]::before {
+  content: counter(mg-line);
+  display: inline-block;
+  width: 2.2em;
+  margin-right: 0.8em;
+  text-align: right;
+  text-indent: 0;
+  opacity: 0.45;
+  user-select: none;
+}

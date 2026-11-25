@@ -10,6 +10,10 @@ import CoreGraphics
 //                                         transcribe an audio file with the same Transcriber and print the final JSON
 //   miyagi-listen --screens               print the displays' geometry (notch, safe area) as one JSON line and exit 0
 //   miyagi-listen --windows --pid N | --owner NAME   print matching windows (layer, bounds, on-screen, z) as one JSON line and exit 0
+//
+// stdin also takes {"cmd":"capture",...}: one region of the screen as a JPEG file for circle to ask, and
+// {"cmd":"capture-release","id"|"path"}: delete that capture now (Capture.swift). Once per process, on the first
+// chord-down with Screen Recording granted, stdout says {"type":"capture-warm","ok","ms"} (the screenshot warm-up).
 
 setvbuf(stdout, nil, _IOLBF, 0)
 signal(SIGPIPE, SIG_IGN)
@@ -67,6 +71,8 @@ if let path = argValue("--transcribe-file") {
 let stdinOnly = args.contains("--stdin-only")
 let ctl = Controller()
 ctl.simulate = stdinOnly
+Capture.simulate = stdinOnly
+CaptureFiles.purgeAll()   // a crash or kill can leave captures behind: none survive a restart
 ctl.config.locale = localeArg
 if stdinOnly { ctl.config.enabled = true }   // tests don't need a config line first; "config" still overrides
 
@@ -94,7 +100,10 @@ func syncTap() {
     }
 }
 
-tap.onChord = { down in ctl.chordChanged(down: down) }
+tap.onChord = { down in
+    if down { Capture.warm() }   // circle to ask: the window list now, and the first (slow) screenshot once per process
+    ctl.chordChanged(down: down)
+}
 tap.onKeyDown = { code in ctl.keyDown(keyCode: code) }
 ctl.onConfigChanged = { syncTap(); announceReady() }
 Perms.onChange = { syncTap() }
@@ -128,7 +137,8 @@ func handle(_ obj: [String: Any]) {
         if let v = obj["chord"] as? String, let ch = Chord(rawValue: v) { c.chord = ch }
         if let v = obj["minHoldMs"] as? Int { c.minHoldMs = max(0, v) }
         if let v = obj["maxHoldMs"] as? Int { c.maxHoldMs = max(1, v) }
-        if let v = obj["finalWaitMs"] as? Int { c.finalWaitMs = max(0, v) }   // test knob
+        // The release tail's warm cap (Tail.swift, 300...1500 ms; default 1000). finalWaitMs is its old name.
+        if let v = (obj["tailMs"] as? Int) ?? (obj["finalWaitMs"] as? Int) { c.tailMs = Tail.clamp(v) }
         if let v = obj["locale"] as? String, !v.isEmpty { c.locale = v }
         ctl.apply(config: c)
     case "context":
@@ -149,6 +159,10 @@ func handle(_ obj: [String: Any]) {
         }
     case "cancel":
         ctl.cancelAll("esc")
+    case "capture":
+        Capture.handle(obj)   // circle to ask: one region of the screen as a JPEG file (Capture.swift)
+    case "capture-release":
+        CaptureFiles.release(obj)   // the capture is done with (or main gave up on it): delete it now
     case "quit":
         shutdown()
     case "_simulate":
@@ -156,6 +170,8 @@ func handle(_ obj: [String: Any]) {
         var sim = SimOptions()
         sim.fakeText = obj["fakeText"] as? String
         sim.finalDelayMs = obj["finalDelayMs"] as? Int ?? 0
+        sim.lagMs = obj["lagMs"] as? Int ?? -1
+        sim.startDelayMs = obj["startDelayMs"] as? Int ?? 0
         sim.file = obj["file"] as? String
         switch obj["state"] as? String {
         case "down": ctl.nextSim = sim; ctl.chordChanged(down: true)
@@ -177,6 +193,7 @@ Perms.restartForPermission = {
 func shutdown() -> Never {
     ctl.cancelAll("disabled")
     tap.stop()
+    CaptureFiles.purgeAll()
     exit(0)
 }
 

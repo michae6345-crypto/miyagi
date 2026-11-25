@@ -12,7 +12,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { VOICE_ENABLED } from '../../../../../common/flags'
 import type { IslandPlace } from '../../../../../common/notch'
 import { useLesson } from '../../../core/lesson'
-import { setPrefs, usePrefs, type Appearance } from '../../../core/prefs'
+import { setPrefs, usePrefs } from '../../../core/prefs'
 import { bridge } from '../../../bridge'
 import { useNotchInfo } from '../../../core/notchInfo'
 import { openOnboarding } from '../../../core/surfaces'
@@ -22,13 +22,8 @@ import { color, copy, type2 } from '../../../core/theme'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 import { PushToTalk } from '../../ptt/SettingsRows'
 import { useHealth } from '../permissions'
+import { PanelRows } from '../rows'
 import { Group, OnWord, PageHeader, Row } from '../ui'
-
-const APPEARANCES: { value: Appearance; label: string }[] = [
-  { value: 'system', label: 'Match system' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' }
-]
 
 const PLACES: { value: IslandPlace; label: string }[] = [
   { value: 'notch', label: 'In the notch' },
@@ -79,7 +74,6 @@ function IslandRow(): ReactNode {
 }
 
 export function General({ live }: { live: boolean }): ReactNode {
-  const appearance = usePrefs((s) => s.appearance)
   const voiceOnStart = usePrefs((s) => s.voiceOnStart)
   const launchAtLogin = usePrefs((s) => s.launchAtLogin)
   const health = useHealth(live)
@@ -89,12 +83,9 @@ export function General({ live }: { live: boolean }): ReactNode {
     <>
       <PageHeader title="General" caption="Changes save as you make them." />
 
-      <Group label="Look and startup">
-        <Row
-          label="Appearance"
-          caption={copy.appearanceCaption}
-          right={<Segmented label="Appearance" options={APPEARANCES} value={appearance} onChange={(a) => setPrefs({ appearance: a })} />}
-        />
+      <PanelRows panel="general" />
+
+      <Group label="Where miyagi lives">
         <IslandRow />
         <Row
           tight

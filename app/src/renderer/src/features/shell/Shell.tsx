@@ -52,11 +52,12 @@ import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { SkillsPage } from './pages/SkillsPage'
+import { SkillsHeaderTools, SkillsPage } from './pages/SkillsPage'
 import { FlowLayer } from './flow/FlowLayer'
 import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
+import { useLocal } from '../settings/local'
 import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
 import { COLUMN_W, PageHeader, PANEL, PANEL_INSET, pageInset, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
@@ -77,7 +78,7 @@ function Header({ page }: { page: PageId }): ReactNode {
   // Home has no title (Michael's brief: no greeting, no date, and the sidebar already says where you are): only the
   // strip that drags the window.
   if (page === 'home') return <header data-drag className="shrink-0" style={{ height: 20 }} />
-  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : undefined} />
+  return <PageHeader title={label} caption={CAPTION[page]} right={page === 'lessons' ? <LessonSearch /> : page === 'skills' ? <SkillsHeaderTools /> : undefined} />
 }
 
 // ---- error boundary -----------------------------------------------------------------------------------------------
@@ -115,7 +116,7 @@ function PageKeyed({ children }: { children: ReactNode }): ReactNode {
 // ---- pages --------------------------------------------------------------------------------------------------------
 
 /** Home and Skills scroll inside themselves (Home's container queries, the constellation's own list). */
-const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
+const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress', 'settings'])
 
 /**
  * The column each page's title sits on (content + gutters): 720 for every page (ui.tsx COLUMN_W). Skills takes the wide
@@ -134,7 +135,8 @@ const SELF_SCROLL: ReadonlySet<PageId> = new Set(['home', 'skills', 'progress'])
  * before them the pages still carry their old 40 px left padding and sit left of the centered title.
  */
 function pageWidth(page: PageId, skills: boolean): number {
-  return page === 'skills' && skills ? WIDE_W : COLUMN_W
+  // Settings is a two-pane page (list + panel), so it takes the wide column too.
+  return (page === 'skills' && skills) || page === 'settings' || page === 'progress' || page === 'account' ? WIDE_W : COLUMN_W
 }
 
 function Body({ page, active }: { page: PageId; active: boolean }): ReactNode {
@@ -289,7 +291,10 @@ export function Shell(): ReactNode {
   // Setup again (reopenFlow): home stays mounted under the flow, inert, the sidebar under the layer too.
   const home = phase === 'off' || phase === 'leaving' || again
   const covered = flowCovers(phase)
-  const compact = size.w < COMPACT_W
+  // Settings > Appearance > Compact sidebar: icons only at any width.
+  const forceCompact = useLocal((s) => s.sidebarCompact)
+  const showStatus = useLocal((s) => s.sidebarStatus)
+  const compact = forceCompact || size.w < COMPACT_W
   const sideW = compact ? SIDEBAR_COMPACT_W : size.w < NARROW_W ? SIDEBAR_NARROW_W : SIDEBAR_W
   const enter = arriving.current
   // The sidebar rides above the flow's fading paper on the way in (z 3) and under the flow during setup again (z 1).
@@ -310,7 +315,7 @@ export function Shell(): ReactNode {
             animate={{ x: 0, opacity: 1 }}
             transition={sidebarIn}
           >
-            <Sidebar compact={compact} short={size.h < SHORT_H} blocked={sheet} width={sideW} />
+            <Sidebar compact={compact} short={size.h < SHORT_H || !showStatus} blocked={sheet} width={sideW} />
           </motion.div>
         )}
         {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}

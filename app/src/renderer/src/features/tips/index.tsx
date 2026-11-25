@@ -8,6 +8,7 @@
  *   pill      the step pill on its own       "Point at it to see your step." (no panel, no video player)
  *   launcher  the idle pill                  "Press [⌥Space] in any app to start a lesson."
  *   menubar   the menu bar item              "Open it from the menu bar, even with every window closed."
+ *   circle    the step or idle pill          "Hold [the push-to-talk keys] and circle anything to ask." (features/circle)
  * Got it or Esc closes it for good, and so does doing what it says (checking, a Hint, opening the panel, pointing at
  * the pill, opening the launcher: each Tip's done, or a press on the element it points at), however briefly it was up.
  * "..." > Don't show tips turns them all off (store.ts keeps both).

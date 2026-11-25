@@ -25,6 +25,15 @@ const STAGE_ITEMS: LibraryItem[] = [
   // so that preview showed another video's thumbnail).
   { id: 'stage_video', title: 'Learning PIML Part 1: PINNs', by: '[CREATOR NAME]', steps: 7, estMinutes: 30, tools: ['jupyter'], ready: true, source: { kind: 'youtube', title: 'Learning PIML Part 1: PINNs', channel: '[CREATOR NAME]', durationS: 1420, url: 'https://www.youtube.com/watch?v=AXXnSzmpyoI' } }
 ]
+/** ?library=many: a full library, for checking the Lessons page with lots of rows. Stage only. */
+const MANY_ITEMS: LibraryItem[] = [
+  ['stage_sql', 'Query a table with SQL', 8, 20, ['terminal']],
+  ['stage_git', 'Branch and merge with Git', 6, 15, ['terminal']],
+  ['stage_np', 'Slice arrays with NumPy', 5, 12, ['jupyter']],
+  ['stage_cls', 'Write a class in Python', 6, 15, ['vscode']],
+  ['stage_json', 'Read and write JSON files', 4, 10, ['vscode']],
+  ['stage_loop', 'Loops and comprehensions', 5, 12, ['jupyter', 'vscode']]
+].map(([id, title, steps, estMinutes, tools]) => ({ id, title, steps, estMinutes, tools, ready: true }) as LibraryItem)
 const STAGE_STEPS: [string, string][] = [
   ['Open the project', 'Start in the folder you will work in'],
   ['Set things up', 'Install what the lesson needs'],
@@ -73,6 +82,7 @@ function setupWeb(): void {
 
   registerWebHandler('library:list', async () => {
     if (mode === 'empty') return []
+    if (mode === 'many') return [...STAGE_ITEMS, ...MANY_ITEMS]
     if (can('library.list')) {
       const items = await ask(() => bridge.send(cmd('library.list', {})), 'library', (p) => cleanList(p))
       if (items) return items

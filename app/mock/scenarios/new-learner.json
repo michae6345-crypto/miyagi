@@ -1,0 +1,1239 @@
+{
+ "name": "new-learner",
+ "on": {
+  "connect": "newlearner_hello",
+  "progress.get": "newlearner_progress",
+  "library.list": "newlearner_library",
+  "set_goal": "newlearner_progress"
+ },
+ "segments": {
+  "newlearner_hello": [
+   {
+    "wait": 50,
+    "type": "engine.hello",
+    "payload": {
+     "version": "mock",
+     "contract": "2026-11-22",
+     "capabilities": [
+      "health.get",
+      "permission.open",
+      "library.list",
+      "library.get",
+      "library.start",
+      "progress.get",
+      "panel.state",
+      "set_goal",
+      "skills.ack"
+     ]
+    }
+   }
+  ],
+  "newlearner_library": [
+   {
+    "wait": 120,
+    "type": "library",
+    "payload": {
+     "items": [
+      {
+       "id": "numpy20",
+       "title": "NumPy in 20 minutes",
+       "steps": 9,
+       "estMinutes": 20,
+       "tools": [
+        "vscode"
+       ],
+       "ready": true,
+       "progress": {
+        "stepIndex": 4,
+        "stepTitle": "Stretch a column across a table",
+        "total": 9
+       },
+       "teaches": [
+        "arrays",
+        "index",
+        "broad"
+       ],
+       "uses": [
+        "loops"
+       ],
+       "unlocks": [
+        "vect"
+       ]
+      },
+      {
+       "id": "nn_neuron",
+       "title": "A single neuron from scratch",
+       "steps": 5,
+       "estMinutes": 9,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true,
+       "teaches": [
+        "neuron"
+       ],
+       "uses": [
+        "dot",
+        "loops"
+       ],
+       "unlocks": [
+        "grad"
+       ]
+      },
+      {
+       "id": "pytorch15",
+       "title": "PyTorch in 15 minutes",
+       "steps": 11,
+       "estMinutes": 15,
+       "tools": [
+        "vscode"
+       ],
+       "ready": true,
+       "teaches": [
+        "layers",
+        "grad"
+       ],
+       "uses": [
+        "broad",
+        "neuron"
+       ]
+      },
+      {
+       "id": "linalg",
+       "title": "Linear algebra for code",
+       "steps": 10,
+       "estMinutes": 25,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true,
+       "progress": {
+        "stepIndex": 6,
+        "stepTitle": "Multiply two matrices",
+        "total": 10
+       },
+       "teaches": [
+        "vec",
+        "dot",
+        "mat"
+       ],
+       "uses": [
+        "lists"
+       ]
+      },
+      {
+       "id": "pandas_clean",
+       "title": "Clean a messy CSV",
+       "steps": 6,
+       "estMinutes": 15,
+       "tools": [
+        "jupyter"
+       ],
+       "ready": true,
+       "teaches": [
+        "clean"
+       ],
+       "uses": [
+        "dfs",
+        "csv"
+       ],
+       "unlocks": [
+        "group"
+       ]
+      },
+      {
+       "id": "git_wt",
+       "title": "Git worktrees",
+       "steps": 4,
+       "estMinutes": 8,
+       "tools": [
+        "terminal"
+       ],
+       "ready": true,
+       "teaches": [
+        "wt"
+       ],
+       "uses": [
+        "branch"
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "newlearner_progress": [
+   {
+    "wait": 120,
+    "type": "progress",
+    "payload": {
+     "stageAnchor": "2026-11-22",
+     "skills": [
+      {
+       "track": "python",
+       "mastered": 5,
+       "total": 5,
+       "skills": [
+        {
+         "id": "setup",
+         "label": "Set up Python",
+         "state": "mastered",
+         "lessons": [
+          "py_first"
+         ],
+         "masteredAt": 1794168000,
+         "lastPracticedAt": 1794168000
+        },
+        {
+         "id": "vars",
+         "label": "Variables",
+         "state": "mastered",
+         "lessons": [
+          "py_first"
+         ],
+         "masteredAt": 1794168000,
+         "lastPracticedAt": 1794513600
+        },
+        {
+         "id": "func",
+         "label": "Functions",
+         "state": "mastered",
+         "lessons": [
+          "py_first"
+         ],
+         "masteredAt": 1794254400,
+         "lastPracticedAt": 1794513600,
+         "detail": "Name a piece of code and reuse it."
+        },
+        {
+         "id": "lists",
+         "label": "Lists",
+         "state": "mastered",
+         "lessons": [
+          "py_first"
+         ],
+         "masteredAt": 1794254400,
+         "lastPracticedAt": 1795291200
+        },
+        {
+         "id": "loops",
+         "label": "Loops",
+         "state": "mastered",
+         "lessons": [
+          "py_first"
+         ],
+         "masteredAt": 1794340800,
+         "lastPracticedAt": 1795291200
+        }
+       ],
+       "edges": [
+        {
+         "from": "setup",
+         "to": "vars"
+        },
+        {
+         "from": "vars",
+         "to": "func"
+        },
+        {
+         "from": "vars",
+         "to": "lists"
+        },
+        {
+         "from": "func",
+         "to": "loops"
+        },
+        {
+         "from": "lists",
+         "to": "loops"
+        }
+       ],
+       "cross": []
+      },
+      {
+       "track": "numpy",
+       "mastered": 2,
+       "total": 4,
+       "skills": [
+        {
+         "id": "arrays",
+         "label": "Arrays",
+         "state": "mastered",
+         "lessons": [
+          "numpy20"
+         ],
+         "masteredAt": 1794686400,
+         "lastPracticedAt": 1795377600
+        },
+        {
+         "id": "index",
+         "label": "Indexing",
+         "state": "mastered",
+         "lessons": [
+          "numpy20"
+         ],
+         "masteredAt": 1794859200,
+         "lastPracticedAt": 1795377600
+        },
+        {
+         "id": "broad",
+         "label": "Broadcasting",
+         "state": "practicing",
+         "lessons": [
+          "numpy20",
+          "imgfilters"
+         ],
+         "lastPracticedAt": 1795377600,
+         "detail": "Math on arrays of different shapes, with no loops."
+        },
+        {
+         "id": "vect",
+         "label": "Vectorized math",
+         "state": "not_started",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "arrays",
+         "to": "index"
+        },
+        {
+         "from": "index",
+         "to": "broad"
+        },
+        {
+         "from": "broad",
+         "to": "vect"
+        }
+       ],
+       "cross": [
+        {
+         "track": "python",
+         "label": "Loops",
+         "to": "arrays"
+        }
+       ]
+      },
+      {
+       "track": "pandas",
+       "mastered": 2,
+       "total": 4,
+       "skills": [
+        {
+         "id": "dfs",
+         "label": "DataFrames",
+         "state": "mastered",
+         "lessons": [
+          "pandas_csv"
+         ],
+         "masteredAt": 1794772800,
+         "lastPracticedAt": 1795032000
+        },
+        {
+         "id": "csv",
+         "label": "Reading CSVs",
+         "state": "mastered",
+         "lessons": [
+          "pandas_csv"
+         ],
+         "masteredAt": 1795032000,
+         "lastPracticedAt": 1795032000
+        },
+        {
+         "id": "clean",
+         "label": "Cleaning rows",
+         "state": "not_started",
+         "lessons": [
+          "pandas_clean"
+         ]
+        },
+        {
+         "id": "group",
+         "label": "Group and summarize",
+         "state": "not_started",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "dfs",
+         "to": "csv"
+        },
+        {
+         "from": "csv",
+         "to": "clean"
+        },
+        {
+         "from": "clean",
+         "to": "group"
+        }
+       ],
+       "cross": [
+        {
+         "track": "numpy",
+         "label": "Arrays",
+         "to": "dfs"
+        }
+       ]
+      },
+      {
+       "track": "math",
+       "mastered": 2,
+       "total": 4,
+       "skills": [
+        {
+         "id": "vec",
+         "label": "Vectors",
+         "state": "mastered",
+         "lessons": [
+          "linalg"
+         ],
+         "masteredAt": 1794600000,
+         "lastPracticedAt": 1795118400
+        },
+        {
+         "id": "dot",
+         "label": "Dot product",
+         "state": "mastered",
+         "lessons": [
+          "linalg"
+         ],
+         "masteredAt": 1794686400,
+         "lastPracticedAt": 1795118400
+        },
+        {
+         "id": "mat",
+         "label": "Matrices",
+         "state": "practicing",
+         "lessons": [
+          "linalg"
+         ],
+         "lastPracticedAt": 1795118400
+        },
+        {
+         "id": "eig",
+         "label": "Eigenvectors",
+         "state": "not_started",
+         "lessons": []
+        }
+       ],
+       "edges": [
+        {
+         "from": "vec",
+         "to": "dot"
+        },
+        {
+         "from": "dot",
+         "to": "mat"
+        },
+        {
+         "from": "mat",
+         "to": "eig"
+        }
+       ],
+       "cross": [
+        {
+         "track": "python",
+         "label": "Lists",
+         "to": "vec"
+        }
+       ]
+      },
+      {
+       "track": "neural networks",
+       "mastered": 0,
+       "total": 3,
+       "skills": [
+        {
+         "id": "neuron",
+         "label": "A single neuron",
+         "state": "not_started",
+         "lessons": [
+          "nn_neuron"
+         ],
+         "detail": "Weights, a bias and one activation."
+        },
+        {
+         "id": "layers",
+         "label": "Layers",
+         "state": "not_started",
+         "lessons": [
+          "pytorch15"
+         ]
+        },
+        {
+         "id": "grad",
+         "label": "Gradient descent",
+         "state": "not_started",
+         "lessons": [
+          "pytorch15"
+         ]
+        }
+       ],
+       "edges": [
+        {
+         "from": "neuron",
+         "to": "layers"
+        },
+        {
+         "from": "neuron",
+         "to": "grad"
+        }
+       ],
+       "cross": [
+        {
+         "track": "python",
+         "label": "Loops",
+         "to": "neuron"
+        },
+        {
+         "track": "math",
+         "label": "Dot product",
+         "to": "neuron"
+        },
+        {
+         "track": "numpy",
+         "label": "Broadcasting",
+         "to": "layers"
+        },
+        {
+         "track": "math",
+         "label": "Matrices",
+         "to": "layers"
+        }
+       ]
+      },
+      {
+       "track": "git",
+       "mastered": 2,
+       "total": 3,
+       "skills": [
+        {
+         "id": "git",
+         "label": "Git basics",
+         "state": "mastered",
+         "lessons": [
+          "git_intro"
+         ],
+         "masteredAt": 1794427200,
+         "lastPracticedAt": 1794945600
+        },
+        {
+         "id": "branch",
+         "label": "Branches",
+         "state": "mastered",
+         "lessons": [
+          "git_intro"
+         ],
+         "masteredAt": 1794945600,
+         "lastPracticedAt": 1794945600
+        },
+        {
+         "id": "wt",
+         "label": "Worktrees",
+         "state": "not_started",
+         "lessons": [
+          "git_wt"
+         ]
+        }
+       ],
+       "edges": [
+        {
+         "from": "git",
+         "to": "branch"
+        },
+        {
+         "from": "branch",
+         "to": "wt"
+        }
+       ],
+       "cross": [
+        {
+         "track": "python",
+         "label": "Set up Python",
+         "to": "git"
+        }
+       ]
+      }
+     ],
+     "completed": [
+      {
+       "lessonId": "py_first",
+       "title": "Write your first Python program",
+       "finishedAt": 1794340800,
+       "libraryId": "py_first"
+      },
+      {
+       "lessonId": "git_intro",
+       "title": "Git in 10 minutes",
+       "finishedAt": 1794945600,
+       "libraryId": "git_intro"
+      },
+      {
+       "lessonId": "pandas_csv",
+       "title": "Read a CSV with pandas",
+       "finishedAt": 1795032000,
+       "libraryId": "pandas_csv"
+      }
+     ],
+     "inProgress": [
+      {
+       "lessonId": "numpy20",
+       "title": "NumPy in 20 minutes",
+       "mode": "video",
+       "stepIndex": 4,
+       "stepCount": 9,
+       "passed": 4,
+       "stepTitle": "Stretch a column across a table",
+       "lastActiveAt": 1795370400,
+       "libraryId": "numpy20"
+      },
+      {
+       "lessonId": "linalg",
+       "title": "Linear algebra for code",
+       "mode": "lesson",
+       "stepIndex": 6,
+       "stepCount": 10,
+       "passed": 6,
+       "stepTitle": "Multiply two matrices",
+       "lastActiveAt": 1795118400,
+       "libraryId": "linalg"
+      }
+     ],
+     "review": {
+      "due": 3,
+      "items": [
+       {
+        "skillId": "func",
+        "label": "Functions",
+        "track": "python",
+        "dueAt": 1795291200,
+        "interval": 7,
+        "lastResult": "passed",
+        "lastAt": 1794686400
+       },
+       {
+        "skillId": "dfs",
+        "label": "DataFrames",
+        "track": "pandas",
+        "dueAt": 1795291200,
+        "interval": 3,
+        "lastResult": "passed",
+        "lastAt": 1795032000
+       },
+       {
+        "skillId": "dot",
+        "label": "Dot product",
+        "track": "math",
+        "dueAt": 1795366800,
+        "interval": 7,
+        "lastResult": "passed",
+        "lastAt": 1794772800
+       }
+      ]
+     },
+     "week": {
+      "minutes": 100,
+      "streak": null,
+      "days": [
+       true,
+       true,
+       false,
+       true,
+       false,
+       true,
+       false
+      ]
+     },
+     "graph": {
+      "skills": [
+       {
+        "id": "setup",
+        "label": "Set up Python",
+        "track": "python",
+        "state": "mastered",
+        "masteredAt": 1794168000,
+        "lastPracticedAt": 1794168000,
+        "lessons": [
+         {
+          "lessonId": "py_first",
+          "libraryId": "py_first",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "vars",
+        "label": "Variables",
+        "track": "python",
+        "state": "mastered",
+        "masteredAt": 1794168000,
+        "lastPracticedAt": 1794513600,
+        "lessons": [
+         {
+          "lessonId": "py_first",
+          "libraryId": "py_first",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "func",
+        "label": "Functions",
+        "track": "python",
+        "state": "mastered",
+        "masteredAt": 1794254400,
+        "lastPracticedAt": 1794513600,
+        "review": {
+         "dueAt": 1795291200
+        },
+        "summary": "Name a piece of code and reuse it.",
+        "lessons": [
+         {
+          "lessonId": "py_first",
+          "libraryId": "py_first",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "lists",
+        "label": "Lists",
+        "track": "python",
+        "state": "mastered",
+        "masteredAt": 1794254400,
+        "lastPracticedAt": 1795291200,
+        "lessons": [
+         {
+          "lessonId": "py_first",
+          "libraryId": "py_first",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "loops",
+        "label": "Loops",
+        "track": "python",
+        "state": "mastered",
+        "masteredAt": 1794340800,
+        "lastPracticedAt": 1795291200,
+        "lessons": [
+         {
+          "lessonId": "py_first",
+          "libraryId": "py_first",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "arrays",
+        "label": "Arrays",
+        "track": "numpy",
+        "state": "mastered",
+        "masteredAt": 1794686400,
+        "lastPracticedAt": 1795377600,
+        "lessons": [
+         {
+          "lessonId": "numpy20",
+          "libraryId": "numpy20",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "index",
+        "label": "Indexing",
+        "track": "numpy",
+        "state": "mastered",
+        "masteredAt": 1794859200,
+        "lastPracticedAt": 1795377600,
+        "lessons": [
+         {
+          "lessonId": "numpy20",
+          "libraryId": "numpy20",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "broad",
+        "label": "Broadcasting",
+        "track": "numpy",
+        "state": "practicing",
+        "evidence": {
+         "done": 2,
+         "total": 4
+        },
+        "lastPracticedAt": 1795377600,
+        "summary": "Math on arrays of different shapes, with no loops.",
+        "example": {
+         "code": "img - img.mean(axis=0)",
+         "caption": "Center every pixel of a photo in one line."
+        },
+        "lessons": [
+         {
+          "lessonId": "numpy20",
+          "libraryId": "numpy20",
+          "title": "NumPy in 20 minutes",
+          "stepIds": [
+           "np_s4",
+           "np_s5",
+           "np_s6",
+           "np_s7"
+          ],
+          "role": "teaches"
+         },
+         {
+          "lessonId": "imgfilters",
+          "title": "Image filters from scratch",
+          "stepIds": [
+           "if_s2"
+          ],
+          "role": "practices"
+         }
+        ]
+       },
+       {
+        "id": "vect",
+        "label": "Vectorized math",
+        "track": "numpy",
+        "state": "locked"
+       },
+       {
+        "id": "dfs",
+        "label": "DataFrames",
+        "track": "pandas",
+        "state": "mastered",
+        "masteredAt": 1794772800,
+        "lastPracticedAt": 1795032000,
+        "review": {
+         "dueAt": 1795291200
+        },
+        "lessons": [
+         {
+          "lessonId": "pandas_csv",
+          "libraryId": "pandas_csv",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "csv",
+        "label": "Reading CSVs",
+        "track": "pandas",
+        "state": "mastered",
+        "masteredAt": 1795032000,
+        "lastPracticedAt": 1795032000,
+        "lessons": [
+         {
+          "lessonId": "pandas_csv",
+          "libraryId": "pandas_csv",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "clean",
+        "label": "Cleaning rows",
+        "track": "pandas",
+        "state": "ready",
+        "lessons": [
+         {
+          "lessonId": "pandas_clean",
+          "libraryId": "pandas_clean",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "group",
+        "label": "Group and summarize",
+        "track": "pandas",
+        "state": "locked"
+       },
+       {
+        "id": "sales",
+        "label": "Sales report",
+        "track": "pandas",
+        "state": "locked",
+        "kind": "capstone"
+       },
+       {
+        "id": "vec",
+        "label": "Vectors",
+        "track": "math",
+        "state": "mastered",
+        "masteredAt": 1794600000,
+        "lastPracticedAt": 1795118400,
+        "lessons": [
+         {
+          "lessonId": "linalg",
+          "libraryId": "linalg",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "dot",
+        "label": "Dot product",
+        "track": "math",
+        "state": "mastered",
+        "masteredAt": 1794686400,
+        "lastPracticedAt": 1795118400,
+        "review": {
+         "dueAt": 1795366800
+        },
+        "lessons": [
+         {
+          "lessonId": "linalg",
+          "libraryId": "linalg",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "mat",
+        "label": "Matrices",
+        "track": "math",
+        "state": "practicing",
+        "evidence": {
+         "done": 3,
+         "total": 5
+        },
+        "lastPracticedAt": 1795118400,
+        "lessons": [
+         {
+          "lessonId": "linalg",
+          "libraryId": "linalg",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "eig",
+        "label": "Eigenvectors",
+        "track": "math",
+        "state": "locked"
+       },
+       {
+        "id": "neuron",
+        "label": "A single neuron",
+        "track": "neural networks",
+        "state": "ready",
+        "summary": "Weights, a bias and one activation.",
+        "lessons": [
+         {
+          "lessonId": "nn_neuron",
+          "libraryId": "nn_neuron",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "layers",
+        "label": "Layers",
+        "track": "neural networks",
+        "state": "locked",
+        "lessons": [
+         {
+          "lessonId": "pytorch15",
+          "libraryId": "pytorch15",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "grad",
+        "label": "Gradient descent",
+        "track": "neural networks",
+        "state": "locked",
+        "lessons": [
+         {
+          "lessonId": "pytorch15",
+          "libraryId": "pytorch15",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "fit",
+        "label": "Fit sin(x) with a network",
+        "track": "neural networks",
+        "state": "locked",
+        "kind": "capstone"
+       },
+       {
+        "id": "git",
+        "label": "Git basics",
+        "track": "git",
+        "state": "mastered",
+        "masteredAt": 1794427200,
+        "lastPracticedAt": 1794945600,
+        "lessons": [
+         {
+          "lessonId": "git_intro",
+          "libraryId": "git_intro",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "branch",
+        "label": "Branches",
+        "track": "git",
+        "state": "mastered",
+        "masteredAt": 1794945600,
+        "lastPracticedAt": 1794945600,
+        "lessons": [
+         {
+          "lessonId": "git_intro",
+          "libraryId": "git_intro",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "wt",
+        "label": "Worktrees",
+        "track": "git",
+        "state": "ready",
+        "lessons": [
+         {
+          "lessonId": "git_wt",
+          "libraryId": "git_wt",
+          "role": "teaches"
+         }
+        ]
+       },
+       {
+        "id": "pr",
+        "label": "Ship a pull request",
+        "track": "git",
+        "state": "locked",
+        "kind": "capstone"
+       }
+      ],
+      "edges": [
+       {
+        "from": "setup",
+        "to": "vars",
+        "kind": "requires"
+       },
+       {
+        "from": "vars",
+        "to": "func",
+        "kind": "requires"
+       },
+       {
+        "from": "vars",
+        "to": "lists",
+        "kind": "requires"
+       },
+       {
+        "from": "func",
+        "to": "loops",
+        "kind": "requires"
+       },
+       {
+        "from": "lists",
+        "to": "loops",
+        "kind": "requires"
+       },
+       {
+        "from": "loops",
+        "to": "arrays",
+        "kind": "requires"
+       },
+       {
+        "from": "arrays",
+        "to": "index",
+        "kind": "requires"
+       },
+       {
+        "from": "index",
+        "to": "broad",
+        "kind": "requires"
+       },
+       {
+        "from": "broad",
+        "to": "vect",
+        "kind": "requires"
+       },
+       {
+        "from": "arrays",
+        "to": "dfs",
+        "kind": "requires"
+       },
+       {
+        "from": "dfs",
+        "to": "csv",
+        "kind": "requires"
+       },
+       {
+        "from": "csv",
+        "to": "clean",
+        "kind": "requires"
+       },
+       {
+        "from": "clean",
+        "to": "group",
+        "kind": "requires"
+       },
+       {
+        "from": "group",
+        "to": "sales",
+        "kind": "requires"
+       },
+       {
+        "from": "lists",
+        "to": "vec",
+        "kind": "requires"
+       },
+       {
+        "from": "vec",
+        "to": "dot",
+        "kind": "requires"
+       },
+       {
+        "from": "dot",
+        "to": "mat",
+        "kind": "requires"
+       },
+       {
+        "from": "mat",
+        "to": "eig",
+        "kind": "requires"
+       },
+       {
+        "from": "loops",
+        "to": "neuron",
+        "kind": "requires"
+       },
+       {
+        "from": "dot",
+        "to": "neuron",
+        "kind": "requires"
+       },
+       {
+        "from": "broad",
+        "to": "layers",
+        "kind": "requires"
+       },
+       {
+        "from": "neuron",
+        "to": "layers",
+        "kind": "requires"
+       },
+       {
+        "from": "mat",
+        "to": "layers",
+        "kind": "requires"
+       },
+       {
+        "from": "layers",
+        "to": "fit",
+        "kind": "requires"
+       },
+       {
+        "from": "grad",
+        "to": "fit",
+        "kind": "requires"
+       },
+       {
+        "from": "neuron",
+        "to": "grad",
+        "kind": "requires"
+       },
+       {
+        "from": "setup",
+        "to": "git",
+        "kind": "requires"
+       },
+       {
+        "from": "git",
+        "to": "branch",
+        "kind": "requires"
+       },
+       {
+        "from": "branch",
+        "to": "wt",
+        "kind": "requires"
+       },
+       {
+        "from": "wt",
+        "to": "pr",
+        "kind": "requires"
+       }
+      ],
+      "capstones": [
+       {
+        "id": "fit",
+        "brief": "Train a small network until its curve matches sin(x).",
+        "requires": [
+         "loops",
+         "lists",
+         "arrays",
+         "vec",
+         "index",
+         "dot",
+         "broad",
+         "neuron",
+         "mat",
+         "layers",
+         "grad"
+        ],
+        "checks": [
+         "Loss falls under 0.01",
+         "The plot overlays sin(x)"
+        ],
+        "starterFile": "fit_sin.py",
+        "estMinutes": 40
+       },
+       {
+        "id": "sales",
+        "brief": "Turn a raw sales CSV into a monthly summary.",
+        "requires": [
+         "dfs",
+         "csv",
+         "clean",
+         "group"
+        ],
+        "estMinutes": 30
+       },
+       {
+        "id": "pr",
+        "brief": "Open a pull request from a worktree.",
+        "requires": [
+         "git",
+         "branch",
+         "wt"
+        ],
+        "estMinutes": 20
+       }
+      ],
+      "goal": null,
+      "ackedUntil": "2026-11-17T09:00:00Z",
+      "week": {
+       "mastered": 2,
+       "keptFresh": 3,
+       "minutes": 100,
+       "days": [
+        true,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+       ],
+       "weeklyGoal": 3,
+       "goalAway": 5
+      },
+      "portfolio": []
+     }
+    }
+   }
+  ]
+ }
+}
