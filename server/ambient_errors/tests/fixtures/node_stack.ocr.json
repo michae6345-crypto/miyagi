@@ -1,0 +1,168 @@
+{
+ "t": 0.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "api \u2014 -zsh \u2014 120\u00d734",
+   "rect": {
+    "x": 160.0,
+    "y": 110.0,
+    "w": 1180.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 73.0,
+ "frame": 1,
+ "source": "fixture:node_stack.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "api - -zsh - 120\u00d734",
+   "rect": {
+    "x": 698.2,
+    "y": 118.0,
+    "w": 110.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "sam@mac api % node server.js",
+   "rect": {
+    "x": 173.3,
+    "y": 150.5,
+    "w": 226.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "/Users/sam/code/api/server.js:12",
+   "rect": {
+    "x": 173.3,
+    "y": 170.7,
+    "w": 256.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "const port = config.port;",
+   "rect": {
+    "x": 173.3,
+    "y": 188.3,
+    "w": 200.9,
+    "h": 25.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "TypeError: Cannot read properties of undefined (reading 'port')",
+   "rect": {
+    "x": 170.8,
+    "y": 246.0,
+    "w": 507.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "at Object.<anonymous> (/Users/sam/code/api/server.js:12:21)",
+   "rect": {
+    "x": 203.4,
+    "y": 263.5,
+    "w": 474.7,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "at Module._compile (node:internal/modules/cjs/loader:1554:14)",
+   "rect": {
+    "x": 203.4,
+    "y": 283.5,
+    "w": 492.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "at Object..js (node:internal/modules/cjs/loader:1706:10)",
+   "rect": {
+    "x": 203.4,
+    "y": 303.5,
+    "w": 452.1,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "at Module.load (node:internal/modules/cjs/loader:1289:32)",
+   "rect": {
+    "x": 206.0,
+    "y": 321.3,
+    "w": 457.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "Node.js v22.11.0",
+   "rect": {
+    "x": 170.8,
+    "y": 358.9,
+    "w": 133.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "sam@mac api %",
+   "rect": {
+    "x": 173.3,
+    "y": 379.0,
+    "w": 108.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  }
+ ]
+}

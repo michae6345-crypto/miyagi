@@ -1,0 +1,204 @@
+{
+ "t": 0.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "api \u2014 -zsh \u2014 120\u00d734",
+   "rect": {
+    "x": 160.0,
+    "y": 110.0,
+    "w": 1180.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 92.3,
+ "frame": 1,
+ "source": "fixture:git_error.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "ap\u0131 - -zsh - 120x34",
+   "rect": {
+    "x": 698.0,
+    "y": 119.5,
+    "w": 108.4,
+    "h": 11.3
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "sam@mac api % git push",
+   "rect": {
+    "x": 173.3,
+    "y": 150.5,
+    "w": 180.8,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "To github.com:sam/api.git",
+   "rect": {
+    "x": 173.3,
+    "y": 170.5,
+    "w": 203.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "! Irejected]",
+   "rect": {
+    "x": 180.8,
+    "y": 188.3,
+    "w": 98.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "main \u2192> main (fetch first)",
+   "rect": {
+    "x": 339.1,
+    "y": 190.8,
+    "w": 208.5,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "error: talled to push some rets to",
+   "rect": {
+    "x": 173.3,
+    "y": 210.8,
+    "w": 273.8,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "glthub.com:sam/apl.git'",
+   "rect": {
+    "x": 452.1,
+    "y": 210.8,
+    "w": 193.4,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "n\u0131nt: updates were rejected because the remote contalns work that you do not",
+   "rect": {
+    "x": 173.3,
+    "y": 230.9,
+    "w": 607.8,
+    "h": 10.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "hint: have locally. This is",
+   "rect": {
+    "x": 173.3,
+    "y": 246.0,
+    "w": 221.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "usually caused by another repository pushing to",
+   "rect": {
+    "x": 394.3,
+    "y": 248.5,
+    "w": 379.3,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "hint: the same ref. If you want to integrate the remote changes, use",
+   "rect": {
+    "x": 173.3,
+    "y": 263.5,
+    "w": 547.5,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "hint:",
+   "rect": {
+    "x": 173.3,
+    "y": 283.6,
+    "w": 42.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "git pull' before pushing again.",
+   "rect": {
+    "x": 218.5,
+    "y": 286.0,
+    "w": 258.7,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "samdmac a0l %",
+   "rect": {
+    "x": 173.3,
+    "y": 306.0,
+    "w": 105.5,
+    "h": 8.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "api \u2014 -zsh \u2014 120\u00d734"
+  }
+ ]
+}

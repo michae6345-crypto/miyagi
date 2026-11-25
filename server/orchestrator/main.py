@@ -67,6 +67,7 @@ from server.skilltree import service as skills_service
 from server.plans import progress as plans_progress
 from server.plans import service as plans_service
 
+from . import ambient as ambient_mod
 from . import config, recorder, skill_hooks, stage
 from . import curated as curated_mod
 from .hub import Hub, log_received
@@ -135,6 +136,8 @@ SKILL_INSTANT = frozenset({"proof.get"})
 # ui-v4 plans (server/plans/service.py): answered beside the queue. A plan lesson starts through learn / learn_url /
 # library.start carrying plan {id, index}.
 PLAN_INSTANT = frozenset(plans_service.COMMANDS)
+# ambient help (Nov 24, AMBIENT-HELP.md): explain this error (orchestrator/ambient.py), answered beside the queue
+AMBIENT_INSTANT = frozenset(ambient_mod.COMMANDS)
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed",
                      "ask.warm"})  # ask.warm: the push-to-talk hold; never waits behind a build (coach/fast_ask.py)
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start", "review.start"})  # each replaces a running build
@@ -659,6 +662,9 @@ class Engine:
         self._reads_gen = 0  # bumped by forget_reads: an older in-flight read must not cache its stale result
         # the plan lesson running now (ui-v4 plans): (plan id, index, engine lesson id once lesson.ready linked it)
         self._plan_ref: tuple[str, int, str | None] | None = None
+        # ambient help (Nov 24): spot errors outside a lesson, explain one on a click (orchestrator/ambient.py)
+        self.ambient = ambient_mod.AmbientErrors(self.hub, self.session)
+        self.session.ambient_screen = self.ambient.wants_screen  # the reader runs for it outside a lesson
 
     def _lesson_id(self) -> str | None:
         return (self.session.graph or {}).get("lesson", {}).get("id")
@@ -781,7 +787,7 @@ class Engine:
             # while the port opens; reads answer "nothing" until the reader is up (bridge.reader is None).
             self._screen_boot = asyncio.create_task(self._start_screen(asyncio.get_running_loop()))
         else:
-            self._screen_up(self.screen.start(self.session.on_screen))
+            self._screen_up(self.screen.start(self.on_screen))
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
@@ -796,6 +802,16 @@ class Engine:
         log.info("engine up: demo=%s modules=%s workdir=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, config.precision_setting())
 
+    async def on_screen(self, obs: Any = None) -> None:
+        """A new screen frame: the lesson's while a lesson step runs; spotting errors' (ambient help) while the reader
+        runs only for that, so the lesson keeps no frame of other apps outside a lesson (E3)."""
+        s = self.session
+        ambient = getattr(self, "ambient", None)
+        if ambient is not None and s._screen_off_reason() is not None and ambient.wants_screen():
+            await ambient.on_obs(obs)
+            return
+        await s.on_screen(obs)
+
     def _screen_up(self, ok: bool) -> None:
         if not ok:
             self.session.screen = None  # precision mode only (files + tut run)
@@ -805,7 +821,7 @@ class Engine:
     async def _start_screen(self, loop: asyncio.AbstractEventLoop) -> None:
         t0 = time.monotonic()
         try:
-            ok = await asyncio.to_thread(self.screen.start, self.session.on_screen, loop)
+            ok = await asyncio.to_thread(self.screen.start, self.on_screen, loop)
         except Exception:  # noqa: BLE001 - never kill the engine
             log.exception("screen start failed")
             ok = False
@@ -868,6 +884,8 @@ class Engine:
         caps.append("proof.get")  # ui-v4 skill tree: a pass's proof (server/skilltree/proofs.py); the tree rides on progress
         caps.append("ask.warm")  # push-to-talk hold: open the keep-alive links, warm the ask's cache (coach/fast_ask.py)
         caps += list(plans_service.COMMANDS)  # ui-v4 plans (server/plans); learn / learn_url / library.start take plan
+        if getattr(self, "ambient", None) is not None:
+            caps += list(ambient_mod.COMMANDS)  # ambient help: spot errors, explain one (orchestrator/ambient.py)
         return caps
 
     def hello(self, restored: bool = False) -> dict:
@@ -1286,6 +1304,11 @@ class Engine:
                     await self.activity.tick(self.session)  # active lesson minutes (idle left out)
                 except Exception:
                     log.exception("activity tick failed")
+            if getattr(self, "ambient", None) is not None:
+                try:
+                    await self.ambient.tick()  # ambient help: an error on screen 1 s becomes error.seen; gone -> clear
+                except Exception:
+                    log.exception("ambient tick failed")
 
     async def _avoid_loop(self) -> None:
         """t9: every 0.5 s while a lesson runs, VS Code's quick-pick -> screen.avoid when it changed (quick_pick.py)."""
@@ -1339,6 +1362,9 @@ class Engine:
         elif msg.type in PLAN_INSTANT:
             s.note_app_v2()  # only a ui-v4 app sends plans messages: it draws the v2 surfaces
             await plans_service.handle(msg.type, p, reply)
+        elif msg.type in AMBIENT_INSTANT:  # ambient help: ambient.set, error.explain, error.dismiss
+            s.note_app_v2()
+            await self.ambient.handle(msg.type, p, ws, reply)
         elif msg.type == "library.start":
             await self.plan_lesson(getattr(p, "plan", None), library_id=p.id)
             await self.library_start(p.id)
@@ -1663,7 +1689,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 except Exception:
                     log.exception("bad %s: %s", _brief(raw), _redact(raw))
             elif (raw.get("type") in V2_INSTANT or raw.get("type") in SKILL_INSTANT
-                  or raw.get("type") in PLAN_INSTANT):  # a read never waits behind a build
+                  or raw.get("type") in PLAN_INSTANT
+                  or raw.get("type") in AMBIENT_INSTANT):  # a read never waits behind a build
                 t = asyncio.create_task(answer(raw))
                 side.add(t)
                 t.add_done_callback(side.discard)
@@ -1681,6 +1708,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     finally:
         engine.hub.drop(ws, why)
         engine._offered_to.discard(ws)
+        engine.ambient.drop(ws)  # ambient help: that app's "Spot errors" goes with it
         if not engine.hub.clients:
             engine.last_client_gone = time.monotonic()
             engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)

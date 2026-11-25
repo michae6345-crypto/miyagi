@@ -1,0 +1,120 @@
+{
+ "t": 0.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "weather-app \u2014 -zsh \u2014 120\u00d734",
+   "rect": {
+    "x": 160.0,
+    "y": 110.0,
+    "w": 1180.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 222.5,
+ "frame": 1,
+ "source": "fixture:python_traceback.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "weather-ano - -7sh - 120x34",
+   "rect": {
+    "x": 675.6,
+    "y": 120.5,
+    "w": 160.7,
+    "h": 7.5
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "Samdmac weatner-aoo \u2022 ovinons apo.ov",
+   "rect": {
+    "x": 173.3,
+    "y": 155.5,
+    "w": 288.8,
+    "h": 7.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "Traceback (most recent call last):",
+   "rect": {
+    "x": 173.3,
+    "y": 170.5,
+    "w": 273.8,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "File /Users/sam/code/weather-app/app.py\", line 3, in <module>",
+   "rect": {
+    "x": 188.4,
+    "y": 190.8,
+    "w": 497.3,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "\u0131mport pandas as pd",
+   "rect": {
+    "x": 206.0,
+    "y": 210.8,
+    "w": 153.2,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "ModuleNotFoundError: No module named 'pandas'",
+   "rect": {
+    "x": 170.8,
+    "y": 225.9,
+    "w": 361.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "samamac weather-app",
+   "rect": {
+    "x": 173.3,
+    "y": 248.5,
+    "w": 168.3,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  }
+ ]
+}

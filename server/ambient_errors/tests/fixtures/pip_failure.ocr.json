@@ -1,0 +1,96 @@
+{
+ "t": 0.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "ml \u2014 -zsh \u2014 120\u00d734",
+   "rect": {
+    "x": 120.0,
+    "y": 110.0,
+    "w": 1480.0,
+    "h": 520.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 66.8,
+ "frame": 1,
+ "source": "fixture:pip_failure.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "ml - -zsh - 120x34",
+   "rect": {
+    "x": 808.7,
+    "y": 118.0,
+    "w": 110.5,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "ml \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "(.venv) sam@mac ml % pip install",
+   "rect": {
+    "x": 133.1,
+    "y": 150.5,
+    "w": 261.2,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "ml \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "ERROR: Couldnot find a version that satisfies the requirement tensorflow==2.3 (from versions:",
+   "rect": {
+    "x": 133.0,
+    "y": 155.2,
+    "w": 758.8,
+    "h": 35.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "ml \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "ERROR: No matching distribution found for tensorflow==2.3",
+   "rect": {
+    "x": 133.1,
+    "y": 188.3,
+    "w": 459.6,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "ml \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "(-venv) sam@mac ml %",
+   "rect": {
+    "x": 133.1,
+    "y": 208.3,
+    "w": 163.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "ml \u2014 -zsh \u2014 120\u00d734"
+  }
+ ]
+}
