@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en-US" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Array.prototype.map() - JavaScript | MDN</title>
+<meta property="og:site_name" content="MDN Web Docs">
+<meta name="description" content="The map() method of Array instances creates a new array from the results of a function.">
+<link rel="canonical" href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map">
+<script>window.__data = {"doc": {"title": "map"}};</script>
+<style>.code-example { margin: 1em 0 } .hidden { display: none }</style>
+</head>
+<body>
+<ul id="nav-access" class="a11y-nav"><li><a class="skip-link" href="#content">Skip to main content</a></li><li><a href="#search">Skip to search</a></li></ul>
+<div class="page-wrapper category-javascript document-page">
+<div class="top-navigation-wrap">
+<header class="top-navigation"><div class="container"><a href="/en-US/" class="logo" aria-label="MDN homepage">MDN</a>
+<nav class="main-nav" aria-label="Main menu"><ul class="main-menu"><li><a href="/en-US/docs/Web">References</a></li><li><a href="/en-US/docs/Learn">Guides</a></li><li><a href="/en-US/plus">Plus</a></li><li><a href="/en-US/blog/">Blog</a></li></ul></nav>
+<form class="search-form" role="search"><input type="search" name="q" placeholder="Search MDN"><button type="submit">Search</button></form>
+</div></header>
+</div>
+<div class="article-actions-container"><nav class="breadcrumbs-container" aria-label="Breadcrumb"><ol><li><a href="/en-US/docs/Web">References</a></li><li><a href="/en-US/docs/Web/JavaScript">JavaScript</a></li><li><a href="#">map()</a></li></ol></nav></div>
+<div class="main-wrapper">
+<div class="sidebar-container"><aside class="sidebar" id="sidebar-quicklinks"><nav><ol><li><strong>Array</strong></li><li><a href="#">Array.prototype.at()</a></li><li><a href="#">Array.prototype.concat()</a></li><li><a href="#">Array.prototype.filter()</a></li><li><a href="#">Array.prototype.forEach()</a></li><li><a href="#">Array.prototype.reduce()</a></li></ol></nav></aside></div>
+<div class="toc-container"><aside class="toc"><nav><h2 class="toc-heading">In this article</h2><ul><li><a href="#try_it">Try it</a></li><li><a href="#syntax">Syntax</a></li><li><a href="#examples">Examples</a></li></ul></nav></aside></div>
+<main id="content" class="main-content">
+<article class="main-page-content" lang="en-US">
+<header><h1>Array.prototype.map()</h1></header>
+<div class="section-content"><p><span class="badge">Baseline</span> Widely available</p></div>
+<div class="section-content"><p>The <strong><code>map()</code></strong> method of <a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array"><code>Array</code></a> instances builds a brand new array, filled with whatever a function you give it returns for each element of the array it is called on. The original array is left as it was, and the new array always has the same length.</p></div>
+<section aria-labelledby="try_it"><h2 id="try_it"><a href="#try_it">Try it</a></h2>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span><button class="copy-icon" type="button"><span class="visually-hidden">Copy to Clipboard</span></button></div>
+<pre class="brush: js notranslate"><code>const numbers = [1, 4, 9, 16];
+
+// Pass a function to map
+const doubled = numbers.map((x) =&gt; x * 2);
+
+console.log(doubled);
+// Expected output: Array [2, 8, 18, 32]</code></pre></div>
+</section>
+<section aria-labelledby="syntax"><h2 id="syntax"><a href="#syntax">Syntax</a></h2>
+<div class="code-example"><div class="example-header"><span class="language-name">js-nolint</span></div><pre class="brush: js notranslate"><code>map(callbackFn)
+map(callbackFn, thisArg)</code></pre></div>
+<h3 id="parameters"><a href="#parameters">Parameters</a></h3>
+<dl><dt><code>callbackFn</code></dt><dd><p>A function called once for every element. What it returns becomes one element of the new array. It receives the element, its index, and the array itself.</p></dd>
+<dt><code>thisArg</code> <span class="badge inline optional">Optional</span></dt><dd><p>A value used as <code>this</code> while <code>callbackFn</code> runs.</p></dd></dl>
+<h3 id="return_value"><a href="#return_value">Return value</a></h3>
+<p>A new array in which each element is what <code>callbackFn</code> returned for the element at the same position.</p>
+</section>
+<section aria-labelledby="examples"><h2 id="examples"><a href="#examples">Examples</a></h2>
+<h3 id="mapping_an_array_of_numbers_to_square_roots"><a href="#mapping_an_array_of_numbers_to_square_roots">Mapping an array of numbers to square roots</a></h3>
+<p>This example takes an array of numbers and returns a new array holding the square root of each one, leaving the first array untouched.</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div><pre class="brush: js notranslate"><code>const values = [1, 4, 9];
+const roots = values.map((n) =&gt; Math.sqrt(n));
+
+// roots is now     [1, 2, 3]
+// values is still  [1, 4, 9]</code></pre></div>
+<h3 id="using_map_to_reformat_objects"><a href="#using_map_to_reformat_objects">Using map to reformat objects in an array</a></h3>
+<p>Here an array of records becomes an array of new objects with a different shape. Watch the <code>&lt;</code> and <code>&amp;&amp;</code> survive.</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div><pre class="brush: js notranslate"><code>const records = [
+  { key: 1, value: 10 },
+  { key: 2, value: 20 },
+];
+
+const reformatted = records.map(({ key, value }) =&gt; ({ [key]: value }));
+if (reformatted.length &lt; 3 &amp;&amp; reformatted[0]) {
+    console.log(reformatted); // [{ 1: 10 }, { 2: 20 }]
+}</code></pre></div>
+<img src="/shared-assets/images/map-diagram.png" alt="Diagram of map" width="600" height="200">
+</section>
+<section aria-labelledby="specifications"><h2 id="specifications"><a href="#specifications">Specifications</a></h2>
+<table class="standard-table"><thead><tr><th scope="col">Specification</th></tr></thead><tbody><tr><td>ECMAScript Language Specification, array.prototype.map</td></tr></tbody></table>
+</section>
+</article>
+<aside class="article-footer"><div class="article-footer-inner"><h2>Help improve MDN</h2><p>Was this page helpful to you?</p><button>Yes</button><button>No</button><a href="#">Learn how to contribute</a></div></aside>
+</main>
+</div>
+<footer id="nav-footer" class="page-footer"><div class="page-footer-grid"><p>Your blueprint for a better internet.</p><ul><li><a href="#">About</a></li><li><a href="#">Blog</a></li><li><a href="#">Careers</a></li></ul></div></footer>
+</div>
+<div class="cookie-banner" role="dialog"><p>We use cookies to understand how people use this site. <button>Accept</button> <button>Reject</button></p></div>
+</body>
+</html>
