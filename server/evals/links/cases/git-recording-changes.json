@@ -1,0 +1,27 @@
+{
+  "id": "git-recording-changes",
+  "url": "https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository",
+  "page": "git-recording-changes.html",
+  "notes": "The Git book: console blocks with '$' prompts and output. No <main>: the reader works from <body>. The echo-into-README line is a redirect the engine refuses; the git commands must all land.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Git Basics - Recording Changes to the Repository",
+    "site": "git-scm.com",
+    "code": [
+      "git init",
+      "git status",
+      "git add README",
+      "git commit -m \"Add a README\"",
+      "git log --oneline"
+    ],
+    "absent": [
+      "Search entire site",
+      "Full translation available",
+      "fast-version-control"
+    ]
+  }
+}

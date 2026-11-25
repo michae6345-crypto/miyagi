@@ -1,0 +1,20 @@
+{
+  "id": "blender-manual-extrude",
+  "url": "https://docs.blender.org/manual/en/latest/modeling/meshes/editing/face/extrude_region.html",
+  "page": "blender-manual-extrude.html",
+  "notes": "Blender manual: numbered steps in the app (press Tab, E, click), no code at all. Teachable as an app lesson; the build must not need code.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      2,
+      8
+    ],
+    "title": "Extrude Region",
+    "site": "docs.blender.org",
+    "code": [],
+    "absent": [
+      "Report issue on this page",
+      "Search docs"
+    ]
+  }
+}

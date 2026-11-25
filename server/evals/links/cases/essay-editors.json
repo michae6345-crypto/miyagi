@@ -1,0 +1,11 @@
+{
+  "id": "essay-editors",
+  "url": "https://fieldnotes.example.com/essays/why-i-switched-editors",
+  "page": "essay-editors.html",
+  "notes": "An opinion essay with a numbered list of reasons (not actions) and one inline `:wq`.",
+  "expect": {
+    "refusal": "not_teachable",
+    "title": "Why I switched editors after ten years",
+    "author": "Priya Natarajan"
+  }
+}

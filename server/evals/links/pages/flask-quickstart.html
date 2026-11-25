@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quickstart — Flask Documentation (3.1.x)</title>
+</head>
+<body>
+<div class="related" role="navigation" aria-label="related navigation"><h3>Navigation</h3><ul><li><a href="genindex.html">index</a></li><li><a href="tutorial/index.html">next</a> |</li><li><a href="installation.html">previous</a> |</li><li><a href="index.html">Flask Documentation (3.1.x)</a> »</li></ul></div>
+<div class="document"><div class="documentwrapper"><div class="bodywrapper"><div class="body" role="main">
+<section id="quickstart">
+<h1>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">¶</a></h1>
+<p>Eager to get started? This page gives a good introduction to Flask. Follow <a href="installation.html">Installation</a>
+to set up a project and install Flask first.</p>
+<section id="installing">
+<h2>Installing<a class="headerlink" href="#installing">¶</a></h2>
+<p>In your project's virtual environment, install Flask with pip:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ pip install Flask
+</pre></div></div>
+</section>
+<section id="a-minimal-application">
+<h2>A Minimal Application<a class="headerlink" href="#a-minimal-application">¶</a></h2>
+<p>A minimal Flask application looks like this. Save it as <code>hello.py</code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">Flask</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">hello_world</span><span class="p">():</span>
+    <span class="k">return</span> <span class="s2">"&lt;p&gt;Hello, World!&lt;/p&gt;"</span>
+</pre></div></div>
+<p>So what did that code do? It imports the <code>Flask</code> class, makes an instance of it (the application), and uses the
+<code>route()</code> decorator to tell Flask which URL runs the function. The function returns the page the browser shows.</p>
+<p>To run the application, use the <code>flask</code> command. Tell it where the application is with <code>--app</code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ flask --app hello run
+ * Serving Flask app 'hello'
+ * Running on http://127.0.0.1:5000 (Press CTRL+C to quit)
+</pre></div></div>
+<p>Now head over to <a class="reference external" href="http://127.0.0.1:5000/">http://127.0.0.1:5000/</a> and you should see your hello world greeting.</p>
+</section>
+<section id="routing">
+<h2>Routing<a class="headerlink" href="#routing">¶</a></h2>
+<p>Use the <code>route()</code> decorator to bind a function to a URL. Add a second page to <code>hello.py</code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">"/hello"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">hello</span><span class="p">():</span>
+    <span class="k">return</span> <span class="s2">"Hello, from the second page"</span>
+</pre></div></div>
+</section>
+<section id="variable-rules">
+<h2>Variable Rules<a class="headerlink" href="#variable-rules">¶</a></h2>
+<p>You can add variable sections to a URL by marking them with <code>&lt;variable_name&gt;</code>. The function receives the value as a keyword argument:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">markupsafe</span> <span class="kn">import</span> <span class="n">escape</span>
+
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">"/user/&lt;username&gt;"</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">show_user_profile</span><span class="p">(</span><span class="n">username</span><span class="p">):</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"User </span><span class="si">{</span><span class="n">escape</span><span class="p">(</span><span class="n">username</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span>
+</pre></div></div>
+</section>
+</section>
+<div class="clearer"></div>
+</div></div></div>
+<div class="sphinxsidebar" role="navigation" aria-label="main navigation"><div class="sphinxsidebarwrapper"><h3>Contents</h3><ul><li><a href="#">Quickstart</a></li></ul>
+<h3>Navigation</h3><ul><li><a href="index.html">Overview</a></li></ul><div id="searchbox" role="search"><form><input type="text" name="q"></form></div></div></div>
+<div class="clearer"></div></div>
+<div class="footer" role="contentinfo">© Copyright 2010 Pallets. Created using Sphinx.</div>
+</body>
+</html>

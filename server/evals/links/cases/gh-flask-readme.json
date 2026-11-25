@@ -1,0 +1,24 @@
+{
+  "id": "gh-flask-readme",
+  "url": "https://github.com/Pallets/Flask.git",
+  "page": "gh-flask-readme.md",
+  "notes": "A GitHub README (Markdown) with badges, an HTML logo block, a bash block, a python block and a console block; the link spelled with capitals and .git.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Flask",
+    "site": "github.com/pallets/flask",
+    "code": [
+      "pip install -U Flask",
+      "def hello():",
+      "flask run"
+    ],
+    "absent": [
+      "shields.io",
+      "img src"
+    ]
+  }
+}

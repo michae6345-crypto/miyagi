@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta property="og:title" content="12. Virtual Environments and Packages">
+<title>12. Virtual Environments and Packages &#8212; Python 3.13 documentation</title>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXX"></script>
+</head>
+<body>
+<div id="cookie-consent" class="cookie-banner">
+  <p>We use cookies to understand how the docs are used. <button>Accept all cookies</button> <button>Reject</button></p>
+</div>
+<div class="announcement-banner">Python 3.14 is out! <a href="/3.14/whatsnew">See what's new</a>.</div>
+<header class="site-header">
+  <a href="/" class="logo">Python docs</a>
+  <form class="search" action="/search.html"><input type="text" name="q" placeholder="Quick search"><button>Go</button></form>
+</header>
+<div class="document">
+<div class="sphinxsidebar" role="navigation">
+  <h3>Table of Contents</h3>
+  <ul><li><a href="#">12. Virtual Environments and Packages</a><ul><li>12.1 Introduction</li><li>12.2 Creating</li><li>12.3 pip</li></ul></li></ul>
+  <h4>Next topic</h4><p><a href="whatnow.html">13. What Now?</a></p>
+</div>
+<div class="body" role="main">
+<section id="virtual-environments-and-packages">
+<h1>12. Virtual Environments and Packages<a class="headerlink" href="#virtual-environments-and-packages">¶</a></h1>
+<p class="last-updated">Last updated on Nov 23, 2026</p>
+<section id="introduction">
+<h2>12.1. Introduction<a class="headerlink" href="#introduction">¶</a></h2>
+<p>Python programs often use packages that are not part of the standard library. Sometimes a program needs one
+particular version of a package, and another program on the same computer needs a different one. Installing both
+into one shared place cannot satisfy both programs at the same time.</p>
+<p>The answer is a <em>virtual environment</em>: a self-contained folder that holds its own Python and its own set of
+installed packages. Each project can have one, and what you install into one never touches the others.</p>
+</section>
+<section id="creating-virtual-environments">
+<h2>12.2. Creating Virtual Environments<a class="headerlink" href="#creating-virtual-environments">¶</a></h2>
+<p>The module used to create and manage virtual environments is called <a href="../library/venv.html"><code>venv</code></a>.
+To create one, choose a folder for it and run the venv module as a script with the folder's name:</p>
+<div class="highlight-shell"><div class="highlight"><button class="copy-button" title="Copy">Copy</button><pre>python3 -m venv tutorial-env
+</pre></div></div>
+<p>This makes the <code>tutorial-env</code> folder if it does not exist, and puts a copy of the interpreter and some supporting files inside it.</p>
+<p>Once it exists, activate it. On macOS and Linux, run:</p>
+<div class="highlight-shell"><div class="highlight"><button class="copy-button">Copy</button><pre>source tutorial-env/bin/activate
+</pre></div></div>
+<p>Activating changes your shell prompt to show which environment you are using, and makes <code>python</code> run the environment's interpreter:</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="gp">$ </span>python
+<span class="go">Python 3.13.0 (main, Oct  7 2026, 10:12:31)</span>
+<span class="gp">$ </span>deactivate
+</pre></div></div>
+</section>
+<section id="managing-packages-with-pip">
+<h2>12.3. Managing Packages with pip<a class="headerlink" href="#managing-packages-with-pip">¶</a></h2>
+<p>You install, upgrade and remove packages with a program called <strong>pip</strong>. Inside an active environment, install the latest version of a package by naming it:</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="gp">(tutorial-env) $ </span>python -m pip install requests
+<span class="go">Collecting requests</span>
+<span class="go">Successfully installed requests-2.32.3</span>
+</pre></div></div>
+<p><code>python -m pip show requests</code> prints what it knows about one package, and <code>python -m pip list</code> lists every package in the environment:</p>
+<div class="highlight-shell"><div class="highlight"><pre>python -m pip list
+</pre></div></div>
+<p>Write the installed packages to a file so someone else can install the same ones:</p>
+<div class="highlight-shell"><div class="highlight"><pre>python -m pip freeze &gt; requirements.txt
+</pre></div></div>
+<p>Then anyone can recreate the environment's packages from that file:</p>
+<div class="highlight-shell"><div class="highlight"><pre>python -m pip install -r requirements.txt
+</pre></div></div>
+</section>
+</section>
+<div class="newsletter-signup"><h3>Sign up for our newsletter</h3><p>Monthly news from the Python world.</p></div>
+<div class="feedback">Was this page helpful? Yes / No</div>
+</div>
+</div>
+<footer>
+  <p>© Copyright 2001-2026, Python Software Foundation.</p>
+  <p>Last updated on Nov 23, 2026.</p>
+</footer>
+</body>
+</html>
