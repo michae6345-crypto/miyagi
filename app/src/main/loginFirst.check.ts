@@ -2,8 +2,11 @@
  * Login-first source check (lane login-first): `npx tsx src/main/loginFirst.check.ts` from app/. Exits 1 on a failure.
  *
  * Scans main/index.ts so the launch gate (main/gate.ts) can't be bypassed by a later edit:
- *   - overlay.showInactive and globalShortcut.register(platform.accelerators.launcher, …) appear only inside a gate
- *     guard: a gateCore({…}) or onGate(…) call, or an `if (gateIsOpen())` block
+ *   - overlay.showInactive (and any direct globalShortcut.register(platform.accelerators.launcher, …)) appears only inside
+ *     a gate guard: a gateCore({…}) or onGate(…) call, or an `if (gateIsOpen())` block
+ *   - live custom shortcuts (main/shortcutKeys.ts): globalShortcut.register is called only from the createShortcutKeys({…})
+ *     ops (plus the quit key), that controller's `live` is shortcutLive, shortcutLive starts with
+ *     `if (!gateIsOpen()) return false`, and launcherWanted (the launcher's say) is set only inside gateCore({…})
  *   - no app.on('second-instance', …) handler (features/launch.ts owns it: it opens home, not the launcher)
  *   - openLauncher() and registerActionShortcuts() return early while the gate is closed
  *   - the lesson.ready → registerActionShortcuts hook and the pill's launcher:toggle check the gate
@@ -81,6 +84,35 @@ function guardsFirst(fn: string): void {
 guardsFirst('openLauncher')
 guardsFirst('registerActionShortcuts')
 
+// Live custom shortcuts: every launcher / lesson key registers through the shortcutKeys controller, which asks
+// shortcutLive, which is shut while the gate is.
+const keysCall = /\bcreateShortcutKeys\s*\(\s*\{/.exec(src)
+if (!keysCall) fail('index.ts never calls createShortcutKeys({...}): the shortcut keys do not follow the gate')
+else {
+  const open = keysCall.index + keysCall[0].length - 1
+  const span: [number, number] = [open, closeOf(open)]
+  const body = src.slice(span[0], span[1])
+  if (!/\blive\s*:\s*shortcutLive\b/.test(body)) fail('index.ts: createShortcutKeys({...}) must take live: shortcutLive')
+  for (const m of src.matchAll(/\bglobalShortcut\.register\s*\(/g)) {
+    const at = m.index ?? 0
+    const inKeys = at > span[0] && at < span[1]
+    const quit = /^globalShortcut\.register\s*\(\s*quitKey\b/.test(src.slice(at))
+    if (!inKeys && !quit) fail(`index.ts:${lineOf(at)} globalShortcut.register outside the shortcutKeys controller (or the quit key)`)
+  }
+}
+const live = /function shortcutLive\([^)]*\)[^{]*\{/.exec(src)
+if (!live) fail('index.ts: function shortcutLive not found')
+else {
+  const body = src.slice(live.index + live[0].length, closeOf(live.index + live[0].length - 1))
+  const first = body.trim().split('\n')[0] ?? ''
+  if (!/^if \(!gateIsOpen\(\)\) return false\b/.test(first)) fail(`index.ts: shortcutLive() must start with if (!gateIsOpen()) return false (found: ${first.trim()})`)
+}
+for (const m of src.matchAll(/\blauncherWanted\s*=(?!=)/g)) {
+  const at = m.index ?? 0
+  const decl = /\blet\s+$/.test(src.slice(Math.max(0, at - 8), at))
+  if (!decl && !inGuard(at)) fail(`index.ts:${lineOf(at)} launcherWanted set outside a gate guard`)
+}
+
 if (!/e\.type === 'lesson\.ready' && gateIsOpen\(\)\) registerActionShortcuts\(\)/.test(src)) fail("index.ts: the lesson.ready hook must check gateIsOpen() before registerActionShortcuts()")
 const toggle = /case 'launcher:toggle':([\s\S]*?)break/.exec(src)
 if (!toggle || !/gateIsOpen\(\)\) openLauncher\(\)/.test(toggle[1])) fail("index.ts: case 'launcher:toggle' must open the launcher only while gateIsOpen()")
@@ -89,4 +121,4 @@ if (failures.length) {
   for (const f of failures) console.error(`FAIL ${f}`)
   process.exit(1)
 }
-console.log('loginFirst.check: ok (index.ts keeps the overlay, the launcher key and second-instance behind the gate)')
+console.log('loginFirst.check: ok (index.ts keeps the overlay, the launcher and lesson keys and second-instance behind the gate)')

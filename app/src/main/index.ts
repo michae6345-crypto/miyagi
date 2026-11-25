@@ -14,7 +14,9 @@ import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
+import { setShortcutCheck, setupPrefs, trackWindowBackground, windowBackground } from './prefs'
+import { createShortcutKeys } from './shortcutKeys'
+import { quitAccelerator, SHORTCUT_KINDS } from '../common/shortcuts'
 import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { servePlayerHost } from './playerHost'
@@ -119,6 +121,8 @@ let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolea
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
+/** The launcher's key follows the gate (gateCore's launcherKey): true only between its on and off. */
+let launcherWanted = false
 
 /** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
 const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
@@ -413,8 +417,11 @@ function hideLauncher(): void {
   launcherOrigin = undefined
   if (origin && !origin.isDestroyed() && origin.isVisible()) {
     // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
-    overlay.showInactive()
-    raise(overlay)
+    // The overlay comes back only behind the gate (a sign-out while the launcher was open keeps it hidden).
+    if (gateIsOpen()) {
+      overlay.showInactive()
+      raise(overlay)
+    }
     if (process.platform === 'darwin') app.focus({ steal: true })
     origin.focus()
     return
@@ -422,26 +429,52 @@ function hideLauncher(): void {
   returnFocus(app, overlay, previousApp())
 }
 
-// Voice is off for now (common/flags): its key is never registered, so ⌃⌥V stays with the other apps.
-const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle'] as const).filter(
-  (k) => VOICE_ENABLED || k !== 'voice_toggle'
-)
+/** The launcher key: open, or close unless this press comes right after the open. */
+function onLauncherKey(): void {
+  if (!launcherOpen) return openLauncher()
+  if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+}
 
-/** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
+/**
+ * Whether a shortcut is registered right now. The launcher only while the login gate is open (main/gate.ts); the lesson
+ * keys only while a lesson is active (lesson.ready to lesson.ended), also behind the gate; voice's key never while voice
+ * is off (common/flags), so ⌃⌥V stays with the other apps. loginFirst.check.ts holds this function to the gate.
+ */
+function shortcutLive(kind: ShortcutKind): boolean {
+  if (!gateIsOpen()) return false
+  if (kind === 'launcher') return launcherWanted
+  if (kind === 'voice_toggle' && !VOICE_ENABLED) return false
+  return actionsRegistered
+}
+
+/**
+ * Live custom shortcuts (main/shortcutKeys.ts): the key in effect is prefs.shortcuts[kind] ?? platform.accelerators[kind].
+ * Every global registration of the launcher and lesson keys goes through here; sync() follows shortcutLive and the prefs.
+ * Action keys go to the overlay renderer, which decides (features may claim them) and tells the engine.
+ */
+const shortcutKeys = createShortcutKeys({
+  ops: { register: (acc, fn) => globalShortcut.register(acc, fn), unregister: (acc) => globalShortcut.unregister(acc) },
+  defaults: platform.accelerators,
+  mac: platform.os === 'mac',
+  kinds: SHORTCUT_KINDS.filter((k) => VOICE_ENABLED || k !== 'voice_toggle'),
+  overrides: () => getPrefs().shortcuts,
+  live: shortcutLive,
+  press: (kind) => (kind === 'launcher' ? onLauncherKey() : send(overlay, 'shortcut', kind)),
+  warn: (m) => console.warn(`[tut] ${m}`)
+})
+
+/** A lesson is ready: the lesson keys reach miyagi from any app. */
 function registerActionShortcuts(): void {
   if (actionsRegistered || !gateIsOpen()) return
   actionsRegistered = true
-  for (const kind of ACTION_KINDS) {
-    const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
-    if (!ok) console.warn(`[tut] shortcut ${platform.accelerators[kind]} is taken by another app`)
-  }
+  shortcutKeys.sync()
 }
 
 /** A lesson ended: hand the lesson keys back to the other apps until the next lesson.ready (Michael, Sun 12:49 AM). */
 function unregisterActionShortcuts(): void {
   if (!actionsRegistered) return
   actionsRegistered = false
-  for (const kind of ACTION_KINDS) globalShortcut.unregister(platform.accelerators[kind])
+  shortcutKeys.sync()
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
@@ -563,13 +596,10 @@ app.whenReady().then(async () => {
   // window (its first-run flow) is on screen. showInactive before the first paint is held (showAfterFirstPaint).
   gateCore({
     overlay,
+    // The launcher key (the learner's own or the default) registers through shortcutKeys, which also checks the gate.
     launcherKey: (on) => {
-      if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
-      const ok = globalShortcut.register(platform.accelerators.launcher, () => {
-        if (!launcherOpen) return openLauncher()
-        if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
-      })
-      if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+      launcherWanted = on
+      shortcutKeys.sync()
     },
     closed: () => {
       if (launcherOpen) closeLauncher()
@@ -670,7 +700,7 @@ app.whenReady().then(async () => {
   // 'second-instance' (it used to open the launcher here too, over a closed gate).
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
-  const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
+  const quitKey = quitAccelerator(platform.os === 'mac')
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
   // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
@@ -747,6 +777,15 @@ app.whenReady().then(async () => {
   netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  // Live custom shortcuts: main checks a new key before it is saved (taken by another app: the old key stays, the
+  // prefs:set result says so), and every change of the prefs re-registers what is live. Once now for the saved keys.
+  setShortcutCheck((next, prev) => {
+    const { accepted, refused } = shortcutKeys.accept(next, prev)
+    for (const r of refused) console.warn(`[tut] shortcut ${r.accelerator} for ${r.kind} refused (${r.reason})`)
+    return accepted
+  })
+  onPrefsChange(() => void shortcutKeys.sync())
+  shortcutKeys.sync()
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
   // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
   try {
