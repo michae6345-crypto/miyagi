@@ -16,13 +16,17 @@
  *   - the hold runs out (holdMs, or 6 s, from the newest mark's birth: a re-sent mark does not restart it),
  *   - the step changes (step.started keeps only marks for the new step; step.passed clears), the lesson ends, a reset,
  *   - Esc (dismiss).
+ * On-screen coach (Nov 24, agents/app-onscreen-coach.md): a mark with text (the step's action, in an app lesson) is not
+ * timed. It stays while its step is live and goes on step.passed, a step.started for another step, lesson.ended, a new
+ * (non-replay) lesson.ready, Esc, annotate {clear}, a replacing annotate, or the learner reaching it. Marks without text
+ * keep the hold above.
  * Nothing here takes the mouse: the layer is click-through, always.
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { sameRect } from '../../core/geometry'
 import { isDrawable, type Rect } from './geometry'
-import { fadeAt, holdFor, mergeMarks, sameMarkKeys, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
+import { fadeAt, holdFor, mergeMarks, sameMarkKeys, timedMarks, validMarks, DEFAULT_HOLD_MS, type Annotation, type DrawMark, type Known } from './marks'
 
 export const useAnnotate = create<{ marks: DrawMark[] }>(() => ({ marks: [] }))
 const set = useAnnotate.setState
@@ -64,8 +68,16 @@ function forget(): void {
   if (get().marks.length) set({ marks: [] })
 }
 
+/** Start the hold for the timed marks among `marks` (those without text): they fade at `at`; a text mark is untouched. */
+function holdTimed(marks: readonly DrawMark[], at: number | undefined, now: number): void {
+  stopHold()
+  if (at === undefined) return
+  const keys = timedMarks(marks).map((m) => m.key)
+  if (keys.length) hold = setTimeout(() => fade(keys), Math.max(0, at - now))
+}
+
 /** Draw `incoming` in place of what is drawn. The hold counts from the newest mark's birth (fadeAt), so a re-send of
- * marks already drawn keeps the old deadline and only a new mark moves it. */
+ * marks already drawn keeps the old deadline and only a new mark moves it. A mark with text gets no hold. */
 export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_HOLD_MS, now = Date.now()): void {
   const ask = incoming.find((m) => m.askId)?.askId
   if (ask && ask !== lastAsk) {
@@ -74,9 +86,7 @@ export function show(incoming: readonly Annotation[], holdMs: number = DEFAULT_H
   }
   const marks = mergeMarks(get().marks, incoming, gone.values(), now)
   set({ marks })
-  stopHold()
-  const at = fadeAt(marks, holdMs)
-  if (at !== undefined) hold = setTimeout(() => fade(), Math.max(0, at - now))
+  holdTimed(marks, fadeAt(timedMarks(marks), holdMs), now)
 }
 
 /** Take the marks away (they fade out) without remembering them as gone: the thing they pointed at went away, the
@@ -110,11 +120,16 @@ onMessage('step.started', (p) => {
   gone.clear()
   lastSpot = undefined
   set({ marks: keep })
-  if (keep.length) hold = setTimeout(() => fade(), DEFAULT_HOLD_MS)
+  // A kept text mark stays with its step; kept plain marks get the default hold from now.
+  const now = Date.now()
+  holdTimed(keep, timedMarks(keep).length ? now + DEFAULT_HOLD_MS : undefined, now)
 })
 onMessage('step.passed', forget)
 onMessage('lesson.ended', forget)
-onMessage('lesson.ready', forget)
+// A reconnect's replay of the lesson already running is not a new lesson: what is drawn stays.
+onMessage('lesson.ready', (p) => {
+  if (!p?.replay) forget()
+})
 onUi('reset', () => {
   forget()
   engineAnnotates = false

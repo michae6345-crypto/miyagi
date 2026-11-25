@@ -1,18 +1,72 @@
 # app-onscreen-coach
 
-**Status:** claimed (Nov 24), coding next · **Port:** 5205 · **Branch:** `michael/app-onscreen-coach`
+**Status:** first pass done (Nov 24), offline tests + headless stage shots only · **Port:** 5205 (in ports.json) ·
+**Branch:** `michael/app-onscreen-coach` (base `origin/michael/v2-integration`) · **Claim PR:** #271 (draft into `adrian/shell`)
 
 ## Goal
-In an app lesson (lesson.app: Blender, AutoCAD...), the buddy circles the target on screen and writes the step's
-action (plus its keycaps) right beside the circle. The lesson drawer starts collapsed to the island; the steps list
-stays one click away.
+Michael: "see and circle stuff on screen and type there; it would remove the complexity of the interface on the side".
+In an app lesson (lesson.ready `lesson.app`: Blender, AutoCAD, Photoshop...), the buddy circles the target on screen
+and writes the step's action (plus its keycaps) right beside the circle. The lesson drawer starts collapsed to the
+island; the steps list stays one click away (the Mini pill).
 
 ## Owns
-- `app/src/renderer/src/features/annotate/**` (text beside the loop, text-mark hold rule, drawer collapse)
-- `app/mock/scenarios/onscreen.json`
-- `app/agents/app-onscreen-coach.md`, `app/agents/shots/app-onscreen-coach-*.png`, ports.json entry
+- `app/src/renderer/src/features/annotate/` (shared with app-buddy-draw; every change here is additive)
+  - `marks.ts`: `OnscreenFields` (local defensive type), `cleanText` (12 words), `cleanKeys` (strings only, 1-12 chars,
+    at most 3), `DrawMark.text / keys`, `timedMarks`. `mergeMarks` carries text and keys on "point" marks only; a re-send
+    with new text updates it in place (same key and birth, so the stroke does not redraw). Keys need text.
+  - `store.ts`: a text mark has no hold timer (holdMs ignored for it). It goes on step.passed, step.started for another
+    stepId (kept for the same stepId), lesson.ended, a non-replay lesson.ready, Esc, annotate {clear}, a replacing
+    annotate, or the learner reaching it (createReach). Marks without text keep the 6 s default. A replayed
+    lesson.ready no longer wipes the drawn marks (it is the same lesson).
+  - `geometry.ts`: pure `textSpot(ring, target, size, box, branch?)`: right of the loop, else left, below, above
+    (LABEL_GAP from it); never over the target or the loop's box; 16 pt inside the display; slides along the loop to
+    stay 10 pt off the buddy's line; when no side fits, the side covering least of the loop with the target uncovered.
+    Also `buddyPath().branch` (the sampled line) and `segmentHitsRect` / `lineHitsRect`.
+  - `BuddyLayer.tsx`: `TextBox`, one box beside the loop for a mark with text, replacing the 4-word label. `data-ui`
+    (the engine's OCR ignores it), never `data-hit`, click-through. The instruction, then each key in the core `Kbd`.
+    At most 280 pt wide and 2 lines (measured before paint). Island black, HUD text, `type2.sm`, `radius2.card`; no
+    pass color. Fades in after the stroke with a small spring slide; reduced motion: fade in only.
+  - `onscreen.ts` (new): on a non-replay lesson.ready whose lesson has `app.tool`, `emitUi('panel', 'collapse')` one tick
+    later (after the drawer's own lesson.ready opened it). Never without app, never on a replay, once per lesson.ready
+    (never re-collapses after the learner opens it). Nothing lesson-specific.
+  - Tests: `text.test.ts` (text, keys, merge, textSpot at the centre, edges and corners, line clearance) and
+    `onscreen.test.ts` (store hold rules with mock timers; the collapse).
+- `app/mock/scenarios/onscreen.json` (new): a Blender lesson that walks itself, one step every ~14 s.
+- `app/agents/app-onscreen-coach.md`, `app/agents/shots/app-onscreen-coach-*.png`, `"app-onscreen-coach": 5205` in ports.json.
+
+## Contract
+- **In:** `annotate` marks with `text?` / `keys?` (why "point"), and `lesson.ready` `lesson.app {tool, label, using?}`
+  (the engine lane's contract commit, Nov 24). Both read defensively through local types until that commit reaches
+  v2-integration (Core request (a)).
+- **Out:** core UI event `panel` `'collapse'` (the drawer's own public seam). Nothing to the engine.
+
+## Test
+`npm run dev:web -- --port 5205`, then http://localhost:5205/?scenario=onscreen (add `&draw=slow` to draw 8x slower).
+- 0-15 s: step 1. The island is the Mini pill ("Add a torus · 1 of 3"); the circle is mid-screen with "Add a torus from
+  the Add menu" and its keycap to the right.
+- ~15 s: step 2, a target at the right edge: the text flips to the left of the loop.
+- ~30 s: step 3, a bar along the bottom: the text sits above it, beside the line.
+- Click the Mini pill (the island): the steps panel opens; the text stays. Esc fades the text.
+- Compare http://localhost:5205/?scenario=lesson-panel (no lesson.app): the drawer still opens as before.
+
+Checks run (Nov 24): `npm run typecheck`; `node --import tsx --test src/renderer/src/features/annotate/*.test.ts`
+(83 pass); `npm test` (746 pass, no failures); brand lint on the added lines in app/src (no hex, rgba, hand-typed
+keycaps, Cursor, dangerouslySetInnerHTML, green, capital M; test keycaps are escaped engine data).
+
+Shots (headless Chromium, 1440x900, the stage scales a 1600x1000 display):
+`agents/shots/app-onscreen-coach-circle.png`, `-collapsed.png`, `-edge-right.png`, `-edge-bottom.png`, `-steps.png`.
+
+## Unverified
+- Nothing ran in Electron or against a live engine: no real `annotate` with text, no real `lesson.app`.
+- The stage has no app under the circle, so the shots show the stroke and text over an empty screen.
+- Reduced motion was not checked in a browser.
+- The text box's size is measured in a layout effect; on a real overlay a font load after the first paint could
+  shift it once.
 
 ## Core requests
-- (a) Merge the engine lane's contract commit (Annotation text/keys, LessonInfo.app) into v2-integration.
-- (b) A core Keycap variant for an engine-given key label.
-- (c) Optional: `useLessonApp()` in core/lesson.
+- **(a) Contract merge:** merge the engine lane's contract commit (Annotation `text` / `keys`, `LessonApp`,
+  `LessonInfo.app`) into v2-integration, so the local defensive types (`OnscreenFields` in marks.ts, `LessonAppFields`
+  in onscreen.ts) can go.
+- **(b) Keycap label variant:** a core keycap that renders an engine-given key label (`<Keycap label=...>`) with the
+  keycap look, since `bridge.platform.keys` only holds miyagi's own shortcuts. Until then the text box uses core `Kbd`.
+- **(c) Optional:** a `useLessonApp()` selector in core/lesson (onscreen.ts reads the lesson.ready payload directly).

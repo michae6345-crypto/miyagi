@@ -13,5 +13,7 @@ import '../drawer/store'
 import { defineFeature } from '../../core/registry'
 import { BuddyLayer } from './BuddyLayer'
 import './store'
+// On-screen coach: an app lesson's drawer starts collapsed to the island (after the drawer store above has loaded).
+import './onscreen'
 
 export default defineFeature({ id: 'annotate', overlayLayers: [{ id: 'annotate', z: 48, Component: BuddyLayer }] })

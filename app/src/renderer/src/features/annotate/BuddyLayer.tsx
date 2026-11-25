@@ -13,16 +13,21 @@
  *     learner's screen. Since the text under the label is hidden from the reader too, it sits beside the loop on the
  *     circled line, not over the lines under it (geometry.ts labelSpot).
  *   - Below the island (z 48), so the branch slips out from under it.
+ *   - On-screen coach (Nov 24): a mark with text gets ONE text box beside the loop (the step's action, then its keycaps),
+ *     instead of the label. It never covers the target or the loop and stays 16 pt inside the display (geometry.ts
+ *     textSpot); at most 280 pt wide and 2 lines. data-ui like the label, never data-hit. Neutral: island black, HUD text;
+ *     never the pass color (it means passed). The keycaps are the engine's labels in the core Kbd atom.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { isElectron } from '../../bridge'
 import { useIslandBox } from '../../core/Island'
 import { islandBottom } from '../../core/islandEdge'
 import { notchOf } from '../../core/notchGeometry'
-import { brand, color, ease, fade as fades, radius2, type2 } from '../../core/theme'
-import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, toOverlay, type Pt, type Rect } from './geometry'
+import { brand, color, ease, fade as fades, radius2, spring, type2 } from '../../core/theme'
+import { Kbd } from '../../core/ui/atoms'
+import { buddyPath, drawSeconds, hashSeed, islandAnchor, labelSpot, labelWidth, onOverlay, textSpot, toOverlay, TEXT_MAX_W, type Pt, type Rect, type Side } from './geometry'
 import { createReach, type DrawMark } from './marks'
 import { fade, useAnnotate } from './store'
 
@@ -70,9 +75,16 @@ export function BuddyLayer({ layout }: { layout: Layout }): ReactNode {
       </svg>
       <AnimatePresence>
         {drawn
-          .filter((d) => d.mark.label)
+          .filter((d) => d.mark.label && !d.mark.text)
           .map((d) => (
             <Label key={d.mark.key} d={d} layout={layout} reduced={!!reduced} />
+          ))}
+      </AnimatePresence>
+      <AnimatePresence>
+        {drawn
+          .filter((d) => d.mark.text)
+          .map((d) => (
+            <TextBox key={d.mark.key} d={d} layout={layout} reduced={!!reduced} />
           ))}
       </AnimatePresence>
     </div>
@@ -118,6 +130,81 @@ function Label({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: bool
     >
       {d.mark.label}
     </motion.span>
+  )
+}
+
+/** The text box's look (pt): type, line, padding, the gap to the keycaps. */
+const TEXT_LINE = 18
+const TEXT_PAD = { x: 10, y: 7 } as const
+const TEXT_GAP = 8
+const KEY_W = 30
+
+/** A first guess at the box's size (before it is measured): about 7 pt a character, wrapped at TEXT_MAX_W, 2 lines at most. */
+function guessSize(text: string, keys: number): { w: number; h: number } {
+  const keysW = keys ? keys * KEY_W + TEXT_GAP : 0
+  const one = text.length * 7 + keysW + TEXT_PAD.x * 2
+  const lines = one > TEXT_MAX_W ? 2 : 1
+  return { w: Math.min(TEXT_MAX_W, one), h: lines * TEXT_LINE + TEXT_PAD.y * 2 }
+}
+
+/** The way the box comes in: a few points out from the loop, toward where it sits. */
+const nudge: Record<Side, { x?: number; y?: number }> = { right: { x: -6 }, left: { x: 6 }, below: { y: -6 }, above: { y: 6 } }
+
+/** The coach's text beside the loop: the step's action, then its keycaps (engine labels in the core Kbd atom). */
+function TextBox({ d, layout, reduced }: { d: Drawn; layout: Layout; reduced: boolean }): ReactNode {
+  const el = useRef<HTMLDivElement>(null)
+  const text = d.mark.text ?? ''
+  const keys = d.mark.keys ?? []
+  const [size, setSize] = useState(() => guessSize(text, keys.length))
+  // Measured before paint (offsetWidth/Height are layout sizes, unscaled by the stage), so it never shows at the guess.
+  useLayoutEffect(() => {
+    const n = el.current
+    if (!n) return
+    const w = n.offsetWidth
+    const h = n.offsetHeight
+    if (w > 0 && h > 0 && (Math.abs(w - size.w) > 0.5 || Math.abs(h - size.h) > 0.5)) setSize({ w, h })
+  }, [text, keys.join(' '), size.w, size.h]) // eslint-disable-line react-hooks/exhaustive-deps
+  const path = useMemo(() => buddyPath(d.from, d.local, hashSeed(d.mark.key)), [d.from, d.local.x, d.local.y, d.local.w, d.local.h, d.mark.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const spot = textSpot(path.ring, d.local, layout, size, path.branch)
+  const delay = reduced ? 0 : 0.45 * SLOW
+  const from = reduced ? { opacity: 0 } : { opacity: 0, ...nudge[spot.side] }
+  return (
+    // Placed by transform from the layer's corner, so its width never shrinks against the right edge while measured.
+    <div className="absolute left-0 top-0" style={{ transform: `translate(${spot.x}px, ${spot.y}px)` }}>
+      <motion.div
+        ref={el}
+        data-ui
+        data-theme="dark"
+        data-part="coach-text"
+        data-side={spot.side}
+        className="flex items-center"
+        style={{
+          width: 'max-content',
+          maxWidth: TEXT_MAX_W,
+          gap: TEXT_GAP,
+          padding: `${TEXT_PAD.y}px ${TEXT_PAD.x}px`,
+          borderRadius: radius2.card,
+          background: color.island,
+          color: color.text,
+          fontSize: type2.sm,
+          lineHeight: `${TEXT_LINE}px`
+        }}
+        initial={from}
+        animate={{ opacity: 1, x: 0, y: 0, transition: reduced ? { ...fades.in, delay } : { opacity: { ...fades.in, delay }, x: { ...spring, delay }, y: { ...spring, delay } } }}
+        exit={{ opacity: 0, transition: fades.out }}
+      >
+        <span className="min-w-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {text}
+        </span>
+        {keys.length > 0 && (
+          <span className="flex shrink-0 items-center gap-1">
+            {keys.map((k, i) => (
+              <Kbd key={`${i}-${k}`}>{k}</Kbd>
+            ))}
+          </span>
+        )}
+      </motion.div>
+    </div>
   )
 }
 
