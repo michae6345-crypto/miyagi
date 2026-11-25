@@ -11,7 +11,8 @@ import types
 import pytest
 
 from server.lesson import app_lesson
-from server.orchestrator import curated, onscreen_coach as OC
+from server.orchestrator import curated
+from server.orchestrator import onscreen_coach as OC
 from server.orchestrator import session as session_mod
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.tests.test_session import Rig, run
@@ -373,7 +374,7 @@ def test_the_onscreen_path_never_calls_a_model(rig, monkeypatch, fast):
 
     for name in ("show_me", "point", "where", "explain", "describe"):
         monkeypatch.setattr(rig.s.m, name, boom, raising=False)
-    reader = types.SimpleNamespace(where=boom, describe=boom, overlay_rects=lambda: [],
+    reader = types.SimpleNamespace(where=boom, describe=boom, overlay_rects=list,
                                    latest=lambda: ScreenObservation(
                                        t=time.time(), app="Blender", windows=[Window("Blender", "d", Rect(0, 0, 1200, 800))],
                                        blocks=[Block("Add", Rect(400, 300, 40, 16), 0.9, app="Blender")],
@@ -427,8 +428,78 @@ def test_text_is_cut_at_a_clause():
 def test_where_phrases():
     assert OC.where_phrases("where do I click?") == []
     assert OC.where_phrases("how do I add a torus?") is None
-    assert [p.text for p in OC.where_phrases("where's the outliner?")] == ["outliner", "OUTLINER"]
+    assert [(p.text, p.kind) for p in OC.where_phrases("where's the outliner?")] == [("OUTLINER", "area")]
     assert OC.where_phrases("where is the thing I need to press to make the donut smooth?") is None  # > 8 words
+    assert [(p.text, p.kind) for p in OC.where_phrases("where is the Add menu?")] == [("Add menu", "ui"),
+                                                                                      ("Add", "ui")]
+
+
+def test_keys_keep_tab_after_then():  # review round 3, by name
+    assert OC.keys("Press Numpad 1 for front view, then Tab to enter Edit Mode.") == ["Numpad 1", "Tab"]
+
+
+@pytest.mark.parametrize("ask,want", [
+    ("where is the Modifier tab?", [("MODIFIER", "tab"), ("PROPERTIES", "area")]),
+    ("where are the material properties?", [("MATERIAL", "tab"), ("PROPERTIES", "area")]),
+    ("where's the properties editor?", [("PROPERTIES", "area")]),
+    ("where is the sidebar?", [("VIEW_3D:UI", "region")]),
+    # review round 2 of the targets lane: an area / region name is that place only, never a ui word (OCR would find
+    # "viewport" inside "Levels Viewport", "sidebar" inside "Toggle Sidebar", "outliner" inside "Outliner Filter")
+    ("where is the viewport?", [("VIEW_3D", "area")]),
+    ("where is the 3D viewport?", [("VIEW_3D", "area")]),
+    ("where is the outliner?", [("OUTLINER", "area")]),
+    ("where is the N panel?", [("VIEW_3D:UI", "region")]),
+    ("where is the toolbar?", [("VIEW_3D:TOOLS", "region")]),
+    ("where is the viewport header?", [("VIEW_3D:HEADER", "region"), ("VIEW_3D", "area")]),
+])
+def test_where_a_place_is_its_tab_area_or_region_never_the_bare_word(ask, want):
+    got = [(p.text, p.kind) for p in OC.where_phrases(ask)]
+    assert got == want
+    assert not any(kind == "ui" for _, kind in got)
+
+
+@pytest.mark.parametrize("ask,label", [
+    ("where is the Modifier tab?", "Modifier tab"),   # the tab column, never the step's Cube
+    ("where is the Add menu?", None),                  # not on screen: nothing, never the step's Cube
+    ("where is the outliner?", "Outliner"),
+    ("where is the Cube?", "Cube"),                    # an object the ask itself names
+])
+def test_a_where_ask_never_circles_the_steps_object(ask, label):
+    from server.screen.tests.test_app_target import CUBE, Recorder, bobs, raw_v2
+
+    for instr in ("Select the Cube, then open the Modifier tab.", "Select the Cube"):
+        t = app_target.resolve({"id": "s1", "instructions": instr}, {"tool": "blender", "label": "Blender"}, bobs(),
+                               [], bridge=lambda: raw_v2(objects=CUBE), ax_fn=Recorder(),
+                               phrase_list=OC.where_phrases(ask))
+        assert (t.label if t else None) == label, (ask, instr, t)
+        assert t is None or t.via == "bridge"
+
+
+@pytest.mark.parametrize("ask,name", [
+    # targets review round 3: a place miyagi doesn't know is still a where ask, by its whole label only (the
+    # workspace tab, the panel header), never a word found inside a longer label
+    ("where is the Shading tab?", "Shading"),
+    ("where is the Transform panel?", "Transform"),
+    ("where is the UV Editing tab?", "UV Editing"),
+    # a bare Properties tab word: whole label only, never the "Modifier" inside "Add Modifier"
+    ("where is Modifier?", "Modifier"),
+    ("where is the Material?", "Material"),
+])
+def test_where_an_unknown_place_or_a_bare_tab_word_is_whole_label_only(ask, name):
+    assert [(p.text, p.kind) for p in OC.where_phrases(ask)] == [(name, "ui_exact")]
+
+
+def test_where_a_bare_tab_word_place_is_nothing():
+    assert OC.where_phrases("where is the Data panel?") is None  # "Data" alone names no control
+    got = [(p.text, p.kind) for p in OC.where_phrases("where is the Object menu?")]
+    assert got == [("Object menu", "ui"), ("Object", "ui_exact")]
+
+
+def test_keys_and_text_agree_at_a_sentence_end():
+    instr = "Press Tab. Then press A to select all."
+    assert OC.short_text(instr) == "Press Tab." and OC.keys(instr) == ["Tab"]
+    assert OC.keys("Select the cube. Press Tab to enter Edit Mode.") == []
+    assert OC.keys("Press G, then Z, then type 2.") == ["G", "Z"]
 
 
 def test_contract_marks_validate():
@@ -484,7 +555,7 @@ def test_a_still_screens_old_frame_is_refreshed_and_circled(real_chain):
     class Bridge:  # ScreenBridge: fresh() captures + OCRs when the latest frame is older than max_age
         def __init__(self):
             self.ages: list[float] = []
-            self.reader = types.SimpleNamespace(latest=lambda: blender_frame(5.0), overlay_rects=lambda: [])
+            self.reader = types.SimpleNamespace(latest=lambda: blender_frame(5.0), overlay_rects=list)
 
         def fresh(self, max_age: float = 1.0):
             self.ages.append(max_age)

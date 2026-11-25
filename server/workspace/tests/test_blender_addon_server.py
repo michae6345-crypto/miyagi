@@ -432,6 +432,224 @@ def test_ui_rects(server, bpy):
                                 {"type": "WINDOW", "x": 0, "y": 26, "width": 800, "height": 574}]}
 
 
+# ------------------------------------------------------------------ /ui: mode, active, object boxes, Properties tabs
+
+# a perspective-ish matrix: x and y scaled by 0.1, w = 1 + 0.1 z (so z < -10 is behind the view)
+PERSMAT = [[0.1, 0, 0, 0], [0, 0.1, 0, 0], [0, 0, 0, 0], [0, 0, 0.1, 1]]
+UNIT_BOX = [(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
+
+
+def at(x=0.0, y=0.0, z=0.0):
+    return [[1, 0, 0, x], [0, 1, 0, y], [0, 0, 1, z], [0, 0, 0, 1]]
+
+
+class Ob:
+    def __init__(self, name, kind="MESH", where=(0.0, 0.0, 0.0), visible=True, box=UNIT_BOX):
+        self.name, self.type, self.matrix_world, self.bound_box, self._visible = name, kind, at(*where), box, visible
+        self.seen_viewport = None
+
+    def visible_get(self, view_layer=None, viewport=None):
+        self.seen_viewport, self.seen_layer = viewport, view_layer
+        return self._visible
+
+
+class Broken(Ob):
+    @property
+    def matrix_world(self):
+        raise ReferenceError("StructRNA of type Object has been removed")
+
+    @matrix_world.setter
+    def matrix_world(self, v):
+        pass
+
+
+class PropsSpace:
+    """SpaceProperties: an unknown context is refused, listing the ones shown now (as Blender's RNA does)."""
+
+    def __init__(self, context="OBJECT", shown=("TOOL", "RENDER", "OBJECT", "MODIFIER", "MATERIAL")):
+        self._context, self.shown, self.sets = context, list(shown), []
+
+    @property
+    def context(self):
+        return self._context
+
+    @context.setter
+    def context(self, v):
+        self.sets.append(v)
+        if v not in self.shown:
+            raise TypeError(f'bpy_struct: item.attr = val: enum "{v}" not found in ('
+                            + ", ".join(repr(x) for x in self.shown) + ")")
+        self._context = v
+
+
+def ui_bpy(objs, *, quad=False, persmat=PERSMAT):
+    """A Layout window: a 3D Viewport (WINDOW region 800 x 574 at y 26) and a Properties editor with its tab column."""
+    space3d = SimpleNamespace(region_3d=SimpleNamespace(perspective_matrix=persmat),
+                              region_quadviews=[object()] * 4 if quad else [])
+    view3d = rect(0, 0, 800, 600, type="VIEW_3D", ui_type="VIEW_3D", spaces=SimpleNamespace(active=space3d),
+                  regions=[rect(0, 0, 800, 26, type="HEADER"), rect(0, 26, 800, 574, type="WINDOW"),
+                           rect(799, 26, 1, 574, type="UI")])
+    props_space = PropsSpace()
+    props = rect(800, 0, 300, 600, type="PROPERTIES", ui_type="PROPERTIES",
+                 spaces=SimpleNamespace(active=props_space),
+                 regions=[rect(800, 0, 30, 574, type="NAVIGATION_BAR"), rect(830, 0, 270, 574, type="WINDOW"),
+                          rect(800, 574, 300, 26, type="HEADER")])
+    window = rect(10, 20, 1100, 600, screen=SimpleNamespace(name="Layout", areas=[view3d, props]),
+                  workspace=SimpleNamespace(name="Layout"))
+    fake = make_bpy()
+    active = next((o for o in objs if getattr(o, "name", "") == "Donut"), None)
+    fake.context.mode = "EDIT_MESH"
+    fake.context.view_layer = SimpleNamespace(objects=FakeObjects(objs, active=active))
+    fake.context.window_manager = SimpleNamespace(operators=[], windows=[window])
+    return fake, space3d, props_space
+
+
+def ui_of(server, monkeypatch, fake):
+    monkeypatch.setitem(sys.modules, "bpy", fake)
+    return server.ui_payload()
+
+
+def test_ui_payload_mode_active_and_object_boxes_in_window_pixels(server, monkeypatch):
+    donut, light = Ob("Donut"), Ob("Light", "LIGHT", where=(2.0, 0.0, 0.0))
+    fake, space3d, _ = ui_bpy([donut, light])
+    body = ui_of(server, monkeypatch, fake)
+    assert body["mode"] == "EDIT_MESH" and body["active"] == "Donut" and body["origin"] == "bottom-left"
+    view3d = body["windows"][0]["areas"][0]
+    assert [r["type"] for r in view3d["regions"]] == ["HEADER", "WINDOW", "UI"]  # the raw region list is kept
+    boxes = {o["name"]: o for o in view3d["objects"]}
+    # hand math: x = 400 + 400 * 0.1 x / w, y = 287 + 287 * 0.1 y / w, w = 1 + 0.1 z; the corners at z = -1 (w 0.9)
+    # are the widest: x 400 -+ 44.44, y 287 -+ 31.89; + the WINDOW region's offset (0, 26)
+    d = boxes["Donut"]
+    assert d["type"] == "MESH"
+    assert (d["x"], d["y"], d["width"], d["height"]) == pytest.approx((355.6, 281.1, 88.9, 63.8), abs=0.06)
+    # a light: a 24 px square around its origin (480, 287) + (0, 26)
+    lt = boxes["Light"]
+    assert (lt["x"], lt["y"], lt["width"], lt["height"]) == pytest.approx((468.0, 301.0, 24.0, 24.0), abs=0.06)
+    assert donut.seen_viewport is space3d  # visibility asked of this viewport (local view, hidden collections)
+
+
+def test_ui_payload_each_window_projects_its_own_view_layer(server, monkeypatch):
+    # two main windows on different view layers (another scene): each viewport gets its own window's objects, never
+    # the context window's projected into it
+    donut, cube = Ob("Donut"), Ob("Cube")
+    fake, _, _ = ui_bpy([donut])
+    first = fake.context.window_manager.windows[0]
+    layer_a = fake.context.view_layer
+    layer_b = SimpleNamespace(objects=FakeObjects([cube], active=cube))
+    first.view_layer = layer_a
+    space_b = SimpleNamespace(region_3d=SimpleNamespace(perspective_matrix=PERSMAT), region_quadviews=[])
+    view_b = rect(0, 0, 800, 600, type="VIEW_3D", ui_type="VIEW_3D", spaces=SimpleNamespace(active=space_b),
+                  regions=[rect(0, 26, 800, 574, type="WINDOW")])
+    second = rect(1200, 20, 800, 600, screen=SimpleNamespace(name="Layout.001", areas=[view_b]),
+                  workspace=SimpleNamespace(name="Layout"), view_layer=layer_b)
+    fake.context.window_manager.windows.append(second)
+    body = ui_of(server, monkeypatch, fake)
+    assert [o["name"] for o in body["windows"][0]["areas"][0]["objects"]] == ["Donut"]
+    assert [o["name"] for o in body["windows"][1]["areas"][0]["objects"]] == ["Cube"]
+    assert donut.seen_layer is layer_a and cube.seen_layer is layer_b and cube.seen_viewport is space_b
+    assert body["active"] == "Donut"  # the context's active object
+
+
+def test_ui_payload_hidden_behind_and_off_screen_objects_are_left_out(server, monkeypatch):
+    objs = [Ob("Donut"), Ob("Hidden", visible=False), Ob("Behind", where=(0.0, 0.0, -30.0)),
+            Ob("Offscreen", where=(200.0, 0.0, 0.0)), Ob("Lamp", "LIGHT", where=(0.0, 0.0, -30.0))]
+    fake, _, _ = ui_bpy(objs)
+    names = [o["name"] for o in ui_of(server, monkeypatch, fake)["windows"][0]["areas"][0]["objects"]]
+    assert names == ["Donut"]
+
+
+def test_ui_payload_half_clipped_object_is_left_out(server, monkeypatch):
+    # x = 400 + 40 x, y = 287 + 28.7 y (w = 1): a box 80 x 57.4 px around its centre, the region 800 x 574
+    edge = Ob("Edge", where=(10.0, 0.0, 0.0))            # centre on the right edge (800): exactly half survives
+    past = Ob("Past", where=(10.5, 0.0, 0.0))            # centre past the edge (820): left out
+    corner = Ob("Corner", where=(9.875, -9.6516, 0.0))   # centre (795, 10) inside, 0.5625 x 0.674 = 38% survives
+    fake, _, _ = ui_bpy([edge, past, corner], persmat=[[0.1, 0, 0, 0], [0, 0.1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]])
+    objs = ui_of(server, monkeypatch, fake)["windows"][0]["areas"][0]["objects"]
+    assert [o["name"] for o in objs] == ["Edge"]
+    assert (objs[0]["x"], objs[0]["width"]) == pytest.approx((760.0, 40.0), abs=0.06)  # the clipped box
+
+
+def test_ui_payload_quad_view_has_no_objects(server, monkeypatch):
+    fake, _, _ = ui_bpy([Ob("Donut")], quad=True)
+    assert "objects" not in ui_of(server, monkeypatch, fake)["windows"][0]["areas"][0]
+
+
+def test_ui_payload_a_raising_object_is_skipped(server, monkeypatch):
+    fake, _, _ = ui_bpy([Broken("Gone"), Ob("Donut")])
+    names = [o["name"] for o in ui_of(server, monkeypatch, fake)["windows"][0]["areas"][0]["objects"]]
+    assert names == ["Donut"]
+
+
+def test_ui_payload_a_broken_view_still_answers(server, monkeypatch):
+    fake, _, _ = ui_bpy([Ob("Donut")], persmat=[[1, 0, 0]])  # not 4 x 4
+    body = ui_of(server, monkeypatch, fake)
+    assert body["ok"] is True and "objects" not in body["windows"][0]["areas"][0]
+
+
+def test_ui_payload_caps_objects_at_200(server, monkeypatch):
+    fake, _, _ = ui_bpy([Ob(f"Ob{i}", where=(0.0, 0.0, 0.0)) for i in range(260)])
+    assert len(ui_of(server, monkeypatch, fake)["windows"][0]["areas"][0]["objects"]) == server.MAX_UI_OBJECTS == 200
+
+
+def test_ui_payload_properties_context_tabs_and_contexts(server, monkeypatch):
+    fake, _, props_space = ui_bpy([Ob("Donut")])
+    props = ui_of(server, monkeypatch, fake)["windows"][0]["areas"][1]
+    assert props["properties"] == {"context": "OBJECT", "tabs": {"x": 800, "y": 0, "width": 30, "height": 574},
+                                   "contexts": ["TOOL", "RENDER", "OBJECT", "MODIFIER", "MATERIAL"]}
+    assert props_space.context == "OBJECT"  # the probe was refused: nothing changed
+
+
+def test_ui_payload_properties_without_a_tab_column(server, monkeypatch):
+    fake, _, _ = ui_bpy([Ob("Donut")])
+    area = fake.context.window_manager.windows[0].screen.areas[1]
+    area.regions = [r for r in area.regions if r.type != "NAVIGATION_BAR"]
+    area.spaces.active = SimpleNamespace(context="MODIFIER")  # a fake that takes any value: no contexts, put back
+    props = ui_of(server, monkeypatch, fake)["windows"][0]["areas"][1]["properties"]
+    assert props == {"context": "MODIFIER", "tabs": None} and area.spaces.active.context == "MODIFIER"
+
+
+def _geom():
+    spec = importlib.util.spec_from_file_location("ui_geom_t", PKG_DIR / "ui_geom.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+IDENT = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+PERSP = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, -1, 0]]   # w = -z: the view looks down -z
+
+
+def test_ui_geom_project_hand_math():
+    g = _geom()
+    assert g.project(IDENT, (0.5, -0.5, 0.0), 200, 100) == pytest.approx((150.0, 25.0))  # (100 + 100 x, 50 + 50 y)
+    assert g.project(PERSP, (1.0, 1.0, -2.0), 200, 100) == pytest.approx((150.0, 75.0))  # x / w = 0.5, w = 2
+    assert g.project(PERSP, (0.0, 0.0, 1.0), 200, 100) is None                           # behind: w = -1
+    assert g.project(PERSP, (0.0, 0.0, 0.0), 200, 100) is None                           # w = 0
+    assert g.apply(at(1.0, 2.0, 3.0), (1.0, 1.0, 1.0)) == (2.0, 3.0, 4.0)
+    with pytest.raises(ValueError):
+        g.matrix([[1, 0, 0, 0]] * 3)
+
+
+def test_ui_geom_object_and_point_boxes_hand_math():
+    g = _geom()
+    box = [(x, y, -2.0 + z) for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)]
+    # w from 1.5 to 2.5: x / w spans -1/3 .. 1/3 -> 200 / 2 -+ 33.3; y -+ 16.7 of 50
+    assert g.object_box(box, PERSP, 200, 100) == pytest.approx((66.667, 33.333, 66.667, 33.333), abs=1e-3)
+    behind = [(x, y, z) for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (-0.5, 0.5)]  # straddles w = 0
+    assert g.object_box(behind, PERSP, 200, 100) is None
+    flat = [(0.1, 0.1, -2.0)] * 8                                                         # a point: no area
+    assert g.object_box(flat, PERSP, 200, 100) is None
+    assert g.point_box((0.0, 0.0, 0.0), IDENT, 200, 100) == pytest.approx((88.0, 38.0, 24.0, 24.0))
+    assert g.point_box((0.99, 0.0, 0.0), IDENT, 200, 100) == pytest.approx((187.0, 38.0, 13.0, 24.0))  # clipped
+    assert g.point_box((1.5, 0.0, 0.0), IDENT, 200, 100) is None                          # outside the region
+    assert g.point_box((0.0, 0.0, 1.0), PERSP, 200, 100) is None                          # behind
+
+
+def test_ui_geom_is_pure():
+    src = (PKG_DIR / "ui_geom.py").read_text()
+    assert not re.search(r"^\s*(?:import|from)\s+(?:bpy|mathutils|bpy_extras)\b", src, re.MULTILINE)
+
+
 # ------------------------------------------------------------------ real HTTP, register / unregister
 
 

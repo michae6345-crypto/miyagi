@@ -23,8 +23,12 @@ DUMP = {"dump": "dump_scene.py 1", "blender": "5.3.0", "file": "x.blend", "objec
 class FakeBridge:
     """One Blender's bridge: answers /health, /state, /ops and /ui, and records each request's headers."""
 
-    def __init__(self, file: str = "", dump: dict | None = None, status: int = 200, app: str = "blender"):
+    def __init__(self, file: str = "", dump: dict | None = None, status: int = 200, app: str = "blender",
+                 ui: dict | None = None, ui_delay: float = 0.0):
         self.file, self.dump, self.status, self.app = file, dict(DUMP) if dump is None else dump, status, app
+        self.ui = ui if ui is not None else {"ok": True, "pixel_size": 2.0, "ui_scale": 1.0, "origin": "bottom-left",
+                                             "windows": []}
+        self.ui_delay = ui_delay
         self.requests: list[tuple[str, dict]] = []
         bridge = self
 
@@ -58,8 +62,8 @@ class FakeBridge:
                             "t": 0.0} for i in (1, 2, 3) if i > since]
                     return self._send(200, {"ok": True, "last_seq": 3, "ops": ops})
                 if path == "/ui":
-                    return self._send(200, {"ok": True, "pixel_size": 2.0, "ui_scale": 1.0, "origin": "bottom-left",
-                                            "windows": []})
+                    time.sleep(bridge.ui_delay)
+                    return self._send(200, bridge.ui)
                 if path == "/bad":
                     return self._send(200, b"not json")
                 return self._send(404, {"ok": False, "error": "no_route"})
@@ -214,6 +218,41 @@ def test_ui_rects(make_bridges):
     make_bridges({})
     ui = bx.ui_rects()
     assert ui["origin"] == "bottom-left" and ui["pixel_size"] == 2.0 and ui["windows"] == []
+
+
+UI_V2 = {"ok": True, "pixel_size": 2.0, "ui_scale": 1.0, "origin": "bottom-left", "mode": "OBJECT", "active": "Donut",
+         "windows": [{"x": 0, "y": 0, "width": 2000, "height": 1300, "screen": "Layout", "workspace": "Layout",
+                      "areas": [{"type": "VIEW_3D", "ui_type": "VIEW_3D", "x": 0, "y": 0, "width": 1400,
+                                 "height": 1300, "regions": [],
+                                 "objects": [{"name": "Donut", "type": "MESH", "x": 600, "y": 500, "width": 200,
+                                              "height": 100}]},
+                                {"type": "PROPERTIES", "ui_type": "PROPERTIES", "x": 1400, "y": 0, "width": 600,
+                                 "height": 900, "regions": [],
+                                 "properties": {"context": "OBJECT", "tabs": {"x": 1400, "y": 0, "width": 58,
+                                                                              "height": 874}}}]}]}
+
+
+def test_ui_rects_passes_the_new_fields_through(make_bridges):
+    make_bridges({"ui": UI_V2})
+    ui = bx.ui_rects()
+    assert ui["mode"] == "OBJECT" and ui["active"] == "Donut"
+    view3d, props = ui["windows"][0]["areas"]
+    assert view3d["objects"][0]["name"] == "Donut" and props["properties"]["context"] == "OBJECT"
+
+
+@pytest.mark.parametrize("ui", [{"ok": True}, {"ok": True, "windows": {"x": 0}}, {"ok": True, "windows": [1, 2]},
+                                {"ok": True, "windows": ["Layout"]}])
+def test_ui_rects_bad_shape_is_none(make_bridges, ui):
+    make_bridges({"ui": ui})
+    assert bx.ui_rects() is None
+
+
+def test_ui_rects_slow_bridge_is_none_within_the_timeout(make_bridges):
+    assert bx.TIMEOUT_S == 0.3
+    make_bridges({"ui": UI_V2, "ui_delay": 1.0})
+    t0 = time.monotonic()
+    assert bx.ui_rects() is None
+    assert time.monotonic() - t0 < 2 * bx.TIMEOUT_S + 0.2  # /health then /ui, each capped at TIMEOUT_S
 
 
 # ------------------------------------------------------------------ acceptance 3: token header

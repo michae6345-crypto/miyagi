@@ -172,12 +172,23 @@ def recent_ops(since: int = 0, timeout: float = TIMEOUT_S) -> list[dict] | None:
 
 
 def ui_rects(timeout: float = TIMEOUT_S) -> dict | None:
-    """The first Blender's /ui: {pixel_size, ui_scale, origin, windows: [...]} in raw Blender pixels, or None."""
+    """The first Blender's /ui in raw Blender pixels (origin bottom-left, x / y relative to the window), or None:
+
+        {pixel_size, ui_scale, origin, mode, active,
+         windows: [{x, y, width, height, screen, workspace, areas: [{type, ui_type, x, y, width, height,
+             regions: [{type, x, y, width, height}],
+             objects?: [{name, type, x, y, width, height}],          # a single-view 3D Viewport: visible boxes
+             properties?: {context, tabs: {x, y, width, height} | None, contexts?: [str]}}]}]}  # a Properties editor
+
+    None also for a reply whose windows is not a list of objects (server.screen.app_target checks the rest)."""
     h = health(timeout)
     if h is None:
         return None
     reply = _call(int(h["port"]), "/ui", timeout)
-    return reply if reply and isinstance(reply.get("windows"), list) else None
+    wins = (reply or {}).get("windows")
+    if not isinstance(wins, list) or not all(isinstance(w, dict) for w in wins):
+        return None
+    return reply
 
 
 # ------------------------------------------------------------------ launch
