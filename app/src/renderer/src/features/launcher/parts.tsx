@@ -6,21 +6,22 @@
  * Colors are set inline on buttons because they animate (hover, enabled ↔ disabled).
  */
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
-import { useRef, type ReactNode } from 'react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
 import { GraduationCap, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
-import { color, fill, radius2, spring } from '../../core/theme'
-import { Keycap as CoreKeycap, keyLabel as coreKeyLabel, type KeyName } from '../../core/ui/Keycap'
+import { color, fill, spring, v4, v4c, v4type } from '../../core/theme'
+import { keyLabel as coreKeyLabel, type KeyName } from '../../core/ui/Keycap'
 import { demoEnabled, navKey } from './keys'
 import { ease, enter, fade, staggerDelay } from '../../core/ui/motion'
 
 /** One section of the panel settling into place a beat after the one above it. */
-export function Rise({ i, children, className = '' }: { i: number; children: ReactNode; className?: string }): ReactNode {
+export function Rise({ i, children, className = '', style }: { i: number; children: ReactNode; className?: string; style?: CSSProperties }): ReactNode {
   const reduce = useReducedMotion()
   const delay = 0.07 + i * 0.04
   return (
     <motion.div
       className={className}
+      style={style}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={enter(delay)}
@@ -89,9 +90,9 @@ export const PRESS = { scale: 0.97, transition: spring }
  * teach me". The highlighted one is the default for what's typed (the launcher picks it: "Just teach me" for a goal
  * that reads like building something, else "Watch a video", never Demo), and the footer's primary carries its name.
  * Under the chips, one line says what Enter will do with the highlighted way (HOW_DESC); it crossfades as Tab moves.
- * Monochrome chrome, not pastel options and not a second white primary: the highlighted one is a lit chip (brighter
- * fill, ring border, full-white text), the others quiet chips. No keycaps on the chips: each key is shown once, in the
- * footer (Michael's audit A19).
+ * Monochrome chrome, not pastel options and not a second white primary: the highlighted one is a lit chip (the v4
+ * selected-row wash, an ink ring, full-strength text), the others quiet v4 buttons (.btn.quiet: a hairline ring). No
+ * keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
  */
 export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
   const all: { id: How; Icon: LucideIcon }[] = [
@@ -117,16 +118,17 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
               data-default={on || undefined}
               aria-pressed={on}
               aria-keyshortcuts={on ? 'Enter' : id === 'lesson' ? `${mod}+Enter` : undefined}
-              className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] pr-[13px] text-[13px] font-medium"
+              className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap border pl-[10px] pr-[12px] text-[13.5px] font-medium"
+              style={{ borderRadius: v4.radius.control }}
               initial={reduce ? { opacity: 0 } : { opacity: 0, y: 4 }}
               animate={{
                 opacity: 1,
                 y: 0,
                 ...(on
-                  ? { backgroundColor: fill.chipHover, borderColor: fill.ring, color: color.text }
-                  : { backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText })
+                  ? { backgroundColor: v4c.active, borderColor: color.text, color: color.text }
+                  : { backgroundColor: v4c.fill, borderColor: v4c.hair2, color: color.label })
               }}
-              whileHover={on ? undefined : { backgroundColor: fill.chipHover, color: color.text }}
+              whileHover={on ? undefined : { backgroundColor: v4c.hover, color: color.text }}
               whileTap={PRESS}
               transition={{ ...fade.tint, y: { ...spring, delay: staggerDelay(i) }, opacity: { ...fade.in, delay: staggerDelay(i) } }}
               {...press(id)}
@@ -143,8 +145,8 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
           <motion.div
             key={how}
             data-how-desc={how}
-            className="absolute inset-x-0 top-0 truncate pl-[2px] text-[12.5px] leading-[18px]"
-            style={{ color: color.label }}
+            className="absolute inset-x-0 top-0 truncate pl-[2px]"
+            style={{ ...v4type.meta, color: color.label }}
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
@@ -159,23 +161,36 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
 }
 
 /**
- * The launcher's section label ("From your link", "Continue", "Try asking", "Ready to run"): 12 px, medium, sentence
- * case, the label gray, as on Home (redraft, Adrian Nov 21: uppercase tracked labels read as template UI).
+ * The launcher's room, in the v4 frame's numbers (Adrian's ui-next mock): rows sit PAD_X in from the panel's edge and
+ * their text another v4.row.padX in, so the field's bonsai, the section labels and every row's text share one left
+ * edge (TEXT_X). A section label is v4's `sec` (12.5 / 550, the label gray), LABEL_TOP above (FIRST_TOP for the first)
+ * and LABEL_BOTTOM under; the mock's 30 / 26 / 10 are page numbers, the launcher keeps them tighter.
  */
-export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }): ReactNode {
+export const PAD_X = 12
+export const TEXT_X = PAD_X + v4.row.padX
+const FIRST_TOP = 12
+const LABEL_TOP = 18
+const LABEL_BOTTOM = 6
+
+/**
+ * The launcher's section label ("Continue", "Plans", "Ready to run", "Try asking", "From your link"): v4's section
+ * label, sentence case, the label gray, with an optional count in the faint gray ("Ready to run 3").
+ */
+export function SectionLabel({ children, first = false, count }: { children: ReactNode; first?: boolean; count?: number }): ReactNode {
   return (
     <div
       data-section-label
-      className={`px-[16px] pb-[6px] text-[12px] font-medium ${first ? 'pt-[10px]' : 'pt-[18px]'}`}
-      style={{ color: color.label }}
+      className="flex items-center"
+      style={{ ...v4type.sec, color: color.label, padding: `${first ? FIRST_TOP : LABEL_TOP}px ${v4.row.padX}px ${LABEL_BOTTOM}px` }}
     >
       {children}
+      {count != null && <span style={{ fontWeight: 450, color: color.faint, marginLeft: 6 }}>{count}</span>}
     </div>
   )
 }
 
-/** A "Try asking" line is this tall (fixed, so the list's one highlight can glide between lines). */
-export const ASK_H = 44
+/** A "Try asking" line is a v4 row (fixed, so the list's one highlight can glide between lines). */
+export const ASK_H = v4.row.h
 
 /**
  * One "Try asking" line (Home-Launcher): the words, 44 high (redraft: no arrow). The active line shows the Enter
@@ -205,8 +220,8 @@ function AskLine({
       data-active={active || undefined}
       aria-selected={active}
       role="option"
-      className="relative flex w-full min-w-0 cursor-pointer items-center gap-[16px] rounded-[12px] px-[16px] text-left text-[14px]"
-      style={{ height: ASK_H, color: color.text }}
+      className="relative flex w-full min-w-0 cursor-pointer items-center gap-[12px] text-left"
+      style={{ ...v4type.body, height: ASK_H, padding: `0 ${v4.row.padX}px`, borderRadius: v4.radius.row, color: color.text }}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       whileTap={PRESS}
@@ -223,18 +238,50 @@ function AskLine({
   )
 }
 
-/** The one highlight under a list of `count` equal lines (h each), gliding to line `at` on the spring; -1 = hidden. */
+/**
+ * The one highlight under a list of `count` equal lines (h each), gliding to line `at` on the spring; -1 = hidden. v4's
+ * selected row: the row radius and the `active` wash (one step over the hover wash, so the keyboard's line reads).
+ */
 export function ListHighlight({ at, count, h }: { at: number; count: number; h: number }): ReactNode {
   const on = at >= 0 && at < count
   return (
     <motion.div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
-      style={{ height: h, background: fill.highlight }}
+      data-list-highlight
+      className="pointer-events-none absolute inset-x-0 top-0"
+      style={{ height: h, background: v4c.active, borderRadius: v4.radius.row }}
       initial={false}
       animate={{ y: Math.max(0, Math.min(count - 1, at)) * h, opacity: on ? 1 : 0 }}
       transition={{ y: spring, opacity: fade.out }}
     />
+  )
+}
+
+/**
+ * v4's hairlines between rows (`.mg-v4-rows`): one between each pair of the `count` lines (h each), hidden on both
+ * edges of the highlighted line `at`, as the Library hides them around a hovered row. They fade, never jump.
+ */
+export function RowRules({ count, h, at = -1 }: { count: number; h: number; at?: number }): ReactNode {
+  if (count < 2) return null
+  return (
+    <>
+      {Array.from({ length: count - 1 }, (_, k) => {
+        const i = k + 1
+        const hidden = at >= 0 && (i === at || i === at + 1)
+        return (
+          <motion.span
+            key={i}
+            aria-hidden
+            data-row-rule
+            className="pointer-events-none absolute inset-x-0 block h-px"
+            style={{ top: i * h, background: v4c.hair }}
+            initial={false}
+            animate={{ opacity: hidden ? 0 : 1 }}
+            transition={fade.tint}
+          />
+        )
+      })}
+    </>
   )
 }
 
@@ -257,6 +304,7 @@ export function SuggestionRows({
   return (
     <div className="relative flex flex-col" role="listbox" aria-label="Try asking">
       <ListHighlight at={active} count={items.length} h={ASK_H} />
+      <RowRules count={items.length} h={ASK_H} at={active} />
       {items.map((t, i) => (
         <AskLine
           key={t}
@@ -294,6 +342,7 @@ export function QuestionChips({
   return (
     <div className="relative flex flex-col" role="listbox" aria-label="Suggested questions">
       <ListHighlight at={active} count={questions.length} h={ASK_H} />
+      <RowRules count={questions.length} h={ASK_H} at={active} />
       {questions.map((q, i) => (
         <AskLine key={q} text={q} index={i} active={i === active} data={{ 'data-question': true }} onHover={() => onHover(i)} {...press(q)} />
       ))}
@@ -302,23 +351,30 @@ export function QuestionChips({
 }
 
 /**
- * The launcher's keycap for navigation glyphs (↵, ↑↓, ⇥), drawn like core/ui/Keycap (Home-Launcher .kc: 20 high,
- * radius 6, 11 px, a hairline). Global shortcuts and Esc never come through here: they are core Keycaps with the
- * platform's own label (bridge.platform.keys). On the white primary, ink at 10% (brand).
+ * The launcher's keycap, the v4 mock's `kbd`: 11 px, 500, 20 high, radius 4, the fill2 wash and the label gray, no
+ * ring. Navigation glyphs (↵, ↑↓, ⇥) come from keys.navKey and Esc from the platform's own label (DismissKey), never
+ * typed by hand. On the primary button, the mock's `.btn.primary kbd`: ink at 10% (brand), text in the button's ink.
  */
 export function NavKey({ children, onAccent = false }: { children: ReactNode; onAccent?: boolean }): ReactNode {
   return (
-    <span
-      className="inline-flex h-[20px] min-w-[20px] shrink-0 items-center justify-center whitespace-nowrap px-[6px] text-[11px] font-medium"
-      style={
-        onAccent
-          ? { background: fill.onAccentKey, color: color.onAccent, borderRadius: radius2.round }
-          : { background: fill.keycap, color: fill.keycapText, boxShadow: `inset 0 0 0 1px ${fill.keycapBorder}`, borderRadius: radius2.keycap }
-      }
+    <kbd
+      data-navkey
+      className="inline-flex h-[20px] min-w-[20px] shrink-0 items-center justify-center whitespace-nowrap px-[5px] text-[11px] font-medium tabular-nums"
+      style={{
+        fontFamily: 'inherit',
+        borderRadius: v4.radius.tag,
+        ...(onAccent ? { background: fill.onAccentKey, color: color.onAccent } : { background: v4c.fill2, color: color.label })
+      }}
     >
       {children}
-    </span>
+    </kbd>
   )
+}
+
+/** Esc, as the platform names it (bridge.platform.keys.dismiss), in the launcher's keycap. */
+export function DismissKey(): ReactNode {
+  const label = coreKeyLabel('dismiss')
+  return label ? <NavKey>{label}</NavKey> : null
 }
 const Keycap = NavKey
 
@@ -337,16 +393,17 @@ export function modKey(): string {
  */
 export function Hint({ label, keycap, keyName }: { label: string; keycap?: string; keyName?: KeyName }): ReactNode {
   return (
-    <span className="flex h-[30px] shrink-0 items-center gap-[8px] whitespace-nowrap pl-[4px] pr-[10px] text-[12px]" style={{ color: color.label }}>
-      {keyName ? <CoreKeycap k={keyName} size="sm" /> : <Keycap>{keycap}</Keycap>}
+    <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[12.5px]" style={{ color: color.label }}>
+      {keyName ? <Keycap>{coreKeyLabel(keyName)}</Keycap> : <Keycap>{keycap}</Keycap>}
       {label}
     </span>
   )
 }
 
 /**
- * A footer action. `strong` = the primary slot: label then keycap, the white button when it can act (one per surface),
- * else a faint label. Otherwise a quiet, clickable hint: keycap first like Hint ("⇥ New lesson"), no fill until hovered.
+ * A footer action. `strong` = the primary slot: label then keycap, v4's primary button (radius 8, white on dark, ink on
+ * light) when it can act (one per surface), else a faint label. Otherwise a quiet, clickable hint: keycap first like
+ * Hint ("⌥⇥ Back to step"), no fill until hovered (the v4 hover wash).
  */
 export function Action({
   label,
@@ -367,15 +424,16 @@ export function Action({
       type="button"
       tabIndex={-1}
       disabled={!enabled}
-      className={`flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full text-[13px] disabled:cursor-default ${
-        strong ? `gap-[8px] pr-[4px] font-medium ${solid ? 'pl-[12px]' : 'pl-[10px]'}` : 'gap-[7px] pl-[4px] pr-[10px]'
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap disabled:cursor-default ${
+        strong ? `gap-[8px] pr-[5px] text-[13.5px] font-semibold ${solid ? 'pl-[12px]' : 'pl-[10px]'}` : 'gap-[7px] pl-[5px] pr-[10px] text-[12.5px]'
       }`}
+      style={{ borderRadius: strong ? v4.radius.control : v4.radius.row }}
       initial={false}
       animate={{
         backgroundColor: solid ? color.accent : fill.clear,
         color: solid ? color.onAccent : enabled ? color.label : color.faint
       }}
-      whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: fill.chip, color: color.text }) : undefined}
+      whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: v4c.hover, color: color.text }) : undefined}
       whileTap={enabled ? PRESS : undefined}
       transition={{ ...fade.tint, scale: spring }}
       onMouseDown={(e) => e.preventDefault()}
@@ -408,9 +466,10 @@ export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => voi
     <motion.button
       type="button"
       tabIndex={-1}
-      className="flex h-[26px] shrink-0 cursor-pointer items-center gap-[6px] whitespace-nowrap rounded-full px-[9px] text-[12px]"
+      className="flex h-[26px] shrink-0 cursor-pointer items-center gap-[6px] whitespace-nowrap px-[8px] text-[12.5px]"
+      style={{ borderRadius: v4.radius.row }}
       initial={false}
-      animate={armed ? { backgroundColor: fill.chip, color: color.text } : { backgroundColor: fill.clear, color: color.faint }}
+      animate={armed ? { backgroundColor: v4c.fill2, color: color.text } : { backgroundColor: fill.clear, color: color.faint }}
       whileHover={{ color: color.text }}
       whileTap={PRESS}
       transition={{ ...fade.tint, scale: spring }}
