@@ -163,8 +163,12 @@ class Target:
 @dataclass(frozen=True)
 class Phrase:
     text: str
-    kind: str     # "ui" (a control's words) | "tab" (a Properties context: "MODIFIER") | "area" (a Blender area
-    #               type: "VIEW_3D") | "region" ("VIEW_3D:UI": an area type and a region type)
+    kind: str     # "ui" (a control's words) | "ui_exact" (a control's whole label only: an exact AX label or a whole
+    #               OCR block, never a word run inside a longer block) | "tab" (a Properties context: "MODIFIER") |
+    #               "area" (a Blender area type: "VIEW_3D") | "region" ("VIEW_3D:UI": an area type and a region type)
+
+
+UI_KINDS = ("ui", "ui_exact")
 
 
 def norm(s: str | None) -> str:
@@ -177,28 +181,36 @@ def phrases(step: dict) -> list[Phrase]:
     """What to look for, in order: step.targets[].match (not regex-like, <= 40 chars), quoted UI names in the
     instructions, the first segment of a menu path ("Add > Mesh > Torus" -> "Add"), "Click <Name>", then Properties
     tabs, regions and Blender area words. A quoted or clicked name followed by tab / panel / properties / editor /
-    area ("Open the Modifier tab") names a place, never a control: it becomes a tab or area phrase (place_phrases), or
-    nothing, so "Modifier" is never looked for inside the "Add Modifier" button. A name (also a target's match) that IS
-    an area or region ("Click the Viewport", "Open the Sidebar") is only that area / region phrase, never a control's
-    words found inside "Levels Viewport" / "Toggle Sidebar". Object names are matched by the bridge itself
-    (_object_in)."""
+    area ("Open the Modifier tab") names a place, never a control: it becomes a tab or area phrase (place_phrases), so
+    "Modifier" is never looked for inside the "Add Modifier" button; a place miyagi doesn't know ("the Shading tab",
+    "the Transform panel") keeps its name as a whole-label control (ui_exact: the "Shading" workspace tab, the
+    "Transform" panel header), never a word inside a longer label (named_place). A bare Properties tab word as a
+    control ("Modifier", "Material", "Object", from a target's match, quotes or "Click ...") is that tab when the text
+    names the tab, else whole-label only (ui_phrase). A name (also a target's match) that IS an area or region ("Click
+    the Viewport", "Open the Sidebar") is only that area / region phrase, never a control's words found inside "Levels
+    Viewport" / "Toggle Sidebar". Object names are matched by the bridge itself (_object_in)."""
     out: list[Phrase] = []
     seen: set[str] = set()
+    text = "\n".join(str(step.get(k) or "") for k in ("instructions", "title"))
 
-    def add(text: str, kind: str = "ui") -> None:
-        t = " ".join(str(text or "").split()).strip(" .:;,!?")
-        if not t or len(t) > MAX_PHRASE_CHARS or len(t.split()) > 5 or (kind == "ui" and _KEYISH.match(t)):
+    def add(name: str, kind: str = "ui") -> None:
+        t = " ".join(str(name or "").split()).strip(" .:;,!?")
+        if not t or len(t) > MAX_PHRASE_CHARS or len(t.split()) > 5 or (kind in UI_KINDS and _KEYISH.match(t)):
             return
         key = f"{kind}:{t.lower()}"
         if key not in seen:
             seen.add(key)
             out.append(Phrase(t, kind))
 
+    def add_ui(name: str) -> None:
+        p = ui_phrase(name, text)
+        add(p.text, p.kind)
+
     def add_name(name: str, after: str) -> None:
         noun = _PLACE_NOUN.match(after)
-        placed = place_phrases(f"{name} {noun.group(1)}" if noun else name)
+        placed = named_place(f"{name} {noun.group(1)}" if noun else name)
         if placed is None:
-            add(name)
+            add_ui(name)
             return
         for p in placed:
             add(p.text, p.kind)
@@ -212,10 +224,11 @@ def phrases(step: dict) -> list[Phrase]:
             elif not _PLACE.match(whole) and (area := _area_type(whole)) is not None:
                 add(area, "area")
             else:
-                add(m)
-    text = "\n".join(str(step.get(k) or "") for k in ("instructions", "title"))
+                add_ui(m)
     for m in _QUOTED.finditer(text):
         add_name(next(g for g in m.groups() if g), text[m.end():])
+    # a menu path's head is a menu ("Object > Apply"), never a Properties tab: a word run inside a header row block
+    # ("View Select Add Object") is still that menu
     for m in _MENU_PATH.finditer(text):
         add(m.group(1))
     for m in _CLICK.finditer(text):
@@ -252,6 +265,33 @@ def place_phrases(name: str) -> list[Phrase] | None:
     if area:
         out.append(Phrase(area, "area"))
     return out
+
+
+def named_place(name: str) -> list[Phrase] | None:
+    """place_phrases(name), except that a place miyagi doesn't know ("Shading tab", "Layout tab", "UV Editing tab",
+    "Transform panel") keeps its name as a whole-label control: [ui_exact "Shading"], found only as an exact AX label
+    or a whole OCR block (the workspace tab, the panel header), never inside a longer label ("Shading Nodes"). A bare
+    Properties tab word there ("Data panel", "Object panel"): nothing. None: not a place name."""
+    placed = place_phrases(name)
+    if placed != []:
+        return placed
+    m = _PLACE.match(" ".join(str(name or "").split()).strip(" .:;,!?"))
+    base = m.group(1).strip() if m else ""
+    if not base or norm(base) in TAB_NAMES or norm(base) in _NOT_A_NAME:
+        return []
+    return [Phrase(base, "ui_exact")]
+
+
+def ui_phrase(name: str, text: str = "") -> Phrase:
+    """A control's words as a phrase. A bare Properties tab word ("Modifier", "Material", "Object", "World": a
+    TAB_NAMES key) is never matched inside a longer label (the "Modifier" in "Add Modifier"): it is that tab when
+    `text` names it ("Open the Modifier tab."), else a whole-label control (ui_exact)."""
+    tab = TAB_NAMES.get(norm(name))
+    if tab is None:
+        return Phrase(name, "ui")
+    if tab in tab_contexts(text):
+        return Phrase(tab, "tab")
+    return Phrase(name, "ui_exact")
 
 
 def _named_as_ui(text: str, start: int) -> bool:
@@ -680,7 +720,7 @@ def _object_asked(plist: list[Phrase], ui: dict) -> ObjectHit | None:
     """A where ask's own object ("where is the Cube?" -> ui phrase "Cube"): a ui phrase that IS one object's name
     (case aside, MIN_OBJECT_NAME+ chars, unique among the objects). Never an object the step itself names."""
     for ph in plist:
-        if ph.kind != "ui" or len(ph.text) < MIN_OBJECT_NAME:
+        if ph.kind not in UI_KINDS or len(ph.text) < MIN_OBJECT_NAME:
             continue
         want = ph.text.casefold()
         hits = [(name, r) for name, r in ui.get("objects") or [] if name.casefold() == want]
@@ -831,10 +871,11 @@ def _spans(text: str, rect: Rect, want: str) -> list[Rect]:
     return out
 
 
-def ocr_target(obs, phrase: str, window_app: str | list[str], *, window: Rect | None = None) -> Rect | None:
+def ocr_target(obs, phrase: str, window_app: str | list[str], *, window: Rect | None = None,
+               whole: bool = False) -> Rect | None:
     """The rect of the phrase in the app's window on this frame: blocks equal to it (or a word run inside a block equal
     to it), or with a fuzzy ratio >= 92 for 4+ char phrases; confidence >= 0.5. Exactly one candidate, or a best that
-    beats the second by >= 8; else None."""
+    beats the second by >= 8; else None. whole (a ui_exact phrase): only a block equal to it, no word run, no fuzzy."""
     from rapidfuzz import fuzz
 
     names = [window_app] if isinstance(window_app, str) else list(window_app)
@@ -853,6 +894,8 @@ def ocr_target(obs, phrase: str, window_app: str | list[str], *, window: Rect | 
         got = norm(getattr(b, "text", ""))
         if got == want:
             cands.append((100.0, r))
+            continue
+        if whole:
             continue
         spans = _spans(" ".join(str(getattr(b, "text", "")).split()), r, want)
         if spans:
@@ -895,7 +938,7 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
     win = app_window(obs, names) if fresh else None
     screen = _rect(getattr(obs, "screen", None)) if obs is not None else None
     plist = phrase_list if phrase_list is not None else phrases(step)
-    ui = [p for p in plist if p.kind == "ui"]
+    ui = [p for p in plist if p.kind in UI_KINDS]
     tabs = [p for p in plist if p.kind == "tab"]
 
     def ok(r: Rect | None) -> Rect | None:  # no displayId on a mark: only a rect on the primary display
@@ -904,8 +947,9 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
             return None
         return r
 
-    def ocr(phrase: str, where: Rect) -> Rect | None:
-        return ok(gate((ocr_fn or ocr_target)(obs, phrase, names, window=where), win, overlay))
+    def ocr(phrase: str, where: Rect, *, whole: bool = False) -> Rect | None:
+        kw = {"whole": True} if whole else {}  # a ui_exact phrase: a whole block only, never a word inside one
+        return ok(gate((ocr_fn or ocr_target)(obs, phrase, names, window=where, **kw), win, overlay))
 
     # one bridge round trip; none without the app's window on a fresh frame (nothing to place its rects on)
     shape = bridge_shape((bridge or _bridge_ui)(), win) if _has_bridge(app) and win is not None else None
@@ -936,7 +980,7 @@ def resolve(step: dict, app: dict, obs, overlay_rects: Iterable = (), *, front: 
                 return Target(r, "ax", ph.text)
     if fresh and win is not None:
         for ph in ui:
-            if (r := ocr(ph.text, win)) is not None:
+            if (r := ocr(ph.text, win, whole=ph.kind == "ui_exact")) is not None:
                 return Target(r, "ocr", ph.text)
     if not shape:
         return None

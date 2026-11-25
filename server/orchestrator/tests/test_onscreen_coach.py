@@ -475,8 +475,24 @@ def test_a_where_ask_never_circles_the_steps_object(ask, label):
         assert t is None or t.via == "bridge"
 
 
-def test_where_an_unknown_place_is_not_a_where_ask():
-    assert OC.where_phrases("where is the Transform panel?") is None  # never the bare "Transform"
+@pytest.mark.parametrize("ask,name", [
+    # targets review round 3: a place miyagi doesn't know is still a where ask, by its whole label only (the
+    # workspace tab, the panel header), never a word found inside a longer label
+    ("where is the Shading tab?", "Shading"),
+    ("where is the Transform panel?", "Transform"),
+    ("where is the UV Editing tab?", "UV Editing"),
+    # a bare Properties tab word: whole label only, never the "Modifier" inside "Add Modifier"
+    ("where is Modifier?", "Modifier"),
+    ("where is the Material?", "Material"),
+])
+def test_where_an_unknown_place_or_a_bare_tab_word_is_whole_label_only(ask, name):
+    assert [(p.text, p.kind) for p in OC.where_phrases(ask)] == [(name, "ui_exact")]
+
+
+def test_where_a_bare_tab_word_place_is_nothing():
+    assert OC.where_phrases("where is the Data panel?") is None  # "Data" alone names no control
+    got = [(p.text, p.kind) for p in OC.where_phrases("where is the Object menu?")]
+    assert got == [("Object menu", "ui"), ("Object", "ui_exact")]
 
 
 def test_keys_and_text_agree_at_a_sentence_end():

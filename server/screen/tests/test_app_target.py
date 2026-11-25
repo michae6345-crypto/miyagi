@@ -848,3 +848,114 @@ def test_a_named_object_needs_its_exact_spelling_after_a_determiner():
     assert run("Look at Empty from above.", raw_v2(objects=AREA_EMPTY)) is None
     # a verb acting on it: case aside, as before
     assert run("select the empty", raw_v2(objects=AREA_EMPTY)).label == "Empty"
+
+
+# ------------------------------------------------------------------ review round 3: an unknown place keeps its label
+# (whole label only), a bare Properties tab word is never found inside a longer label
+
+SHADING = blk("Shading", 400, 60, 50)
+SHADING_NODES = blk("Shading Nodes", 400, 60, 90)
+ADD_MOD = blk("Add Modifier", 900, 300, 120)
+
+
+def where(ask: str):
+    from server.orchestrator import onscreen_coach as OC
+
+    return OC.where_phrases(ask)
+
+
+@pytest.mark.parametrize("instr,want", [
+    ("Click the Shading tab at the top.", [("Shading", "ui_exact")]),
+    ("Click the Layout tab.", [("Layout", "ui_exact")]),
+    ('Click the "Shading" tab.', [("Shading", "ui_exact")]),
+    ("Open the UV Editing tab.", [("UV Editing", "ui_exact")]),
+    ("Open the Transform panel in the Sidebar.", [("Transform", "ui_exact"), ("VIEW_3D:UI", "region")]),
+    ("Open the Data panel.", []),   # a bare Properties tab word naming no place miyagi knows: nothing
+])
+def test_an_unknown_place_keeps_its_name_as_a_whole_label(instr, want):
+    assert [(p.text, p.kind) for p in T.phrases(step(instr))] == want
+
+
+def test_named_place():
+    assert T.named_place("Shading tab") == [T.Phrase("Shading", "ui_exact")]
+    assert T.named_place("Transform panel") == [T.Phrase("Transform", "ui_exact")]
+    assert T.named_place("Modifier tab") == T.place_phrases("Modifier tab")
+    assert T.named_place("Object panel") == [] and T.named_place("Blender editor") == []
+    assert T.named_place("Add Modifier") is None
+
+
+def test_ui_phrase_turns_a_bare_tab_word_into_its_tab_or_a_whole_label():
+    assert T.ui_phrase("Add Modifier", "") == T.Phrase("Add Modifier", "ui")
+    assert T.ui_phrase("Modifier", "Open the Modifier tab.") == T.Phrase("MODIFIER", "tab")
+    assert T.ui_phrase("Modifier", "Click it.") == T.Phrase("Modifier", "ui_exact")
+    assert T.ui_phrase("material", "Go to the Material properties") == T.Phrase("MATERIAL", "tab")
+    assert T.ui_phrase("Object", "Open the Material tab.") == T.Phrase("Object", "ui_exact")
+
+
+def test_ocr_whole_is_a_whole_block_only():
+    o = obs([SHADING_NODES, ADD_MOD])
+    assert T.ocr_target(o, "Shading", "Blender") is not None                 # a word run, without whole
+    assert T.ocr_target(o, "Shading", "Blender", whole=True) is None
+    assert T.ocr_target(o, "Modifier", "Blender", whole=True) is None
+    assert T.ocr_target(obs([blk("Shadinq", 400, 60, 50)]), "Shading", "Blender", whole=True) is None  # no fuzzy
+    assert T.ocr_target(obs([SHADING]), "Shading", "Blender", whole=True) == SHADING.rect
+
+
+def test_must_circle_the_shading_tab_by_its_whole_block(no_bridge):
+    t = T.resolve(step("Click the Shading tab"), BLENDER, obs([SHADING]), [], ax_fn=Recorder())
+    assert t == T.Target(SHADING.rect, "ocr", "Shading")
+    t = T.resolve(step("Click the Shading tab"), BLENDER, obs([SHADING]), [],
+                  ax_fn=Recorder((Rect(398, 58, 54, 20), WIN)))
+    assert t is not None and t.via == "ax" and t.label == "Shading"
+
+
+def test_must_not_circle_shading_inside_a_longer_label(no_bridge):
+    assert T.resolve(step("Click the Shading tab"), BLENDER, obs([SHADING_NODES]), [], ax_fn=Recorder()) is None
+    plist = where("where is the Shading tab?")
+    assert T.resolve(step("Press G."), BLENDER, obs([SHADING_NODES]), [], ax_fn=Recorder(), phrase_list=plist) is None
+    t = T.resolve(step("Press G."), BLENDER, obs([SHADING]), [], ax_fn=Recorder(), phrase_list=plist)
+    assert t == T.Target(SHADING.rect, "ocr", "Shading")
+
+
+def test_the_transform_panel_header_beats_the_sidebar():
+    instr = "Open the Transform panel in the Sidebar."
+    header = blk("Transform", 700, 120, 70)
+    assert run(instr, raw_v2(sidebar_px=400), bobs([header])) == T.Target(header.rect, "ocr", "Transform")
+    longer = blk("Transform Pivot Point", 700, 120, 120)  # never the word inside a longer label: the sidebar
+    assert run(instr, raw_v2(sidebar_px=400), bobs([longer])) == T.Target(SIDEBAR_PT, "bridge", "Sidebar")
+
+
+@pytest.mark.parametrize("st", [
+    step("Open the Modifier tab.", targets=[{"match": "Modifier"}]),
+    step("Click it.", targets=[{"match": "Modifier"}]),
+    step('Click "Modifier".'),
+    step("Click Modifier."),
+])
+def test_must_not_circle_a_bare_tab_word_from_a_target_or_a_name(no_bridge, st):
+    got = T.phrases(st)
+    assert not any(p.kind == "ui" and T.norm(p.text) == "modifier" for p in got), got
+    assert T.resolve(st, BLENDER, obs([ADD_MOD]), [], ax_fn=Recorder()) is None
+
+
+def test_must_not_circle_a_bare_tab_word_for_a_where_ask(no_bridge):
+    plist = where("where is Modifier?")
+    assert plist == [T.Phrase("Modifier", "ui_exact")]
+    assert T.resolve(step("Press G."), BLENDER, obs([ADD_MOD]), [], ax_fn=Recorder(), phrase_list=plist) is None
+    # a whole-label word that IS an object the ask names ("Light" is also a tab word): still that object
+    plist = where("where is the Light?")
+    assert plist == [T.Phrase("Light", "ui_exact")]
+    t = run("Press G.", raw_v2(), phrase_list=plist)
+    assert t is not None and t.via == "bridge" and t.label == "Light"
+
+
+def test_a_target_naming_the_modifier_tab_circles_the_tab_column():
+    st = step("Open the Modifier tab.", targets=[{"match": "Modifier"}])
+    assert [(p.text, p.kind) for p in T.phrases(st)] == [("MODIFIER", "tab"), ("PROPERTIES", "area")]
+    t = T.resolve(st, BLENDER, bobs([ADD_MOD]), [], bridge=lambda: raw_v2(), ax_fn=Recorder())
+    assert t == T.Target(Rect(800, 302, 29, 426), "bridge", "Modifier tab")
+
+
+def test_a_menu_path_head_still_finds_its_menu_in_a_header_row(no_bridge):
+    row = blk("View Select Add Object", 200, 60, 220)
+    t = T.resolve(step("In the header, use Object > Apply > Scale."), BLENDER, obs([row]), [], ax_fn=Recorder())
+    assert t is not None and t.via == "ocr" and t.label == "Object" and t.rect.x > row.rect.x

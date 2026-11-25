@@ -88,7 +88,7 @@ def is_app_lesson(s) -> bool:
     try:
         from .session import CODE_APP_NAMES
     except Exception:  # noqa: BLE001
-        CODE_APP_NAMES = set()
+        CODE_APP_NAMES = set()  # noqa: N806
     if names & (CODE_TOOLS | set(CODE_APP_NAMES)):
         return False
     if _web_app(app) or not app_target._names(app):
@@ -160,7 +160,7 @@ _ORDER = "⌃⌥⇧⌘"
 _NAMED = {"tab": "Tab", "esc": "Esc", "escape": "Esc", "return": "Return", "enter": "Return", "space": "Space",
           "spacebar": "Space", "delete": "Delete", "backspace": "Delete", "del": "Delete"}
 _KEY = r"(?:numpad\s*\d|f1[0-2]|f[1-9]|tab|escape|esc|return|enter|spacebar|space|delete|backspace|del|[a-z0-9])"
-_CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s*[+\-]\s*)+)({_KEY})(?![\w])", re.IGNORECASE)
+_CHORD = re.compile(rf"\b((?:(?:shift|ctrl|control|alt|option|opt|cmd|command)\s*[+\-]\s*)+)({_KEY})(?![\w])", re.I)
 _GLYPH = re.compile(r"[⌃⌥⇧⌘]+\s*(?:Numpad\s*\d|F1[0-2]|F[1-9]|Tab|Esc|Return|Space|Delete|[←→↑↓]|[A-Za-z0-9])(?![a-z])")
 _PKEY = r"(?:[Nn]umpad\s*\d|F1[0-2]|F[1-9]|[Tt]ab|[Ee]sc(?:ape)?|[Rr]eturn|[Ee]nter|[Ss]pace(?:bar)?|[Dd]elete|" \
         r"[Bb]ackspace|[A-Z0-9])"
@@ -230,7 +230,7 @@ def _frame(s) -> Any:
     if scr is not None and callable(getattr(scr, "fresh", None)):
         try:
             obs = scr.fresh(app_target.MAX_FRAME_AGE_S)
-        except Exception:
+        except Exception:  # noqa: BLE001
             log.exception("on-screen coach: fresh frame failed")
             return None
         return obs if hasattr(obs, "blocks") else None
@@ -272,7 +272,7 @@ async def _resolve(s, step: dict, phrase_list: list | None = None) -> app_target
 
     try:
         return await asyncio.to_thread(work)
-    except Exception:
+    except Exception:  # noqa: BLE001 - no circle, never a crash
         log.exception("on-screen coach: resolve failed")
         return None
 
@@ -437,37 +437,39 @@ def where_card(s, step: dict) -> dict:
 
 
 _WHERE = re.compile(r"^\s*where(?:'s|\s+is|\s+are|\s+do\s+i\s+(?:find|click|go)|\s+can\s+i\s+find|\s+should\s+i\s+"
-                    r"(?:click|look))?\b\s*(.*?)\s*\??\s*$", re.IGNORECASE)
+                    r"(?:click|look))?\b\s*(.*?)\s*\??\s*$", re.I)
 _VAGUE = re.compile(r"^(?:it|this|that|they|them|there|i|to|do i|i click|to click|i go|is it|now|next|the thing)?$",
-                    re.IGNORECASE)
-_GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setting|tool)s?$", re.IGNORECASE)
+                    re.I)
+_GENERIC = re.compile(r"\s+(?:button|menu|tab|panel|option|icon|item|field|setting|tool)s?$", re.I)
 
 
 def where_phrases(text: str) -> list[app_target.Phrase] | None:
     """A short typed "where ...?" ask (<= 8 words) -> the phrases to find: what it names ("where is the Add menu?" ->
     "Add menu", "Add"; a place by its tab / area / region: "where is the Modifier tab?" -> tab MODIFIER and area
     PROPERTIES, never the bare word "Modifier"; "where is the viewport / sidebar?" -> area VIEW_3D / region VIEW_3D:UI
-    only, never the word found inside "Levels Viewport"), or [] for a vague one ("where?", "where do I click?": the step's own
-    target). None: not a where ask, or a place miyagi doesn't know ("where is the Transform panel?")."""
+    only, never the word found inside "Levels Viewport"; a place miyagi doesn't know by its whole label only: "where is
+    the Shading tab?" -> ui_exact "Shading"; a bare Properties tab word: "where is Modifier?" -> ui_exact
+    "Modifier"), or [] for a vague one ("where?", "where do I click?": the step's own target). None: not a where ask,
+    or nothing to look for."""
     t = " ".join(str(text or "").split())
     if not t or len(t.split()) > 8:
         return None
     m = _WHERE.match(t)
     if m is None:
         return None
-    what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.IGNORECASE)
+    what = re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip(" ?.!"), flags=re.I)
     if _VAGUE.match(what):
         return []
-    placed = app_target.place_phrases(what)
+    placed = app_target.named_place(what)
     if placed is not None:
         # "the Modifier tab", "the properties editor": a place, never a control's words ("Modifier" would be found
-        # inside the "Add Modifier" button); a place miyagi doesn't know ("the Transform panel"): not a where ask
+        # inside the "Add Modifier" button); "the Shading tab", "the Transform panel": that whole label only
         out = list(placed)
     else:
-        out = [app_target.Phrase(what, "ui")]
+        out = [app_target.ui_phrase(what, what)]
         if (bare := _GENERIC.sub("", what)) and bare != what:
-            out.append(app_target.Phrase(bare, "ui"))
-    extra = [app_target.Phrase(t, "tab") for t in app_target.tab_contexts(what)]
+            out.append(app_target.ui_phrase(bare, what))
+    extra = [app_target.Phrase(tab, "tab") for tab in app_target.tab_contexts(what)]
     extra += [app_target.Phrase(r, "region") for r in app_target.region_types(what)]
     extra += [app_target.Phrase(a, "area") for a in app_target.area_types(what)]
     out += [p for p in extra if p not in out]
