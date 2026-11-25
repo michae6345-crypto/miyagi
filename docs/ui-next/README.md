@@ -11,6 +11,7 @@ Mockups and content from Nov 22 to 24 2026. No app code. The app pages and the e
 | `catalog/` | The lesson plans: 40 plans, 382 lessons, 372 skills. |
 | `INTEGRATIONS.md` | How Blender and CAD work should be checked, and the contract ask. |
 | `tools/render.mjs` | Renders screens to PNG with headless Chrome. |
+| `apps/` | The apps list for Home (MIC-87): the note and its render script. |
 
 ## Screens
 
@@ -67,6 +68,23 @@ One pass over the live pages to cut filler. The lesson pages did not change.
 | `home-empty` | The keys list. | |
 | `progress-empty` | "What fills this page". | Four short lessons and three plans to start. |
 | `onboard-1`, `onboard-2` | The setup list that repeated the three steps at the foot, and one line of fine print. | |
+
+## The apps list, Nov 24 (MIC-87)
+
+Which apps miyagi teaches in, shown on Home. The note is `apps/NOTE.md`. The screens are in `mock/apps.js` and `mock/apps.css`, loaded last. They add screens and change none.
+
+| Screen | What it shows |
+|---|---|
+| `apps-home-first` | New learner, 4 apps: "Start here" is the "Learn in" table |
+| `apps-home-first-10` | The same with 10 apps, the "In your browser" state and the Soon line |
+| `apps-home-first-none` | None of the four installed |
+| `apps-home`, `apps-home-10` | Returning learner: the block at the foot of the rail |
+| `apps-app-blender`, `apps-app-fusion`, `apps-app-vscode` | The page behind a row: installed, not installed, an app with 14 plans |
+| `apps-b-home-first`, `apps-b-home`, `apps-b-home-first-10`, `apps-b-home-10` | The option not picked: one line of names under the ask field |
+
+The renders are in `shots/apps/`, light and dark. `node apps/shoot.mjs [screen ...]` renders them again and holds each height.
+
+No third-party logo is drawn: every app is a name. The note says why.
 
 ## The catalog
 
