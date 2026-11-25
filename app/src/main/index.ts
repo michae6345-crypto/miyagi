@@ -47,6 +47,7 @@ import { notchFor, recheckThenResend, startNotch, type NotchService } from './no
 import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
 import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
+import { holdSplash, holdUntilPainted, showSplash, skipSplash } from './splash'
 
 // A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
 // here, the first statement of this file's own body. The imported modules' top-level code has run by then (ES imports
@@ -533,6 +534,9 @@ app.whenReady().then(async () => {
   notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
+  // The launch splash (main/splash.ts) waits for the renderer bundle's first load and, briefly, the engine link.
+  holdSplash(new Promise((res) => overlay.webContents.once('did-finish-load', () => res(undefined))))
+  holdSplash(new Promise((res) => engine.onOpen(() => res(undefined))), ENGINE_SPLASH_MS)
   islandDiag = createIslandDiag({
     logFile: join(app.getPath('logs'), 'island.log'),
     overlay: () => overlay,
@@ -753,7 +757,15 @@ app.whenReady().then(async () => {
 
   // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
   const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
-  appWindows = setupAppWindows({ app, create: (route, options) => createWindow(route, options, 'app'), trusted: trustedSender })
+  appWindows = setupAppWindows({
+    app,
+    create: (route, options) => {
+      const win = createWindow(route, options, 'app')
+      holdUntilPainted(win) // the splash leaves onto a painted home window (a no-op once the splash is gone)
+      return win
+    },
+    trusted: trustedSender
+  })
   setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
   ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
@@ -793,7 +805,26 @@ app.whenReady().then(async () => {
     appWindow: (route) => appWindows?.get(route)
   })
   setupMenu()
+  // A cold launch opens on the splash (main/splash.ts); home opens and paints underneath it. Not when started at login
+  // or for recordings (MIYAGI_QUIET_LAUNCH=1, the same switch features/launch.ts reads), not with MIYAGI_NO_SPLASH=1,
+  // and not in a second copy that features/launch.ts is about to quit.
+  if (wantsSplash()) showSplash(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).bounds)
+  else skipSplash()
 })
+
+/** How long the splash waits on the engine link before it leaves anyway (the engine keeps starting behind the app). */
+const ENGINE_SPLASH_MS = 2500
+
+function wantsSplash(): boolean {
+  if (process.env.MIYAGI_QUIET_LAUNCH === '1' || process.env.MIYAGI_NO_SPLASH === '1') return false
+  if (platform.os === 'mac' && !app.hasSingleInstanceLock()) return false
+  try {
+    if (platform.os === 'mac' && app.getLoginItemSettings().wasOpenedAtLogin) return false
+  } catch {
+    // no login item info: a normal launch
+  }
+  return true
+}
 
 /**
  * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
