@@ -10,21 +10,27 @@
  * another app owns it, main keeps the old key and the row says "Another app uses that key." Esc cancels the recording
  * before it closes the sheet. A rebound row has Reset (back to the default): refused, with the row's line, when another
  * shortcut now uses that default or main can't take it back. "Reset all" clears every override.
+ *
+ * A saved key another app took later (main found it when registering: startup, a lesson, the gate) stays saved, but the
+ * row says so: "Another app uses that key. Using ⌃⌥E." (main bound the default) or just the first sentence (no key).
+ * Its keycap shows the key really bound, and Reset stays.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ShortcutKind } from '../../../../../main/platform'
 import { bridge } from '../../../bridge'
+import { useTaken } from '../../../core/keys'
 import { savePrefs, usePrefs } from '../../../core/prefs'
 import { Keycap } from '../../../core/ui/atoms'
 import { actionTone, color, fill, radius2, type2 } from '../../../core/theme'
 import { canRecord, stage } from '../env'
-import { clashLine, conflictWith, isShortcutKind, record, SHORTCUT_ROWS, withShortcut, type ShortcutRow } from '../shortcuts'
+import { clashLine, conflictWith, isShortcutKind, record, SHORTCUT_ROWS, takenLine, withShortcut, type ShortcutRow } from '../shortcuts'
 import { Group, PageHeader, TextButton } from '../ui'
 
 const mac = bridge.platform.os === 'mac'
 
 export function Shortcuts(): ReactNode {
   const stored = usePrefs((s) => s.shortcuts)
+  const taken = useTaken()
   const [recording, setRecording] = useState<ShortcutKind | undefined>(canRecord && isShortcutKind(stage.record) ? stage.record : undefined)
   // The line under one row: a refused recording, or a refused Reset (the default is in use, or main kept the override).
   const [problem, setProblem] = useState<{ kind: ShortcutKind; text: string }>()
@@ -69,13 +75,15 @@ export function Shortcuts(): ReactNode {
       <Group label="Keyboard shortcuts">
         {SHORTCUT_ROWS.map((r) => {
           const kind = isShortcutKind(r.key) ? r.key : undefined
+          const fell = kind && stored[kind] ? taken[kind] : undefined
           return (
             <Line
               key={r.key}
               row={r}
               override={kind ? stored[kind] : undefined}
               recording={!!kind && recording === kind}
-              problem={kind && problem?.kind === kind ? problem.text : undefined}
+              problem={kind && problem?.kind === kind ? problem.text : fell && takenLine(fell, bridge.platform.keys[r.key])}
+              taken={!!fell}
               onStart={kind && canRecord && !r.fixed ? () => start(kind) : undefined}
               onReset={kind && canRecord && stored[kind] ? () => void reset(kind) : undefined}
               onCancel={cancel}
@@ -97,6 +105,7 @@ function Line({
   override,
   recording,
   problem,
+  taken,
   onStart,
   onReset,
   onCancel,
@@ -107,6 +116,8 @@ function Line({
   override?: string
   recording: boolean
   problem?: string
+  /** The saved key is another app's now: main bound the default, or nothing. */
+  taken?: boolean
   onStart?: () => void
   onReset?: () => void
   onCancel: () => void
@@ -142,6 +153,7 @@ function Line({
     <div
       data-shortcut-row={row.key}
       data-override={override ? '' : undefined}
+      data-taken={taken ? '' : undefined}
       className="flex min-h-[48px] items-center justify-between gap-[12px] pl-[16px] pr-[8px]"
       style={{ background: recording ? fill.group : undefined }}
     >
