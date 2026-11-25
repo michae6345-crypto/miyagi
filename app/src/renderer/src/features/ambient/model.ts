@@ -150,15 +150,17 @@ export const canRetry = (error: AmbientFail | string | undefined): boolean => er
 
 // ---- the launcher's two commands ----------------------------------------------------------------------------------
 
-/** Words a learner types toward "Set up this project": the whole input (3+ letters) is the start of one. */
+/**
+ * The whole input is one of these phrases. Never a prefix: on the way to "set up a React app" or "install pytorch" the
+ * partial text ("set", "set up", "install") would swap the search rows for this command for a moment.
+ */
 const SETUP_PHRASES = ['set up this project', 'setup this project', 'check this project', 'set up my project', 'set up project', 'project setup', 'install dependencies', 'install requirements', 'fix my environment', 'set up my environment']
 /** Or exactly one of these shapes ("set up the environment", "install the deps"). Never a topic like "set up a React app". */
 const SETUP_RE = /^(set ?up|check|scan|fix)( my| this| the)? (project|environment|env|dev environment|folder|repo)$|^install( the| my)? (dependencies|deps|requirements|packages)$/
 
 export function isSetupQuery(text: string): boolean {
   const q = text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.?!]+$/, '')
-  if (q.length < 3) return false
-  return SETUP_PHRASES.some((p) => p.startsWith(q)) || SETUP_RE.test(q)
+  return SETUP_PHRASES.includes(q) || SETUP_RE.test(q)
 }
 
 /** "how do I export as STL", "how can I ...", "where is the export button", "how to ..." (and something after it). */

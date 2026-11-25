@@ -14,7 +14,7 @@ import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { after, describe, test } from 'node:test'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { Incoming } from '../src/common/wire'
-import { EngineLink, FAST_RETRY_MS, type LinkInfo, type LinkTimings } from '../src/main/engine'
+import { EngineLink, FAST_RETRY_MS, NOT_REPLAYED, type LinkInfo, type LinkTimings } from '../src/main/engine'
 import { Heartbeat } from '../src/main/heartbeat'
 import { MAX_RESPAWNS, RespawnBudget, superviseEngine } from '../src/main/respawn'
 
@@ -479,4 +479,22 @@ test("fresh start: this run's lesson comes back after a drop, a respawned engine
   await until(() => seen.some((e) => e.type === 'library'), 4000, 'the respawned engine')
   assert.ok(!seen.some((e) => lessonOf(e) === 'old'), "the respawned engine's old lesson never reaches the windows")
   assert.ok(!seen.some((e) => e.type === 'card' && (e.payload as { kind: string }).kind === 'resume'), 'nor its resume card')
+})
+
+test('ambient help reaches the windows but never the replay log (a reloaded overlay must not bring back a closed card)', async () => {
+  const AMBIENT: Incoming[] = [
+    ev('error.seen', { id: 'err-1', app: 'Terminal', kind: 'python_traceback', title: 'x', lines: [], at: 't' }),
+    ev('error.explanation', { id: 'err-1', title: 't' }),
+    ev('setup.report', { reqId: 'amb-fix-1', files: [], items: [], ready: 0, total: 0 }),
+    ev('help.steps', { reqId: 'amb-help-1', app: 'Blender', goal: 'g', steps: [], current: 0 }),
+    ev('search.done', { query: 'q' })
+  ]
+  const e = await server({ snapshot: () => AMBIENT })
+  const l = link(e.url)
+  const seen: Incoming[] = []
+  l.onEvent((x) => seen.push(x))
+  await until(() => seen.some((x) => x.type === 'search.done'), 2000, 'the ambient events')
+  for (const t of NOT_REPLAYED) assert.ok(seen.some((x) => x.type === t), `${t} reached the windows`)
+  assert.deepEqual(l.log.filter((x) => NOT_REPLAYED.has(x.type)), [], 'none of them is in the replay log')
+  assert.ok(l.log.some((x) => x.type === 'search.done'), 'other events still are')
 })

@@ -110,7 +110,7 @@ import { COVER_H, LessonRow, LibraryContinueRow, LinkPreview, MessageRow, PlanRo
 import { isFlipKey, navKey } from './keys'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { isDuplicateToggle } from './guard'
-import { ambientCommand, runAmbientCommand } from '../ambient/commands'
+import { ambientCommand, enterTarget, nextPick, placement, runAmbientCommand } from '../ambient/commands'
 import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 import { beat, ease, fade, instant } from '../../core/ui/motion'
@@ -121,7 +121,7 @@ type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 /** `notch`: the island lives in the notch (place 'notch'): the shape starts flat on the display top with these radii. */
 type Size = { w: number; h: number; notch?: { top: number; bottom: number } }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'open' | 'start' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'help' | 'resume' | 'open' | 'start' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 /** One line of the idle list (nothing typed): what ↑↓ walk and ↵ runs. */
 type IdleItem =
   | { kind: 'continue' }
@@ -244,6 +244,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * never lands on Demo by itself. Cleared with the field and on open.
    */
   const [howPicked, setHowPicked] = useState<How | undefined>(undefined)
+  /** The learner moved onto the extra "Show me in <App>" row (↑, Tab, the pointer). Cleared by typing and on open. */
+  const [ambientPicked, setAmbientPicked] = useState(false)
   const [from, setFrom] = useState<Size>(PILL)
   /** The island's content is still fading out of the panel (first ~100ms after opening). */
   const [handoff, setHandoff] = useState(false)
@@ -345,6 +347,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         // the field (it outlives an engine restart) must not hide the Continue row.
         if (!hasLesson && useCards.getState().card?.kind === 'resume') setQuery('')
         setHowPicked(undefined)
+        setAmbientPicked(false)
         disarmEnd()
         setIdleSel(0)
         setAskPicked(false)
@@ -372,6 +375,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       setMode('search')
       setQuery(text.trim())
       setHowPicked(undefined)
+      setAmbientPicked(false)
       setIdleSel(0)
       setAskPicked(false)
     }
@@ -560,11 +564,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** The typed text is a settings word: a single "Settings" row replaces everything else. */
   const settingsWord = !link && isSettingsQuery(typed)
   /**
-   * Ambient help (features/ambient commands.ts): "set up this project" or a "how do I …" typed outside a lesson is a
-   * command too, drawn and run like the Settings row (one row replaces the rest). Offered only when the engine lists it.
+   * Ambient help (features/ambient commands.ts), offered only when the engine lists it and never in a lesson:
+   *   "set up this project" (the whole phrase) takes over like the Settings row (one row replaces the rest);
+   *   a "how do I …" is one more row, "Show me in <App>", over the two ways / the lesson and video rows. "how to train a
+   *   neural network" is a learning goal too, so Enter stays on the lesson and ⌘Enter still teaches; ↑ or Tab picks it.
    */
-  const ambient = !link && !settingsWord ? ambientCommand(typed, lesson.hasLesson || lesson.building) : undefined
-  const settingsRow = settingsWord || !!ambient
+  const ambient = mode === 'search' && !link && !settingsWord ? ambientCommand(typed, lesson.hasLesson || lesson.building) : undefined
+  const takeover = placement(ambient) === 'takeover'
+  const extra = placement(ambient) === 'extra' ? ambient : undefined
+  const extraOn = !!extra && ambientPicked
+  const settingsRow = settingsWord || takeover
   const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
   /** The highlighted way: the learner's Tab pick, else "Just teach me" for a goal that reads like building something. */
   const how: How = howPicked ?? (isBuildGoal(typed) ? 'lesson' : 'video')
@@ -598,7 +607,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const noVideo = retry && view === 'empty' && lesson.connected
   const onLesson = lessonRow && (sel === LESSON || noVideo)
   const selIndex = Math.min(Math.max(0, sel), Math.max(0, visible.length - 1))
-  const highlight = view === 'link' || onLesson ? 0 : view === 'results' ? selIndex + off : -1
+  const highlight = extraOn ? -1 : view === 'link' || onLesson ? 0 : view === 'results' ? selIndex + off : -1
   /** The idle topic chips, minus the lesson in progress, being built or waiting to resume: never offer it again. */
   const current = [...(lesson.hasLesson || lesson.building ? [lesson.title, topic.current] : []), saved?.title].filter((t): t is string => !!t)
   const suggestions = SUGGESTIONS.filter((s) => !current.some((t) => sameTopic(s.label, t)))
@@ -825,6 +834,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (phaseRef.current !== 'open') return
     disarmEnd()
     setHowPicked(undefined)
+    setAmbientPicked(false)
     setQuery(text)
   }
 
@@ -839,7 +849,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const submit = (): void => {
     if (activeItem) return runIdle(activeItem)
-    if (settingsRow) return ambient ? runAmbient() : openSettings()
+    if (extraOn) return runAmbient()
+    if (settingsRow) return takeover ? runAmbient() : openSettings()
     // "Continue" goes back into the island and the lesson carries on. Enter never ends a lesson (the footer link does).
     if (resumeRows) return continueLesson()
     if (mode === 'ask') return ask()
@@ -941,8 +952,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (e.key === 'Enter') {
       e.preventDefault()
       if (e.nativeEvent.isComposing) return
+      const mod = e.metaKey || e.ctrlKey
+      // An ambient command (enterTarget): setup runs; over "Show me" Enter runs it only once picked, ⌘Enter teaches.
+      if (ambient) {
+        const to = enterTarget(ambient, extraOn, mod)
+        if (to === 'ambient') return runAmbient()
+        if (to === 'teach') return teach(typed)
+      }
       // ⌘Enter (Ctrl+Enter on Windows) = "Just teach me" straight away, whichever way is highlighted.
-      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && !settingsRow && typed) return teach(typed)
+      if (mod && mode === 'search' && !link && !settingsRow && typed) return teach(typed)
       return submit()
     }
     if (e.key === 'Tab') {
@@ -951,8 +969,27 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       if (isFlipKey(e)) return switchMode()
       // While the ways are offered, Tab (Shift+Tab back) moves the highlight over all three; otherwise it walks the
       // panel's controls (Q15).
-      if (choosing) return setHowPicked(HOWS[(HOWS.indexOf(how) + (e.shiftKey ? HOWS.length - 1 : 1)) % HOWS.length])
+      // "Show me in <App>" is one more stop after the three ways (nextPick).
+      if (choosing) {
+        const to = nextPick(HOWS, how, extraOn, e.shiftKey, !!extra)
+        setAmbientPicked(to === 'ambient')
+        if (to !== 'ambient') setHowPicked(to)
+        return
+      }
       return cycle(input.current, e.shiftKey ? -1 : 1)
+    }
+    // "Show me in <App>" sits over the other rows: ↑ from the top row picks it, ↓ goes back to them.
+    if (extra && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      if (extraOn) {
+        e.preventDefault()
+        if (e.key === 'ArrowDown') setAmbientPicked(false)
+        return
+      }
+      const atTop = choosing || onLesson || !lessonRow
+      if (e.key === 'ArrowUp' && atTop) {
+        e.preventDefault()
+        return setAmbientPicked(true)
+      }
     }
     // Continue is the only row: ↑↓ have nothing to move to (End lesson is out of the keys' reach on purpose).
     if (resumeRows && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return e.preventDefault()
@@ -1048,6 +1085,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         : activeItem.kind === 'question'
           ? 'ask'
           : 'none'
+    : extraOn
+    ? 'help'
     : settingsRow
     ? 'settings'
     : resumeRows
@@ -1079,7 +1118,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * highlighted way's own name, exactly as on its chip and the lesson row (review A18); for Demo, "Start demo".
    */
   const actLabel = {
-    settings: ambient ? (ambient.kind === 'setup' ? 'Check project' : 'Show me') : 'Settings',
+    settings: takeover ? 'Check project' : 'Settings',
+    help: 'Show me',
     resume: 'Continue',
     open: 'Open',
     start: 'Start',
@@ -1094,7 +1134,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     none: ''
   }[act]
   /** Rows ↑↓ can move between right now: the lesson row plus the video rows (none for Continue, the two ways or Settings). */
-  const choices = resumeRows ? 0 : settingsRow || choosing ? 0 : off + (view === 'results' ? visible.length : 0)
+  const choices = resumeRows ? 0 : settingsRow ? 0 : choosing ? (extra ? 2 : 0) : off + (view === 'results' ? visible.length : 0) + (extra ? 1 : 0)
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
@@ -1175,6 +1215,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   if (mode === 'ask') setQuestion(e.target.value)
                   else {
                     setQuery(e.target.value)
+                    setAmbientPicked(false) // new words: Enter is back on the lesson, never a stale "Show me"
                     // A cleared field forgets a Tab pick: the next topic gets its own default way.
                     if (!e.target.value.trim()) setHowPicked(undefined)
                   }
@@ -1222,17 +1263,28 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <Rise key="settings" i={2} style={{ paddingTop: 8 }}>
                 <div className="relative" style={{ height: COVER_H }}>
                   <ListHighlight at={0} count={1} h={COVER_H} />
-                  {ambient ? (
-                    <SettingsRow
-                      onPick={runAmbient}
-                      title={ambient.title}
-                      meta={ambient.meta}
-                      icon={ambient.kind === 'setup' ? PackageCheck : MousePointerClick}
-                      data={{ 'data-ambient-command': ambient.kind }}
-                    />
+                  {takeover && ambient ? (
+                    <SettingsRow onPick={runAmbient} title={ambient.title} meta={ambient.meta} icon={PackageCheck} data={{ 'data-ambient-command': ambient.kind }} />
                   ) : (
                     <SettingsRow onPick={openSettings} />
                   )}
+                </div>
+              </Rise>
+            )}
+
+            {extra && !settingsRow && (
+              <Rise key="ambient-help" i={2} style={{ paddingTop: 8 }}>
+                <div className="relative" style={{ height: COVER_H }}>
+                  <ListHighlight at={extraOn ? 0 : -1} count={1} h={COVER_H} />
+                  <SettingsRow
+                    onPick={runAmbient}
+                    onHover={() => setAmbientPicked(true)}
+                    active={extraOn}
+                    title={extra.title}
+                    meta={extra.meta}
+                    icon={MousePointerClick}
+                    data={{ 'data-ambient-command': extra.kind }}
+                  />
                 </div>
               </Rise>
             )}
@@ -1338,7 +1390,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                     <ListHighlight at={highlight} count={slots} h={ROW_H} />
                     <RowRules count={slots} h={ROW_H} at={highlight} />
                     <AnimatePresence initial={false}>
-                      {lessonRow && <LessonRow key="lesson" onHover={() => setSel(LESSON)} onPick={() => teach(goal)} />}
+                      {lessonRow && <LessonRow key="lesson" onHover={() => (setAmbientPicked(false), setSel(LESSON))} onPick={() => teach(goal)} />}
                       {(view === 'results' || view === 'searching') &&
                         visible.map((r, i) => (
                           <ResultRow
@@ -1347,7 +1399,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                             delay={delayFor(r.id)}
                             r={r}
                             best={i === bestIndex}
-                            onHover={() => setSel(i)}
+                            onHover={() => (setAmbientPicked(false), setSel(i))}
                             onPick={() => build(i)}
                           />
                         ))}

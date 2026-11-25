@@ -69,6 +69,13 @@ const closedHelp = new Set<string>()
 let closedScan: string | undefined
 let reqs = 0
 const reqId = (kind: string): string => `amb-${kind}-${Date.now().toString(36)}-${++reqs}`
+/**
+ * A setup.scan's reqId. Both windows run this code, so the overlay knows a scan the launcher's own window sent by its
+ * prefix: only a scan's report may open the setup card. The report the engine sends after a setup.fix carries the
+ * fix's reqId (amb-fix-…) and never opens the card on its own (an install from the explanation card, then ✕).
+ */
+export const SCAN_REQ = 'amb-scan-'
+const isScanReport = (p: SetupReport): boolean => !!p.scanning || (typeof p.reqId === 'string' && p.reqId.startsWith(SCAN_REQ))
 
 const lessonOn = (): boolean => {
   const l = useLesson.getState()
@@ -195,7 +202,7 @@ function onExplanation(p: ErrorExplanation): void {
 /** "Set up this project": scan the folder open in the front editor. Opens the card at once (it says it is reading). */
 export function scanProject(path?: string): boolean {
   if (!canSend('setup.scan')) return false
-  const id = reqId('scan')
+  const id = `${SCAN_REQ}${Date.now().toString(36)}-${++reqs}`
   bridge.send(cmd('setup.scan', { ...(path ? { path } : {}), reqId: id }))
   set({ setupOpen: true, report: { reqId: id, files: [], items: [], ready: 0, total: 0, scanning: true }, queue: [], installs: runningOnly(get().installs), helpOpen: false })
   closedScan = undefined
@@ -246,11 +253,16 @@ function onReport(p: SetupReport): void {
   if (p.scanning && s.report && !s.report.scanning && s.report.reqId === p.reqId) return
   // A row an install was running for is there now: that install is over, even if its done line never came.
   for (const x of p.items ?? []) if (s.installs[x.tool]?.running && x.ok) finish(x.tool, true)
-  // Finished installs give way to the report (it says what is there now); a failed one keeps its line.
-  const installs = Object.fromEntries(Object.entries(get().installs).filter(([, i]) => i.running || i.ok === false))
-  // The report after an install from the explanation card: kept, but the learner is reading that card. And a card the
+  // Finished installs give way to the report (it says what is there now); a failed one keeps its line. The install
+  // the open explanation card started keeps its ok: that card has no report row, its "pandas is installed." is this.
+  const explainTool = s.explainOpen ? s.explanation?.install?.tool : undefined
+  const keep = (tool: string, i: Install): boolean => i.running || i.ok === false || (!!i.ok && tool === explainTool)
+  const installs = Object.fromEntries(Object.entries(get().installs).filter(([tool, i]) => keep(tool, i)))
+  // Only a scan's answer opens the card (the launcher may have asked from its own window). Any other report (the one
+  // after a fix, while the explanation card is open or after the learner closed it) is kept quietly. And a card the
   // learner closed stays closed for that scan's later reports (a fresh scan, or its quick first answer, opens it).
-  if ((s.explainOpen && !s.setupOpen) || (!s.setupOpen && !p.scanning && p.reqId !== undefined && p.reqId === closedScan)) return void set({ report: p, installs })
+  const opens = isScanReport(p) && !(s.explainOpen && !s.setupOpen) && !(!p.scanning && p.reqId !== undefined && p.reqId === closedScan)
+  if (!s.setupOpen && !opens) return void set({ report: p, installs })
   closedScan = undefined
   set({ report: p, setupOpen: true, installs })
 }

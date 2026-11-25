@@ -126,9 +126,13 @@ describe('model', () => {
     assert.equal(M.canRetry('busy'), true)
   })
   test('"set up this project" and friends are the setup command; a topic is not', () => {
-    for (const t of ['set up this project', 'set up', 'setu', 'Set up this project.', 'install dependencies', 'install the deps', 'check my environment', 'setup the project'])
+    for (const t of ['set up this project', 'Set up this project.', 'install dependencies', 'install the deps', 'check my environment', 'setup the project'])
       assert.ok(M.isSetupQuery(t), t)
     for (const t of ['se', 'set up a react app', 'install pytorch', 'how do I set up docker', 'settings', 'project management'])
+      assert.ok(!M.isSetupQuery(t), t)
+  })
+  test('the partial words on the way to a topic never take over the rows (whole phrase only)', () => {
+    for (const t of ['set', 'set up', 'setu', 'set up a', 'install', 'install py', 'fix', 'fix my', 'check', 'set up this'])
       assert.ok(!M.isSetupQuery(t), t)
   })
   test('"how do I ..." is the help command, with something after it', () => {
@@ -303,7 +307,7 @@ describe('explain', () => {
 describe('set up this project', () => {
   beforeEach(fresh)
   const report = (items: Record<string, unknown>[], extra: Record<string, unknown> = {}): void =>
-    msg('setup.report', { reqId: 'scan-1', root: '~/code/app', name: 'app', files: ['requirements.txt'], items, ready: items.filter((x) => x.ok).length, total: items.length, ...extra })
+    msg('setup.report', { reqId: `${S.SCAN_REQ}1`, root: '~/code/app', name: 'app', files: ['requirements.txt'], items, ready: items.filter((x) => x.ok).length, total: items.length, ...extra })
   test('the launcher command scans (no model call) and opens the card at once', () => {
     const c = C.ambientCommand('set up this project', false)
     assert.equal(c?.kind, 'setup')
@@ -347,9 +351,15 @@ describe('set up this project', () => {
     S.closeSetup()
     report([row('pandas', true)])
     assert.equal(S.useAmbient.getState().setupOpen, false)
-    report([], { scanning: true, reqId: 'scan-2' })
+    report([], { scanning: true, reqId: `${S.SCAN_REQ}2` })
     assert.equal(S.useAmbient.getState().setupOpen, true)
   })
+  test("a report that answers no scan (a fix's) never opens the card on its own", () => {
+    report([row('pandas', true)], { reqId: 'amb-fix-1' })
+    assert.equal(S.useAmbient.getState().setupOpen, false)
+    assert.equal(S.useAmbient.getState().report?.reqId, 'amb-fix-1', 'kept quietly')
+  })
+
 })
 
 describe('how do I', () => {
@@ -413,5 +423,73 @@ describe('how do I', () => {
     t.mock.timers.tick(M.FAIL_MS + 10)
     assert.equal(S.useAmbient.getState().helpOpen, false)
     t.mock.timers.reset()
+  })
+})
+
+describe('install from the explanation card', () => {
+  beforeEach(fresh)
+  const PANDAS = { tool: 'pandas', label: 'pandas', kind: 'python_package', why: 'w', needed: true, installed: false, ok: false, install: { method: 'pip' } }
+  const open = (): void => {
+    msg('error.seen', ERR)
+    S.explain()
+    msg('error.explanation', { id: ERR.id, title: "pandas isn't installed here", why: 'w', fix: 'f', install: PANDAS })
+    S.fixRow('pandas')
+  }
+  const fixReport = (ok: boolean): void =>
+    msg('setup.report', { reqId: 'amb-fix-1', root: '~/code/app', files: [], items: [row('pandas', ok)], ready: ok ? 1 : 0, total: 1 })
+  test('after Install succeeds, the report that follows keeps "pandas is installed." (no second setup.fix)', () => {
+    open()
+    assert.equal(of('setup.fix').length, 1)
+    msg('setup.progress', { tool: 'pandas', done: true, ok: true })
+    assert.equal(S.useAmbient.getState().installs.pandas?.ok, true)
+    fixReport(true)
+    const s = S.useAmbient.getState()
+    assert.equal(s.installs.pandas?.ok, true, 'the card still sees the finished install')
+    assert.equal(s.installs.pandas?.running, false)
+    assert.equal(s.explainOpen, true)
+    assert.equal(s.setupOpen, false, 'the report did not open the setup card over the explanation')
+  })
+  test('closing the explanation while it installs: the report after the fix opens no card', () => {
+    open()
+    S.closeExplain()
+    msg('setup.progress', { tool: 'pandas', done: true, ok: true })
+    fixReport(true)
+    const s = S.useAmbient.getState()
+    assert.equal(s.setupOpen, false, 'nobody asked for "Set up this project"')
+    assert.equal(s.explainOpen, false)
+    assert.equal(s.report?.reqId, 'amb-fix-1', 'stored silently')
+  })
+})
+
+describe('launcher: "Show me in <App>" is one more row, never a takeover', () => {
+  beforeEach(fresh)
+  test('"how to train a neural network" keeps the search / lesson rows; Enter stays on them and ⌘Enter teaches', () => {
+    for (const goal of ['how to train a neural network', 'how do I use pandas groupby']) {
+      const c = C.ambientCommand(goal, false, 'Code')
+      assert.equal(c?.kind, 'help', goal)
+      assert.equal(C.placement(c), 'extra', 'an extra row: the two ways / the lesson row stay')
+      assert.equal(C.enterTarget(c, false, false), 'rows', 'Enter: the lesson / search rows decide')
+      assert.equal(C.enterTarget(c, false, true), 'teach', '⌘Enter still teaches')
+      assert.equal(C.enterTarget(c, true, true), 'teach', '⌘Enter teaches even with "Show me" picked')
+      assert.equal(C.enterTarget(c, true, false), 'ambient', 'picked with ↑ / Tab, Enter shows the steps')
+    }
+    assert.equal(of('help.ask').length, 0, 'nothing was asked by typing')
+  })
+  test('"set up this project" still takes over, and Enter runs it', () => {
+    const c = C.ambientCommand('set up this project', false)
+    assert.equal(C.placement(c), 'takeover')
+    assert.equal(C.enterTarget(c, false, false), 'ambient')
+    assert.equal(C.placement(undefined), undefined)
+    assert.equal(C.enterTarget(undefined, false, true), 'teach')
+    assert.equal(C.enterTarget(undefined, false, false), 'rows')
+  })
+  test('Tab walks the three ways, then "Show me", then wraps (Shift+Tab back)', () => {
+    const HOWS = ['video', 'lesson', 'demo'] as const
+    assert.equal(C.nextPick(HOWS, 'video', false, false, true), 'lesson')
+    assert.equal(C.nextPick(HOWS, 'demo', false, false, true), 'ambient')
+    assert.equal(C.nextPick(HOWS, 'demo', true, false, true), 'video')
+    assert.equal(C.nextPick(HOWS, 'video', false, true, true), 'ambient')
+    assert.equal(C.nextPick(HOWS, 'lesson', true, true, true), 'demo')
+    assert.equal(C.nextPick(HOWS, 'demo', false, false, false), 'video', 'no extra row: the three ways only')
   })
 })
