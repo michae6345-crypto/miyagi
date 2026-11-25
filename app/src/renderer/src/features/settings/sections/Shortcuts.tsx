@@ -8,7 +8,8 @@
  * Click a row, press new keys: the accelerator is validated (common/prefs isAccelerator, never a bare key, no clash with
  * another shortcut or the quit key) and saved to prefs.shortcuts. Main registers it at once (main/shortcutKeys.ts); when
  * another app owns it, main keeps the old key and the row says "Another app uses that key." Esc cancels the recording
- * before it closes the sheet. A rebound row has Reset (back to the default); "Reset all" clears every override.
+ * before it closes the sheet. A rebound row has Reset (back to the default): refused, with the row's line, when another
+ * shortcut now uses that default or main can't take it back. "Reset all" clears every override.
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { ShortcutKind } from '../../../../../main/platform'
@@ -25,7 +26,8 @@ const mac = bridge.platform.os === 'mac'
 export function Shortcuts(): ReactNode {
   const stored = usePrefs((s) => s.shortcuts)
   const [recording, setRecording] = useState<ShortcutKind | undefined>(canRecord && isShortcutKind(stage.record) ? stage.record : undefined)
-  const [problem, setProblem] = useState<string>()
+  // The line under one row: a refused recording, or a refused Reset (the default is in use, or main kept the override).
+  const [problem, setProblem] = useState<{ kind: ShortcutKind; text: string }>()
   const any = Object.keys(stored).length > 0
 
   const start = (k: ShortcutKind): void => {
@@ -38,15 +40,19 @@ export function Shortcuts(): ReactNode {
   }
   const save = async (k: ShortcutKind, value: string): Promise<void> => {
     const clash = conflictWith(value, k, bridge.platform.accelerators, stored, mac)
-    if (clash) return setProblem(clashLine(clash))
+    if (clash) return setProblem({ kind: k, text: clashLine(clash) })
     // prefs.shortcuts replaces the whole map on prefs:set: send all of it. Main answers with what it kept.
     const saved = await savePrefs({ shortcuts: withShortcut(stored, k, value) })
-    if (saved && saved.shortcuts[k] !== value) return setProblem(clashLine('taken'))
+    if (saved && saved.shortcuts[k] !== value) return setProblem({ kind: k, text: clashLine('taken') })
     cancel()
   }
-  const reset = (k: ShortcutKind): void => {
+  /** Back to the default, unless another shortcut took the default meanwhile or main refuses it (another app has it). */
+  const reset = async (k: ShortcutKind): Promise<void> => {
     cancel()
-    void savePrefs({ shortcuts: withShortcut(stored, k, undefined) })
+    const clash = conflictWith(bridge.platform.accelerators[k], k, bridge.platform.accelerators, stored, mac)
+    if (clash) return setProblem({ kind: k, text: clashLine(clash) })
+    const saved = await savePrefs({ shortcuts: withShortcut(stored, k, undefined) })
+    if (saved && saved.shortcuts[k] !== undefined) setProblem({ kind: k, text: clashLine('taken') })
   }
   const resetAll = (): void => {
     cancel()
@@ -69,12 +75,12 @@ export function Shortcuts(): ReactNode {
               row={r}
               override={kind ? stored[kind] : undefined}
               recording={!!kind && recording === kind}
-              problem={kind && recording === kind ? problem : undefined}
+              problem={kind && problem?.kind === kind ? problem.text : undefined}
               onStart={kind && canRecord && !r.fixed ? () => start(kind) : undefined}
-              onReset={kind && canRecord && stored[kind] ? () => reset(kind) : undefined}
+              onReset={kind && canRecord && stored[kind] ? () => void reset(kind) : undefined}
               onCancel={cancel}
               onRecorded={(v) => kind && void save(kind, v)}
-              onProblem={setProblem}
+              onProblem={(text) => kind && setProblem(text ? { kind, text } : undefined)}
             />
           )
         })}
@@ -139,9 +145,9 @@ function Line({
       className="flex min-h-[48px] items-center justify-between gap-[12px] pl-[16px] pr-[8px]"
       style={{ background: recording ? fill.group : undefined }}
     >
-      <div className="flex min-w-0 flex-col gap-[2px] py-[6px]">
+      <div className="flex min-w-0 flex-col items-start gap-[2px] py-[6px]">
         {label}
-        {recording && problem && (
+        {problem && (
           <span role="status" style={{ fontSize: type2.xs, color: color.text }}>
             {problem}
           </span>

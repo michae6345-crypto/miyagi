@@ -108,10 +108,12 @@ export function createShortcutKeys(deps: ShortcutKeysDeps): ShortcutKeys {
     }
     const changed = SHORTCUT_KINDS.filter((k) => next[k] !== prev[k])
 
-    // Another miyagi shortcut (or quit) already has it: the renderer checks this too, main has the last word.
+    // Another miyagi shortcut (or quit) already has it: the renderer checks this too, main has the last word. The key
+    // checked is the one in effect, so a reset (override removed) is checked on its default: another shortcut may have
+    // taken that default meanwhile.
     for (const k of changed) {
-      const acc = next[k]
-      if (acc && clashOf(acc, k, defaults, accepted, mac, deps.kinds)) {
+      const acc = effectiveAccelerators(defaults, accepted)[k]
+      if (clashOf(acc, k, defaults, accepted, mac, deps.kinds)) {
         refused.push({ kind: k, accelerator: acc, reason: 'clash' })
         revert(k)
       }

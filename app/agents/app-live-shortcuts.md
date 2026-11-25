@@ -36,7 +36,7 @@ Custom shortcuts are live. Branch `michael/app-live-shortcuts`, from `michael/ap
 
 ## Verified
 - `npm run typecheck`: green.
-- Full node suite plus `test/liveShortcuts.test.ts`: 1123 tests pass, 0 fail. The new file tests:
+- Full node suite plus `test/liveShortcuts.test.ts`: 1135 tests pass, 0 fail (after the fix pass below, merged with `michael/app-ui-v4`; the first pass ran 1113, not 1123). The new file tests:
   - accelerator to label, the effective map and the clash check
   - rebind: a taken key restores the old one, two shortcuts can trade keys
   - the controller: gate, lesson and voice rules; a live swap; a refused key not saved; probing a key that is not live; reset
@@ -48,3 +48,10 @@ Custom shortcuts are live. Branch `michael/app-live-shortcuts`, from `michael/ap
 - Not checked in Electron on the Mac. The auto-install loop picks this up once it is merged. To try it there:
   1. Rebind a key, start a lesson and press the new key.
   2. Try ⌘Space for the launcher. Expect "Another app uses that key." and ⌥Space still working.
+
+## Fix pass (fix-live-shortcuts-1)
+- **Reset can't put two shortcuts on one key.** `accept()` clash-checks every changed kind's key in effect, so a reset is checked on its default. Example: Explain to ⌃⌥J, Hint to ⌃⌥E, then Reset on Explain. Main now refuses it, with or without a lesson.
+- **Settings Reset checks first.** `Shortcuts.tsx reset()` runs `conflictWith` on the default and reads main's answer. A refusal shows on that row ("Hint already uses that." or "Another app uses that key.").
+- **Shift alone is refused.** `isAccelerator('Shift+E')` is false, so a hand-edited prefs.json or a `prefs:set` patch can't take capital E from every app.
+- **The option pill keeps its size** while the problem line shows (`items-start` on the label column). The four `shots/shortcuts-*.png` were retaken headless.
+- Not done (optional): at startup, a saved override that another app now owns stays unbound while its keycap shows the override.

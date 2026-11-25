@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
-import { DEFAULT_PREFS, sanitizePrefs, type ShortcutPrefs } from '../src/common/prefs'
+import { DEFAULT_PREFS, isAccelerator, sanitizePrefs, type ShortcutPrefs } from '../src/common/prefs'
 import { acceleratorLabel, clashOf, effectiveAccelerators, effectiveLabel, normalizeAccelerator, quitAccelerator, sameAccelerator, SHORTCUT_KINDS } from '../src/common/shortcuts'
 import { describePlatform, type ShortcutKind } from '../src/main/platform'
 import { patchPrefs, resetPrefsForTests, setShortcutCheck } from '../src/main/prefs'
@@ -235,6 +235,44 @@ describe('createShortcutKeys (main controller)', () => {
     assert.deepEqual(r, { accepted: {}, refused: [] })
     assert.ok(ops.held.has('Control+Alt+E') && !ops.held.has('Control+Alt+J'))
   })
+
+  test('accept: a reset whose default another shortcut now has is refused (no lesson)', () => {
+    // Explain to ⌃⌥J, then Hint to ⌃⌥E (free then), then Reset on Explain: ⌃⌥E would be on two shortcuts.
+    const { ops, keys } = setup([], {})
+    const a = keys.accept({ explain: 'Control+Alt+J' }, {})
+    const b = keys.accept({ ...a.accepted, hint: 'Control+Alt+E' }, a.accepted)
+    assert.deepEqual(b.accepted, { explain: 'Control+Alt+J', hint: 'Control+Alt+E' })
+    const r = keys.accept({ hint: 'Control+Alt+E' }, b.accepted)
+    assert.deepEqual(r.accepted, { explain: 'Control+Alt+J', hint: 'Control+Alt+E' }, 'explain keeps its override')
+    assert.deepEqual(r.refused, [{ kind: 'explain', accelerator: 'Control+Alt+E', reason: 'clash' }])
+    assert.equal(ops.held.size, 0, 'nothing is left registered with no lesson')
+  })
+
+  test('accept: the same reset during a lesson is refused and every key stays as it was', () => {
+    const { ops, state, keys, pressed } = setup([], { explain: 'Control+Alt+J', hint: 'Control+Alt+E' })
+    Object.assign(state, { gate: true, lesson: true })
+    keys.sync()
+    const r = keys.accept({ hint: 'Control+Alt+E' }, state.overrides)
+    assert.deepEqual(r.accepted, { explain: 'Control+Alt+J', hint: 'Control+Alt+E' })
+    assert.equal(r.refused[0]?.kind, 'explain')
+    assert.equal(keys.bound().explain, 'Control+Alt+J')
+    assert.equal(keys.bound().hint, 'Control+Alt+E')
+    ops.held.get('Control+Alt+E')!()
+    ops.held.get('Control+Alt+J')!()
+    assert.deepEqual(pressed, ['hint', 'explain'], 'each key still runs its own shortcut')
+  })
+
+  test('accept: a reset to a free default still goes through', () => {
+    const { keys } = setup([], { explain: 'Control+Alt+J', hint: 'Control+Alt+K' })
+    assert.deepEqual(keys.accept({ hint: 'Control+Alt+K' }, { explain: 'Control+Alt+J', hint: 'Control+Alt+K' }), { accepted: { hint: 'Control+Alt+K' }, refused: [] })
+  })
+
+  test('the settings page checks a reset the same way (conflictWith on the default)', () => {
+    const stored = { explain: 'Control+Alt+J', hint: 'Control+Alt+E' }
+    assert.equal(conflictWith(mac.accelerators.explain, 'explain', mac.accelerators, stored, true), 'hint')
+    assert.equal(clashLine('hint'), 'Hint already uses that.')
+    assert.equal(conflictWith(mac.accelerators.hint, 'hint', mac.accelerators, stored, true), undefined)
+  })
 })
 
 describe('prefs', () => {
@@ -242,6 +280,20 @@ describe('prefs', () => {
     const p = sanitizePrefs({ shortcuts: { explain: 'Control+Alt+J', hint: 'J', back: 'Control+Nope+X', nope: 'Alt+K', launcher: 7 } })
     assert.deepEqual(p.shortcuts, { explain: 'Control+Alt+J' })
     assert.deepEqual(DEFAULT_PREFS.shortcuts, {})
+  })
+  test('Shift alone is not a modifier: it would take capital letters from every app', () => {
+    const p = sanitizePrefs({ shortcuts: { explain: 'Shift+E', hint: 'Shift+Shift+H', back: 'Shift+Left', diagram: 'Control+Shift+D' } })
+    assert.deepEqual(p.shortcuts, { diagram: 'Control+Shift+D' })
+    assert.equal(isAccelerator('Shift+E'), false)
+    assert.equal(isAccelerator('Alt+Shift+E'), true)
+  })
+  test('a prefs:set patch with Shift alone never reaches main', () => {
+    resetPrefsForTests()
+    const seen: ShortcutPrefs[] = []
+    setShortcutCheck((next) => (seen.push(next), next))
+    assert.deepEqual(patchPrefs({ shortcuts: { explain: 'Shift+E' } }).shortcuts, {})
+    assert.ok(seen.every((n) => !n.explain))
+    resetPrefsForTests()
   })
   test('main checks a shortcuts patch before it is kept', () => {
     resetPrefsForTests()

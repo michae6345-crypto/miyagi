@@ -70,12 +70,16 @@ export const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'exp
 const MODIFIER = /^(Command|Cmd|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift|Super|Meta)$/
 const KEY = /^([A-Z0-9]|F([1-9]|1[0-9]|2[0-4])|Space|Left|Right|Up|Down|Enter|Tab|Backspace|Delete|Escape|Plus|[,./;'[\]\\`=-])$/
 
-/** An Electron accelerator with 1 to 3 modifiers and one key. A bare key is refused (it would type into the editor). */
+/**
+ * An Electron accelerator with 1 to 3 modifiers and one key. A bare key is refused (it would type into the editor), and
+ * so is Shift alone: Shift+E registered globally would take capital E from every app.
+ */
 export function isAccelerator(s: unknown): s is string {
   if (typeof s !== 'string' || s.length > 48) return false
   const parts = s.split('+')
   if (parts.length < 2 || parts.length > 4) return false
   const key = parts.pop()!
+  if (parts.every((p) => p === 'Shift')) return false
   return KEY.test(key) && parts.every((p) => MODIFIER.test(p)) && new Set(parts).size === parts.length
 }
 
