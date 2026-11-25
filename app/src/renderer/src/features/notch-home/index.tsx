@@ -20,6 +20,7 @@ import { defineFeature } from '../../core/registry'
 import { openLibrary } from '../../core/surfaces'
 import { Kbd, PrimaryButton, Thumb } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { PokeBon } from '../buddy/Poke'
 import { color, copy, fill } from '../../core/theme'
 import { librarySections, refreshLibrary, startLibraryLesson, useLibrary, type LibraryItem } from '../launcher/library'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
@@ -258,12 +259,18 @@ function Home(): ReactNode {
             </Row>
           ))}
           <div className="flex-1" />
-          <Row onClick={() => void openLibrary()}>
-            <span className="flex-1" style={{ color: color.label }}>
-              Library
-            </span>
-            <ArrowUpRight size={13} strokeWidth={1.8} style={{ color: color.label }} />
-          </Row>
+          {/* bon sits by Library: tap it and it plays (features/buddy Poke.tsx; Michael, Nov 24). */}
+          <div className="flex items-center gap-[4px]">
+            <div className="min-w-0 flex-1">
+              <Row onClick={() => void openLibrary()}>
+                <span className="flex-1" style={{ color: color.label }}>
+                  Library
+                </span>
+                <ArrowUpRight size={13} strokeWidth={1.8} style={{ color: color.label }} />
+              </Row>
+            </div>
+            <PokeBon size={26} />
+          </div>
         </div>
       </div>
     </div>
