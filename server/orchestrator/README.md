@@ -137,6 +137,15 @@ screen, nothing is spotlighted.
   `python -c "from server.orchestrator import build_metrics as b; print(*b.read(limit=5), sep='\n')"` prints the last five.
   `lesson.ready.buildS` (optional) carries the command -> ready seconds.
 
+## Ambient help: explain this error ([ambient.py](ambient.py), `server/ambient_errors`)
+
+`ambient.set`, `error.explain` and `error.dismiss` are answered beside the command queue and listed in
+`engine.hello.capabilities`. With "Spot errors" on (per connection, off by default) and no lesson running, the screen
+reader runs (`session._sync_screen_soon` asks `ambient_screen`) and `Engine.on_screen` hands its frames to the error
+watcher instead of the lesson; errors on screen 1 s go out as `error.seen` (local only, no model). Explain makes at
+most one Haiku call per error (`coach.explain_error`), 20 per rolling hour (`server/ambient_cap.py`, shared with
+How-do-I). See `server/ambient_errors/README.md`.
+
 ## Ending a lesson
 
 `curl -X POST localhost:8787/end` (or `python -m server.orchestrator.client end`, or the app's `end_lesson` command) cancels any build or diagnosis, clears the

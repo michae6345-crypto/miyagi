@@ -68,6 +68,7 @@ ROUTES: dict[str, Route] = {
     "coach.fast_ask": _coach("fast_ask", SONNET),     # streamed circle to ask (coach/fast_ask.py), thinking off, low effort
     "coach.fast_ask_simple": _coach("fast_ask_simple"),  # ...a short simple question ("what is this?"): Haiku
     "coach.plan_goal": _coach("plan_goal"),  # plans/goal.py: picks catalog plan ids for a goal no keyword matched
+    "coach.explain_error": _coach("explain_error"),  # ambient help: Explain on a spotted error (ambient_errors/explain.py)
     "coach.scene": Route(HAIKU, ("MIYAGI_SCENE_MODEL",)),
     # screen
     "screen.coach": Route(SONNET, ("TUT_SCREEN_COACH_MODEL",)),   # "what is on my screen?" answers

@@ -4970,13 +4970,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._screen_task is not None and not self._screen_task.done():
             return
         why = self._screen_off_reason()
+        ambient = why is not None and self._ask_hook(getattr(self, "ambient_screen", None), False)
+        if ambient:  # ambient help (Nov 24): "Spot errors" is on outside a lesson (orchestrator/ambient.py)
+            why = None
         if (why is not None) == bool(getattr(scr, "paused", False)):
             return
         if why is not None:
             self.last_obs = None  # nothing seen is kept while no step runs (cursor.under, scene, judge)
             fn, arg = scr.pause, why
         else:
-            fn, arg = scr.resume, f"step {(self.step or {}).get('id')}"
+            fn, arg = scr.resume, "spot errors" if ambient else f"step {(self.step or {}).get('id')}"
         task = asyncio.ensure_future(asyncio.to_thread(fn, arg))
         task.add_done_callback(lambda t: t.cancelled() or (t.exception() and log.error(
             "screen %s failed", "pause" if why else "resume", exc_info=t.exception())))
