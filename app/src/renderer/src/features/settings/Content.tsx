@@ -14,6 +14,8 @@ import type { useKeyFlow } from './account'
 import { useLocal } from './local'
 import { useNav } from './nav'
 import { panelOf, type PanelId } from './panels'
+import { LICENSE_WORDS, useLicenses } from './licenses'
+import { About, LicensesBack } from './LicensesView'
 import { CodePreview } from './Preview'
 import { PanelRows } from './rows'
 import { SearchResults } from './Search'
@@ -52,16 +54,20 @@ function BigHeader({ panel }: { panel: PanelId }): ReactNode {
   const p = panelOf(panel)
   // Privacy is Your data's "See the list" here: its own title, a way back, and focus on the title it opened on.
   const sees = panel === 'privacy'
+  // About's "Open-source licenses" opens in place of its rows: its own title and "‹ About" (LicensesView.tsx).
+  const licenses = useLicenses((s) => s.open) && panel === 'about'
+  const sub = sees || licenses
   const lede = panel === 'apps' || panel === 'data' ? p.caption : sees ? 'Each source, and where it goes.' : undefined
   const h1 = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
-    if (sees) h1.current?.focus({ preventScroll: true })
-  }, [sees])
+    if (sub) h1.current?.focus({ preventScroll: true })
+  }, [sub])
   return (
     <header className="flex flex-col">
       {sees && <BackToData />}
-      <h1 ref={h1} tabIndex={sees ? -1 : undefined} className="m-0 outline-none" style={{ fontSize: 32, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
-        {sees ? SEES_TITLE : p.label}
+      {licenses && <LicensesBack />}
+      <h1 ref={h1} tabIndex={sub ? -1 : undefined} className="m-0 outline-none" style={{ fontSize: 32, lineHeight: 1.2, fontWeight: 700, letterSpacing: '-0.022em', color: color.text }}>
+        {sees ? SEES_TITLE : licenses ? LICENSE_WORDS.title : p.label}
       </h1>
       {lede && (
         <p className="m-0" style={{ fontSize: 14.5, marginTop: 6, color: color.label }}>
@@ -117,6 +123,8 @@ function Body({ panel, flow, live }: { panel: PanelId; flow: Flow; live: boolean
       return <Account flow={flow} live={live} />
     case 'shortcuts':
       return <Shortcuts />
+    case 'about':
+      return <About />
     case 'lessons':
       return (
         <>
