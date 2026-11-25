@@ -1,0 +1,240 @@
+{
+ "id": "blender-mug-camera-cuts-handle",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to Blender lesson 9 (\"The scene has an area light and the camera sees the whole mug\"). The Area light (200 W) is there and the camera points at the mug, so the mug is in view, but the learner zoomed in to fill the frame: 14% of the mug's bound box falls outside the right edge and the handle is cut off in the render (framing clipped right). The step asks for the whole mug.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Light it and aim the camera",
+  "file": "mug.blend",
+  "instructions": "Add an Area light (Shift+A > Light > Area), set its Power to 200 W and place it above and to the side of the mug. Select the camera, press Numpad 0 to look through it and move it (G, R, or View > Align View > Align Active Camera to View) until the whole mug, handle included, is inside the frame. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "file_contains",
+    "label": "An area light",
+    "file": "mug.scene.json",
+    "pattern": "\"name\":\\s*\"Area\"[\\s\\S]*?\"type\":\\s*\"AREA\""
+   },
+   {
+    "id": "s9c2",
+    "type": "file_contains",
+    "label": "Camera sees the mug",
+    "file": "mug.scene.json",
+    "pattern": "\"in_view\":\\s*\\[[^\\]]*\"Mug\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "mug.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "mug.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Mug",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.3,
+        1.6,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 1010,
+        "edges": 2018,
+        "faces": 1008,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Glaze"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Area",
+       "type": "LIGHT",
+       "location": [
+        2.5,
+        -2.0,
+        3.5
+       ],
+       "rotation_deg": [
+        35.0,
+        0.0,
+        50.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Glaze",
+       "users": [
+        "Mug"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.2,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Area",
+       "type": "AREA",
+       "energy": 200.0,
+       "size": 1.0
+      },
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0,
+      "in_view": [
+       "Mug"
+      ],
+      "framing": [
+       {
+        "object": "Mug",
+        "in_frame": 0.86,
+        "bbox_ndc": [
+         [
+          0.21,
+          0.12
+         ],
+         [
+          1.09,
+          0.93
+         ]
+        ],
+        "clipped_edges": [
+         "right"
+        ]
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,264 @@
+{
+ "id": "blender-noise-ramp-via-reroute",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done but odd: same step (materials lesson 3). The learner tidied the node tree with a Reroute (Shift+drag on the wire): Noise Fac -> Color Ramp Fac, Color Ramp Color -> Reroute -> Principled BSDF Base Color. A reroute only passes the value through, so the Color Ramp does feed Base Color; the raw link list just has the Reroute between them.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Build a material from nodes",
+  "file": "marble.blend",
+  "instructions": "Select the sphere and open the Shading workspace. Add a Noise Texture (Shift+A > Texture > Noise Texture) and a Color Ramp (Shift+A > Converter > Color Ramp). Connect the Noise's Fac to the Color Ramp's Fac and the Color Ramp's Color to the Principled BSDF's Base Color. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Noise Texture",
+    "file": "marble.scene.json",
+    "pattern": "\"type\":\\s*\"TEX_NOISE\""
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "Noise feeds the Color Ramp",
+    "file": "marble.scene.json",
+    "pattern": "\"from\":\\s*\"Noise Texture\",\\s*\"from_socket\":\\s*\"Fac\",\\s*\"to\":\\s*\"Color Ramp\""
+   },
+   {
+    "id": "s3c3",
+    "type": "file_contains",
+    "label": "Color Ramp feeds Base Color",
+    "file": "marble.scene.json",
+    "pattern": "\"from\":\\s*\"Color Ramp\",\\s*\"from_socket\":\\s*\"Color\",\\s*\"to\":\\s*\"Principled BSDF\",\\s*\"to_socket\":\\s*\"Base Color\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "marble.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see marble.scene.json)\n",
+   "marble.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "marble.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Sphere",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Marble"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Marble",
+       "users": [
+        "Sphere"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.4,
+        "metallic": 0.0
+       },
+       "use_nodes": true,
+       "nodes": [
+        {
+         "name": "Principled BSDF",
+         "type": "BSDF_PRINCIPLED"
+        },
+        {
+         "name": "Material Output",
+         "type": "OUTPUT_MATERIAL"
+        },
+        {
+         "name": "Noise Texture",
+         "type": "TEX_NOISE",
+         "inputs": {
+          "Scale": 5.0,
+          "Detail": 2.0
+         }
+        },
+        {
+         "name": "Color Ramp",
+         "type": "VALTORGB",
+         "elements": [
+          [
+           0.4,
+           [
+            0.05,
+            0.05,
+            0.05,
+            1.0
+           ]
+          ],
+          [
+           0.6,
+           [
+            0.9,
+            0.9,
+            0.88,
+            1.0
+           ]
+          ]
+         ]
+        },
+        {
+         "name": "Reroute",
+         "type": "REROUTE"
+        }
+       ],
+       "links": [
+        {
+         "from": "Noise Texture",
+         "from_socket": "Fac",
+         "to": "Color Ramp",
+         "to_socket": "Fac"
+        },
+        {
+         "from": "Color Ramp",
+         "from_socket": "Color",
+         "to": "Reroute",
+         "to_socket": "Input"
+        },
+        {
+         "from": "Reroute",
+         "from_socket": "Output",
+         "to": "Principled BSDF",
+         "to_socket": "Base Color"
+        },
+        {
+         "from": "Principled BSDF",
+         "from_socket": "BSDF",
+         "to": "Material Output",
+         "to_socket": "Surface"
+        }
+       ]
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

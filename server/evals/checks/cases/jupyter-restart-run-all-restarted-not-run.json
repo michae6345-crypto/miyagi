@@ -1,0 +1,76 @@
+{
+ "id": "jupyter-restart-run-all-restarted-not-run",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan, 'Restart and run all' (find the cell that fails because it leans on a deleted cell, then every cell runs in order from 1). The learner deleted the 'goal = 8000' cell, clicked Restart and stopped there: the cells still carry the old session's counts [1], [3], [4] and its output '4 of 7 days reached the goal of 8000'. No cell in the notebook defines goal any more, so a real Run All would stop at [2] with NameError: name 'goal' is not defined. A [1] is on screen and no error shows only because nothing has run since the restart.",
+ "step": {
+  "id": "jup7s3",
+  "title": "Restart the kernel and run every cell",
+  "instructions": "In steps.ipynb, click Restart, then Run All. Every cell should run top to bottom, numbered from [1], with no error.",
+  "file": "steps.ipynb",
+  "run_command": "Restart the kernel, then run all cells",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "Restart, then Run All"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup7s3c1",
+    "type": "screen_contains",
+    "label": "Cells numbered from [1]",
+    "app": "Code",
+    "pattern": "\\[\\s*1\\s*\\]"
+   },
+   {
+    "id": "jup7s3c2",
+    "type": "screen_absent",
+    "label": "No cell error after Run All",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "days_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 3
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "Restart",
+    "Run All",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[3]",
+    "days_met = sum(s >= goal for s in steps)",
+    "[4]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000"
+   ]
+  }
+ }
+}

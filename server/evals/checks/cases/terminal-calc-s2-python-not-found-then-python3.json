@@ -1,0 +1,25 @@
+{
+ "id": "terminal-calc-s2-python-not-found-then-python3",
+ "kind": "terminal",
+ "trap": "none",
+ "expected": "pass",
+ "why": "Calculator lesson s2. macOS has no `python` command: 'zsh: command not found: python'. The learner ran the step's own command next, `python3 calculator.py`, and it printed 5.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac calc % python calculator.py",
+    "zsh: command not found: python",
+    "tripi@mac calc % python3 calculator.py",
+    "5",
+    "tripi@mac calc % "
+   ]
+  }
+ }
+}

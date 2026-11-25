@@ -1,0 +1,95 @@
+{
+ "id": "jupyter-plot-subplots-stacked-two-rows",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Plotting plan, 'Subplots side by side' (one figure holds two axes in one row and has a figure title). The learner typed plt.subplots(2, 1, figsize=(10, 4)): two rows, one column. The figure has 2 axes, the line, the bars and the suptitle, and every call the checks look for is on screen, but the charts are stacked and squashed into 2 inches each instead of sitting side by side. The step's layout is the thing it teaches.",
+ "step": {
+  "id": "pl6s4",
+  "title": "Put a line and a bar chart side by side",
+  "instructions": "In rain.ipynb, make fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4)) so the two axes sit in one row. Draw the monthly rainfall as a line on ax1 and as bars on ax2, and give the figure one title with fig.suptitle('Monthly rainfall').",
+  "file": "rain.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "rain.ipynb",
+    "match": "plt.subplots(1, 2",
+    "caption": "One row, two columns"
+   }
+  ],
+  "code": "fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))\nax1.plot(months, rain, marker='o')\nax2.bar(months, rain)\nfig.suptitle('Monthly rainfall')",
+  "checks": [
+   {
+    "id": "pl6s4c1",
+    "type": "screen_contains",
+    "label": "Two axes made with plt.subplots",
+    "app": "Code",
+    "pattern": "plt\\.subplots\\("
+   },
+   {
+    "id": "pl6s4c2",
+    "type": "screen_contains",
+    "label": "Line on ax1",
+    "app": "Code",
+    "pattern": "ax1\\.plot\\("
+   },
+   {
+    "id": "pl6s4c3",
+    "type": "screen_contains",
+    "label": "Bars on ax2",
+    "app": "Code",
+    "pattern": "ax2\\.bar\\("
+   },
+   {
+    "id": "pl6s4c4",
+    "type": "screen_contains",
+    "label": "Figure title set",
+    "app": "Code",
+    "pattern": "fig\\.suptitle\\("
+   },
+   {
+    "id": "pl6s4c5",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "rain.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import matplotlib.pyplot as plt\n\nmonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']\nrain = [78, 61, 55, 47, 52, 39]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 4))\nax1.plot(months, rain, marker='o')\nax2.bar(months, rain)\nfig.suptitle('Monthly rainfall')",
+       "result": "Text(0.5, 0.98, 'Monthly rainfall')",
+       "image": "<Figure size 1000x400 with 2 Axes>",
+       "count": 2
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "rain.ipynb",
+    "[2]",
+    "fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 4))",
+    "ax1.plot(months, rain, marker='o')",
+    "ax2.bar(months, rain)",
+    "fig.suptitle('Monthly rainfall')",
+    "Text(0.5, 0.98, 'Monthly rainfall')",
+    "Monthly rainfall",
+    "Jan Feb Mar Apr May Jun",
+    "Jan Feb Mar Apr May Jun"
+   ]
+  }
+ }
+}

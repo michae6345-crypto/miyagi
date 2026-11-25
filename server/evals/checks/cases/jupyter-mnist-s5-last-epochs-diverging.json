@@ -1,0 +1,45 @@
+{
+ "id": "jupyter-mnist-s5-last-epochs-diverging",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "MNIST lesson s5 (training accuracy reaches 0.95). The learner set Adam's learning rate to 0.02: accuracy peaks at 0.9641 in epoch 3, then the loss climbs 0.1239 -> 0.1702 -> 0.3315 and the last epoch reads accuracy 0.9102. Three of the five epochs are at or above 0.95, but the run is diverging and the model it ends with is below the bar; s7's test accuracy will show it.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "append": [
+      {
+       "source": "model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.02),\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9265 - loss: 0.2514\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9588 - loss: 0.1402\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9641 - loss: 0.1239\nEpoch 4/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9530 - loss: 0.1702\nEpoch 5/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9102 - loss: 0.3315\n",
+       "count": 19
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[19]",
+    "model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.02),",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])",
+    "history = model.fit(",
+    "Epoch 3/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9641 - loss: 0.1239",
+    "Epoch 4/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9530 - loss: 0.1702",
+    "Epoch 5/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9102 - loss: 0.3315"
+   ]
+  }
+ }
+}

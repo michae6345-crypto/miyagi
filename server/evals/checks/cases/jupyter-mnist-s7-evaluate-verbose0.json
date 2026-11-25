@@ -1,0 +1,37 @@
+{
+ "id": "jupyter-mnist-s7-evaluate-verbose0",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "MNIST lesson s7 (evaluate on the test set and print the percentage). Done: the learner passed verbose=0 to model.evaluate, so there is no '313/313 ... accuracy: 0.97' progress line, only the printed summary 'Accuracy of the neural network on the 10000 test images: 97.59%'. The model was trained in [19] and the evaluation ran on test_images; the progress bar is cosmetic, and the step never asks for it.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "append": [
+      {
+       "source": "test_loss, test_accuracy = model.evaluate(test_images, test_labels, verbose=0)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "stdout": "Accuracy of the neural network on the 10000 test images: 97.59%\n",
+       "count": 21
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[21]",
+    "test_loss, test_accuracy = model.evaluate(test_images, test_labels, verbose=0)",
+    "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+    "Accuracy of the neural network on the 10000 test images: 97.59%"
+   ]
+  }
+ }
+}

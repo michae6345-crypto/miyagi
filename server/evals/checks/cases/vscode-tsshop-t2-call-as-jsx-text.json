@@ -1,0 +1,31 @@
+{
+ "id": "vscode-tsshop-t2-call-as-jsx-text",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Cart.tsx imports formatPrice and the map renders <span>formatPrice(item.price)</span>, without the curly braces: inside JSX that is text, so every row shows the words 'formatPrice(item.price)' instead of a price, and the import is never used (tsc's noUnusedLocals in the Vite template flags it, the status bar shows ⊗ 1). The prices do not go through formatPrice.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils'\n\ntype CartItem = { id: number; name: string; price: number }\ntype CartProps = { items: CartItem[] }\n\nexport function Cart({ items }: CartProps) {\n  return (\n    <ul>\n      {items.map(item => (\n        <li key={item.id}>\n          {item.name} <span>formatPrice(item.price)</span>\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "import { formatPrice } from '../utils'",
+    "export function Cart({ items }: CartProps) {",
+    "{items.map(item => (",
+    "<li key={item.id}>",
+    "{item.name} <span>formatPrice(item.price)</span>",
+    "</li>",
+    "⊗ 1 ⚠ 0"
+   ]
+  }
+ }
+}

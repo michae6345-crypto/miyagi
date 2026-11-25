@@ -1,0 +1,88 @@
+{
+ "id": "jupyter-numpy-dice-seeded-cell-run-twice",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "NumPy plan, 'Random numbers with a seed'. Done: the generator is made with the seed in the same cell as the rolls, and the learner ran that cell twice as asked, so it reads [3] under the import cell's [1] and prints 'sevens: 171' both times (the saved output is the second run). The gap in the run counts is the step's own re-run, not cells run out of order.",
+ "step": {
+  "id": "np7s4",
+  "title": "Count the sevens with a seeded generator",
+  "instructions": "In dice.ipynb, in one cell make rng = np.random.default_rng(42), roll two dice 1000 times with rng.integers(1, 7, size=(1000, 2)) and print how many rolls sum to 7. Run the cell twice: it must print the same count both times.",
+  "file": "dice.ipynb",
+  "run_command": "Run the cell twice (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "dice.ipynb",
+    "match": "np.random.default_rng(42)",
+    "caption": "The seed makes the rolls repeat"
+   }
+  ],
+  "code": "rng = np.random.default_rng(42)\nrolls = rng.integers(1, 7, size=(1000, 2))\nsevens = (rolls.sum(axis=1) == 7).sum()\nprint('sevens:', sevens)",
+  "checks": [
+   {
+    "id": "np7s4c1",
+    "type": "screen_contains",
+    "label": "Generator seeded with 42",
+    "app": "Code",
+    "pattern": "default_rng\\(\\s*42\\s*\\)"
+   },
+   {
+    "id": "np7s4c2",
+    "type": "screen_contains",
+    "label": "Two dice rolled 1000 times",
+    "app": "Code",
+    "pattern": "rng\\.integers\\(\\s*1,\\s*7,\\s*size=\\(1000,\\s*2\\)\\)"
+   },
+   {
+    "id": "np7s4c3",
+    "type": "screen_contains",
+    "label": "Count of sevens printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "sevens:\\s*\\d+"
+   },
+   {
+    "id": "np7s4c4",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "dice.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "rng = np.random.default_rng(42)\nrolls = rng.integers(1, 7, size=(1000, 2))\nsevens = (rolls.sum(axis=1) == 7).sum()\nprint('sevens:', sevens)",
+       "stdout": "sevens: 171\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "dice.ipynb",
+    "[1]",
+    "import numpy as np",
+    "[3]",
+    "rng = np.random.default_rng(42)",
+    "rolls = rng.integers(1, 7, size=(1000, 2))",
+    "sevens = (rolls.sum(axis=1) == 7).sum()",
+    "print('sevens:', sevens)",
+    "sevens: 171"
+   ]
+  }
+ }
+}

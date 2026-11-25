@@ -76,6 +76,230 @@ Inline steps follow lessons in Adrian's catalog plans (`docs/ui-next/catalog/pla
 Jupyter ("Run order and what the kernel keeps", "Install a package and draw a chart", "Restart and run all") and
 PyTorch ("Write the training loop"), written in the shape the lesson builder gives the MNIST lesson.
 
+## Round 5: Jupyter notebooks and ML training runs (Nov 24 2026, `claude/eng-evals-r5-0`)
+
+17 new cases (11 train, 6 held out), no engine change (the runner already scores `heldOut` apart). Steps: the MNIST
+video lesson (s5 fit, s7 evaluate), the NN-from-scratch text lesson (nn4, terminal) and, inline in the lesson
+builder's shape, lessons from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`):
+PyTorch ("Datasets and DataLoader" `pt6s4`, "Hold out data and measure accuracy" `pt7s3`, "Use the Mac GPU"
+`pt8s4`), NumPy ("Random numbers with a seed" `np7s4`), Neural networks ("Train a tiny network on XOR" `nn9s5`),
+Plotting ("Subplots side by side" `pl6s4`), pandas ("Plot from a DataFrame" `pd9s4`) and Intro to Jupyter ("Install
+a package and draw a chart" `jup6s5`, "Restart and run all" `jup7s3`).
+
+The traps: a DataLoader without `shuffle=True` over points made in linspace order; `xb.to(device)` not assigned
+(`mps:0 cpu`); held-out accuracy that sits above 0.9 for epochs and ends at 0.865; a seeded generator made in an
+earlier cell and the rolls cell re-run (a new count); `plt.subplots(2, 1)` where the step wants one row; a groupby on
+`item` instead of `weekday` with sales.png saved; a notebook whose `goal` cell was deleted, restarted and never run
+again (old counts [1], [3], [4]); a cell skipped after a restart ([1], [2], [ ], [3]); Keras accuracy above 0.95 for
+three epochs while the loss doubles and the last epoch reads 0.9102. Done-but-odd: `print(len(loader),
+tuple(xb.shape))` -> `32 (32, 2)`; Out[3] `(device(type='mps', index=0), ...)`; a seeded cell run twice ([1], [3]);
+XOR's loss flat at 0.2500 for half the run, then falling to 0.0051; a stale ModuleNotFoundError above the chart cell
+from before `%pip install`; `model.fit` re-run (epoch 1 already at 0.9874); `model.evaluate(..., verbose=0)` (no
+progress line); a stale unsaved-file run in the terminal scrollback above the run that converged.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (268: 257 earlier + 11 new) | 0.974 | 0.966 | 0.974 | 4 | 3 |
+| train, the 11 new | 0.364 | | | 4 | 3 |
+| held-out (114: 108 earlier + 6 new) | 0.447 | 0.318 | 0.500 | 43 | 20 |
+| held-out, the 6 new | 0.667 | | | 1 | 1 |
+
+Train wrong verdicts (all new; the 257 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+
+- **FP `jupyter-numpy-dice-rng-in-earlier-cell-rerun`**: the seed, the roll and a printed count are all there; nothing
+  sees that the generator lives in an earlier cell than the one the step re-runs.
+- **FP `jupyter-plot-subplots-stacked-two-rows`**: `plt.subplots(` matches; the (rows, cols) the instructions give
+  are not compared.
+- **FP `jupyter-pytorch-device-batch-not-reassigned`**: the output pattern accepts any two device names; a bare
+  `xb.to(device)` (result dropped) and two different devices are not weighed.
+- **FP `jupyter-restart-run-all-restarted-not-run`**: a [1] and no error; the old counts skip [2] and no cell defines
+  `goal` any more.
+- **FN `jupyter-chart-old-import-error-above`**: `No cell error` reads the stale ModuleNotFoundError of an earlier
+  cell that an install below it has since fixed.
+- **FN `jupyter-mnist-s7-evaluate-verbose0`**: s7c3 wants evaluate's progress line, which `verbose=0` never prints.
+- **FN `jupyter-pytorch-device-repr-out`**: the device pair shown as Out[n] (`device(type='mps', index=0)`) does not
+  read as `mps:0`.
+
+Held-out wrong verdicts (ids only): `jupyter-pandas-plot-by-item-not-weekday` (FP),
+`jupyter-pytorch-loader-shape-tuple` (FN).
+
+## Round 5: multi-file VS Code projects, Python and JS/TS/React (Nov 24 2026, `claude/eng-evals-r5-1`)
+
+20 new cases (13 train, 7 held out), no engine change. Steps from `py-modules.json` (m2, m4, m5), `ts-shop.json`
+(t2, t4), the React/Vite lesson (s7, s8) and the earlier inline TypeScript step `ts4s3`, plus new inline steps in
+the lesson builder's shape from Adrian's catalog plans (`origin/adrian/ui-next`, `docs/ui-next/catalog/plans/`):
+Intro to TypeScript "Compile your first TypeScript file" (`ts1s4`) and "Set up tsconfig with strict on" (`ts2s1`,
+rootDir / outDir), React "Render a list" (`re7s3`), "Forms and controlled inputs" (`re8s4`), "Share state between
+components" (`re9s4`), "Effects" (`re10s3`) and "Write JSX" (`re2s4`, dev server running), and Intro to VS Code
+"Settings and format on save" (`vs8s3`).
+
+Traps: the module file named `Operations.py` (macOS ignores case, Python's import does not:
+`ModuleNotFoundError`), a JSX expression typed without braces (`&copy; new Date().getFullYear()` and
+`<span>formatPrice(item.price)</span>` render as text), `return clearInterval(id)` (called at once, not a cleanup),
+`key="todo"` on every item, the key inside the child component instead of on the mapped element, a SearchBox that
+keeps its own `useState` copy of the lifted query, a form handler with no `e.preventDefault()` (the page reloads), a
+run-time `TypeError` in the browser while Vite's terminal is clean, `settings.json` at the folder root instead of
+`.vscode/`, a type error silenced with `qty: any`, `// "outDir": "./dist"` left commented, tsc's `Found 1 error`
+with greet.js emitted anyway, and `4 passed` from another project's folder. Done-but-odd: `total = add(2, 3)` then
+`print(total)`, a `"add:"` label string after an F2 rename, a test function still named `test_add`, a star import
+after the rename, `export default function Food()`, and Jest's "worker process has failed to exit gracefully"
+notice under `5 passed`.
+
+| before any fix | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (270: 257 earlier + 13 new) | 0.967 | 0.942 | 0.983 | 7 | 2 |
+| train, the 13 new | 0.308 | | | 7 | 2 |
+| held-out (115: 108 earlier + 7 new) | 0.435 | 0.292 | 0.500 | 46 | 19 |
+| held-out, the 7 new | 0.429 | | | 4 | 0 |
+
+Train wrong verdicts (all new; the 257 earlier train cases still score right), in `baseline.json` → `known_wrong`:
+FP `vscode-pymod-m2-module-file-capitalised`, `vscode-react-card-runtime-error-blank-page`,
+`vscode-react-effect-cleanup-called-at-once`, `vscode-react-list-same-key-every-item`,
+`vscode-react-s7-year-without-braces`, `vscode-settings-json-in-project-root`, `vscode-ts-invoice-silenced-with-any`;
+FN `vscode-pymod-m2-result-in-variable` (m2c2 wants `print(add(2, 3))` literally),
+`vscode-react-s8-export-default-function` (s8c4 wants a separate `export default Food`).
+
+## Round 5: terminal and Git workflows (Nov 24 2026, `claude/eng-evals-r5-2`)
+
+20 new `terminal` cases (13 train, 7 held out; 8 pass, 12 not_yet), no engine change and no runner change (the
+held-out split already exists). Steps from the repo's lessons (Git video lesson s8 / s9, MNIST s1, calculator s2) and
+inline steps in the lesson builder's shape from Adrian's catalog plans (`docs/ui-next/catalog/plans/`, commit
+213c9238): Intro to Git (undo, .gitignore, log and diff, merge, push, SSH key), Intro to the Terminal (make files,
+wildcards, pipes and grep), Intro to Docker (first container, Compose), Intro to JavaScript (first run), a
+scikit-learn venv setup step and a package added to the ts-shop project.
+
+The traps: .gitignore committed by `git add .` together with the .DS_Store it ignores; a `git pull` that stopped on a
+CONFLICT, with "insertion" from the learner's own commit above it and `git show` of that commit; a commit on a detached
+HEAD (`[detached HEAD 7e8f9a0]`, still "working tree clean"); `grep -h` without the step's `-i` (rain.txt misses the
+capitalised line); `cp notes/day*` where the step says `?` (the backup note copied too); `pip install` interrupted with
+^C, then a pip upgrade's "Successfully installed" and a Jupyter from outside the venv; `docker pull` instead of `docker
+run`, with another container's "Exited (0)"; `npm install` in the parent folder (clean output, shop/package.json
+untouched). Held out: a merge ref typo with `git log --all` showing the branch; `master` pushed after "src refspec main
+does not match any"; `ssh-keygen` waiting at its passphrase prompt; Compose's "Running 1/2" over "port is already
+allocated". Done-but-odd: `git checkout -- file` for `git restore`; `git push` with no upstream, then the
+`--set-upstream` push git suggested; `touch notes/day{1,2,3}.txt` checked with `ls | wc -l`; `pip install sklearn`
+(deprecated name, errors) then `pip install scikit-learn`; `python` not found, then `python3`. Held out: zsh "no
+matches found" then the right glob; `brew install tree` when it is already installed; `node hello` without `.js`.
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (13 new) | 0.385 | 0.333 | 0.600 | 6 | 2 |
+| held-out (7 new) | 0.286 | 0.000 | 0.000 | 2 | 3 |
+
+Wrong verdicts. Train: `terminal-dockercat-hello-world-pulled-not-run`, `terminal-git-s9-pull-conflict-local-commit-
+insertion`, `terminal-gitcat-commit-on-detached-head`, `terminal-gitcat-gitignore-committed-with-ds-store`,
+`terminal-pkg-npm-install-outside-project`, `terminal-shellcat-grep-missed-capitalised-rain` (FP);
+`terminal-pkg-sklearn-deprecated-then-scikit-learn`, `terminal-shellcat-touch-brace-expansion-counted` (FN). Held out:
+5 (ids in `baseline.json`). `baseline.json` rewritten: train 270 cases (acc 0.970, the 8 in `known_wrong`), held out
+115 (acc 0.426).
+
+## Round 5: Blender and CAD / AutoCAD / Fusion files (Nov 24 2026, `claude/eng-evals-r5-3`, 20 new cases, 7 held out)
+
+No engine change and no runner change (the held-out split already exists). Steps from Adrian's plans on
+`origin/adrian/ui-next` (`docs/ui-next/catalog/plans`: `intro-blender` 5, 8 and 9, `blender-materials` 3, 5 and 6,
+`blender-animation` 5, `intro-cad` 2, 3, 5 and 10, `intro-fusion` 2 and 7, `cad-3d-printing` 2 and 4, each lesson's
+`passes` line) and `docs/ui-next/INTEGRATIONS.md` (headless `dump_scene.py` / `dump_fcstd.py` facts as fixtures, the
+Fusion add-in's design JSON, the STL reader), plus the AutoCAD toy car's wheels as ASCII DXF. Dump fields new this
+round, read by name: a Bevel modifier's `width` / `limit_method`, an object's `material_slots` (faces per slot), the
+camera's `in_view` / `framing` (share of an object's bound box inside the frame, `clipped_edges`), a material's or the
+World's `nodes` and `links` (`from` / `from_socket` / `to` / `to_socket`, a `REROUTE` node), an Image Texture's
+`colorspace`, the scene's `images` (`filepath`, `packed`), a sketch's `geometry` (lines and circles), a FreeCAD body's
+`placement` and its shape's `holes` / `orientation` (`down_face`, `largest_flat_face`) / `walls`, a Fusion sketch's
+`curves` / `profile_centroid` and a body's `through_holes`.
+
+Traps: a Bevel modifier at Amount 0, a Glaze material (roughness 0.2) in a second slot with 0 faces assigned, a camera
+that clips 14% of the mug (the handle), a Color Ramp wired to Roughness while raw noise feeds Base Color, Non-Color set
+on the diffuse image instead of the roughness one, an Environment Texture with an HDR loaded but not linked, one of
+three blades left unparented, a sketch on XZ_Plane, a second hole circle off the end of the plate (one hole cut), an
+ASCII STL exported from the first Pad (the plate without the hook), a Fusion 2-point rectangle from the origin (not
+centred), a bracket rotated 90 degrees about Z (still on its smaller face, pin hole horizontal), DXF wheels with
+radius 18 for "18 mm across". Done-but-odd: the default Point light switched to Area (named Light), a Reroute between
+the Color Ramp and Base Color, a packed HDR (empty filepath), corners fixed with Lock (DistanceX/Y -30, -20, 30, 20,
+no 60 or 40), a Pocket of Length 5 through a 5 mm plate, an 8 mm extrude-cut 2 mm deep instead of a Hole feature, a
+tray hollowed by an offset Pocket instead of Thickness.
+
+Before any fix (the engine is the round-4 fix state):
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (270 = 257 + 13 new) | 0.952 | 0.924 | 0.965 | 9 | 4 |
+| train, the 13 new | 0.000 | | | 9 | 4 |
+| train blender (35) | 0.800 | 0.688 | 0.846 | 5 | 2 |
+| train cad (28) | 0.786 | 0.636 | 0.778 | 4 | 2 |
+| held-out (115 = 108 + 7 new) | 0.417 | 0.286 | 0.450 | 45 | 22 |
+| held-out, the 7 new | 0.143 | | | 3 | 3 |
+
+Train wrong verdicts (all 13 new; the 257 earlier train cases stay right):
+
+- **FP `blender-mug-bevel-modifier-width-zero`**: `BEVEL`, `segments: 3` and `ANGLE` match; `width: 0.0` rounds nothing.
+- **FP `blender-mug-glaze-slot-no-faces`**: Glaze (0.2) is on the mug's slot list, but its slot holds 0 faces.
+- **FP `blender-noise-ramp-into-roughness`**: some link reaches Base Color (the raw noise); the Color Ramp's goes to
+  Roughness.
+- **FP `blender-crate-noncolor-on-diffuse`**: a Non-Color image exists, on the Base Color node, not the roughness one.
+- **FP `blender-fan-one-blade-not-parented`**: two blades have `parent: Hub`; Blade3's parent is null.
+- **FP `freecad-sketch-rectangle-on-xz-plane`**: the label says XY plane; `support` is `XZ_Plane`.
+- **FP `freecad-holes-one-circle-off-plate`**: two 4 mm Diameter constraints and Through all; the shape has one hole
+  (the second centre, X 70, is off the 60 mm plate).
+- **FP `freecad-hook-stl-exported-from-pad`**: `solid` at the top of hook.stl; its 60 x 40 x 5 box is not the
+  60 x 40 x 35 body.
+- **FP `autocad-dxf-wheels-radius-18`**: an 18 (the radius, and a profile vertex) matches "18 mm across"; group 40 is
+  the radius, so the wheels are 36 across.
+- **FN `blender-light-point-switched-to-area`**: the pattern wants an object named Area; the area light is named Light.
+- **FN `blender-world-hdri-packed`**: the pattern reads `filepath`; a packed image has an empty one and its `.hdr`
+  name.
+- **FN `freecad-holes-pocket-length-equals-plate`**: `Type: Length` (5 mm) on a 5 mm plate is not `ThroughAll`, though
+  both holes go through.
+- **FN `fusion-cable-hole-extrude-cut-one-wall`**: no `Hole` feature; an 8 mm extrude-cut through the one wall made
+  the hole.
+
+Held out: 7 new cases, 6 wrong (ids in `baseline.json` → `held_out.known_wrong`). Not listed here on purpose.
+
+## Round 5 fixes (Nov 24 2026, `claude/eng-check-fixes-r5`)
+
+The four round-5 case sets merged: 442 cases, 307 train + 135 held out (77 new: 50 train, 27 held out). Every fix is
+general (no lesson ids, no case text); each has a regression test in `server/checks/tests/test_round5_fixes.py` (37
+tests, each also checking that the finished form still passes). Fixed against the train cases only; the held-out
+cases were never read while fixing (ids only).
+
+| | acc | prec | rec | FP | FN |
+|---|---|---|---|---|---|
+| train (307), before | 0.879 | 0.819 | 0.915 | 26 | 11 |
+| train (307), after | 1.000 | 1.000 | 1.000 | 0 | 0 |
+| held-out (135), before | 0.422 | 0.288 | 0.447 | 52 | 26 |
+| held-out (135), after | 0.430 | 0.292 | 0.447 | 51 | 26 |
+| held-out, the 27 new, before / after | 0.370 / 0.407 | | | | |
+
+Honest generalisation: one held-out case is now right (`vscode-tsshop-t2-call-as-jsx-text`, by the JSX-text rule);
+the other 16 round-5 held-out wrong verdicts are still wrong, and no held-out case got worse. `known_wrong` (train) is
+empty.
+
+What changed (server/checks):
+
+- **Scene / drawing** (`model_files`): claims for an Image Texture's Color Space against the socket it feeds (Non-Color
+  on number inputs, never on Base Color); every object of the kind the step parents ("the blades") has the parent; a
+  modifier the step adds with size 0 (Bevel Amount, Solidify Thickness, Array Count 1); a named material in a slot no
+  face uses; each link the step spells out ("the Noise's Fac to the Color Ramp's Fac"); "two holes" counted in the
+  body's shape; a sketch on another base plane than the one the step names; circles sized by their diameter whose DXF
+  radius is that number. Read another way (`alt_views`): a packed image under its file name, a light under its type's
+  name (Area), a Pocket whose holes go through as Through all, a hole Extrude-cut through a wall as a Hole. An exported
+  STL whose size is no body's in the scene dump beside it (`mesh_vs_bodies`). "Through all" in a label is not "every".
+- **Notebooks** (`evaluator`): leading numbers the step spells out (`plt.subplots(1, 2`); a step "in one cell" split
+  over two cells; a copy-returning method whose result is dropped (`xb.to(device)`, never a model's `.to`); Out[n]
+  reprs read as print would show them (`device(type='mps', index=0)` is `mps:0`); an earlier cell's error the step's
+  cell ran cleanly after is not the step's; Run All counts with a gap while a cell reads a name no cell makes; a
+  progress-line row when the cell ran with `verbose=0` and the step never asks for progress.
+- **Code files** (`code_equiv`, `evaluator.code_mistakes`): an import whose module file differs only in case
+  (Operations.py); a value kept in a name for the next line (`total = add(2, 3)` / `print(total)`); `export default
+  function Food` as a default export; a web page that threw in the browser; a cleanup / handler called instead of
+  handed over (`return clearInterval(id)`); one fixed key for every mapped item; a JSX expression left as text; the
+  step's file in another folder (settings.json outside .vscode); a type error silenced with `any` / `@ts-ignore` in
+  the step's file or a module it imports; `npm install` run outside the project (a bare package.json above it).
+- **Terminal** (`evaluator`, `blocks`): a pull / merge that stopped on a conflict and was never finished; another
+  subcommand on the step's arguments (`docker pull hello-world`); a commit on a detached HEAD; a commit that added a
+  file .gitignore lists; a result-changing flag left out (`grep -h` for `grep -hi`); a failed install of a wrong name
+  that the step's own command then got past; brace expansion (`touch notes/day{1,2,3}.txt`), and the files a step's
+  own file_exists checks expect as proof of its command when it has no precision checks.
+
 ## Round 4 fixes (Nov 24 2026, `claude/eng-check-fixes-r4`)
 
 The four round-4 case sets merged: 365 cases, 257 train + 108 held out (75 new: 49 train, 26 held out). Every fix is

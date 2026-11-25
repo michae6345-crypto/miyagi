@@ -1,0 +1,95 @@
+{
+ "id": "jupyter-chart-old-import-error-above",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Jupyter plan, 'Install a package and draw a chart' (a cell calls plt.bar on the seven days and its output holds an image). Done: the chart cell [4] imports pyplot, calls plt.bar(days, steps), titles it and shows the figure. Above it, cell [2] still shows the ModuleNotFoundError from before matplotlib was installed in [3]; that output is old (nothing re-ran [2]) and the chart cell's own output is clean. A stale error in an earlier cell is not this step's error.",
+ "step": {
+  "id": "jup6s5",
+  "title": "Draw the week as a bar chart",
+  "instructions": "In steps.ipynb, call plt.bar(days, steps), title it 'Steps per day' and run the cell so the chart shows under it.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "plt.bar(days, steps)",
+    "caption": "Draw the bar chart"
+   }
+  ],
+  "code": "import matplotlib.pyplot as plt\n\ndays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.show()",
+  "checks": [
+   {
+    "id": "jup6s5c1",
+    "type": "screen_contains",
+    "label": "plt.bar called on the seven days",
+    "app": "Code",
+    "pattern": "plt\\.bar\\(\\s*days"
+   },
+   {
+    "id": "jup6s5c2",
+    "type": "screen_contains",
+    "label": "Bar chart shown under the cell",
+    "app": "Code",
+    "pattern": "Steps\\s+per\\s+day"
+   },
+   {
+    "id": "jup6s5c3",
+    "type": "screen_absent",
+    "label": "No cell error",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "import matplotlib.pyplot as plt",
+       "error": "ModuleNotFoundError: No module named 'matplotlib'",
+       "count": 2
+      },
+      {
+       "source": "%pip install matplotlib",
+       "stdout": "Collecting matplotlib\nInstalling collected packages: pyparsing, pillow, kiwisolver, fonttools, cycler, contourpy, matplotlib\nSuccessfully installed contourpy-1.3.1 cycler-0.12.1 fonttools-4.55.0 kiwisolver-1.4.7 matplotlib-3.9.2 pillow-11.0.0 pyparsing-3.2.0\nNote: you may need to restart the kernel to use updated packages.\n",
+       "count": 3
+      },
+      {
+       "source": "import matplotlib.pyplot as plt\n\ndays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.show()",
+       "image": "<Figure size 640x480 with 1 Axes>",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[2]",
+    "import matplotlib.pyplot as plt",
+    "ModuleNotFoundError: No module named 'matplotlib'",
+    "[3]",
+    "%pip install matplotlib",
+    "Successfully installed contourpy-1.3.1 cycler-0.12.1 fonttools-4.55.0 kiwisolver-1.4.7 matplotlib-3.9.2 pillow-11.0.0 pyparsing-3.2.0",
+    "[4]",
+    "import matplotlib.pyplot as plt",
+    "days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']",
+    "plt.bar(days, steps)",
+    "plt.title('Steps per day')",
+    "plt.show()",
+    "Steps per day",
+    "Mon Tue Wed Thu Fri Sat Sun"
+   ]
+  }
+ }
+}

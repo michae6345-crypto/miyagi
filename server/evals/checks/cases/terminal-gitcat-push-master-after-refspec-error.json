@@ -1,0 +1,67 @@
+{
+ "id": "terminal-gitcat-push-master-after-refspec-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Intro to Git plan, 'Push the cookbook to GitHub' (passes: origin/main matches the local main branch). The repository was made with a plain `git init`, so its branch is master: `git push -u origin main` failed with 'error: src refspec main does not match any'. The learner then pushed master instead ('[new branch] master -> master', tracking origin/master). GitHub has no main branch and the local branch was never renamed (git branch -M main).",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Send main up to GitHub",
+  "instructions": "Link the empty GitHub repository with git remote add origin git@github.com:<you>/cookbook.git, then send main up and track it with git push -u origin main.",
+  "run_command": "git push -u origin main",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git push -u origin main",
+    "caption": "Push main to GitHub"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "screen_contains",
+    "label": "Branch pushed to GitHub",
+    "app": "Terminal",
+    "pattern": "\\[new\\s+branch\\]"
+   },
+   {
+    "id": "s4c2",
+    "type": "screen_contains",
+    "label": "Upstream set",
+    "app": "Terminal",
+    "pattern": "set\\s+up\\s+to\\s+track"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/.git": {
+    "dir": true
+   },
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 egg\n- 1 cup milk\n- 1 tbsp sugar\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % git remote add origin git@github.com:ada-learner/cookbook.git",
+    "tripi@mac cookbook % git push -u origin main",
+    "error: src refspec main does not match any",
+    "error: failed to push some refs to 'github.com:ada-learner/cookbook.git'",
+    "tripi@mac cookbook % git branch",
+    "* master",
+    "tripi@mac cookbook % git push -u origin master",
+    "Enumerating objects: 9, done.",
+    "Counting objects: 100% (9/9), done.",
+    "Delta compression using up to 10 threads",
+    "Compressing objects: 100% (6/6), done.",
+    "Writing objects: 100% (9/9), 1.02 KiB | 1.02 MiB/s, done.",
+    "Total 9 (delta 1), reused 0 (delta 0), pack-reused 0",
+    "To github.com:ada-learner/cookbook.git",
+    " * [new branch]      master -> master",
+    "branch 'master' set up to track 'origin/master'.",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

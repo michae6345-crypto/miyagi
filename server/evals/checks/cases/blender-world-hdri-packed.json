@@ -1,0 +1,198 @@
+{
+ "id": "blender-world-hdri-packed",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done but odd: same step (materials lesson 6). The Environment Texture holds kloofendal_48d_partly_cloudy_puresky_2k.hdr and feeds the Background's Color, so the World is lit by the HDRI. The learner then ran File > External Data > Pack Resources so the .blend works on another computer: the image is packed into the file (packed true, data loaded) and its filepath is now empty. An HDR image is loaded; it just no longer lives at a path on disk.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Light the scene with an HDRI",
+  "file": "crate.blend",
+  "instructions": "Switch the Shader Editor to World. Add an Environment Texture (Shift+A > Texture > Environment Texture), click Open and pick the .hdr or .exr file you downloaded, then connect its Color to the Background node's Color. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Environment Texture",
+    "file": "crate.scene.json",
+    "pattern": "\"type\":\\s*\"TEX_ENVIRONMENT\""
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "HDR or EXR image",
+    "file": "crate.scene.json",
+    "pattern": "\"filepath\":\\s*\"[^\"]*\\.(?:hdr|exr)\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.7,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     },
+     "world": {
+      "name": "World",
+      "use_nodes": true,
+      "nodes": [
+       {
+        "name": "Background",
+        "type": "BACKGROUND",
+        "inputs": {
+         "Strength": 1.0
+        }
+       },
+       {
+        "name": "World Output",
+        "type": "OUTPUT_WORLD"
+       },
+       {
+        "name": "Environment Texture",
+        "type": "TEX_ENVIRONMENT",
+        "image": "kloofendal_48d_partly_cloudy_puresky_2k.hdr"
+       }
+      ],
+      "links": [
+       {
+        "from": "Environment Texture",
+        "from_socket": "Color",
+        "to": "Background",
+        "to_socket": "Color"
+       },
+       {
+        "from": "Background",
+        "from_socket": "Background",
+        "to": "World Output",
+        "to_socket": "Surface"
+       }
+      ]
+     },
+     "images": [
+      {
+       "name": "kloofendal_48d_partly_cloudy_puresky_2k.hdr",
+       "filepath": "",
+       "colorspace": "Linear Rec.709",
+       "packed": true,
+       "has_data": true,
+       "size": [
+        2048,
+        1024
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

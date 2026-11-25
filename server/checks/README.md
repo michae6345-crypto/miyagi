@@ -95,6 +95,12 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
 - Round 4 (`server/evals/checks/README.md`, "Round 4 fixes"): notebook cells checked against the step's code
   (`call_args_differ`, `figure_closed`, `stale_after_update`, `stale_output`, `accumulated_grad`), renames that keep
   the old name (`renamed_leftover`), scaffolder answers (`scaffold_choices`), more scene / DXF claims.
+- Round 5 (`server/evals/checks/README.md`, "Round 5 fixes"): `code_mistakes` (a page that threw in the browser, a
+  function called where React wants one, one key for every list item, JSX text that should be `{expr}`, the step's
+  file in another folder, `any` silencing a type error, an install outside the project), notebook rules
+  (`split_across_cells`, `dropped_result`, leading call numbers, stale errors in earlier cells, `verbose=0`), terminal
+  rules (unfinished merge, another subcommand, detached HEAD, committed ignored files, dropped result flags), and more
+  scene claims / alt views (colour spaces, parents, node links, hole counts, base planes, STL vs body size).
 - In `evaluator.py`: an "Add..." menu's items are not added things; an export / render the step never named may have any
   name (image, mesh, CAD export kinds only; one file per check; never a file older than the step); "restart and run
   all" needs run counts in order from [1]; a `nan` beside the checked metric in the newest run is divergence; a

@@ -1,0 +1,91 @@
+{
+ "id": "jupyter-pytorch-device-repr-out",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "PyTorch plan, 'Use the Mac GPU'. Done: the model and the batch were both moved by assignment, and instead of print() the learner left the pair as the cell's last expression, so Jupyter shows Out[3]: (device(type='mps', index=0), device(type='mps', index=0)). That is the repr of mps:0 twice: both on the same device. The text 'mps:0' never appears only because the value was displayed, not printed.",
+ "step": {
+  "id": "pt8s4",
+  "title": "Put the model and a batch on the same device",
+  "instructions": "In sine.ipynb, set device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu'). Move the model with model = model.to(device), take one batch from loader and move it with xb = xb.to(device), then show the device of the model's first parameter and of xb. Both must name the same device.",
+  "file": "sine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "sine.ipynb",
+    "match": "xb = xb.to(device)",
+    "caption": "Tensors move by assignment"
+   }
+  ],
+  "code": "device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')\nmodel = model.to(device)\nxb, yb = next(iter(loader))\nxb = xb.to(device)\nprint(next(model.parameters()).device, xb.device)",
+  "checks": [
+   {
+    "id": "pt8s4c1",
+    "type": "screen_contains",
+    "label": "mps picked when available",
+    "app": "Code",
+    "pattern": "torch\\.backends\\.mps\\.is_available\\(\\)"
+   },
+   {
+    "id": "pt8s4c2",
+    "type": "screen_contains",
+    "label": "Moved with .to(device)",
+    "app": "Code",
+    "pattern": "\\.to\\(\\s*device\\s*\\)"
+   },
+   {
+    "id": "pt8s4c3",
+    "type": "screen_contains",
+    "label": "Model and batch devices printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "(mps:0|cpu)\\s+(mps:0|cpu)"
+   },
+   {
+    "id": "pt8s4c4",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "sine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch.utils.data import TensorDataset, DataLoader\n\ntorch.manual_seed(0)\nx0 = torch.linspace(-3.14, 3.14, 1000)\nx1 = torch.rand(1000) * 4 - 2\nX = torch.stack([x0, x1], dim=1)\ny = (x1 > torch.sin(x0)).float().unsqueeze(1)\nloader = DataLoader(TensorDataset(X, y), batch_size=32, shuffle=True)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "from torch import nn\n\nmodel = nn.Sequential(nn.Linear(2, 16), nn.ReLU(), nn.Linear(16, 1))\nloss_fn = nn.BCEWithLogitsLoss()\noptimizer = torch.optim.SGD(model.parameters(), lr=0.1)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')\nmodel = model.to(device)\nxb, yb = next(iter(loader))\nxb = xb.to(device)\nnext(model.parameters()).device, xb.device",
+       "result": "(device(type='mps', index=0), device(type='mps', index=0))",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "sine.ipynb",
+    "[3]",
+    "device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')",
+    "model = model.to(device)",
+    "xb, yb = next(iter(loader))",
+    "xb = xb.to(device)",
+    "next(model.parameters()).device, xb.device",
+    "(device(type='mps', index=0), device(type='mps', index=0))"
+   ]
+  }
+ }
+}

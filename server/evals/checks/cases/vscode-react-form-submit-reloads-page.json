@@ -1,0 +1,83 @@
+{
+ "id": "vscode-react-form-submit-reloads-page",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "handleSubmit adds the to-do and clears the box, but it never calls e.preventDefault(): the browser's own form submit reloads the page, so the new to-do flashes and the list is back to the three starting items. onSubmit, setTodos and setText('') are all there; the form still does not add a to-do that stays.",
+ "step": {
+  "id": "re8s4",
+  "title": "Add a to-do on submit",
+  "kind": "code",
+  "instructions": "In src/TodoApp.jsx, give the form onSubmit={handleSubmit}. In handleSubmit, call e.preventDefault(), add the new to-do with setTodos([...todos, { id: Date.now(), text }]) and clear the box with setText('').",
+  "file": "src/TodoApp.jsx",
+  "code": "function handleSubmit(e) {\n  e.preventDefault()\n  setTodos([...todos, { id: Date.now(), text }])\n  setText('')\n}\n\n<form onSubmit={handleSubmit}>",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/TodoApp.jsx",
+    "match": "<form",
+    "caption": "Handle the submit"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re8s4c1",
+    "type": "screen_contains",
+    "label": "The form handles submit",
+    "app": "Code",
+    "pattern": "onSubmit=\\{"
+   },
+   {
+    "id": "re8s4c2",
+    "type": "screen_contains",
+    "label": "Submit adds a to-do",
+    "app": "Code",
+    "pattern": "setTodos\\(\\s*\\[\\s*\\.\\.\\.todos"
+   },
+   {
+    "id": "re8s4c3",
+    "type": "screen_contains",
+    "label": "The box is cleared",
+    "app": "Code",
+    "pattern": "setText\\(\\s*(''|\"\")\\s*\\)"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re8s4p1",
+    "type": "file_contains",
+    "label": "TodoApp handles submit",
+    "file": "todo-list/src/TodoApp.jsx",
+    "pattern": "onSubmit"
+   }
+  ],
+  "hints": [
+   "A form submit reloads the page unless the handler stops it."
+  ],
+  "common_mistakes": [
+   "Leaving out e.preventDefault(), so the page reloads and the new to-do is lost."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "todo-list/package.json": "{\n  \"name\": \"todo-list\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "todo-list/src/TodoApp.jsx": "import { useState } from 'react'\n\nfunction TodoApp() {\n  const [todos, setTodos] = useState([\n    { id: 1, text: 'Buy milk' },\n    { id: 2, text: 'Walk the dog' },\n    { id: 3, text: 'Write the report' },\n  ])\n  const [text, setText] = useState('')\n\n  function handleSubmit(e) {\n    setTodos([...todos, { id: Date.now(), text }])\n    setText('')\n  }\n\n  return (\n    <>\n      <form onSubmit={handleSubmit}>\n        <input value={text} onChange={e => setText(e.target.value)} />\n        <button>Add</button>\n      </form>\n      <ul>{todos.map(t => <li key={t.id}>{t.text}</li>)}</ul>\n    </>\n  )\n}\n\nexport default TodoApp\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "TodoApp.jsx",
+    "const [text, setText] = useState('')",
+    "function handleSubmit(e) {",
+    "setTodos([...todos, { id: Date.now(), text }])",
+    "setText('')",
+    "}",
+    "return (",
+    "<form onSubmit={handleSubmit}>",
+    "<input value={text} onChange={e => setText(e.target.value)} />",
+    "<button>Add</button>"
+   ]
+  }
+ }
+}
