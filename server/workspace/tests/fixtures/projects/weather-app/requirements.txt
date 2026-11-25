@@ -1,0 +1,7 @@
+requests>=2.31
+# the forecast table
+pandas
+matplotlib==3.8.0 ; python_version >= "3.9"
+-e ./local-lib
+git+https://github.com/example/thing.git
+--index-url https://pypi.org/simple
