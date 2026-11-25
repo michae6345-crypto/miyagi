@@ -153,6 +153,12 @@ row now has a `setupKind` (`apps.classify`):
   `server.safety.browser_url_allowed`, alternative opens a web alternative or adds the free app's own Install row,
   `on_front` re-checks a row when its app comes to the front). App lessons' wording and checks:
   `server/lesson/app_lesson.py` ("in AutoCAD", screen checks scoped to the app, no file / command checks).
+- Blender (Nov 24): `blender.create_blend(path, runner=, blender=)` saves Blender's factory scene to a new or 0-byte
+  `.blend` headless (`new_blend_argv`: `--background --factory-startup --disable-autoexec`, temp file next to it, then
+  `os.replace` only while the target is still missing or empty; never raises). The setup card's Open in Blender
+  (`server/orchestrator/open_in_app.py`) uses it, then launches `blender_ext.launch_argv` (the bridge's
+  `start_bridge.py`). In the packaged app both `DUMP_SCRIPT` and `BRIDGE_START` need `blender-addon/` in
+  `app/scripts/bundle-engine.mjs` PATHS; without it the launch drops `--python start_bridge.py` and headless dumps fail.
 
 ## Set up this project: `setup.scan` / `setup.fix` outside a lesson (project.py)
 

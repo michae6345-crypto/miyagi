@@ -146,6 +146,19 @@ watcher instead of the lesson; errors on screen 1 s go out as `error.seen` (loca
 most one Haiku call per error (`coach.explain_error`), 20 per rolling hour (`server/ambient_cap.py`, shared with
 How-do-I). See `server/ambient_errors/README.md`.
 
+## Open in Blender ([open_in_app.py](open_in_app.py), Nov 24)
+
+A Blender lesson (`graph.lesson.app.tool == "blender"`) with nothing missing gets a setup card "Blender is ready" /
+"Open donut.blend in Blender?" with one action, `open_in_app` (label `setup.actionLabels.open_in_app`, `holdVideo`
+false), in video and lesson mode, and after Blender is installed or found (`setup_apps.refresh`, the install path).
+The stem comes from the first step `file` ending in `.blend`, else the first `file_contains` on `<stem>.scene.json`;
+bare names only, always inside the lesson folder. The press: already open in a Blender with the bridge -> a note; a
+Blender running without the bridge -> "Quit Blender, then press Open in Blender again."; a missing or 0-byte file ->
+`blender.create_blend` (headless factory scene, temp + `os.replace`, never over a saved scene); then one launch of
+`blender_ext.launch_argv` through `Workspace.run`, at most once per `LAUNCH_GRACE_S` (45 s) per file. When the bridge
+answers for the file and the step of the press is still current, `onscreen_coach.on_step` runs once.
+`APP_RENDERS_OPEN_IN_APP = False` restores the old passing note. Tests: `tests/test_open_in_app.py` (fake runners only).
+
 ## Ending a lesson
 
 `curl -X POST localhost:8787/end` (or `python -m server.orchestrator.client end`, or the app's `end_lesson` command) cancels any build or diagnosis, clears the
