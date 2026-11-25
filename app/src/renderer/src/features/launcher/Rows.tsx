@@ -11,7 +11,7 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { ChevronRight, CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { ChevronRight, CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import type { PlanState } from '../../../../../../shared/contracts/events'
 import { MiyagiMark } from '../../core/ui/Mark'
@@ -261,15 +261,36 @@ function EnterCue({ active, label }: { active: boolean; label?: string }): React
   )
 }
 
-/** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
-export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
+/**
+ * A command row. Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the
+ * launcher. Or (features/ambient commands.ts) "Set up this project" / "Show me in <app>", which pass their own title,
+ * meta, glyph and data attribute. "Show me" is an extra row over the others: `active` only once picked.
+ */
+export function SettingsRow({
+  onPick,
+  onHover,
+  active = true,
+  title = 'Settings',
+  meta = 'Keys and appearance',
+  icon: I = Settings,
+  data = { 'data-settings-row': '' }
+}: {
+  onPick: () => void
+  onHover?: () => void
+  /** Shows the Enter keycap (the row Enter runs). */
+  active?: boolean
+  title?: string
+  meta?: string
+  icon?: LucideIcon
+  data?: Record<string, string>
+}): ReactNode {
   return (
-    <RowShell slot={0} h={COVER_H} onPick={onPick} data={{ 'data-settings-row': '' }}>
+    <RowShell slot={0} h={COVER_H} onHover={onHover} onPick={onPick} data={data}>
       <GlyphTile w={ART_W} h={ART_H}>
-        <Settings size={15} strokeWidth={1.7} />
+        <I size={15} strokeWidth={1.7} />
       </GlyphTile>
-      <Text title="Settings" meta="Keys and appearance" />
-      <EnterCue active />
+      <Text title={title} meta={meta} />
+      <EnterCue active={active} />
     </RowShell>
   )
 }

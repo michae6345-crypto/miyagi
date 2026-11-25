@@ -34,6 +34,7 @@ import type { KeysView } from '../keys'
 import { DeleteAccount } from '../sections/Privacy'
 import { APP_GROUPS, APPS, appCaption, clearCache, clearHistory, size, tryInvoke, useYourData, type AppRow } from './data'
 import { isElectron } from '../../../bridge'
+import { AmbientSettings } from '../../ambient/Settings'
 import type { HealthItem } from '../../../../../../../shared/contracts/events'
 
 /** Two columns 56 apart (one under the other when the panel is narrower than two 330 px columns). */
@@ -174,6 +175,7 @@ export function General4(): ReactNode {
             <Row label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={() => startTour()} />} />
             <Row label={`Set up ${copy.name}`} caption="Check permissions and VS Code again." right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />} />
           </Group>
+          <AmbientSettings />
           <Group label="Updates">
             <UpdatesRow />
           </Group>
