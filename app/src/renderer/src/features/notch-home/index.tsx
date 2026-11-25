@@ -13,6 +13,7 @@ import { useEffect, useState, type DragEvent, type ReactNode } from 'react'
 import { ArrowUpRight, Link2, Play } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
+import { useKey } from '../../core/keys'
 import { noteLearnMode, useLesson } from '../../core/lesson'
 import { notchOf } from '../../core/notchGeometry'
 import { useNotchInfo } from '../../core/notchInfo'
@@ -89,6 +90,7 @@ function Progress({ n, total }: { n: number; total: number }): ReactNode {
 }
 
 function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const resuming = usePill((s) => s.resuming)
   const linkAny = useLinkAny()
   if (!pick)
@@ -103,7 +105,7 @@ function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
           </div>
         </div>
         <div className="flex">
-          <PrimaryButton label="Start a lesson" kbd={bridge.platform.keys.launcher} onClick={() => bridge.emit('launcher:toggle')} />
+          <PrimaryButton label="Start a lesson" kbd={launcherKey} onClick={() => bridge.emit('launcher:toggle')} />
         </div>
       </div>
     )
@@ -231,6 +233,7 @@ function DropZone(): ReactNode {
 }
 
 function Home(): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const pick = usePick()
   const dropped = useAnyLink((s) => s.dropped)
   const items = useLibrary((s) => s.items)
@@ -249,7 +252,7 @@ function Home(): ReactNode {
             <MiyagiMark size={14} />
             <span className="flex-1 truncate">{copy.ask}</span>
             {/* One keycap per action (QA Q06): with no lesson to continue, Start a lesson already shows it. */}
-            {pick && <Kbd>{bridge.platform.keys.launcher}</Kbd>}
+            {pick && <Kbd>{launcherKey}</Kbd>}
           </Row>
           <DropZone />
           {ready.map((r) => (

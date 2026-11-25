@@ -7,7 +7,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { bridge } from '../../bridge'
+import { useKey } from '../../core/keys'
 import { useLesson, useProgress, useStatus, type Status } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
@@ -64,6 +64,7 @@ function Dashes(): ReactNode {
 }
 
 function Overview(): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const s = useLesson(useShallow((x) => ({ title: x.stepTitle, checks: x.checks, video: x.stepVideo, textLesson: x.lesson?.mode === 'lesson' })))
   const skipped = useLesson(useShallow((x) => x.steps.map((st) => x.skipped.includes(st.id))))
   const passedSteps = useLesson(useShallow((x) => x.steps.map((st) => x.passed.includes(st.id) && !x.skipped.includes(st.id))))
@@ -123,7 +124,7 @@ function Overview(): ReactNode {
           {!drawerOpen && !barUp && <span className="h-[12px] w-px" style={{ background: fill.rule }} />}
           {!barUp && (
             <>
-              Ask <Kbd>{bridge.platform.keys.launcher}</Kbd>
+              Ask <Kbd>{launcherKey}</Kbd>
             </>
           )}
           <Gear />

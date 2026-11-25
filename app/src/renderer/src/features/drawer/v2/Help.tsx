@@ -23,8 +23,9 @@ import { triggerShortcut, usePressed, type ActionShortcut } from '../../../core/
 import { actionTone, color, elevation, fill, highlight, radius2, type2, type OptionAction } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
 import { Spinner } from '../../../core/ui/atoms'
+import { useKey } from '../../../core/keys'
 import { WatchIcon } from '../../../core/ui/HelpRow'
-import { Keycap, keyLabel, type KeyName } from '../../../core/ui/Keycap'
+import { Keycap, type KeyName } from '../../../core/ui/Keycap'
 import { useCards } from '../../cards/store'
 import { useDiagram } from '../../diagrams/store'
 import { HOST_MAX_NARROW, linkHost } from '../links'
@@ -152,7 +153,7 @@ function HelpTile({
   onClick: () => void
 }): ReactNode {
   const label = LABEL[action]
-  const key = k ? keyLabel(k) : undefined
+  const key = useKey(k)
   return (
     <motion.button
       type="button"

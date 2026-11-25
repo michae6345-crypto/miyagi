@@ -6,6 +6,7 @@
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../bridge'
+import { useKey } from '../../core/keys'
 import { openLibrary, openSettings } from '../../core/surfaces'
 import { color, fill, radius2, shadows, surface, type2 } from '../../core/theme'
 import { Kbd } from '../../core/ui/atoms'
@@ -26,6 +27,7 @@ const ROWS: (Row | 'sep')[] = [
 ]
 
 export function StageMenu(): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const at = useStageMenu((s) => s.at)
 
   useEffect(() => {
@@ -84,7 +86,7 @@ export function StageMenu(): ReactNode {
             }}
           >
             <span>{r.label}</span>
-            {r.key && <Kbd>{bridge.platform.keys.launcher}</Kbd>}
+            {r.key && <Kbd>{launcherKey}</Kbd>}
           </motion.button>
         )
       )}

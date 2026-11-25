@@ -29,6 +29,7 @@
 import { app, Menu, nativeImage, Tray, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate } from '../gate'
+import { getPrefs, onPrefsChange } from '../prefs'
 import { TRAY_ICON_1X, TRAY_ICON_2X } from '../launchIcon'
 
 /** App windows, in the order a reopen brings them forward (appWindows.ts routes). */
@@ -121,12 +122,13 @@ export default defineMainFeature({
       ctx.overlay.webContents.send('feat:launch:open', what)
     }
 
+    const launcherKey = (): string => getPrefs().shortcuts.launcher ?? ctx.platform.accelerators.launcher
     const template = (): MenuItemConstructorOptions[] =>
       gateIsOpen() ? full() : [{ label: 'Open miyagi', click: openHome }, { label: 'Quit miyagi', click: () => ctx.app.quit() }]
     const full = (): MenuItemConstructorOptions[] => [
       { label: 'Open miyagi', click: openHome },
-      // The launcher's own global key, shown (not registered twice).
-      { label: 'Start a lesson', accelerator: ctx.platform.accelerators.launcher, registerAccelerator: false, click: () => askOverlay('launcher') },
+      // The launcher's own global key (the learner's own when rebound), shown (not registered twice).
+      { label: 'Start a lesson', accelerator: launcherKey(), registerAccelerator: false, click: () => askOverlay('launcher') },
       { label: 'Show me around', click: () => askOverlay('tour') },
       { label: 'Settings…', click: () => askOverlay('settings') },
       { type: 'separator' },
@@ -145,6 +147,13 @@ export default defineMainFeature({
       onGate((open) => {
         if (open === shown || !tray) return
         shown = open
+        tray.setContextMenu(Menu.buildFromTemplate(template()))
+      })
+      // A rebound launcher key (Settings > Shortcuts): the menu shows the new one.
+      let key = launcherKey()
+      onPrefsChange(() => {
+        if (!tray || key === launcherKey()) return
+        key = launcherKey()
         tray.setContextMenu(Menu.buildFromTemplate(template()))
       })
       // Windows: a left click opens home (right click shows the menu). macOS shows the menu on any click.

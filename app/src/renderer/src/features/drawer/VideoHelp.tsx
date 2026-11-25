@@ -15,6 +15,7 @@
 import { ArrowLeft, SkipForward } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { bridge } from '../../bridge'
+import { useKeys } from '../../core/keys'
 import { useLesson, useThinking } from '../../core/lesson'
 import { sendAction, triggerShortcut, usePressed, type ActionShortcut } from '../../core/shortcuts'
 import { glass, type OptionAction } from '../../core/theme'
@@ -44,7 +45,7 @@ export function VideoHelp(): ReactNode {
   const pressed = usePressed((p) => p.kind)
   // The one caller here (the v2 panel, its other caller, never shows with this row): its timer notifies.
   const waiting = useWaitingOn()
-  const keys = bridge.platform.keys
+  const keys = useKeys() // live: a rebound shortcut shows its own key
   const skipping = thinking && pressed === 'skip_step'
   useSkipArmed()
   return (

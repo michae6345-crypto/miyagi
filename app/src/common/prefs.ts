@@ -6,7 +6,10 @@ import type { IslandPlace } from './notch'
 export type Appearance = 'system' | 'light' | 'dark'
 /** v2: what to do with a crash report (Err-CrashConsent). Local only either way; nothing is uploaded this push. */
 export type CrashReports = 'ask' | 'always' | 'never'
-/** v2: the learner's own key for a shortcut, as an Electron accelerator ("Control+Alt+E"). Stored, not applied yet. */
+/**
+ * The learner's own key for a shortcut, as an Electron accelerator ("Control+Alt+E"). Live: main registers it in place of
+ * the platform default (main/shortcutKeys.ts) and every keycap follows it (common/shortcuts.ts, core/keys.ts).
+ */
 export type ShortcutPrefs = Partial<Record<ShortcutKind, string>>
 
 /** Push to talk (Settings > General): the hold-to-ask chord. fn+control is the default; control+option is for keyboards without Fn. */
@@ -34,7 +37,7 @@ export type Prefs = {
   crashReports: CrashReports
   /** Count which buttons get used (local only). Off by default; the Privacy switch is hidden this push. */
   usageCounts: boolean
-  /** Shortcut overrides (Settings → Shortcuts). Validated and stored; live rebinding comes in wave 2. */
+  /** Shortcut overrides (Settings → Shortcuts). Applied live; main drops one another app already owns. */
   shortcuts: ShortcutPrefs
   /** Settings › Privacy "Share crash reports and usage" (main/features/telemetry.ts). Off by default, for everyone. */
   shareTelemetry: boolean
@@ -63,16 +66,20 @@ export const DEFAULT_PREFS: Prefs = {
   island: { place: 'notch' }
 }
 
-const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+export const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
 const MODIFIER = /^(Command|Cmd|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift|Super|Meta)$/
 const KEY = /^([A-Z0-9]|F([1-9]|1[0-9]|2[0-4])|Space|Left|Right|Up|Down|Enter|Tab|Backspace|Delete|Escape|Plus|[,./;'[\]\\`=-])$/
 
-/** An Electron accelerator with 1 to 3 modifiers and one key. A bare key is refused (it would type into the editor). */
+/**
+ * An Electron accelerator with 1 to 3 modifiers and one key. A bare key is refused (it would type into the editor), and
+ * so is Shift alone: Shift+E registered globally would take capital E from every app.
+ */
 export function isAccelerator(s: unknown): s is string {
   if (typeof s !== 'string' || s.length > 48) return false
   const parts = s.split('+')
   if (parts.length < 2 || parts.length > 4) return false
   const key = parts.pop()!
+  if (parts.every((p) => p === 'Shift')) return false
   return KEY.test(key) && parts.every((p) => MODIFIER.test(p)) && new Set(parts).size === parts.length
 }
 
