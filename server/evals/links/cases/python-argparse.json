@@ -1,0 +1,27 @@
+{
+  "id": "python-argparse",
+  "url": "https://docs.python.org/3/howto/argparse.html",
+  "page": "python-argparse.html",
+  "notes": "Python HOWTO that grows one file (prog.py) and runs it after each change: code and console blocks alternate.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      4,
+      9
+    ],
+    "title": "Argparse Tutorial",
+    "site": "docs.python.org",
+    "code": [
+      "parser = argparse.ArgumentParser()",
+      "parser.add_argument(\"echo\", help=\"echo the string you use here\")",
+      "action=\"store_true\"",
+      "answer = args.square ** 2",
+      "python3 prog.py --help",
+      "python3 prog.py foo",
+      "python3 prog.py 4 --verbose"
+    ],
+    "absent": [
+      "Last updated on"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "id": "marketing-landing",
+  "url": "https://quillbase.example.com/",
+  "page": "marketing-landing.html",
+  "notes": "A product landing page: hero, features, testimonials, a call to action.",
+  "expect": {
+    "refusal": "not_teachable"
+  }
+}

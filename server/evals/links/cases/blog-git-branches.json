@@ -1,0 +1,27 @@
+{
+  "id": "blog-git-branches",
+  "url": "https://samrivera.example.dev/posts/git-branches/",
+  "page": "blog-git-branches.html",
+  "notes": "A blog walkthrough of branch / switch / merge: ten git commands in five bash blocks (more commands than steps, so some share a step).",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Git branches: a hands-on walkthrough",
+    "author": "Sam Rivera",
+    "code": [
+      "git switch -c main",
+      "git commit -m \"First notes\"",
+      "git switch -c idea",
+      "git commit -am \"Try an idea\"",
+      "git merge idea",
+      "git branch -d idea"
+    ],
+    "absent": [
+      "Comments powered by Disqus",
+      "Built with Hugo"
+    ]
+  }
+}

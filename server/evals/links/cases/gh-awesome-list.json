@@ -1,0 +1,10 @@
+{
+  "id": "gh-awesome-list",
+  "url": "https://github.com/example-lists/awesome-creative-coding",
+  "page": "gh-awesome-list.md",
+  "notes": "An awesome-list README: only links, nothing to do or type.",
+  "expect": {
+    "refusal": "not_teachable",
+    "site": "github.com/example-lists/awesome-creative-coding"
+  }
+}

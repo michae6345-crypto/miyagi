@@ -1,0 +1,28 @@
+{
+  "id": "mdn-fetch",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch",
+  "page": "mdn-fetch.html",
+  "notes": "MDN guide: the h1 sits in the article's own <header>; code is in <pre class='brush: js'>; the file is named once, in the intro (fetch-demo.mjs), and run with node at the end.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Using the Fetch API",
+    "site": "developer.mozilla.org",
+    "code": [
+      "const response = await fetch(url);",
+      "if (!response.ok) {",
+      "const json = await response.json();",
+      "console.error(error.message);",
+      "node fetch-demo.mjs"
+    ],
+    "absent": [
+      "Skip to main content",
+      "Help improve MDN",
+      "Search MDN",
+      "last modified"
+    ]
+  }
+}

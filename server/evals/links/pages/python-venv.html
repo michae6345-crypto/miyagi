@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta property="og:title" content="12. Virtual Environments and Packages">
+<meta property="og:site_name" content="Python documentation">
+<title>12. Virtual Environments and Packages &#8212; Python 3.13 documentation</title>
+<link rel="stylesheet" href="../_static/pydoctheme.css">
+<script src="../_static/documentation_options.js"></script>
+<script>window.dataLayer = window.dataLayer || [];</script>
+</head>
+<body>
+<div class="mobile-nav">
+  <input type="checkbox" id="menuToggler" class="toggler__input">
+  <nav class="nav-content" role="navigation">
+    <a href="../index.html">Python</a> &#187; <a href="index.html">The Python Tutorial</a>
+    <select id="version_switcher"><option>3.13</option><option>3.12</option></select>
+  </nav>
+</div>
+<div class="related" role="navigation" aria-label="Related">
+  <h3>Navigation</h3>
+  <ul><li><a href="../genindex.html">index</a></li><li><a href="../py-modindex.html">modules</a> |</li>
+  <li><a href="whatnow.html">next</a> |</li><li><a href="stdlib2.html">previous</a> |</li></ul>
+</div>
+<div class="document">
+<div class="documentwrapper">
+<div class="bodywrapper">
+<div class="body" role="main">
+<section id="virtual-environments-and-packages">
+<h1>12. Virtual Environments and Packages<a class="headerlink" href="#virtual-environments-and-packages" title="Link to this heading">¶</a></h1>
+<section id="introduction">
+<h2>12.1. Introduction<a class="headerlink" href="#introduction" title="Link to this heading">¶</a></h2>
+<p>Python programs often use packages that are not part of the standard library. Sometimes a program needs one
+particular version of a package, and another program on the same computer needs a different one. Installing both
+into one shared place cannot satisfy both programs at the same time.</p>
+<p>The answer is a <em>virtual environment</em>: a self-contained folder that holds its own Python and its own set of
+installed packages. Each project can have one, and what you install into one never touches the others.</p>
+</section>
+<section id="creating-virtual-environments">
+<h2>12.2. Creating Virtual Environments<a class="headerlink" href="#creating-virtual-environments" title="Link to this heading">¶</a></h2>
+<p>The module used to create and manage virtual environments is called <a class="reference internal" href="../library/venv.html#module-venv"><code class="xref py py-mod docutils literal notranslate"><span class="pre">venv</span></code></a>.
+To create one, choose a folder for it and run the venv module as a script with the folder's name:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>tutorial-env
+</pre></div>
+</div>
+<p>This makes the <code class="docutils literal notranslate"><span class="pre">tutorial-env</span></code> folder if it does not exist, and puts a copy of the interpreter and some supporting files inside it.</p>
+<p>Once it exists, activate it. On macOS and Linux, run:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span><span class="nb">source</span><span class="w"> </span>tutorial-env/bin/activate
+</pre></div>
+</div>
+<p>Activating changes your shell prompt to show which environment you are using, and makes <code class="docutils literal notranslate"><span class="pre">python</span></code> run the environment's interpreter:</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>python
+<span class="go">Python 3.13.0 (main, Oct  7 2026, 10:12:31)</span>
+<span class="gp">$ </span>deactivate
+</pre></div>
+</div>
+</section>
+<section id="managing-packages-with-pip">
+<h2>12.3. Managing Packages with pip<a class="headerlink" href="#managing-packages-with-pip" title="Link to this heading">¶</a></h2>
+<p>You install, upgrade and remove packages with a program called <strong>pip</strong>. Inside an active environment, install the latest version of a package by naming it:</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">(tutorial-env) $ </span>python -m pip install requests
+<span class="go">Collecting requests</span>
+<span class="go">Successfully installed requests-2.32.3</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">python -m pip show requests</span></code> prints what it knows about one package, and <code class="docutils literal notranslate"><span class="pre">python -m pip list</span></code> lists every package in the environment:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>list
+</pre></div>
+</div>
+<p>Write the installed packages to a file so someone else can install the same ones:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>freeze<span class="w"> </span>&gt;<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+<p>Then anyone can recreate the environment's packages from that file:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</section>
+</section>
+<div class="clearer"></div>
+</div>
+</div>
+</div>
+<div class="sphinxsidebar" role="navigation" aria-label="Main">
+  <h3><a href="../contents.html">Table of Contents</a></h3>
+  <ul><li><a href="#">12. Virtual Environments and Packages</a></li></ul>
+  <h4>Previous topic</h4><p><a href="stdlib2.html">11. Brief Tour of the Standard Library — Part II</a></p>
+  <div role="note" aria-label="source link"><h3>This Page</h3><ul><li><a href="../bugs.html">Report a Bug</a></li></ul></div>
+</div>
+</div>
+<footer class="footer">
+  <p>© Copyright 2001-2026, Python Software Foundation. This page is licensed under the Python Software Foundation License Version 2.</p>
+  <p>Last updated on Nov 20, 2026 (09:14 UTC). <a href="/bugs.html">Found a bug</a>?</p>
+</footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Git branches, a hands-on walkthrough · dev notes</title>
+<meta property="og:title" content="Git branches: a hands-on walkthrough">
+<meta property="article:author" content="Sam Rivera">
+</head>
+<body>
+<nav class="navbar"><a href="/">dev notes</a> <a href="/archive">Archive</a> <a href="/tags">Tags</a></nav>
+<div class="container">
+<article class="h-entry">
+<h1 class="p-name">Git branches: a hands-on walkthrough</h1>
+<p class="byline-date">Posted on <time>March 3, 2026</time> by Sam Rivera</p>
+<div class="toc"><h4>Contents</h4><ol><li><a href="#setup">Set up a practice repository</a></li><li><a href="#branch">Make a branch</a></li><li><a href="#merge">Merge it back</a></li></ol></div>
+<div class="e-content">
+<p>Branches are cheap in Git, and the fastest way to stop being scared of them is to make a few in a throwaway
+repository. Everything here happens in a fresh folder, so nothing you do can hurt a real project.</p>
+<h2 id="setup">Set up a practice repository</h2>
+<p>Make a repository with one commit on the main branch:</p>
+<pre><code class="language-bash">git init
+git switch -c main
+git add notes.txt
+git commit -m "First notes"
+</code></pre>
+<p>(Put a line or two of text in <code>notes.txt</code> before the <code>git add</code>.)</p>
+<h2 id="branch">Make a branch and work on it</h2>
+<p>Create a branch called <code>idea</code> and switch to it in one command:</p>
+<pre><code class="language-bash">git switch -c idea
+</code></pre>
+<p>Add a line to <code>notes.txt</code>, then commit on the branch:</p>
+<pre><code class="language-bash">git commit -am "Try an idea"
+git log --oneline --graph --all
+</code></pre>
+<p>The graph shows <code>idea</code> one commit ahead of <code>main</code>.</p>
+<h2 id="merge">Merge it back</h2>
+<p>Go back to main and bring the idea in:</p>
+<pre><code class="language-bash">git switch main
+git merge idea
+</code></pre>
+<p>Because main had not moved, Git just slides main forward: a fast-forward merge. Delete the branch once it is merged:</p>
+<pre><code class="language-bash">git branch -d idea
+</code></pre>
+<p>That's the whole loop: branch, commit, switch back, merge, delete. Next post: what happens when both branches change the same line.</p>
+</div>
+</article>
+<div class="post-nav pagination"><a href="/prev">« Older</a> <a href="/next">Newer »</a></div>
+<div id="disqus_thread" class="comments"><p>Comments powered by Disqus.</p></div>
+</div>
+<footer>© 2026 Sam Rivera · Built with Hugo</footer>
+</body>
+</html>

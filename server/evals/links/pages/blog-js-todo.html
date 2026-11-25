@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Build a to-do list in plain JavaScript (no framework) | Coding with Ines</title>
+<meta property="og:title" content="Build a to-do list in plain JavaScript">
+<meta name="author" content="Ines Okafor">
+<meta property="article:published_time" content="2026-09-14T08:00:00Z">
+</head>
+<body>
+<div class="cookie-consent" id="gdpr">This site uses cookies for analytics. <a href="/privacy">Privacy policy</a> <button>Accept all cookies</button></div>
+<header class="site-header"><a class="logo" href="/">Coding with Ines</a>
+  <nav class="menu"><a href="/">Home</a> <a href="/tags/javascript">JavaScript</a> <a href="/about">About</a> <a href="/newsletter">Newsletter</a></nav></header>
+<main>
+<article class="post">
+<h1 class="post-title">Build a to-do list in plain JavaScript</h1>
+<div class="post-meta"><span class="byline">by <a rel="author" href="/about">Ines Okafor</a></span> · <time datetime="2026-09-14">September 14, 2026</time> · 8 min read</div>
+<div class="share-bar"><a href="#">Share on X</a> <a href="#">Share on LinkedIn</a> <a href="#">Copy link</a></div>
+<div class="post-content">
+<p>Frameworks are great, but you learn the most from building one small thing by hand. In this post we make a to-do
+list with three files: an HTML page, a little CSS, and a script that adds, shows and checks off tasks. No build step,
+no npm: open the page in a browser and it works.</p>
+<h2 id="the-page">1. The page</h2>
+<p>Create <code>index.html</code> with a form for new tasks and an empty list for them to go in:</p>
+<figure class="highlight"><pre><code class="language-html" data-lang="html">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;title&gt;To-do&lt;/title&gt;
+    &lt;link rel="stylesheet" href="style.css"&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;form id="new-task"&gt;
+      &lt;input id="task-text" placeholder="What needs doing?"&gt;
+      &lt;button&gt;Add&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;ul id="tasks"&gt;&lt;/ul&gt;
+    &lt;script src="app.js"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre></figure>
+<h2 id="a-little-style">2. A little style</h2>
+<p>In <code>style.css</code>, make finished tasks fade and strike through:</p>
+<figure class="highlight"><pre><code class="language-css" data-lang="css">body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; }
+li.done { opacity: 0.5; text-decoration: line-through; }</code></pre></figure>
+<div class="newsletter-box"><h3>Enjoying this?</h3><p>Sign up for our newsletter and get one small project every week.</p><form><input placeholder="you@example.com"><button>Subscribe</button></form></div>
+<h2 id="adding-tasks">3. Adding tasks</h2>
+<p>Now the script. In <code>app.js</code>, keep the tasks in an array and draw the list from it:</p>
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript">const tasks = [];
+const list = document.querySelector("#tasks");
+
+function render() {
+  list.innerHTML = "";
+  tasks.forEach((task, i) =&gt; {
+    const li = document.createElement("li");
+    li.textContent = task.text;
+    li.className = task.done ? "done" : "";
+    li.dataset.index = i;
+    list.appendChild(li);
+  });
+}</code></pre></figure>
+<p>Then listen for the form, add the typed task, and redraw:</p>
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript">document.querySelector("#new-task").addEventListener("submit", (event) =&gt; {
+  event.preventDefault();
+  const input = document.querySelector("#task-text");
+  tasks.push({ text: input.value, done: false });
+  input.value = "";
+  render();
+});</code></pre></figure>
+<h2 id="checking-tasks-off">4. Checking tasks off</h2>
+<p>Clicking a task flips it between done and not done:</p>
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript">list.addEventListener("click", (event) =&gt; {
+  const i = event.target.dataset.index;
+  tasks[i].done = !tasks[i].done;
+  render();
+});</code></pre></figure>
+<p>Open <code>index.html</code> in your browser, add a few tasks and click them. That's the whole app: about thirty lines of
+JavaScript. Next time we'll save the tasks in <code>localStorage</code> so they survive a reload.</p>
+</div>
+<div class="author-bio"><img src="/ines.jpg" alt=""><p>Ines writes about the web platform. Follow her on Mastodon.</p></div>
+</article>
+<section class="related-posts"><h3>Related posts</h3><ul><li><a href="#">Build a timer in plain JavaScript</a></li><li><a href="#">CSS grid in ten minutes</a></li></ul></section>
+<section id="comments" class="comments"><h3>12 comments</h3><div class="comment"><p>Great post! Worked first try.</p></div></section>
+</main>
+<footer class="site-footer">© 2026 Coding with Ines · <a href="/rss.xml">RSS</a></footer>
+</body>
+</html>
