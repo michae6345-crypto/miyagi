@@ -75,16 +75,6 @@ const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 const TOOL_WORD: Record<LessonTool, string> = { vscode: 'VS Code', jupyter: 'Jupyter', terminal: 'Terminal', excel: 'Excel' }
 const TOOL_COVER: Record<string, CoverKind> = { vscode: 'code', jupyter: 'nb', terminal: 'term', excel: 'table', sheets: 'table', rstudio: 'plot', blender: 'mug', freecad: 'cad', fusion: 'cad', onshape: 'cad' }
 
-/** "Good morning" / "Good afternoon" / "Good evening", with the first name when there is one. */
-export function greeting(now: number, name?: string): string {
-  const h = new Date(now).getHours()
-  const part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
-  const first = name?.trim().split(/\s+/)[0]
-  return first ? `${part}, ${first}` : part
-}
-
-/** "Sunday, November 22". */
-export const longDate = (now: number): string => new Date(now).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
 /** "1 h 48 min" split for the stat ("1", "h", "48", "min"). */
 export function hoursMinutes(min: number): Array<[string, string]> {
@@ -221,6 +211,23 @@ export function isFirstRun(data: DashData | undefined, items: LibraryItem[], ext
   if ((data?.tracks ?? []).some((t) => t.skills.some((s) => s.state !== 'not_started'))) return false
   if ((data?.activity ?? []).some((a) => a.reps > 0)) return false
   return !items.some((i) => i.progress)
+}
+
+/** A first-run row: a saved lesson ready on this Mac (`saved`, starts with library.start) or a suggestion (its goal). */
+export type FirstRow = ShortLesson & { saved?: boolean }
+
+/** The first-run page's short lessons: saved lessons ready to start (no model calls), then suggestions. */
+export function firstLessons(items: LibraryItem[], done: Set<string>, picks: ShortLesson[], max = 3): FirstRow[] {
+  const saved: FirstRow[] = items
+    .filter((i) => i.ready && !i.progress && !done.has(i.id))
+    .map((i) => ({ id: i.id, title: i.title, meta: lessonMeta(i), cover: coverFor(i.tools), goal: '', saved: true }))
+  return [...saved, ...picks].slice(0, max)
+}
+
+/** Which rail parts have something to show. Nothing in any: no rail at all, one centered column. */
+export function railParts(m: HomeModel): { week: boolean; goal: boolean; skills: boolean; fresh: boolean; any: boolean } {
+  const p = { week: m.week.some((b) => b.value > 0), goal: !!m.goal?.total, skills: m.skills.length > 0, fresh: m.fresh.length > 0 }
+  return { ...p, any: p.week || p.goal || p.skills || p.fresh }
 }
 
 // ---- the contract ----------------------------------------------------------------------------------------------------

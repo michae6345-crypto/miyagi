@@ -48,7 +48,7 @@ export function Bar({ fraction, green, width, label }: { fraction: number; green
 /** A gray tag (a skill's name): no hue, it's a label, not an option. */
 export function Tag({ children }: { children: ReactNode }): ReactNode {
   return (
-    <span className="inline-flex max-w-full items-center truncate" style={{ height: 20, padding: '0 6px', borderRadius: 4, fontSize: T.small, lineHeight: '20px', background: tagBg, color: color.text, whiteSpace: 'nowrap' }}>
+    <span className="inline-flex max-w-full items-center truncate" title={typeof children === 'string' ? children : undefined} style={{ height: 20, padding: '0 6px', borderRadius: 4, fontSize: T.small, lineHeight: '20px', background: tagBg, color: color.text, whiteSpace: 'nowrap' }}>
       {children}
     </span>
   )
@@ -90,8 +90,11 @@ export function RowBtn({ children, onClick, label, cols, minH = 46, style, data 
   )
 }
 
-/** The rows' hairlines (a row after a row), one rule for the page. */
-export const rowCss = `.mg-h4-list > .mg-h4-row + .mg-h4-row { box-shadow: 0 -1px 0 ${hair}; } .mg-h4-list > .mg-h4-row:hover + .mg-h4-row, .mg-h4-list > .mg-h4-row:hover { box-shadow: none; }`
+/**
+ * The rows' hairlines (a row after a row), one rule for the page. The row's top corners go square under a hairline, so
+ * the line stays straight instead of curling down the row's rounded sides (it read as a box).
+ */
+export const rowCss = `.mg-h4-list > .mg-h4-row + .mg-h4-row { box-shadow: 0 -1px 0 ${hair}; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; } .mg-h4-list > .mg-h4-row:hover + .mg-h4-row, .mg-h4-list > .mg-h4-row:hover { box-shadow: none; }`
 
 /** A rail row: one line, a name and a quiet value. */
 export function RailRow({ icon: I, children, right, onClick, label, tall }: { icon?: ReactNode; children: ReactNode; right?: ReactNode; onClick?: () => void; label?: string; tall?: boolean }): ReactNode {
@@ -99,7 +102,7 @@ export function RailRow({ icon: I, children, right, onClick, label, tall }: { ic
   const inner = (
     <>
       {lead}
-      <span className="min-w-0 flex-1 truncate text-left" style={{ fontWeight: 520, color: color.text }}>
+      <span className="min-w-0 flex-1 truncate text-left" title={typeof children === 'string' ? children : undefined} style={{ fontWeight: 520, color: color.text }}>
         {children}
       </span>
       {right}
@@ -156,18 +159,19 @@ export function WeekChart({ bars, unit }: { bars: WeekBar[]; unit: string }): Re
   )
 }
 
-/** A cover's line grays (ink at fixed alphas, on the dark editor or on paper): named once, not inline. */
-const COVER_LINE = { onDark: 'rgba(255,255,255,.78)', softOnDark: 'rgba(255,255,255,.34)', floorOnDark: 'rgba(255,255,255,.08)', onPaper: 'rgba(40,38,33,.55)', softOnPaper: 'rgba(40,38,33,.22)' } as const
+/** A code cover's line grays (white at fixed alphas on the dark editor ground, the same in both themes). */
+const COVER_LINE = { onDark: 'rgba(255,255,255,.78)', softOnDark: 'rgba(255,255,255,.34)', floorOnDark: 'rgba(255,255,255,.08)' } as const
 
 /**
- * A cover: a small neutral drawing of the tool (16:9), never a photo or a hue. Code covers are dark like an editor,
- * the rest are paper; the lines are grays so the page keeps its two colors (ink and the green of passed).
+ * A cover: a small neutral drawing of the tool (16:9), never a photo or a hue. Code covers are dark like an editor;
+ * the rest are paper drawn with the theme's own quiet fill and grays, so in dark mode they never read as a blank white
+ * box. The lines are grays so the page keeps its two colors (ink and the green of passed).
  */
 export function Cover({ kind, width, radius = 8 }: { kind: CoverKind; width: number | string; radius?: number }): ReactNode {
   const dark = kind === 'code' || kind === 'net' || kind === 'term' || kind === 'mug'
-  const bg = dark ? brand.ink : brand.surface
-  const ink = dark ? COVER_LINE.onDark : COVER_LINE.onPaper
-  const soft = dark ? COVER_LINE.softOnDark : COVER_LINE.softOnPaper
+  const bg = dark ? brand.ink : fill.chip
+  const ink = dark ? COVER_LINE.onDark : color.label
+  const soft = dark ? COVER_LINE.softOnDark : fill.ring
   let art: ReactNode = null
   if (kind === 'code' || kind === 'term')
     art = (
@@ -231,7 +235,7 @@ export function Cover({ kind, width, radius = 8 }: { kind: CoverKind; width: num
   else if (kind === 'cad')
     art = (
       <g fill="none" stroke={ink} strokeWidth={1.4}>
-        <path d="M54 78l52-22 46 16-52 22z" fill={brand.surface} />
+        <path d="M54 78l52-22 46 16-52 22z" />
         <path d="M54 78v8l46 16v-8M100 102l52-22v-8" />
         <ellipse cx={82} cy={78} rx={6} ry={3} />
         <ellipse cx={118} cy={72} rx={6} ry={3} />

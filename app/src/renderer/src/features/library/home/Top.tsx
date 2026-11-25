@@ -20,17 +20,18 @@ import type { DashData } from '../../dashboard/types'
 import { readAsk, setAskText, submitAsk, useAsk } from '../homeModel'
 import { useLibrary } from '../store'
 import { Cover, T } from './bits'
+import { IDEAS } from './catalog'
 import type { CoverKind } from './data'
 
 /** The ask field's placeholder on Home (the mock's words; the launcher keeps "ask miyagi anything"). */
 export const ASK_PLACEHOLDER = 'ask miyagi, or paste a YouTube link'
 
-const IDEAS = ['Clean a messy CSV with pandas', 'Build a tiny web server', 'Train an image classifier']
 const IDEA_TONES: Tone[] = ['sky', 'lilac', 'pink']
 
 /**
- * The chips, personal first: skills the learner is ready for next (every prerequisite mastered, not started), named
- * with their track ("Broadcasting in numpy"). Topped up with general ideas, always three.
+ * The chips: the featured lesson (catalog.ts IDEAS, first), then skills the learner is ready for next (every
+ * prerequisite mastered, not started), named with their track ("Broadcasting in numpy"). Topped up with general ideas,
+ * always three.
  */
 export function pickIdeas(data: DashData | undefined): Array<{ text: string; tone: Tone }> {
   const mine: string[] = []
@@ -44,7 +45,11 @@ export function pickIdeas(data: DashData | undefined): Array<{ text: string; ton
       if (!mine.includes(text)) mine.push(text)
     }
   }
-  return [...mine.slice(0, 3), ...IDEAS].slice(0, 3).map((text, i) => ({ text, tone: IDEA_TONES[i] }))
+  const [lead, ...rest] = IDEAS
+  return [lead, ...mine.slice(0, 2), ...rest]
+    .filter((t, i, all) => all.indexOf(t) === i)
+    .slice(0, 3)
+    .map((text, i) => ({ text, tone: IDEA_TONES[i] }))
 }
 
 /** Puts the caret in Home's ask field, optionally with text in it. */
@@ -156,7 +161,7 @@ export function Ask({ ideas }: { ideas: Array<{ text: string; tone: Tone }> }): 
               </button>
             ))
           : (
-              <span role="status" className="truncate" style={{ fontSize: T.meta, color: ask.note ? color.text : color.label }}>
+              <span role="status" className="truncate" title={ask.note} style={{ fontSize: T.meta, color: ask.note ? color.text : color.label }}>
                 {ask.note ?? (read.kind === 'link' && read.match ? read.match.title : !connected ? 'miyagi is offline.' : 'Press Return to start.')}
               </span>
             )}
@@ -182,7 +187,9 @@ export function ContinueCard({ view, action }: { view: ContView; action: ReactNo
         {view.sub && (
           <span className="flex min-w-0 items-center gap-[8px]" style={{ fontSize: T.small, color: color.label }}>
             {view.building && <Spinner size={12} c={color.label} />}
-            <span className="truncate">{view.sub}</span>
+            <span className="truncate" title={view.sub}>
+              {view.sub}
+            </span>
           </span>
         )}
       </div>
