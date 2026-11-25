@@ -68,7 +68,7 @@ const END_ARM_MS = 4000
 
 /**
  * "End lesson for now" in two taps, like the player's End lesson (QA Q03, MIC-56). The first tap only arms it
- * ("Tap again to end"); a second tap within END_ARM_MS ends the lesson. A timeout, a blur or the window losing focus
+ * ("Tap to end"); a second tap within END_ARM_MS ends the lesson. A timeout, a blur or the window losing focus
  * disarms it, so one stray click on this card never ends a lesson (closing a VS Code window raises it mid-demo).
  */
 function EndForNow({ onEnd }: { onEnd: () => void }): ReactNode {
@@ -95,7 +95,7 @@ function EndForNow({ onEnd }: { onEnd: () => void }): ReactNode {
     clearTimeout(timer.current)
     setArmed(false)
   }
-  return <TextButton label={armed ? 'Tap again to end' : 'End lesson for now'} armed={armed} onClick={tap} onBlur={disarm} />
+  return <TextButton label={armed ? 'Tap to end' : 'End lesson for now'} armed={armed} onClick={tap} onBlur={disarm} />
 }
 
 /** A rounded row on the card (the video, a file): neutral fill and hairline. */
