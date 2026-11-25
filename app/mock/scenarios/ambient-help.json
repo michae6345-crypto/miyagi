@@ -1,0 +1,888 @@
+{
+  "name": "ambient-help",
+  "on": {
+    "connect": "ambient_hello",
+    "ambient.set": "ambient_errors",
+    "error.explain": "ambient_explanation",
+    "error.dismiss": "ambient_quiet",
+    "setup.scan": "ambient_scan",
+    "setup.fix": "ambient_fix",
+    "help.ask": "ambient_help",
+    "help.nav": "ambient_help_next"
+  },
+  "segments": {
+    "ambient_hello": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state",
+            "set_goal",
+            "skills.ack",
+            "review.start",
+            "data.delete",
+            "ask.warm",
+            "activity.get",
+            "bon.get",
+            "bon.import",
+            "plans.list",
+            "plan.start",
+            "plan.remove",
+            "playlist.get",
+            "plan.propose",
+            "link.get",
+            "proof.get",
+            "data.get",
+            "ambient.set",
+            "error.explain",
+            "error.dismiss",
+            "setup.scan",
+            "setup.fix",
+            "help.ask",
+            "help.nav"
+          ]
+        }
+      }
+    ],
+    "ambient_errors": [
+      {
+        "wait": 1500,
+        "type": "error.seen",
+        "payload": {
+          "id": "err-7c1e09",
+          "app": "Terminal",
+          "kind": "python_traceback",
+          "title": "ModuleNotFoundError: No module named 'pandas'",
+          "lines": [
+            "Traceback (most recent call last):",
+            "  File \"~/code/weather-app/app.py\", line 3, in <module>",
+            "    import pandas as pd",
+            "ModuleNotFoundError: No module named 'pandas'"
+          ],
+          "file": "~/code/weather-app/app.py",
+          "line": 3,
+          "lang": "python",
+          "rect": {
+            "x": 212,
+            "y": 618,
+            "w": 520,
+            "h": 72,
+            "label": "The error",
+            "app": "Terminal",
+            "via": "ax"
+          },
+          "at": "2026-11-24T10:42:05-08:00"
+        }
+      },
+      {
+        "wait": 9000,
+        "type": "error.seen",
+        "payload": {
+          "id": "err-a4d210",
+          "app": "Code",
+          "kind": "notebook_cell",
+          "title": "NameError: name 'df' is not defined",
+          "lines": [
+            "NameError                                 Traceback (most recent call last)",
+            "Cell In[4], line 1",
+            "----> 1 df.head()",
+            "NameError: name 'df' is not defined"
+          ],
+          "file": "explore.ipynb",
+          "line": 1,
+          "lang": "python",
+          "rect": {
+            "x": 300,
+            "y": 512,
+            "w": 640,
+            "h": 88,
+            "label": "Cell 4",
+            "app": "Code",
+            "via": "ocr"
+          },
+          "at": "2026-11-24T10:44:30-08:00"
+        }
+      }
+    ],
+    "ambient_explanation": [
+      {
+        "wait": 80,
+        "type": "error.explanation",
+        "payload": {
+          "id": "err-7c1e09",
+          "pending": true
+        }
+      },
+      {
+        "wait": 1400,
+        "type": "error.explanation",
+        "payload": {
+          "id": "err-7c1e09",
+          "title": "pandas isn't installed here",
+          "why": "app.py imports pandas, but the Python running it has never installed pandas, so the import stops on line 3.",
+          "fix": "Install pandas into this project's .venv, then run app.py again.",
+          "command": "pip install pandas",
+          "install": {
+            "tool": "pandas",
+            "label": "pandas",
+            "kind": "python_package",
+            "why": "app.py reads the weather data with it",
+            "needed": true,
+            "installed": false,
+            "ok": false,
+            "install": {
+              "method": "pip",
+              "command": "pip install pandas"
+            },
+            "from": "requirements.txt:3",
+            "actions": [
+              "install"
+            ],
+            "setupKind": "package"
+          },
+          "file": "~/code/weather-app/app.py",
+          "line": 3,
+          "target": {
+            "x": 212,
+            "y": 618,
+            "w": 520,
+            "h": 72,
+            "label": "The error",
+            "app": "Terminal",
+            "via": "ax"
+          }
+        }
+      }
+    ],
+    "ambient_quiet": [],
+    "ambient_scan": [
+      {
+        "wait": 60,
+        "type": "setup.report",
+        "payload": {
+          "reqId": "scan-1",
+          "root": "~/code/weather-app",
+          "name": "weather-app",
+          "files": [
+            "requirements.txt",
+            ".python-version",
+            "package.json",
+            ".nvmrc",
+            "Dockerfile"
+          ],
+          "env": {
+            "python": "~/code/weather-app/.venv (Python 3.12.4)",
+            "node": "node 18.19.0"
+          },
+          "items": [],
+          "ready": 0,
+          "total": 0,
+          "scanning": true
+        }
+      },
+      {
+        "wait": 700,
+        "type": "setup.report",
+        "payload": {
+          "reqId": "scan-1",
+          "root": "~/code/weather-app",
+          "name": "weather-app",
+          "files": [
+            "requirements.txt",
+            ".python-version",
+            "package.json",
+            ".nvmrc",
+            "Dockerfile"
+          ],
+          "env": {
+            "python": "~/code/weather-app/.venv (Python 3.12.4)",
+            "node": "node 18.19.0"
+          },
+          "items": [
+            {
+              "tool": "pandas",
+              "label": "pandas",
+              "kind": "python_package",
+              "why": "app.py reads the weather data with it",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "pip",
+                "command": "pip install pandas"
+              },
+              "from": "requirements.txt:3",
+              "actions": [
+                "install"
+              ],
+              "setupKind": "package"
+            },
+            {
+              "tool": "node",
+              "label": "Node.js 20",
+              "kind": "runtime",
+              "why": ".nvmrc asks for Node 20; this Mac has 18.19",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "brew",
+                "command": "brew install node@20"
+              },
+              "from": ".nvmrc",
+              "actions": [
+                "install"
+              ],
+              "version": "18.19.0",
+              "minVersion": "20",
+              "setupKind": "package"
+            },
+            {
+              "tool": "node_modules",
+              "label": "Node packages (14)",
+              "kind": "node_package",
+              "why": "package.json lists them; none installed yet",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "npm",
+                "command": "npm install"
+              },
+              "from": "package.json",
+              "actions": [
+                "install"
+              ],
+              "setupKind": "package"
+            },
+            {
+              "tool": "docker",
+              "label": "Docker Desktop",
+              "kind": "app",
+              "why": "The Dockerfile builds the app in a container",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "brew_cask",
+                "command": "brew install --cask docker"
+              },
+              "from": "Dockerfile",
+              "actions": [
+                "install"
+              ],
+              "setupKind": "free_app"
+            },
+            {
+              "tool": "python",
+              "label": "Python 3.12",
+              "kind": "runtime",
+              "why": ".python-version asks for 3.12",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "brew"
+              },
+              "from": ".python-version",
+              "actions": [],
+              "version": "3.12.4",
+              "setupKind": "package"
+            },
+            {
+              "tool": "requests",
+              "label": "requests",
+              "kind": "python_package",
+              "why": "app.py fetches the forecast with it",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "pip"
+              },
+              "from": "requirements.txt:1",
+              "actions": [],
+              "version": "2.32.3",
+              "setupKind": "package"
+            },
+            {
+              "tool": "flask",
+              "label": "flask",
+              "kind": "python_package",
+              "why": "app.py serves the page with it",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "pip"
+              },
+              "from": "requirements.txt:2",
+              "actions": [],
+              "version": "3.1.0",
+              "setupKind": "package"
+            }
+          ],
+          "ready": 3,
+          "total": 7
+        }
+      }
+    ],
+    "ambient_fix": [
+      {
+        "wait": 200,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "pandas",
+          "line": "Collecting pandas"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "pandas",
+          "line": "Installing collected packages: numpy, pandas"
+        }
+      },
+      {
+        "wait": 1600,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "pandas",
+          "done": true,
+          "ok": true,
+          "version": "2.3.3"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "setup.report",
+        "payload": {
+          "reqId": "scan-1",
+          "root": "~/code/weather-app",
+          "name": "weather-app",
+          "files": [
+            "requirements.txt",
+            ".python-version",
+            "package.json",
+            ".nvmrc",
+            "Dockerfile"
+          ],
+          "env": {
+            "python": "~/code/weather-app/.venv (Python 3.12.4)",
+            "node": "node 18.19.0"
+          },
+          "items": [
+            {
+              "tool": "node",
+              "label": "Node.js 20",
+              "kind": "runtime",
+              "why": ".nvmrc asks for Node 20; this Mac has 18.19",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "brew",
+                "command": "brew install node@20"
+              },
+              "from": ".nvmrc",
+              "actions": [
+                "install"
+              ],
+              "version": "18.19.0",
+              "minVersion": "20",
+              "setupKind": "package"
+            },
+            {
+              "tool": "node_modules",
+              "label": "Node packages (14)",
+              "kind": "node_package",
+              "why": "package.json lists them; none installed yet",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "npm",
+                "command": "npm install"
+              },
+              "from": "package.json",
+              "actions": [
+                "install"
+              ],
+              "setupKind": "package"
+            },
+            {
+              "tool": "docker",
+              "label": "Docker Desktop",
+              "kind": "app",
+              "why": "The Dockerfile builds the app in a container",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "brew_cask",
+                "command": "brew install --cask docker"
+              },
+              "from": "Dockerfile",
+              "actions": [
+                "install"
+              ],
+              "setupKind": "free_app"
+            },
+            {
+              "tool": "python",
+              "label": "Python 3.12",
+              "kind": "runtime",
+              "why": ".python-version asks for 3.12",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "brew"
+              },
+              "from": ".python-version",
+              "actions": [],
+              "version": "3.12.4",
+              "setupKind": "package"
+            },
+            {
+              "tool": "requests",
+              "label": "requests",
+              "kind": "python_package",
+              "why": "app.py fetches the forecast with it",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "pip"
+              },
+              "from": "requirements.txt:1",
+              "actions": [],
+              "version": "2.32.3",
+              "setupKind": "package"
+            },
+            {
+              "tool": "flask",
+              "label": "flask",
+              "kind": "python_package",
+              "why": "app.py serves the page with it",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "pip"
+              },
+              "from": "requirements.txt:2",
+              "actions": [],
+              "version": "3.1.0",
+              "setupKind": "package"
+            },
+            {
+              "tool": "pandas",
+              "label": "pandas",
+              "kind": "python_package",
+              "why": "app.py reads the weather data with it",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "install": {
+                "method": "pip",
+                "command": "pip install pandas"
+              },
+              "from": "requirements.txt:3",
+              "actions": [],
+              "version": "2.3.3",
+              "setupKind": "package"
+            }
+          ],
+          "ready": 4,
+          "total": 7
+        }
+      },
+      {
+        "wait": 2500,
+        "type": "error.seen",
+        "payload": {
+          "id": "err-7c1e09",
+          "clear": true
+        }
+      }
+    ],
+    "ambient_help": [
+      {
+        "wait": 80,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "",
+          "steps": [],
+          "current": 0,
+          "pending": true
+        }
+      },
+      {
+        "wait": 1300,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "Export as STL",
+          "steps": [
+            {
+              "id": "h1",
+              "text": "Click File in the top bar",
+              "target": {
+                "x": 34,
+                "y": 31,
+                "w": 38,
+                "h": 22,
+                "label": "File",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h2",
+              "text": "Point to Export",
+              "detail": "It is near the bottom of the File menu.",
+              "target": {
+                "x": 34,
+                "y": 418,
+                "w": 220,
+                "h": 24,
+                "label": "Export",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "screen"
+            },
+            {
+              "id": "h3",
+              "text": "Choose Stl (.stl)",
+              "target": {
+                "x": 258,
+                "y": 610,
+                "w": 180,
+                "h": 24,
+                "label": "Stl (.stl)",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h4",
+              "text": "Pick a folder, then click Export STL",
+              "detail": "Turn on Selection Only to export just your mug.",
+              "target": {
+                "x": 1140,
+                "y": 742,
+                "w": 132,
+                "h": 30,
+                "label": "Export STL",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            }
+          ],
+          "current": 0
+        }
+      },
+      {
+        "wait": 3500,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "Export as STL",
+          "steps": [
+            {
+              "id": "h1",
+              "text": "Click File in the top bar",
+              "target": {
+                "x": 34,
+                "y": 31,
+                "w": 38,
+                "h": 22,
+                "label": "File",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h2",
+              "text": "Point to Export",
+              "detail": "It is near the bottom of the File menu.",
+              "target": {
+                "x": 34,
+                "y": 418,
+                "w": 220,
+                "h": 24,
+                "label": "Export",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "screen"
+            },
+            {
+              "id": "h3",
+              "text": "Choose Stl (.stl)",
+              "target": {
+                "x": 258,
+                "y": 610,
+                "w": 180,
+                "h": 24,
+                "label": "Stl (.stl)",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h4",
+              "text": "Pick a folder, then click Export STL",
+              "detail": "Turn on Selection Only to export just your mug.",
+              "target": {
+                "x": 1140,
+                "y": 742,
+                "w": 132,
+                "h": 30,
+                "label": "Export STL",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            }
+          ],
+          "current": 1
+        }
+      }
+    ],
+    "ambient_help_next": [
+      {
+        "wait": 150,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "Export as STL",
+          "steps": [
+            {
+              "id": "h1",
+              "text": "Click File in the top bar",
+              "target": {
+                "x": 34,
+                "y": 31,
+                "w": 38,
+                "h": 22,
+                "label": "File",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h2",
+              "text": "Point to Export",
+              "detail": "It is near the bottom of the File menu.",
+              "target": {
+                "x": 34,
+                "y": 418,
+                "w": 220,
+                "h": 24,
+                "label": "Export",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "screen"
+            },
+            {
+              "id": "h3",
+              "text": "Choose Stl (.stl)",
+              "target": {
+                "x": 258,
+                "y": 610,
+                "w": 180,
+                "h": 24,
+                "label": "Stl (.stl)",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h4",
+              "text": "Pick a folder, then click Export STL",
+              "detail": "Turn on Selection Only to export just your mug.",
+              "target": {
+                "x": 1140,
+                "y": 742,
+                "w": 132,
+                "h": 30,
+                "label": "Export STL",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            }
+          ],
+          "current": 2
+        }
+      },
+      {
+        "wait": 3000,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "Export as STL",
+          "steps": [
+            {
+              "id": "h1",
+              "text": "Click File in the top bar",
+              "target": {
+                "x": 34,
+                "y": 31,
+                "w": 38,
+                "h": 22,
+                "label": "File",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h2",
+              "text": "Point to Export",
+              "detail": "It is near the bottom of the File menu.",
+              "target": {
+                "x": 34,
+                "y": 418,
+                "w": 220,
+                "h": 24,
+                "label": "Export",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "screen"
+            },
+            {
+              "id": "h3",
+              "text": "Choose Stl (.stl)",
+              "target": {
+                "x": 258,
+                "y": 610,
+                "w": 180,
+                "h": 24,
+                "label": "Stl (.stl)",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h4",
+              "text": "Pick a folder, then click Export STL",
+              "detail": "Turn on Selection Only to export just your mug.",
+              "target": {
+                "x": 1140,
+                "y": 742,
+                "w": 132,
+                "h": 30,
+                "label": "Export STL",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            }
+          ],
+          "current": 3
+        }
+      },
+      {
+        "wait": 4000,
+        "type": "help.steps",
+        "payload": {
+          "reqId": "help-1",
+          "app": "Blender",
+          "goal": "Export as STL",
+          "steps": [
+            {
+              "id": "h1",
+              "text": "Click File in the top bar",
+              "target": {
+                "x": 34,
+                "y": 31,
+                "w": 38,
+                "h": 22,
+                "label": "File",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h2",
+              "text": "Point to Export",
+              "detail": "It is near the bottom of the File menu.",
+              "target": {
+                "x": 34,
+                "y": 418,
+                "w": 220,
+                "h": 24,
+                "label": "Export",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "screen"
+            },
+            {
+              "id": "h3",
+              "text": "Choose Stl (.stl)",
+              "target": {
+                "x": 258,
+                "y": 610,
+                "w": 180,
+                "h": 24,
+                "label": "Stl (.stl)",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            },
+            {
+              "id": "h4",
+              "text": "Pick a folder, then click Export STL",
+              "detail": "Turn on Selection Only to export just your mug.",
+              "target": {
+                "x": 1140,
+                "y": 742,
+                "w": 132,
+                "h": 30,
+                "label": "Export STL",
+                "app": "Blender",
+                "via": "ax"
+              },
+              "advance": "click"
+            }
+          ],
+          "current": 3,
+          "done": true
+        }
+      }
+    ]
+  }
+}
