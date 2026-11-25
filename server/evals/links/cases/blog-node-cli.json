@@ -1,0 +1,30 @@
+{
+  "id": "blog-node-cli",
+  "url": "https://terminaltuesday.example.com/2026/05/notes-cli-node/",
+  "page": "blog-node-cli.html",
+  "notes": "A long WordPress tutorial: 14 code and command blocks for one file, more than a lesson holds. The lesson covers the first part, cut at a section boundary; `code` lists only that part's blocks.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      5,
+      9
+    ],
+    "title": "Build a notes CLI with Node.js, step by step",
+    "author": "Jun Watanabe",
+    "site": "terminaltuesday.example.com",
+    "code": [
+      "npm init -y",
+      "function load() {",
+      "node --check notes.js",
+      "notes.push({ id: Date.now(), text });",
+      "node notes.js list",
+      "node notes.js search milk"
+    ],
+    "absent": [
+      "Proudly powered by WordPress",
+      "this series is gold",
+      "Get Terminal Tuesday in your inbox",
+      "Previous: Reading files"
+    ]
+  }
+}

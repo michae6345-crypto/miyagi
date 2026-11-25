@@ -1,0 +1,9 @@
+{
+  "id": "spa-shell",
+  "url": "https://codecamp.example.org/learn/react-hooks",
+  "page": "spa-shell.html",
+  "notes": "A single-page app's shell: an empty <div id='root'> and scripts. Nothing readable without running JavaScript.",
+  "expect": {
+    "refusal": "no_content"
+  }
+}

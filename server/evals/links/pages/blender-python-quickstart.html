@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quickstart &#8212; Blender Python API</title>
+</head>
+<body class="wy-body-for-nav">
+<div class="wy-grid-for-nav">
+<nav data-toggle="wy-nav-shift" class="wy-nav-side">
+  <div class="wy-side-scroll"><div class="wy-side-nav-search"><a href="index.html">Blender Python API</a><div class="version">4.3</div>
+  <div role="search"><form id="rtd-search-form"><input type="text" name="q" placeholder="Search docs"></form></div></div>
+  <div class="wy-menu wy-menu-vertical" role="navigation"><ul><li class="toctree-l1 current"><a href="#">Quickstart</a></li><li class="toctree-l1"><a href="info_overview.html">API Overview</a></li><li class="toctree-l1"><a href="info_tips_and_tricks.html">Tips and Tricks</a></li></ul></div></div>
+</nav>
+<section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+<div class="wy-nav-content">
+<div class="rst-content">
+<div role="navigation" aria-label="Page navigation"><ul class="wy-breadcrumbs"><li><a href="index.html">Home</a> &raquo;</li><li>Quickstart</li></ul></div>
+<div role="main" class="document">
+<section id="quickstart">
+<h1>Quickstart<a class="headerlink" href="#quickstart">¶</a></h1>
+<p>This page gets you writing Python for Blender quickly. Blender runs Python scripts from its Text Editor, and the
+<code>bpy</code> module gives them access to everything in the open file: objects, meshes, materials and operators.</p>
+<section id="running-your-first-script">
+<h2>Running your first script<a class="headerlink" href="#running-your-first-script">¶</a></h2>
+<p>Open the Scripting workspace, make a new text block, and type a script that lists the objects in the scene. Name the text block <code>scene_tools.py</code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">bpy</span>
+
+<span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">bpy</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">scene</span><span class="o">.</span><span class="n">objects</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">type</span><span class="p">)</span>
+</pre></div></div>
+<p>Press <kbd>Alt-P</kbd> (or the Run Script button) and the names show up in the system console.</p>
+</section>
+<section id="adding-objects">
+<h2>Adding objects<a class="headerlink" href="#adding-objects">¶</a></h2>
+<p>Operators are the same actions as the menus. This adds a cube a little above the origin and keeps a reference to it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">bpy</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">mesh</span><span class="o">.</span><span class="n">primitive_cube_add</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">location</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">cube</span> <span class="o">=</span> <span class="n">bpy</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">active_object</span>
+<span class="n">cube</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s2">"Crate"</span>
+</pre></div></div>
+</section>
+<section id="changing-properties">
+<h2>Changing properties<a class="headerlink" href="#changing-properties">¶</a></h2>
+<p>Every value you see in the Properties editor can be set from Python. Scale the crate and turn it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cube</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+<span class="n">cube</span><span class="o">.</span><span class="n">rotation_euler</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.785</span>
+</pre></div></div>
+</section>
+<section id="trying-things-in-the-console">
+<h2>Trying things in the Python console<a class="headerlink" href="#trying-things-in-the-console">¶</a></h2>
+<p>The Python Console is the quickest way to explore. Type at the prompt and the answer prints right away:</p>
+<div class="highlight-pycon notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">bpy</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">objects</span><span class="p">[</span><span class="s2">"Crate"</span><span class="p">]</span><span class="o">.</span><span class="n">dimensions</span>
+<span class="go">Vector((2.0, 2.0, 1.0))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">len</span><span class="p">(</span><span class="n">bpy</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">meshes</span><span class="p">)</span>
+<span class="go">2</span>
+</pre></div></div>
+</section>
+<section id="making-a-material">
+<h2>Making a material<a class="headerlink" href="#making-a-material">¶</a></h2>
+<p>Finally give the crate a colour. A material is data of its own, linked to the object:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">mat</span> <span class="o">=</span> <span class="n">bpy</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">materials</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="s2">"Wood"</span><span class="p">)</span>
+<span class="n">mat</span><span class="o">.</span><span class="n">diffuse_color</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.55</span><span class="p">,</span> <span class="mf">0.35</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+<span class="n">cube</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">materials</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mat</span><span class="p">)</span>
+</pre></div></div>
+</section>
+</section>
+</div>
+<footer><div role="contentinfo"><p>&#169; Copyright Blender Authors. <span class="lastupdated">Last updated on 2026-11-02.</span></p></div></footer>
+</div></div></section>
+</div>
+</body>
+</html>

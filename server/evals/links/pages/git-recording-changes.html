@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Git - Recording Changes to the Repository</title>
+</head>
+<body id="documentation">
+<div class="inner">
+<header>
+  <a href="/"><img src="/images/logo.png" alt="Git" width="110" height="46"></a>
+  <span id="tagline">--fast-version-control</span>
+  <form id="search" action="/search/results"><input id="search-text" name="search" placeholder="Search entire site..."></form>
+</header>
+</div>
+<div class="inner">
+<div id="content-wrapper">
+<aside class="sidebar" id="sidebar">
+  <ul><li><a href="/about">About</a></li><li><a href="/doc">Documentation</a><ul><li><a href="/book">Book</a></li><li><a href="/videos">Videos</a></li></ul></li><li><a href="/downloads">Downloads</a></li><li><a href="/community">Community</a></li></ul>
+  <div class="callout"><p>This book is available in English. Full translation available in Deutsch, Español, Français ...</p></div>
+</aside>
+<div id="content">
+<div id="book-chapters"><a class="dropdown-trigger" href="#">Chapters ▾</a></div>
+<div id="main" data-pdf-link="https://example.org/progit.pdf" class="book edition2">
+<h1>2.2 Git Basics - Recording Changes to the Repository</h1>
+<div>
+<h2 id="_recording_changes_to_the_repository">Recording Changes to the Repository</h2>
+<div class="paragraph"><p>You have a Git repository on your computer and a folder of files to work on. Now you make changes and commit
+snapshots of those changes each time the project reaches a state you want to keep. Every file in the folder is either
+tracked (Git knows about it) or untracked (everything else).</p></div>
+<div class="sect3">
+<h3 id="_starting_a_repository">Starting a repository</h3>
+<div class="paragraph"><p>In the folder of a project that is not under version control yet, turn it into a Git repository:</p></div>
+<div class="listingblock"><div class="content"><pre class="highlight"><code class="language-console" data-lang="console">$ git init
+Initialized empty Git repository in /Users/you/my_project/.git/</code></pre></div></div>
+</div>
+<div class="sect3">
+<h3 id="_checking_status">Checking the Status of Your Files</h3>
+<div class="paragraph"><p>The main tool for seeing which files are in which state is <code>git status</code>. Create a <code>README</code> file with one line of text, then ask Git what it sees:</p></div>
+<div class="listingblock"><div class="content"><pre class="highlight"><code class="language-console" data-lang="console">$ echo 'My Project' &gt; README
+$ git status
+On branch master
+Untracked files:
+  (use "git add &lt;file&gt;..." to include in what will be committed)
+    README</code></pre></div></div>
+</div>
+<div class="sect3">
+<h3 id="_tracking_files">Tracking New Files</h3>
+<div class="paragraph"><p>To begin tracking a new file, use <code>git add</code>. The file is now staged: it will go into the next commit.</p></div>
+<div class="listingblock"><div class="content"><pre class="highlight"><code class="language-console" data-lang="console">$ git add README</code></pre></div></div>
+</div>
+<div class="sect3">
+<h3 id="_committing_changes">Committing Your Changes</h3>
+<div class="paragraph"><p>When the staging area holds what you want, commit it with a message that says what changed:</p></div>
+<div class="listingblock"><div class="content"><pre class="highlight"><code class="language-console" data-lang="console">$ git commit -m "Add a README"
+[master (root-commit) 463dc4f] Add a README
+ 1 file changed, 1 insertion(+)
+ create mode 100644 README</code></pre></div></div>
+</div>
+<div class="sect3">
+<h3 id="_viewing_history">Viewing the Commit History</h3>
+<div class="paragraph"><p>After a few commits, look back at what happened, one line per commit:</p></div>
+<div class="listingblock"><div class="content"><pre class="highlight"><code class="language-console" data-lang="console">$ git log --oneline
+463dc4f Add a README</code></pre></div></div>
+</div>
+</div>
+<div id="nav"><a href="ch00/ch02-git-basics-chapter">prev</a> | <a href="ch00/_viewing_the_commit_history">next</a></div>
+</div>
+</div>
+</div>
+</div>
+<footer><div class="site-source">This <a href="https://example.org/git-scm.com">open source</a> site is hosted on GitHub. Patches, suggestions, and comments are welcome.</div></footer>
+</body>
+</html>

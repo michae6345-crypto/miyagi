@@ -1,0 +1,36 @@
+{
+  "metrics": {
+    "verdict_accuracy": 1.0,
+    "refusal_precision": 1.0,
+    "refusal_recall": 1.0,
+    "build_rate": 0.9286,
+    "steps_in_range": 1.0,
+    "code_landed": 0.9403,
+    "live_steps": 0.8608,
+    "code_steps_checked": 1.0,
+    "run_steps_checked": 1.0,
+    "portable_checks": 0.9728,
+    "reader_ok": 1.0,
+    "cases_passed": 0.7619
+  },
+  "cases": 21,
+  "passed": [
+    "blog-git-branches",
+    "blog-js-todo",
+    "blog-node-cli",
+    "essay-editors",
+    "flask-quickstart",
+    "gh-awesome-list",
+    "gh-express-readme",
+    "gh-flask-readme",
+    "gh-tasky-readme",
+    "login-wall-403",
+    "marketing-landing",
+    "mdn-fetch",
+    "news-release-notes",
+    "paywall-pandas",
+    "python-argparse",
+    "spa-shell"
+  ],
+  "note": "written by python -m server.evals.links --write-baseline; the pytest gate fails below these"
+}

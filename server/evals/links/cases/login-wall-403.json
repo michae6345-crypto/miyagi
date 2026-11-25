@@ -1,0 +1,10 @@
+{
+  "id": "login-wall-403",
+  "url": "https://wiki.example.com/team/onboarding",
+  "page": "login-wall-403.html",
+  "status": 403,
+  "notes": "The site answered 403 with a sign-in form.",
+  "expect": {
+    "refusal": "blocked"
+  }
+}

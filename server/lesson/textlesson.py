@@ -111,12 +111,8 @@ files (`python3 <file>`, `node <file>`, `pytest`, `npm run <script>`) or the one
 command (the step's instructions can still say it in words).
 """ + DATA_RULE
 
-PLAN_PROMPT = """Learner's goal: {goal}
-
-The learner's project folder (starter files from their workspace):
-{workdir}
-
-Plan a hands-on lesson of 3-8 steps that reaches the goal from this starting point. Each step adds one
+# PLAN_RULES: everything after the plan's first sentence, shared by "Just teach me" and lessons from a link (pagelesson.py)
+PLAN_RULES = """Each step adds one
 small, visible piece (a function, a component, a command that prints something).
 The app has already created the lesson folder and opens each file for the learner: never tell them to
 mkdir, cd, touch or create folders, and never write absolute paths; name files relative to the lesson folder
@@ -158,6 +154,12 @@ terminal-only step. libraries: what the lesson uses, with current major versions
 The lesson title (top-level title): sentence case, <= 6 words: capitalize only the first word and proper nouns, and
 keep proper nouns and product names as they are spelled ("Make a Discord bot", "Build a Python calculator",
 "Pay with Stripe in Next.js")."""
+PLAN_PROMPT = """Learner's goal: {goal}
+
+The learner's project folder (starter files from their workspace):
+{workdir}
+
+Plan a hands-on lesson of 3-8 steps that reaches the goal from this starting point. """ + PLAN_RULES
 
 # STEP_HEAD: the same for every step of a build (goal, outline, project folder, research notes, fixed rules), so it is
 # the cached part of the user message. STEP_BODY changes per step. Anything volatile belongs in STEP_BODY.
@@ -257,19 +259,26 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         return _untrusted(g, workdir)
 
 
-async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, *, cache: bool, refresh: bool) -> dict:
+async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, *, cache: bool, refresh: bool,
+                             page=None) -> dict:
+    """`page` (pagelesson.PageBuild, lessons from any link): the page's text stands in for the web research, the plan
+    follows its sections and each step carries the section it comes from (pageRef). Same calls, models and checks."""
     t0 = time.time()
     info = scan(workdir)
-    key = _key(goal, workdir, info)
-    path = builder.CACHE_DIR / f"{key}.json"
+    key = page.key if page is not None else _key(goal, workdir, info)
+    path = page.path if page is not None else builder.CACHE_DIR / f"{key}.json"
+    system = page.system if page is not None else SYSTEM
     if cache and not refresh and path.is_file():
         g = json.loads(path.read_text(encoding="utf-8"))
         g["lesson"]["workdir"] = workdir
         log.info("text lesson: cache hit %s", path.name)
         builder._emit("cache_hit", path.name)
-        return fill_missing(g)  # a lesson cached by an older builder: complete labels, overview, what / why
+        g = fill_missing(g)  # a lesson cached by an older builder: complete labels, overview, what / why
+        if page is not None:
+            page.cache_hit(g)
+        return g
 
-    research_task = asyncio.ensure_future(_safe_research(goal))
+    research_task = asyncio.ensure_future(_safe_research(goal) if page is None else _no_research())
     summary = info.summary_for_prompt().replace(str(info.root), "the lesson folder")
 
     def plan_ok(o: dict) -> str | None:
@@ -277,13 +286,20 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         return None if 3 <= n <= 8 else f"{n} steps"
 
     builder._emit("planning", "planning the lesson")
-    plan = strip_injection(await claude._generate_json(SYSTEM, PLAN_PROMPT.format(goal=goal, workdir=wrap("workdir", summary)),
-                                                       PLAN_SCHEMA, effort="medium", role="segment", check=plan_ok))
+    if page is not None:
+        page.mark("plan")
+        plan_prompt, plan_schema = page.plan_prompt(wrap("workdir", summary)), page.plan_schema
+    else:
+        plan_prompt, plan_schema = PLAN_PROMPT.format(goal=goal, workdir=wrap("workdir", summary)), PLAN_SCHEMA
+    plan = strip_injection(await claude._generate_json(system, plan_prompt, plan_schema, effort="medium", role="segment",
+                                                       check=plan_ok))
     primer = make_primer(plan.get("primer") or [])
     overview = _words(plan.get("overview") or "", 60)
     plan_steps = list(plan["steps"])
     steps_plan = plan_runs(order_plan(plan_steps))  # E23: ONE built step per plan step, so the outline is final
     builder._emit("writing_steps", f"{len(steps_plan)} steps planned")  # build metrics: the plan ends, step 1 starts
+    if page is not None:
+        page.mark("steps")
     overview = overview or overview_fallback(plan.get("title") or goal, steps_plan)  # the drawer always has one
     build = make_build(plan.get("build") or {}, steps_plan)
     flow = make_flow(plan.get("flow") or [], plan_steps, steps_plan)  # step numbers -> the reordered plan
@@ -323,6 +339,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
              "build": {"mode": "lesson", "seconds": round(time.time() - t0, 1), "warnings": list(warnings),
                        "model": {"plan": claude.model("segment"), "steps": claude.model("detail"), "research": claude.model(RESEARCH_MODEL_ROLE)}}}
         g["_title_case"] = "model"  # E11: the plan prompt asks for sentence case; fill_missing re-cases only older caches
+        if page is not None:
+            page.decorate(g)  # origin, the page as the source, lesson id, the build's page record
         return g
 
     async def emit(complete: bool) -> None:
@@ -338,11 +356,14 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     def prompt_for(i: int, notes: str, earlier: str) -> tuple[str, str]:
         """(cached prefix, this step's own text)."""
         sp = steps_plan[i - 1]
+        research = (page.research_block() if page is not None else
+                    f"Research notes (current docs):\n{wrap_stable('research', notes)}\n" if notes else "")
         head = STEP_HEAD.format(goal=goal, lesson=plan.get("title", ""), outline=outline, workdir=wrap_stable("workdir", summary),
-                                research=(f"Research notes (current docs):\n{wrap_stable('research', notes)}\n" if notes else ""),
-                                stack_guide=gemini.STACK_GUIDE)
+                                research=research, stack_guide=gemini.STACK_GUIDE)
         body = STEP_BODY.format(index=i, title=sp["title"], instructions=sp["instructions"], file=sp.get("file") or "(terminal)",
                                 earlier=earlier or "(none yet)")
+        if page is not None:
+            body += page.step_note(sp)  # the section this step comes from (per step: never in the cached head)
         return head, body
 
     def typed_so_far() -> str:
@@ -361,7 +382,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
 
     async def draft(i: int, notes: str, earlier: str) -> dict:
         head, body = prompt_for(i, notes, earlier)
-        return strip_injection(await claude._generate_json(SYSTEM, body, STEP_SCHEMA, effort="low", structured=False,
+        return strip_injection(await claude._generate_json(system, body, STEP_SCHEMA, effort="low", structured=False,
                                                            role="detail", check=ok, prefix=head,
                                                            cache_site="lesson.text_step"), plan_libs)
 
@@ -380,7 +401,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
                    "above. Never re-type something that exists: give only the NEW lines, and put the target anchor on the "
                    "existing line they go after (or inside). Only call names that exist by now.")
             try:
-                d2 = strip_injection(await claude._generate_json(SYSTEM, head + "\n\n" + body + fix, STEP_SCHEMA, effort="medium",
+                d2 = strip_injection(await claude._generate_json(system, head + "\n\n" + body + fix, STEP_SCHEMA, effort="medium",
                                                                  structured=False, role="escalate", escalate=False, check=ok), plan_libs)
                 p2 = consistency_problem(d2.get("file") or sp.get("file") or "", d2.get("code") or "", d2.get("run_command") or "", state)
                 d = d2
@@ -406,6 +427,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
                 exact_anchor(part, state.get(f, ""), before)
             else:  # T5: named for what THIS run shows, never "Run main.py" / one line for every run
                 runnames.name_run(part, d.get("shows") or "", done, steps_plan[i:])
+            if page is not None and (ref := page.ref_for(sp)):
+                part["pageRef"] = ref  # StepSummary.pageRef: the part of the page this step comes from
             out.append(part)
         return out
 
@@ -413,6 +436,8 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     done.extend(await step(1, ""))
     tried[0] = 1
     log.info("text lesson: step 1 ready in %.1fs", time.time() - t0)
+    if page is not None:
+        page.mark("first_step")
     builder._emit("first_steps", "1 step")
     await emit(False)
 
@@ -454,14 +479,21 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
     link_run_steps(g["steps"])
     _finalize(g, info)
     g["build"]["cost"] = json.loads(json.dumps(counter))
+    if page is not None:
+        page.finish(g)  # the lesson's .venv / notebook, as for a video lesson; the build-time metric record
     errs = schema_errors(g)
     if errs:
         raise RuntimeError("text lesson failed contract validation:\n" + "\n".join(errs))
     if cache and g["steps"] and not any("failed" in w for w in warnings):
-        builder.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)  # CACHE_DIR, or its links/ folder for a lesson from a link
         path.write_text(json.dumps(g, indent=2), encoding="utf-8")
     await emit(True)
     return g
+
+
+async def _no_research() -> dict:
+    """A lesson from a link: the page is the research (no web_search / web_fetch call)."""
+    return {"notes": "", "sources": []}
 
 
 async def _safe_research(goal: str) -> dict:

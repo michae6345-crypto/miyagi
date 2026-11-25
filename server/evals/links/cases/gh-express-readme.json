@@ -1,0 +1,25 @@
+{
+  "id": "gh-express-readme",
+  "url": "https://github.com/expressjs/express",
+  "page": "gh-express-readme.md",
+  "notes": "A JS README: npm install, app.js in two blocks, node app.js; reference-style badge links at the bottom.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Express",
+    "site": "github.com/expressjs/express",
+    "code": [
+      "npm install express",
+      "app.get('/', (req, res) => {",
+      "app.listen(3000, () => {",
+      "node app.js"
+    ],
+    "absent": [
+      "badgen.net",
+      "npm-url"
+    ]
+  }
+}

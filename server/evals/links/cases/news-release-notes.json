@@ -1,0 +1,10 @@
+{
+  "id": "news-release-notes",
+  "url": "https://inkwell.example.dev/blog/inkwell-4",
+  "page": "news-release-notes.html",
+  "notes": "Release notes: a feature list and one two-line config snippet. News, not a tutorial.",
+  "expect": {
+    "refusal": "not_teachable",
+    "title": "Inkwell 4.0 is here"
+  }
+}
