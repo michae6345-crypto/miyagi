@@ -542,7 +542,10 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   // calm plan (setupPlan.ts) draws them and picks the one white primary: Get it, or I have it when the scan saw the app.
   have_it: { label: 'I have it', Icon: Check },
   get_it: { label: 'Get it', Icon: ExternalLink },
-  alternative: { label: 'Free alternative', Icon: Download }
+  alternative: { label: 'Free alternative', Icon: Download },
+  // An app lesson's setup card (Nov 24): open the lesson's scene in its desktop app. The engine names the app
+  // (setup.actionLabels.open_in_app); no text, the engine knows the lesson's app. Settles after a short spin (store SETTLE).
+  open_in_app: { label: 'Open in app', Icon: ExternalLink, primary: true }
 }
 
 /** Card actions drawn as pastel OptionButtons with keycaps (like the off-track card), not as quiet buttons. */

@@ -8,7 +8,8 @@
  * All three smile (mood happy). About 0.7 s; a tap while one is playing starts the next one.
  * Transform only, from its feet. With reduced motion nothing moves: it only smiles (buddy.css).
  *
- * A plain button with no chrome, so it is reachable by keyboard too. Never on the flying lesson bon (Companion.tsx):
+ * A plain button with no chrome, so it is reachable by keyboard too; a mouse press takes no focus (the overlay keeps the
+ * learner's app focused). On the Progress page rail and in the notch's home panel, by Library. Never on the flying lesson bon (Companion.tsx):
  * the overlay stays click-through.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -30,7 +31,7 @@ export function PokeBon(props: CharacterProps): ReactNode {
     setPlay({ trick: trickFor(n), run: n, on: true })
   }
   return (
-    <button type="button" className="ch-poke" data-poke-bon aria-label={`Say hi to ${NAME ?? 'bon'}`} onClick={poke}>
+    <button type="button" className="ch-poke" data-poke-bon aria-label={`Say hi to ${NAME ?? 'bon'}`} onMouseDown={(e) => e.preventDefault()} onClick={poke}>
       <span key={play.run} className="ch-poke-move" data-trick={play.on ? play.trick : undefined}>
         <Character {...props} mood={play.on ? 'happy' : props.mood} />
       </span>

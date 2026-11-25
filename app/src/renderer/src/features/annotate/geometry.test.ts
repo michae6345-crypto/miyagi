@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { BRANCH_REACH, branchControls, buddyPath, drawSeconds, hashSeed, islandAnchor, isDrawable, labelSpot, labelWidth, loopPoints, onOverlay, ringAngleToward, ringFor, rng, toOverlay } from './geometry'
+import { BRANCH_REACH, branchControls, buddyPath, drawSeconds, hashSeed, islandAnchor, isDrawable, labelSpot, labelWidth, loopPoints, onOverlay, REROOT_PT, ringAngleToward, ringFor, rng, rootFor, toOverlay } from './geometry'
 import { cleanLabel, createReach, DEFAULT_HOLD_MS, fadeAt, holdFor, keyOf, knownKey, MAX_HOLD_MS, MAX_MARKS, mergeMarks, MIN_HOLD_MS, REACH_MS, sameMarkKeys, validMarks, type DrawMark, type Known } from './marks'
 
 const box = { x: 100, y: 563, w: 380, h: 18 }
@@ -55,6 +55,46 @@ describe('island anchor', () => {
   it('falls back to the notch when the island has no size yet', () => {
     assert.deepEqual(islandAnchor({ x: 0, y: 0, w: 0, h: 0 }, { centerX: 720, restBottom: 32 }), { x: 720, y: 30 })
     assert.deepEqual(islandAnchor(undefined, { centerX: 720, restBottom: 32 }), { x: 720, y: 30 })
+  })
+})
+
+describe('branch root (rootFor)', () => {
+  const pill = { x: 720, y: 30 }
+  const card = { x: 720, y: 205 }
+  it('a new mark roots at the island now', () => {
+    assert.deepEqual(rootFor(undefined, card), card)
+  })
+  it('stays frozen while the island grows (a card comes out under the line)', () => {
+    assert.equal(rootFor(pill, card), pill)
+  })
+  it('follows the island up when the card it was born under closes', () => {
+    assert.equal(rootFor(card, pill), pill)
+  })
+  // Round 4: the frames BuddyLayer goes through for a text mark (it stays the whole step), from the island's real box.
+  it('a root born under a tall card moves up to the island bottom once the card closes, not when it grows', () => {
+    const notch = { centerX: 720, restBottom: 32 }
+    const tallCard = { x: 520, y: 0, w: 400, h: 240 }
+    const pillBox = { x: 640, y: 0, w: 160, h: 32 }
+    const roots = new Map<string, { x: number; y: number }>()
+    // The BuddyLayer loop for one mark key, one frame.
+    const frame = (island: { x: number; y: number; w: number; h: number }): { x: number; y: number } => {
+      const was = roots.get('os-s1-1')
+      const at = rootFor(was, islandAnchor(island, notch))
+      if (at !== was) roots.set('os-s1-1', at)
+      return roots.get('os-s1-1')!
+    }
+    const born = frame(tallCard)
+    assert.deepEqual(born, { x: 720, y: 238 }, 'born at the tall card\'s bottom middle')
+    const after = frame(pillBox)
+    assert.ok(born.y - after.y > REROOT_PT, 'the island went up by more than REROOT_PT')
+    assert.deepEqual(after, islandAnchor(pillBox, notch), 'Continue: the root follows the island up to its new bottom')
+    assert.equal(frame(tallCard), after, 'the island grows again: the root stays frozen')
+    assert.equal(frame({ ...pillBox, h: 32 + REROOT_PT }), after, 'a few points of wobble: no move')
+  })
+  it('ignores a wobble of a few points', () => {
+    const near = { x: 720, y: card.y - REROOT_PT }
+    assert.equal(rootFor(card, near), card)
+    assert.equal(rootFor(card, { x: 720, y: card.y - REROOT_PT - 1 }).y, card.y - REROOT_PT - 1)
   })
 })
 

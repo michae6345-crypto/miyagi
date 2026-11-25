@@ -13,6 +13,8 @@ import '../drawer/store'
 import { defineFeature } from '../../core/registry'
 import { BuddyLayer } from './BuddyLayer'
 import './store'
+// On-screen coach: an app lesson's drawer starts collapsed to the island (after the drawer store above has loaded).
+import './onscreen'
 
 // The character draws (Adrian, Nov 23): when features/buddy's character is in the build, BuddyLayer draws nothing.
 // `yieldsToBuddy` says so to features/buddy (its marks.ts standsDown), which otherwise stands down for this layer,
