@@ -30,7 +30,7 @@ import { NotchLinkCard } from '../anylink/Card'
 import { pageAction, parseWebLink } from '../anylink/link'
 import { askLink, dropLink, useAnyLink, useLinkAny, usePreview } from '../anylink/store'
 
-/** The panel's own width (the island adds its open top radius each side): ~600 wide in all, like Boring Notch's 640. */
+/** The panel's own width (the island adds its open top radius, 12, each side): 584 wide in all, near Boring Notch's 640. */
 export const HOME_W = 560
 
 /** Open on hover in the notch, with the engine connected and no lesson step or build on screen. */

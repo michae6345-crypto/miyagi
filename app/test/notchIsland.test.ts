@@ -50,10 +50,12 @@ describe('notchPath', () => {
     assert.ok(d.startsWith('M0 0 L200 0 L200 1 Q194 1 194 7'))
     assert.ok(d.endsWith('Q6 1 0 1 Z'))
   })
-  test('open radii: top 19, bottom 24', () => {
-    const d = notchPath(300, 120, 19, 24)
-    assert.ok(d.includes('Q281 0 281 19'))
-    assert.ok(d.includes('Q281 120 257 120'))
+  test('open radii: top 12, bottom 24, straight sides', () => {
+    assert.deepEqual(NOTCH_RADII.open, { top: 12, bottom: 24, taper: 0 })
+    const d = notchPath(300, 120, NOTCH_RADII.open.top, NOTCH_RADII.open.bottom, 0, NOTCH_RADII.open.taper)
+    assert.ok(d.includes('Q288 0 288 12'))
+    // The side runs straight down (x stays 288) into the bottom corner.
+    assert.ok(d.includes('L288 96 Q288 120 264 120'))
   })
   test('radii are clamped to what fits (a notch smaller than its radii never draws loops)', () => {
     const d = notchPath(20, 10, 19, 24)
@@ -73,11 +75,11 @@ describe('notchSize', () => {
   })
   test('a drop is the notch row plus the content row, at least the peek wide', () => {
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 190, h: 34 }), { w: PEEK.w, h: 66 + PEEK.pad })
-    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 38 + 2 * NOTCH_RADII.peek.taper, h: 66 + PEEK.pad })
+    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 2 * NOTCH_RADII.open.top, h: 66 + PEEK.pad })
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, undefined), { w: PEEK.w, h: 32 + PEEK.drop })
   })
   test('a card keeps its width and grows down from the notch; an empty one is the notch', () => {
-    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340 + 38 + 2 * NOTCH_RADII.open.taper, h: 212 })
+    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340 + 2 * NOTCH_RADII.open.top, h: 212 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 0 }), { w: 189, h: 32 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, undefined), { w: 189, h: 32 })
   })
@@ -160,7 +162,8 @@ test('a short open shape uses the gentler peek radii (no trapezoid), a tall one 
   assert.deepEqual(radiiFor(true), NOTCH_RADII.open)
 })
 
-test('an open shape leans in: its bottom edge is narrower than its top by the taper each side; taper 0 is the old path', () => {
+test('the path can lean (taper): the bottom edge is narrower than the top by the taper each side; no shape uses it now', () => {
+  for (const r of Object.values(NOTCH_RADII)) assert.equal(r.taper, 0)
   assert.equal(notchPath(200, 32, 6, 14, 0, 0), notchPath(200, 32, 6, 14))
   const d = notchPath(600, 190, 19, 24, 0, 16)
   // bottom straight edge runs from x = 19 + 16 + 24 to 600 - 19 - 16 - 24
