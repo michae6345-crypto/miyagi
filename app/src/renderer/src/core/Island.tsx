@@ -296,13 +296,14 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // The pill slides beside what the engine says must stay visible (VS Code's quick-pick, test 9, A4).
   const peek = !!mode && !isPill && !held[at]
   const pillOffset = usePillOffset(mode && isPill ? { w: size.w, h: size.h } : undefined, peek, top, layout, pointerIn || pressHold)
-  // A step card that opens on its own (a peek) clears the docked video panel and VS Code's toolbar too (test 11: it
-  // clipped "Bu|ild…" under the panel).
+  // A hover card (a peek) clears the docked video panel sideways (test 11: it clipped "Bu|ild…" under the panel), but is
+  // never pushed down under VS Code's toolbar rows: the pointer is on the pill, and a card that opened 112 px lower lost
+  // the pointer, closed, and opened again in a loop (MIC-83). Held cards keep the toolbar rule (useIslandOffset).
   const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   const peekAt = { x: (layout.width - size.w) / 2, y: top, w: size.w, h: size.h }
   // In the notch the island never steps aside: it is attached to the notch, and a card grows down from it.
   const cx = nm ? nm.x + nm.width / 2 - layout.width / 2 : 0
-  const offset = nm ? { x: cx, y: 0 } : card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout) : pillOffset
+  const offset = nm ? { x: cx, y: 0 } : card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout, false) : pillOffset
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
