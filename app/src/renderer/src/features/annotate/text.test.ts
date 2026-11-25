@@ -36,7 +36,7 @@ describe('coach text and keys', () => {
 
   const a = { id: 'os-1', x: 600, y: 400, w: 120, h: 30, why: 'point' as const }
   it('mergeMarks carries text and keys; a re-send updates them without a new birth or key', () => {
-    const first = mergeMarks([], [mark({ ...a, text: 'Add a torus from the Add menu', keys: [SHIFT_A, 5] })], [], 1000)
+    const first = mergeMarks([], [mark({ ...a, text: 'Add a torus from the Add menu', keys: [SHIFT_A, 5] as unknown as string[] })], [], 1000)
     assert.equal(first[0].text, 'Add a torus from the Add menu')
     assert.deepEqual(first[0].keys, [SHIFT_A])
     const again = mergeMarks(first, [mark({ ...a, x: a.x + 3, text: 'Pick Torus in the Mesh list', keys: [SHIFT_A] })], [], 2500)

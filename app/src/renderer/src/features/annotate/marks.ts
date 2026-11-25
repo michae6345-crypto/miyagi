@@ -10,8 +10,8 @@
  *                        resting there a moment. In Electron the overlay is click-through, so clicks never reach it; it
  *                        only gets forwarded mouse moves. The move rule is the stand-in until main can say "clicked here".
  *   cleanText / cleanKeys the on-screen coach (Nov 24): a "point" mark in an app lesson may carry the step's action
- *                        (text, <= 12 words) and its shortcut (keys, <= 3 keycap labels). Read defensively (OnscreenFields)
- *                        until the contract fields reach this branch. A mark with text is not timed (timedMarks).
+ *                        (text, <= 12 words) and its shortcut (keys, <= 3 keycap labels): contract Annotation.text / .keys,
+ *                        still cleaned here (wire data). A mark with text is not timed (timedMarks).
  */
 import type { Annotation } from '../../../../../../shared/contracts/events'
 import { isDrawable, type Pt, type Rect } from './geometry'
@@ -33,12 +33,6 @@ export type DrawMark = {
   askId?: string
   born: number
 }
-
-/**
- * The on-screen coach's Annotation fields (contract, Nov 24: Annotation.text / .keys). Read through this local type
- * until the engine lane's contract commit reaches this branch (Core request (a) in agents/app-onscreen-coach.md).
- */
-export type OnscreenFields = { text?: unknown; keys?: unknown }
 
 /** The step's action is 12 words or fewer by contract; keep the first 12 if an engine sends more. */
 export const MAX_TEXT_WORDS = 12
@@ -157,9 +151,8 @@ export function mergeMarks(prev: readonly DrawMark[], incoming: readonly Annotat
     const label = cleanLabel(m.label)
     // The coach's text and keys: "point" marks only (contract). A re-send with new text updates it in place (same key and
     // birth, so the stroke does not redraw).
-    const extra = m as Annotation & OnscreenFields
-    const text = m.why === 'point' ? cleanText(extra.text) : undefined
-    const keys = text ? cleanKeys(extra.keys) : undefined
+    const text = m.why === 'point' ? cleanText(m.text) : undefined
+    const keys = text ? cleanKeys(m.keys) : undefined
     out.push({
       key: was ? was.key : keyOf(m),
       ...(hasId ? { id: m.id } : {}),
