@@ -149,7 +149,7 @@ export function WeekChart({ bars, unit }: { bars: WeekBar[]; unit: string }): Re
                 {b.value}
               </text>
             )}
-            <text x={x + bw / 2} y={base + 17} textAnchor="middle" style={{ fontSize: 11.5, fontWeight: b.today ? 600 : 400, fill: b.today ? color.text : color.faint }}>
+            <text x={x + bw / 2} y={base + 17} textAnchor="middle" style={{ fontSize: 11.5, fontWeight: b.today ? 600 : 400, fill: b.today ? color.text : color.label }}>
               {b.label}
             </text>
           </g>

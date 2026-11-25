@@ -68,7 +68,7 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
       <div className="mg-h4-list">
         {m.plans.map((p) => (
           <RowBtn key={p.id} cols="minmax(0,1.25fr) 130px minmax(0,1fr) 14px" label={`${p.title}, ${p.done} of ${p.total}${p.next ? `, next ${p.next}` : ''}`} onClick={() => setSection('library')} data={{ 'data-plan': p.id }}>
-            <b className="truncate" title={p.title} style={{ fontWeight: 550, color: color.text }}>
+            <b className="line-clamp-2" title={p.title} style={{ fontWeight: 550, color: color.text, lineHeight: 1.3, padding: '6px 0' }}>
               {p.title}
             </b>
             <span className="flex items-center gap-[10px]">
@@ -238,7 +238,7 @@ function Goal({ m, first }: { m: HomeModel; first?: boolean }): ReactNode {
       </Sec>
       <div className="flex items-center gap-[8px]" style={{ fontSize: 14 }}>
         <Flag aria-hidden size={15} strokeWidth={1.8} style={{ color: color.label }} />
-        <b className="truncate" title={g.title} style={{ fontWeight: 560, color: color.text }}>
+        <b className="line-clamp-2" title={g.title} style={{ fontWeight: 560, color: color.text, lineHeight: 1.3 }}>
           {g.title}
         </b>
       </div>

@@ -511,13 +511,16 @@ function LibraryList(): ReactNode {
   const has = (id: string): boolean => mine.some((m) => m.id === id || m.catalogId === id)
   const toStart = (mine.length ? NEXT_UP : START_HERE).concat(FIRST_RUN).filter((id, n, list) => list.indexOf(id) === n && !has(id)).slice(0, 4)
 
-  const tabs: Tab<LibTab>[] = [
+  // A tab with nothing in it is hidden (All always shows). Counted before the search, so tabs never jump while typing.
+  const total: Record<LibTab, number> = { all: all.length, progress: all.filter(inProgress).length, finished: all.filter(finished).length, ready: 0, plans: mine.length }
+  total.ready = all.length - total.progress - total.finished
+  const tabs = ([
     { id: 'all', label: 'All', count: items.length },
     { id: 'progress', label: 'In progress', count: going.length },
     { id: 'ready', label: 'Ready', count: ready.length },
     { id: 'finished', label: 'Finished', count: done.length },
     { id: 'plans', label: 'Plans', count: mine.length }
-  ]
+  ] as Tab<LibTab>[]).filter((t) => t.id === 'all' || t.id === tab || total[t.id] > 0)
   const show = (t: LibTab): boolean => tab === 'all' || tab === t
   // The tables share one layout, made from the rows on screen: a column every row lacks is left out (no lesson from a
   // plan yet, no dates from the engine), titles get their room first, Plan and Grows give way (tableCols.ts).

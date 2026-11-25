@@ -115,7 +115,7 @@ function Sec({ children, link, onLink, first }: { children: ReactNode; link?: st
             <ChevronRight size={13} strokeWidth={1.8} />
           </button>
         ) : (
-          <span className="ml-auto" style={{ fontWeight: 450, color: color.faint }}>
+          <span className="ml-auto" style={{ fontWeight: 450, color: color.label }}>
             {link}
           </span>
         ))}
@@ -323,7 +323,7 @@ function Bars({ bars, minutes, weekly, height, empty }: { bars: Bar[]; minutes: 
       {g && (
         <>
           <path d={`M0 ${base - (g.at / scale) * (base - top)}H${W}`} stroke={color.hairline} strokeDasharray="2 4" />
-          <text x={weekly ? 0 : W} y={base - (g.at / scale) * (base - top) - 5} textAnchor={weekly ? 'start' : 'end'} style={{ fontSize: 11.5, fill: color.faint }}>
+          <text x={weekly ? 0 : W} y={base - (g.at / scale) * (base - top) - 5} textAnchor={weekly ? 'start' : 'end'} style={{ fontSize: 11.5, fill: color.label }}>
             {g.label}
           </text>
         </>
@@ -362,7 +362,7 @@ function Bars({ bars, minutes, weekly, height, empty }: { bars: Bar[]; minutes: 
                 style={{
                   fontSize: 11.5,
                   fontWeight: b.now ? 600 : 400,
-                  fill: b.now ? color.text : color.faint
+                  fill: b.now ? color.text : color.label
                 }}
               >
                 {b.label}
@@ -483,7 +483,7 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <div data-progress-goal>
             <div className="flex items-center gap-[8px]" style={{ fontSize: type2.md }}>
               <Flag size={15} strokeWidth={1.8} style={muted} />
-              <b className="truncate" title={goal.title} style={{ fontWeight: 560, color: color.text }}>
+              <b className="line-clamp-2" title={goal.title} style={{ fontWeight: 560, color: color.text, lineHeight: 1.3 }}>
                 {goal.title}
               </b>
             </div>

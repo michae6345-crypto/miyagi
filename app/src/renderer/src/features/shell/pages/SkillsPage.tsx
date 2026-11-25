@@ -12,7 +12,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { color } from '../../../core/theme'
 import { useDashView } from '../../dashboard/Dashboard'
 import { primeSkills, useSkillGraph } from '../../skills/store'
-import { SkillsView } from '../../skills/SkillsView'
+import { SkillsSkeleton, SkillsView } from '../../skills/SkillsView'
 import { useAskPlanGoal } from '../../skills/planGoal'
 
 /** How long the page waits on its first `progress` before it shows "No skills yet". */
@@ -26,8 +26,8 @@ export function SkillsPage(): ReactNode {
   useEffect(() => void primeSkills(), [])
   useAskPlanGoal()
   const g = useSkillGraph(now)
-  // An answer that never comes (offline, an engine with no `progress`) must not leave a bare title: after a short wait
-  // the page shows its empty state (QA Q02), and the graph replaces it as soon as it lands.
+  // An answer that never comes (offline, an engine with no `progress`) must not leave a bare title: a skeleton while it
+  // waits, then after a short wait the empty state (QA Q02); the graph replaces either as soon as it lands.
   const [waited, setWaited] = useState(false)
   useEffect(() => {
     const t = setTimeout(() => setWaited(true), WAIT_MS)
@@ -35,7 +35,7 @@ export function SkillsPage(): ReactNode {
   }, [])
   return (
     <div data-shell-skills className="relative h-full min-h-0" style={{ color: color.text }}>
-      {load === 'loading' && !g && !waited ? null : <SkillsView g={g} now={now} />}
+      {load === 'loading' && !g && !waited ? <SkillsSkeleton /> : <SkillsView g={g} now={now} />}
     </div>
   )
 }
