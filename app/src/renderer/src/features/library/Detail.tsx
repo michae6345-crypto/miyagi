@@ -17,6 +17,8 @@ import { TOOL_NAME, minutesLabel, soft, stepsLabel } from './parts'
 import { foldLabel, previewSteps } from './stepsPreview'
 import { closeDetail, itemFor, start, useLibrary } from './store'
 import { thisDevice } from '../onboarding/device'
+import { SourceLink } from '../anylink/Card'
+import { pageSource } from '../anylink/link'
 
 /** The back bar: the 52 px drag strip (traffic lights beside it); 32 in full screen, where the strip is dropped. The kicker below it sits at 80 (52 in full screen) from the window's top either way. */
 const DETAIL_BAR = 52
@@ -50,6 +52,9 @@ function Video({ vid, by }: { vid: string; by?: string }): ReactNode {
     </button>
   )
 }
+
+/** A page lesson's "Open source": the window-open handler hands plain https to the browser (main/safeOpen isBrowserLink). */
+const openPage = (url: string): void => void window.open(url, '_blank', 'noopener,noreferrer')
 
 /** `back`: the page the preview was opened from (the shell names it); without it the bar leaves room for the traffic lights. */
 export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
@@ -124,6 +129,8 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
   const src = item.source
   const by = src?.channel ?? item.by
   const vid = src?.kind === 'youtube' ? youtubeId(src.url) : undefined
+  // Any link: a lesson built from a web page or a GitHub repo shows that page as its source row (no video).
+  const page = pageSource(src)
   // Redraft round 2: the caption only speaks when something is wrong (no reassurance copy under the button).
   // Nothing says "can't start" until library:caps has answered; the line keeps its height meanwhile.
   const caption = err ?? (capsKnown && !canStart ? 'This engine can’t start saved lessons yet.' : !item.ready ? 'Not ready yet.' : ' ')
@@ -162,6 +169,11 @@ export function Detail({ id, back }: { id: string; back?: string }): ReactNode {
           {vid && (
             <div style={{ marginTop: 32 }}>
               <Video vid={vid} by={by} />
+            </div>
+          )}
+          {page && (
+            <div style={{ marginTop: 32 }}>
+              <SourceLink kind={page.kind} url={page.url} site={page.site} author={page.author} onOpen={openPage} />
             </div>
           )}
           {/* The shared section label (layout.tsx): 13/18, semibold, secondary, 12 above its content. */}
