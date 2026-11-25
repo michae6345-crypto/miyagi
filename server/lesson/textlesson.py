@@ -23,7 +23,7 @@ import time
 
 from server.untrusted import DATA_RULE, SCAFFOLDERS, strip_injection, wrap, wrap_stable
 
-from . import builder, claude, coverage, cost, gemini, runnames
+from . import app_lesson, builder, claude, coverage, cost, gemini, runnames
 from .schema import schema_errors
 from .workdir import scan
 
@@ -340,7 +340,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
         sp = steps_plan[i - 1]
         head = STEP_HEAD.format(goal=goal, lesson=plan.get("title", ""), outline=outline, workdir=wrap_stable("workdir", summary),
                                 research=(f"Research notes (current docs):\n{wrap_stable('research', notes)}\n" if notes else ""),
-                                stack_guide=gemini.STACK_GUIDE)
+                                stack_guide=gemini.STACK_GUIDE + app_lesson.scene_guide(plan.get("title", "")))
         body = STEP_BODY.format(index=i, title=sp["title"], instructions=sp["instructions"], file=sp.get("file") or "(terminal)",
                                 earlier=earlier or "(none yet)")
         return head, body

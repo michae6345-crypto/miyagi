@@ -141,7 +141,9 @@ learner's "<name>.blend" whenever the scene changes or is saved (JSON, indent 1,
   rotation_deg is in degrees; fcurve keyframes are [frame, value] pairs with raw values (radians for
   rotation_euler); floats carry up to 6 decimals; colours are [r, g, b, a].
 - A step that changes the scene: set the step's "file" to the learner's .blend (e.g. "donut.blend") and add one
-  file_contains check per scene fact on "<stem of that .blend>.scene.json" (e.g. "donut.scene.json").
+  file_contains check per scene fact on "<stem of that .blend>.scene.json" (e.g. "donut.scene.json"). These go in
+  the step's `checks`, NOT precision_checks: the engine refreshes the dump from the live scene, so they grade in any
+  setup like a screen check. Every other file / command check stays out of `checks`.
 - Short regexes with \s* that pass for ANY learner's names: "type":\s*"SUBSURF", "levels":\s*2\b,
   "smooth":\s*true, "type":\s*"SOLIDIFY", "frame_end":\s*96\b, "to_socket":\s*"Base Color". Names only the demo
   uses (its object and material names, exact colours) go in precision_checks.
@@ -153,6 +155,27 @@ learner's "<name>.blend" whenever the scene changes or is saved (JSON, indent 1,
 def scene_guide(title: str) -> str:
     """The Blender check-writing block for the step prompt when the lesson title names Blender, else ""."""
     return SCENE_GUIDE if work_app({"lesson": {"title": str(title or "")}}) == "blender" else ""
+
+
+def _blender_step(st) -> bool:
+    """A step that works in Blender: its file is a .blend, or a check reads a scene dump, or a check or target is
+    scoped to the Blender window."""
+    if not isinstance(st, dict):
+        return False
+    if str(st.get("file") or "").strip().lower().endswith(".blend"):
+        return True
+    for x in (st.get("checks") or []) + (st.get("precision_checks") or []) + (st.get("targets") or []):
+        if not isinstance(x, dict):
+            continue
+        if SCENE_DUMP.search(str(x.get("file") or "").strip()) or str(x.get("app") or "").strip().lower().startswith("blender"):
+            return True
+    return False
+
+
+def scene_lesson(text: str, steps=()) -> bool:
+    """Is this a Blender lesson? Its title (or the learner's goal) names Blender, or one of its steps works in
+    Blender (see _blender_step). Used where only the goal and the draft steps are at hand (the adapt pass)."""
+    return bool(scene_guide(text)) or any(_blender_step(st) for st in steps or [])
 
 
 def _app_phrase(names: list[str]) -> re.Pattern:

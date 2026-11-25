@@ -598,8 +598,30 @@ async def watch_transcript(info: dict, goal: str) -> dict:
     return strip_injection({"title": seg.get("title", ""), "libraries": seg.get("libraries", []), "steps": list(filled)})
 
 
+# The adapt prompt's ADAPT_SYSTEM (gemini.py) says `checks` are screen-only and file_contains goes in precision_checks.
+# A Blender lesson's scene checks are the exception, so its adapt prompt says so and carries the same scene guide as
+# the step prompt (Nov 24). It rides at the end of the user prompt: the system prompt stays byte-identical (cached).
+ADAPT_SCENE_RULE = """
+This is a Blender lesson. Its `checks` may also hold file_contains checks on "<name>.scene.json" (the scene dump the
+engine keeps fresh from the live scene, so they grade in any setup like a screen check). Keep every such check in
+`checks`, never move it to precision_checks, and write new ones for each step that changes the scene by the rules
+below; every other file_* / command_* / output check still goes in precision_checks."""
+
+
+def adapt_scene_block(goal: str, draft_steps: list[dict]) -> str:
+    """What the adapt prompt adds for a Blender lesson (see ADAPT_SCENE_RULE), else ""."""
+    if not app_lesson.scene_lesson(goal, draft_steps):
+        return ""
+    return "\n" + ADAPT_SCENE_RULE + app_lesson.SCENE_GUIDE
+
+
+def adapt_prompt(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> str:
+    """gemini.adapt_prompt, plus the scene-check block when the lesson is a Blender one."""
+    return gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback) + adapt_scene_block(goal, draft_steps)
+
+
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
     # round 1 on the cheap model; a retry round (lint feedback = the quality check failed) goes to Opus
-    return strip_injection(await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback),
+    return strip_injection(await _generate_json(gemini.ADAPT_SYSTEM, adapt_prompt(goal, draft_steps, workdir_summary, feedback),
                                                 ADAPTED_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"),
                                                 structured=False, role="adapt" if not feedback else "escalate"))
