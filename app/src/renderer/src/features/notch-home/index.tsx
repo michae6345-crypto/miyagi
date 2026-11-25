@@ -141,7 +141,7 @@ function Row({ children, onClick, title }: { children: ReactNode; onClick: () =>
     <motion.button
       type="button"
       title={title}
-      className="flex h-[30px] w-full cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]"
+      className="flex h-[30px] w-full shrink-0 cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]"
       style={{ color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
       onMouseDown={(e) => e.preventDefault()}
@@ -204,7 +204,7 @@ function DropZone(): ReactNode {
       role="button"
       tabIndex={-1}
       data-drop-link
-      className="flex h-[44px] cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] text-[12px]"
+      className="flex h-[44px] shrink-0 cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] text-[12px]"
       style={{ border: `1px dashed ${over ? color.text : fill.rule}`, color: over ? color.text : color.label, background: over ? fill.chip : 'transparent' }}
       onClick={() => bridge.emit('launcher:toggle')}
       onDragOver={(e) => {
@@ -242,8 +242,11 @@ function Home(): ReactNode {
   useEffect(() => refreshLibrary(), [])
   return (
     <div className="flex flex-col px-[18px] pb-[14px] pt-[12px]" data-notch-home style={{ width: HOME_W }}>
-      <div className="flex gap-[18px]" style={{ height: 136 }}>
-        <div className="min-w-0 flex-1">
+      {/* At least 136 tall, and as tall as the right column needs: at a fixed 136 its five rows (184 with two lessons
+          ready) were squeezed, the drop zone down to about half its height (MIC-83). The left half is a grid so its
+          card's h-full still fills it. */}
+      <div className="flex gap-[18px]" style={{ minHeight: 136 }}>
+        <div className="grid min-w-0 flex-1">
           {dropped ? <DroppedLink url={dropped} /> : <ContinueCard pick={pick} />}
         </div>
         <div className="w-px shrink-0" style={{ background: fill.rule }} />
