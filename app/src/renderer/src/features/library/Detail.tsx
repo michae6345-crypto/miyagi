@@ -21,7 +21,7 @@ import { thisDevice } from '../onboarding/device'
 /** The back bar: the 52 px drag strip (traffic lights beside it); 32 in full screen, where the strip is dropped. The kicker below it sits at 80 (52 in full screen) from the window's top either way. */
 const DETAIL_BAR = 52
 const DETAIL_BAR_FULL = 32
-const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library' } as const
+const KICKER = { youtube: 'Lesson from a YouTube tutorial', goal: 'Lesson built for a goal', library: 'Lesson from the library', web: 'Lesson from a web page', github: 'Lesson from a GitHub repo' } as const
 
 /** `vid`: a checked 11-character YouTube id. Only the canonical watch link built from it is opened, never the engine's URL. */
 function Video({ vid, by }: { vid: string; by?: string }): ReactNode {

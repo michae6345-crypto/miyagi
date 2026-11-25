@@ -13,7 +13,10 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
@@ -45,6 +48,12 @@ class Source(_Model):
 StepKind = Literal["code", "run", "read"]
 
 
+class PageRef(_Model):
+    """Any link (Nov 24, ANY-LINK.md): where a web / github lesson's step comes from. Never a copy of the page's words."""
+    url: str  # the page (a #fragment when the engine knows the heading's anchor)
+    heading: str | None = None  # that section's heading text
+
+
 class StepSummary(_Model):
     id: str
     index: int
@@ -54,6 +63,7 @@ class StepSummary(_Model):
     what: str | None = None  # what this step builds, <= 12 words (shown in the step list as the plan)
     estMinutes: int | None = None  # about how long this step takes, whole minutes ("about 35 min left" = sum over steps not passed)
     skillIds: list[str] | None = None  # Nov 22 (Skills page): the SkillInfo ids this step builds evidence for
+    pageRef: PageRef | None = None  # any link (Nov 24): a web / github lesson's step: the part of the page it comes from
 
 
 class PrimerItem(_Model):
@@ -129,7 +139,8 @@ class SearchDone(_Model):
 
 
 BuildStage = Literal["watching", "steps", "checks", "ready"]  # v2 Home-Building rows
-BuildFailCode = Literal["unreadable_code", "no_steps", "too_long", "no_captions", "network", "provider", "unknown"]
+BuildFailCode = Literal["unreadable_code", "no_steps", "too_long", "no_captions", "network", "provider", "unknown",
+                        "no_content", "blocked"]  # no_content / blocked (any link): no readable text on the page / the site refused (sign-in, paywall, robots, 4xx)
 
 
 class BuildPhase(_Model):
@@ -140,13 +151,19 @@ class BuildPhase(_Model):
     detail: str | None = None  # "6 steps found", "Step 4 of 6"
 
 
+BuildSourceKind = Literal["youtube", "goal", "library", "web", "github"]  # web / github: any link (Nov 24, ANY-LINK.md)
+
+
 class BuildSource(_Model):
-    """v2: what the lesson is built from."""
-    kind: Literal["youtube", "goal", "library"]
+    """v2: what the lesson is built from. kind "web" (an article / docs page) or "github" (a repo's README or docs folder): url
+    always set, site ("docs.python.org", "github.com/pallets/flask"), author when the page names one."""
+    kind: BuildSourceKind
     title: str
     channel: str | None = None
     durationS: float | None = None
     url: str | None = None
+    site: str | None = None
+    author: str | None = None
 
 
 class BuildAlternative(_Model):
@@ -309,6 +326,7 @@ class LessonInfo(_Model):
     prerequisites: list[Prerequisite] | None = None  # learn-anything: "You'll need" / the "Needs" chip
     learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
     outline: LessonOutline | None = None  # every step from the start (absent: a build whose step count isn't known yet)
+    origin: BuildSource | None = None  # any link (Nov 24): what it was built from (web / github: mode "lesson", no video)
 
 
 class LessonReady(_Model):
@@ -1371,7 +1389,8 @@ class PlanState(_Model):
     finishedAt: str | None = None
 
 
-LookupError_ = Literal["not_found", "private", "unsupported", "offline", "too_long", "busy", "unknown"]  # events.ts LookupError
+LookupError_ = Literal["not_found", "private", "unsupported", "offline", "too_long", "busy", "unknown",
+                       "blocked"]  # events.ts LookupError. blocked (any link): sign-in, paywall, robots.txt, or 401 / 403 / 451
 
 
 class ProposedFrom(_Model):
@@ -1444,10 +1463,20 @@ class LinkSkill(_Model):
     label: str
 
 
+LinkKind = Literal["video", "playlist", "unsupported", "web", "github"]  # web / github: any link (Nov 24, ANY-LINK.md)
+LINK_ANY_CAPABILITY = "link.any"  # listed in engine.hello.capabilities (a feature, not a command) once link.get / learn_url take any http(s) link
+
+
+class LinkTeachable(_Model):
+    """Why a web / github link can or cannot become a lesson. teachable = steps or code."""
+    steps: bool  # it walks through things to do
+    code: bool  # it has code to type or run
+
+
 class LinkPreview(_Model):
     url: str
     reqId: str | None = None
-    kind: Literal["video", "playlist", "unsupported"]
+    kind: LinkKind
     pending: bool | None = None
     title: str | None = None
     channel: str | None = None
@@ -1462,6 +1491,66 @@ class LinkPreview(_Model):
     finishesGoal: bool | None = None
     catalogId: str | None = None
     error: LookupError_ | None = None
+    # any link (Nov 24, ANY-LINK.md): kinds web / github
+    site: str | None = None  # "docs.python.org", "github.com/pallets/flask"
+    author: str | None = None
+    estMinutes: int | None = None  # about how long the lesson takes
+    teachable: bool | None = None  # steps or code: Start; not teachable: why + "Just teach me" on its title
+    teach: LinkTeachable | None = None
+    why: str | None = None  # one plain line on why it is (not) teachable
+    tools: list[LessonTool] | None = None  # the lesson tools it would use
+    cached: bool | None = None  # this exact page (normalized URL + content) is already built: Start is instant
+    finalUrl: str | None = None  # where the link ended after redirects (normalized), when that differs from url
+
+
+# ---------- any link (Nov 24, ANY-LINK.md): the shared lesson cache key for a web / github source ----------
+# A video is cached by its 11-character id; a page by (link_cache_key(normalized URL, content hash), LESSON_SCHEMA_VERSION), so
+# the same page read through another link shape hits the same lesson, and an edited page (new content) builds a new one.
+LINK_TRACKING_PARAMS = frozenset({"fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid", "ref", "ref_src", "_hsenc", "_hsmkt"})
+LINK_CACHE_KEY_RE = re.compile(r"^[wg]_[0-9a-f]{32}$")  # w_: web, g_: github
+
+
+def normalize_link_url(url: str) -> str:
+    """The one spelling of an http(s) link used for cache keys: https, lower-case host without www. or a default port, no
+    user info, no fragment, no tracking parameters (utm_* and LINK_TRACKING_PARAMS), the other parameters sorted, no trailing
+    slash (but "/"); on github.com the owner and repo are lower case and ".git" is dropped. Raises ValueError for anything
+    that is not an http(s) link with a host."""
+    parts = urlsplit(url.strip())
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError("not an http(s) link")
+    host = parts.hostname.lower().rstrip(".")
+    if host.startswith("www."):
+        host = host[4:]
+    port = parts.port
+    if port and port not in (80, 443):
+        host = f"{host}:{port}"
+    path = re.sub(r"/{2,}", "/", parts.path or "/")
+    if len(path) > 1:
+        path = path.rstrip("/") or "/"
+    if host == "github.com":
+        segs = path.split("/")
+        if len(segs) > 1:
+            segs[1] = segs[1].lower()
+        if len(segs) > 2:
+            segs[2] = segs[2].lower().removesuffix(".git")
+        path = "/".join(segs)
+    query = sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                   if not k.lower().startswith("utm_") and k.lower() not in LINK_TRACKING_PARAMS)
+    return f"https://{host}{path}" + (f"?{urlencode(query)}" if query else "")
+
+
+def link_content_hash(text: str) -> str:
+    """sha256 hex of a page's readable text (what the lesson is built from, not the raw HTML), whitespace collapsed."""
+    return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
+
+
+def link_cache_key(kind: Literal["web", "github"], url: str, content_hash: str) -> str:
+    """The shared lesson cache id of a web / github source: w_ / g_ + 32 hex of sha256(normalized url + newline + content
+    hash). The schema version rides beside it as for a video (?schema=LESSON_SCHEMA_VERSION)."""
+    if kind not in ("web", "github"):
+        raise ValueError(f"not a link kind: {kind!r}")
+    digest = hashlib.sha256(f"{normalize_link_url(url)}\n{content_hash}".encode("utf-8")).hexdigest()
+    return f"{kind[0]}_{digest[:32]}"
 
 
 PROOF_TEXT_MAX = 2000  # characters of Proof.text

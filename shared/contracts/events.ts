@@ -13,7 +13,10 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
 export type StepKind = "code" | "run" | "read";   // code: type in the file · run: run a command · read: learn a concept first
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[] }   // skillIds (Nov 22, Skills page): the SkillInfo ids this step builds evidence for   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
+/** Any link (Nov 24, ANY-LINK.md): where a web / github lesson's step comes from. url: the page (a #fragment when the engine knows the
+ *  heading's anchor); heading: that section's heading text. Never a copy of the page's words. */
+export interface PageRef { url: string; heading?: string }
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string; estMinutes?: number; skillIds?: string[]; pageRef?: PageRef }   // pageRef (any link, Nov 24): a web / github lesson's step: the part of the page it comes from (ANY-LINK.md); the app may offer "Open this part"   // skillIds (Nov 22, Skills page): the SkillInfo ids this step builds evidence for   // what: what this step builds (<= 12 words), the plan line in the step list   // estMinutes: about how long this step takes (whole minutes); "about 35 min left" = the sum over the steps not passed yet
 /** "Before you start" concept card (Just teach me): the pre-knowledge the steps rely on. diagramPrompt set = the app may ask for a picture with action {kind:"diagram", text:"primer:<id>"}. */
 export interface PrimerItem { id: string; title: string; body: string; code?: string; diagramPrompt?: string }   // null/absent: no video (a "lesson" mode lesson)
 /** Learn-anything screens (Just teach me; mockups 01 drawer v2, 02 concept panel, 03 "Before you start"). All optional: the app hides a part that is absent.
@@ -61,7 +64,7 @@ export interface EngineEvents {
                               goalMatch?: { score: number | null; note: string };
                               mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string;
                               build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[];
-                              outline?: LessonOutline }; steps: StepSummary[]; replay?: boolean; buildS?: number };   // buildS: seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready, only on a build's first lesson.ready (engine build metrics; optional, the app may ignore it)   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              outline?: LessonOutline; origin?: BuildSource }; steps: StepSummary[]; replay?: boolean; buildS?: number };   // origin (any link, Nov 24): what the lesson was built from (kind "web" / "github": mode "lesson", no video; the app may show "From <site>" with an Open link)   // buildS: seconds from the learner's command (learn / learn_url / build_lesson) to this lesson.ready, only on a build's first lesson.ready (engine build metrics; optional, the app may ignore it)   // builtBy "curated": written by hand (the curated "Just teach me" / Demo lessons, server/orchestrator/curated.py), no model wrote it: no "Claude wrote this lesson" line   // replay: the SAME lesson again (an app reconnect / engine restore): keep its progress, never a new start or "Before you start"   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number; replay?: boolean;
@@ -254,8 +257,12 @@ export interface EngineEvents {
 export type CardKindV2 = EngineEvents["card"]["kind"] | "complete";
 export type BuildStage = "watching" | "steps" | "checks" | "ready";   // Home-Building: Watching the video · Finding the steps · Writing the checks · Ready to start
 export interface BuildPhase { id: BuildStage; label: string; state: "done" | "active" | "next"; detail?: string }   // detail: "6 steps found", "Step 4 of 6"
-export interface BuildSource { kind: "youtube" | "goal" | "library"; title: string; channel?: string; durationS?: number; url?: string }
-export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown";
+/** kind "web" (an article / docs page) and "github" (a repo's README or docs folder): any link (Nov 24, ANY-LINK.md), with url always set,
+ *  site ("docs.python.org", "github.com/pallets/flask") and author when the page names one. An older app that only knows the first three
+ *  kinds shows title and url. */
+export type BuildSourceKind = "youtube" | "goal" | "library" | "web" | "github"
+export interface BuildSource { kind: BuildSourceKind; title: string; channel?: string; durationS?: number; url?: string; site?: string; author?: string }
+export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_captions" | "network" | "provider" | "unknown" | "no_content" | "blocked";   // no_content / blocked (any link): the page had no readable text (a script-only page, an image) / the site refused (sign-in, paywall, robots, 4xx)
 /** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
 export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
 export interface MissingLine { text: string; state: "ok" | "missing" }
@@ -488,7 +495,7 @@ export interface PlanState {
   minutesLeft?: number | null;                               // the lessons not done, by their minutes (or video length)
   startedAt?: string; updatedAt?: string; finishedAt?: string | null;
 }
-export type LookupError = "not_found" | "private" | "unsupported" | "offline" | "too_long" | "busy" | "unknown"   // unsupported: not a YouTube video / playlist link; busy: the AI provider is overloaded, try again
+export type LookupError = "not_found" | "private" | "unsupported" | "offline" | "too_long" | "busy" | "unknown" | "blocked"   // unsupported: not a link the engine can read (before any link: not a YouTube video / playlist link; with "link.any": not http(s), or a file type it cannot read such as a zip); busy: the AI provider is overloaded, try again; blocked (any link): the site needs a sign-in, a paywall, robots.txt says no, or it answered 401 / 403 / 451
 /** A lesson a playlist or goal plan would have. from: the catalog lesson it is (goal plans draw from the catalog first). skip: the
  *  engine suggests leaving it out (a talk-only intro, a video for another OS); the learner can flip it. */
 export interface ProposedLesson { title: string; goal?: string; videoId?: string; seconds?: number; minutes?: number;
@@ -535,10 +542,27 @@ export interface Proof { id: string; kind: ProofKind; key: string; skillIds: str
                          check: { label: string; detail?: string }; text?: string; output?: string; lang?: string; file?: string; line?: number; truncated?: boolean }
 /** link.get's answer. kind "playlist": the full plan comes from playlist.get. grows: the skills it would grow (labels, with ids
  *  when they match the learner's graph). thumbnail: an https://i.ytimg.com URL only. catalogId: a catalog plan it matches. */
-export interface LinkPreview { url: string; reqId?: string; kind: "video" | "playlist" | "unsupported"; pending?: boolean;
+export interface LinkPreview { url: string; reqId?: string; kind: LinkKind; pending?: boolean;
                                title?: string; channel?: string; seconds?: number; videoId?: string; playlistId?: string; videoCount?: number; totalSeconds?: number;
                                thumbnail?: string; grows?: Array<{ id?: string; label: string }>; have?: { done: number; of: number };
-                               finishesGoal?: boolean; catalogId?: string; error?: LookupError }
+                               finishesGoal?: boolean; catalogId?: string; error?: LookupError;
+                               site?: string; author?: string; estMinutes?: number; teachable?: boolean; teach?: LinkTeachable; why?: string;
+                               tools?: LessonTool[]; cached?: boolean; finalUrl?: string }
+/** Any link (Nov 24, ANY-LINK.md). link.preview kind "web": an article or docs page; "github": a github.com repo (its README, or a
+ *  docs folder / file in it). The engine sends these only when engine.hello.capabilities lists LINK_ANY_CAPABILITY; an older
+ *  engine answers kind "unsupported" for a link that is not YouTube. */
+export type LinkKind = "video" | "playlist" | "unsupported" | "web" | "github"
+/** engine.hello.capabilities lists this (a feature, not a command) once link.get and learn_url take any http(s) link. */
+export const LINK_ANY_CAPABILITY = "link.any"
+/** Why a web / github link can or cannot become a lesson. steps: it walks through things to do; code: it has code to type or
+ *  run. teachable = steps || code. A page with neither (news, an essay, a landing page) is not teachable: the launcher says why
+ *  (LinkPreview.why, one plain line) and offers "Just teach me" on its title instead of Start. */
+export interface LinkTeachable { steps: boolean; code: boolean }
+//  LinkPreview (any link): site: "docs.python.org" / "github.com/pallets/flask"; author: when the page names one; estMinutes: about
+//  how long the lesson takes (whole minutes, from the page's length and code); teachable / teach / why: see LinkTeachable; tools:
+//  the lesson tools it would use; cached: a lesson for this exact page (same normalized URL and content) is already built, on this
+//  Mac or in the shared lesson cache, so Start is instant; finalUrl: where the link ended after redirects (normalized) when that
+//  differs from url. thumbnail stays i.ytimg.com only: the app never loads an image from a pasted site.
 
 // Settings, Your data.
 export type DataItemId = "lesson_folder" | "lesson_cache" | "progress" | "activity" | "bon" | "plans" | "proofs" | "notes" | "screenshots" | "logs"
@@ -602,7 +626,7 @@ export interface SetupReport { reqId?: string; root?: string; name?: string; fil
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" | "demo"; plan?: PlanLessonRef };   // plan (ui-v4): this lesson is lesson `index` of plan `id` (start it with query = that lesson's goal, mode "lesson"); the engine marks the plan lesson in_progress, then done when its last step passes   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video"); mode "demo": the launcher's Demo option, the staged neural-net lesson for any goal (server/orchestrator/stage.py: typing steps pass on a save or Check my work, runs are recorded, one planned off-track on Train it)
-  "learn_url": { url: string; transcriptOnly?: boolean; plan?: PlanLessonRef };   // pasted YouTube link   // transcriptOnly (v2, Err-LessonBuildFailed "Try transcript only"): skip the video model, build from the transcript + title/chapters (offered by lesson.building.alternatives kind "transcript"; optional, older engines ignore it)   // plan (ui-v4): this video is lesson `index` of plan `id` (a playlist plan): the engine marks that plan lesson when it starts and passes
+  "learn_url": { url: string; transcriptOnly?: boolean; plan?: PlanLessonRef };   // pasted YouTube link; with "link.any" in engine.hello.capabilities, any http(s) link: an article / docs page (BuildSource kind "web") or a github.com repo ("github"), built into a text lesson (mode "lesson", no video; ANY-LINK.md); transcriptOnly is ignored for those   // transcriptOnly (v2, Err-LessonBuildFailed "Try transcript only"): skip the video model, build from the transcript + title/chapters (offered by lesson.building.alternatives kind "transcript"; optional, older engines ignore it)   // plan (ui-v4): this video is lesson `index` of plan `id` (a playlist plan): the engine marks that plan lesson when it starts and passes
   "build_lesson": { resultIds: string[] };
   /** explain: no text = explain the current step (Explain button / shortcut, unchanged). text = the learner's selection (the drawer's "Explain more" pop-up on selected lesson text):
    *  the engine answers with a card {kind: "explain", title: "About `<start of the selection>`", body}: the selection explained, the current step as context. VS Code's "Miyagi: Explain this" gives the same card (it reaches the engine over POST /vscode/event, not this socket).
@@ -675,7 +699,7 @@ export interface AppCommands {
   "plan.remove": { id: string };                     // -> plans. The lessons it started stay in the library
   "playlist.get": { url: string; reqId?: string };   // a youtube.com playlist link (or a watch link with list=) -> playlist (twice)
   "plan.propose": { goal: string; tool?: string; reqId?: string };   // goal text; tool: a PlanTool id the learner picked ("freecad") -> plan.proposal
-  "link.get": { url: string; reqId?: string };       // a link pasted in the ask field -> link.preview
+  "link.get": { url: string; reqId?: string };       // a link pasted in the ask field -> link.preview (with "link.any": any http(s) link, kinds "web" / "github" too; ANY-LINK.md)
   "proof.get": { id?: string; skillId?: string; reqId?: string };   // one Proof by id, or a skill's (newest first, <= 5) -> proof
   "data.get": {};                                    // -> data
 
