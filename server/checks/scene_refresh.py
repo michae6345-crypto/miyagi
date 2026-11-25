@@ -12,8 +12,12 @@ refresh(path) right before it reads one, and refresh brings it up to date:
   3. "headless" : no live scene, and the .blend was saved after the dump (or there is no dump yet, or the file there
                   is not a dump: a lesson step's file is made empty with touch before the step starts): a background
                   Blender dumps the saved file (server.workspace.blender.dump_blend). Tried at most once every 10 s
-                  per file. "none" when that dump failed (no Blender, a broken file).
-  4. "fresh"    : the dump on disk is as new as the .blend (or there is no .blend): nothing to do.
+                  per file. "none" when that dump failed (no Blender, a broken file); a failed .blend is not tried
+                  again until it is saved again (its mtime or size changes), so a broken file does not start a
+                  background Blender every 10 s while the gate (which holds the session lock) waits on it.
+  4. "fresh"    : the dump on disk is as new as the .blend, or there is no .blend, or the .blend is empty (lesson mode
+                  makes a step's file with touch before the step starts: an empty donut.blend is not a saved scene),
+                  or this .blend already failed to dump: nothing to do.
 
 Both sources are other lanes' modules, imported lazily: before they merge, refresh works and just finds nothing. It
 never raises; a check reads whatever is on disk afterwards.
@@ -45,6 +49,7 @@ _locks: dict[str, threading.Lock] = {}
 _live_at: dict[str, float] = {}  # when the live bridge was last asked, per dump
 _live_ok: dict[str, bool] = {}  # did that ask give a scene
 _headless_at: dict[str, float] = {}  # when a background dump was last started, per dump
+_headless_failed: dict[str, tuple[int, int]] = {}  # the .blend (mtime_ns, size) whose background dump failed, per dump
 
 
 def enable(on: bool = True) -> None:
@@ -64,6 +69,7 @@ def reset() -> None:
         _live_at.clear()
         _live_ok.clear()
         _headless_at.clear()
+        _headless_failed.clear()
 
 
 def blend_for(scene_json_path) -> Path:
@@ -100,6 +106,16 @@ def _mtime(path: str) -> float | None:
         return os.path.getmtime(path)
     except OSError:
         return None
+
+
+def _saved_blend(path: str) -> tuple[int, int] | None:
+    """(mtime_ns, size) of a saved .blend, or None when there is none. A 0-byte file is no .blend: lesson mode makes
+    the step's file with touch before the step starts, and Blender cannot open it."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size) if st.st_size > 0 else None
 
 
 def is_dump(path: str) -> bool:
@@ -166,26 +182,33 @@ def _try_live(key: str, blend: str, live, now: float) -> str | None:
 
 def _try_headless(key: str, blend: str, headless, now: float) -> str | None:
     """Step 3: dump the saved .blend when the dump is missing, is not a dump (empty, or other JSON), or is older than
-    the .blend, and the last try is HEADLESS_EVERY_S old."""
-    b = _mtime(blend)
-    if b is None:
+    the .blend, the .blend is not empty and has not already failed as it is now, and the last try is
+    HEADLESS_EVERY_S old."""
+    saved = _saved_blend(blend)
+    if saved is None:
         return None
+    b = saved[0] / 1e9
     j = _mtime(key)
     if j is not None and b <= j and is_dump(key):
+        return None
+    if _headless_failed.get(key) == saved:  # this very file failed before: wait for the next save
         return None
     last = _headless_at.get(key)
     if last is not None and now - last < HEADLESS_EVERY_S:
         return None
     _headless_at[key] = now
     fn = headless if headless is not None else _default_headless()
-    if fn is None:
+    doc = None
+    if fn is not None:
+        try:
+            doc = fn(blend, key)
+        except Exception as e:  # noqa: BLE001  dump_blend never raises; a stand-in might
+            log.debug("headless dump of %s failed: %s", blend, e)
+    if doc is None:
+        _headless_failed[key] = saved
         return "none"
-    try:
-        doc = fn(blend, key)
-    except Exception as e:  # noqa: BLE001  dump_blend never raises; a stand-in might
-        log.debug("headless dump of %s failed: %s", blend, e)
-        doc = None
-    return "headless" if doc is not None else "none"
+    _headless_failed.pop(key, None)
+    return "headless"
 
 
 def refresh(scene_json_path: str, *, live=None, headless=None, clock=time.monotonic) -> str:

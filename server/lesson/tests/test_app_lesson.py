@@ -207,5 +207,8 @@ def test_scene_guide_only_for_blender_titles():
     assert ".scene.json" in text and r'"type":\s*"SUBSURF"' in text and "screen_contains" in text
     assert "precision_checks" in text and r"BLENDER_EEVEE\w*" in text and "radians" in text
     assert "EEVEE_NEXT" not in text
+    # the dump is made only from <stem>.blend in the lesson folder: the first scene step must say to save there
+    assert "FIRST step that" in text and "File > Save As" in text and '"<stem>.blend" in the lesson folder' in text
+    assert "same name" in text
     assert app_lesson.scene_guide("Python pandas basics") == ""
     assert app_lesson.scene_guide("") == ""

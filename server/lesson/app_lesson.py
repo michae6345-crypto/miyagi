@@ -140,6 +140,10 @@ learner's "<name>.blend" whenever the scene changes or is saved (JSON, indent 1,
   lights[] {name, type, energy}; camera {name, lens, in_view}; cameras; world; images.
   rotation_deg is in degrees; fcurve keyframes are [frame, value] pairs with raw values (radians for
   rotation_euler); floats carry up to 6 decimals; colours are [r, g, b, a].
+- Save the scene under one name: the dump is made only from "<stem>.blend" in the lesson folder. The FIRST step that
+  changes the scene must tell the learner, in its text, to save the file as "<stem>.blend" in the lesson folder
+  (File > Save As, e.g. "donut.blend"), and every later step uses that same name. Without that save no scene check
+  can pass.
 - A step that changes the scene: set the step's "file" to the learner's .blend (e.g. "donut.blend") and add one
   file_contains check per scene fact on "<stem of that .blend>.scene.json" (e.g. "donut.scene.json"). These go in
   the step's `checks`, NOT precision_checks: the engine refreshes the dump from the live scene, so they grade in any

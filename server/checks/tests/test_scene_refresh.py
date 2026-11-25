@@ -169,6 +169,45 @@ def test_an_empty_dump_newer_than_the_blend_is_still_dumped(tmp_path):
     assert len(headless.calls) == 1
 
 
+def test_an_empty_blend_is_no_blend(tmp_path):
+    """Lesson mode makes a step's file with touch before the step starts: a 0-byte donut.blend is no saved scene, so no
+    background Blender is started for it."""
+    scene_refresh.enable()
+    blend, js = tmp_path / "mug.blend", tmp_path / "mug.scene.json"
+    blend.touch()
+    headless = Recorder(DUMP)
+    assert scene_refresh.refresh(str(js), live=Recorder(None), headless=headless, clock=Clock()) == "fresh"
+    assert headless.calls == []
+
+
+def test_a_failed_dump_waits_for_the_next_save(tmp_path):
+    """A broken .blend that stays newer than the dump is dumped once, not again every 10 s; saving it again (a new
+    mtime) makes it run again."""
+    scene_refresh.enable()
+    blend, js = tmp_path / "mug.blend", tmp_path / "mug.scene.json"
+    blend.write_text("broken")
+    clock, live, headless = Clock(), Recorder(None), Recorder(None)
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "none"
+    assert len(headless.calls) == 1
+    clock.t += 60  # long past the 10 s throttle, same file: no second background Blender
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "fresh"
+    assert len(headless.calls) == 1
+    t = blend.stat().st_mtime + 5  # the learner saves again
+    os.utime(blend, (t, t))
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "none"
+    assert len(headless.calls) == 2
+    # a new save within 10 s of the last try still waits for the throttle
+    t += 5
+    os.utime(blend, (t, t))
+    clock.t += 3
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "fresh"
+    assert len(headless.calls) == 2
+    clock.t += 10
+    headless.result = DUMP
+    assert scene_refresh.refresh(str(js), live=live, headless=headless, clock=clock) == "headless"
+    assert len(headless.calls) == 3
+
+
 @pytest.mark.parametrize("text", ["", "{}\n", '{"dump": "other 2"}\n', "not json"])
 def test_a_file_that_is_not_a_dump_counts_as_missing(tmp_path, text):
     scene_refresh.enable()
