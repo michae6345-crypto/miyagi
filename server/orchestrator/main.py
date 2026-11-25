@@ -68,6 +68,7 @@ from server.plans import progress as plans_progress
 from server.plans import service as plans_service
 
 from . import config, recorder, skill_hooks, stage
+from . import curated as curated_mod
 from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
@@ -1232,7 +1233,13 @@ class Engine:
         try:
             s.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await s.emit("lesson.building", s.build_progress)
-            if folder is None:
+            if folder is None and curated_mod.is_curated(graph):
+                # Nov 24 (the 1517 demo): the library's copy of the curated lesson starts as "Just teach me" does: a
+                # fresh start puts the clean nn.py back (step 1 passed at once on the last run's code), a save the
+                # learner never ended past step 1 continues in its folder with its nn.py kept
+                graph["lesson"]["builtBy"] = curated_mod.BUILT_BY  # hand-written, never "Claude wrote this lesson"
+                folder = await s._curated_folder(graph) or await asyncio.to_thread(_library_folder, graph)
+            elif folder is None:
                 folder = await asyncio.to_thread(_library_folder, graph)
                 if not s._continues_save(graph):  # a fresh start: no step passes on the last run's files
                     await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)

@@ -165,6 +165,11 @@ def lesson_for(goal: str, force: bool = False) -> dict | None:
     return g
 
 
+def is_curated(graph: dict | None) -> bool:
+    """This graph is the curated lesson (a "Just teach me" start, a Demo take or the library's cached copy)."""
+    return ((graph or {}).get("lesson") or {}).get("curated") == KEY
+
+
 def active(session: Any) -> bool:
     lesson = (getattr(session, "graph", None) or {}).get("lesson") or {}
     return (enabled() or bool(lesson.get("stage"))) and lesson.get("curated") == KEY  # a Demo lesson: always
@@ -222,6 +227,16 @@ def prepare_folder(graph: dict, fresh: bool = False) -> str:
     return str(folder)
 
 
+def has_starter(folder: str | Path | None) -> bool:
+    """The folder's nn.py is the clean starter (a fresh start reset it). Blocking (file I/O)."""
+    if not folder:
+        return False
+    try:
+        return (Path(folder) / FILE).read_text(encoding="utf-8") == _starter()
+    except OSError:
+        return False
+
+
 def resumable_save(graph: dict) -> str | None:
     """Nov 15 (Michael: restarts sent him back to step 1): a save of THIS lesson that the learner never ended (an engine
     restart or a deploy's POST /end mid-lesson; not `stopped` by End / Start new, not finished: that clears it) whose
@@ -267,6 +282,23 @@ def forget_saved(graph: dict) -> bool:
     return False
 
 
+# Nov 24 (the 1517 demo: two tabs in a busy window): the lesson folder shows only the active file's tab (nn.py).
+FOLDER_SETTINGS = {"workbench.editor.showTabs": "single"}
+
+
+def _no_kept_starters(sf: Path) -> None:
+    """An older state file listed nn.py under "files", and set_aside_previous keeps every file listed there, so a
+    stale nn.py could never be set aside. The curated folder lists none: prepare_folder resets nn.py itself (the last
+    attempt kept in .miyagi-state/attempts). Best effort."""
+    try:
+        st = json.loads(sf.read_text(encoding="utf-8")) if sf.exists() else None
+        if isinstance(st, dict) and st.get("curated") == KEY and st.get("files"):
+            st["files"] = []
+            sf.write_text(json.dumps(st, indent=1), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
 def _folder_extras(folder: Path, graph: dict) -> None:
     """README, VS Code settings, S2's state file (so S2 never re-scaffolds this folder with Claude) and the setup
     check's requirements (python + numpy, so the "Install NumPy" card needs no Claude call). Best effort."""
@@ -280,20 +312,23 @@ def _folder_extras(folder: Path, graph: dict) -> None:
         core._write_vscode_settings(folder)
         sp = folder / ".vscode" / "settings.json"
         cur = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
-        if isinstance(cur, dict) and "python.defaultInterpreterPath" not in cur:
-            # Pylance resolves `import numpy` once Miyagi installed it into the lesson's .venv (the setup card)
-            cur["python.defaultInterpreterPath"] = ("${workspaceFolder}/.venv/Scripts/python.exe" if sys.platform == "win32"
-                                                     else "${workspaceFolder}/.venv/bin/python")
-            sp.parent.mkdir(parents=True, exist_ok=True)
-            sp.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
+        if isinstance(cur, dict):
+            want = {**FOLDER_SETTINGS, "python.defaultInterpreterPath": (
+                # Pylance resolves `import numpy` once Miyagi installed it into the lesson's .venv (the setup card)
+                "${workspaceFolder}/.venv/Scripts/python.exe" if sys.platform == "win32"
+                else "${workspaceFolder}/.venv/bin/python")}
+            if {**want, **cur} != cur:  # a value already there (the learner's) always wins
+                sp.parent.mkdir(parents=True, exist_ok=True)
+                sp.write_text(json.dumps({**want, **cur}, indent=2) + "\n", encoding="utf-8")
         sf = core._state_file(folder)
+        _no_kept_starters(sf)
         if not sf.exists():
             sf.parent.mkdir(parents=True, exist_ok=True)
             sf.write_text(json.dumps({
                 "scaffolded": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "curated": KEY,
                 "lesson_id": (graph.get("lesson") or {}).get("id"), "title": (graph.get("lesson") or {}).get("title"),
                 "lesson_kind": "code", "stack": "python", "summary": "A NumPy neural network that learns y = sin(x).",
-                "setup": [], "open_file": FILE, "files": [FILE], "readme": "README.md",
+                "setup": [], "open_file": FILE, "files": [], "readme": "README.md",
                 "git": {"init": False, "ops": 0, "commits": 0}, "dropped": [], "model": "", "error": "", "seconds": 0,
             }, indent=1), encoding="utf-8")
     except Exception:  # noqa: BLE001

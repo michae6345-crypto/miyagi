@@ -555,13 +555,15 @@ class Rehearsal:
         r.check(not [e for e in ev if e.type == "error"], "an error event")
 
     async def start_lesson(self, r: Row) -> float:
-        wall, m = time.time(), self.app.mark()
+        wall, mono, m = time.time(), time.monotonic(), self.app.mark()
         t = await self.app.send("action", {"kind": "start"})
         await asyncio.sleep(0.6)
         st = await self.get("/state")
         r.check(st.get("phase") == "active", f"phase {st.get('phase')!r} after Start (want active)")
         self.step_t["nn1"] = t  # the held step really starts now (session._begin)
+        # Nov 24: with the lesson's window already up, Start shows nn.py through the companion (POST /open), no `code`
         opens = [e for e in self.effects(wall) if e["what"] == "workspace.open" and e.get("would_open")]
+        opens += [c["body"] for c in self.comp.since(mono) if c["route"] == "/open"]
         r.check(opens, "Start didn't open the lesson's VS Code window")
         if opens:
             r.check(str(opens[-1].get("file") or "").endswith("nn.py"), f"VS Code opened on {opens[-1].get('file')}")
