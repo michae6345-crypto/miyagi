@@ -49,6 +49,7 @@ import math
 import os
 import re
 import socket
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -850,6 +851,22 @@ class Engine:
             ok = False
         self._screen_up(ok)
         log.info("screen up in %.2f s (off the startup path): %s", time.monotonic() - t0, ok)
+        if not ok and sys.platform == "darwin" and getattr(self.screen, "enabled", False):
+            # Loud on purpose: a dead reader means no spotlight box and no bon at a step's target in any lesson, and a
+            # quiet warning hid exactly that for three days (Nov 21-24). GET /health says it too ("screen").
+            log.error("SCREEN READER DOWN: lessons run blind (no spotlight boxes, no pointing): %s",
+                      getattr(self.screen, "start_error", None) or "start() returned False")
+
+    def screen_status(self) -> str:
+        """For GET /health: "booting" (the thread start is still running), "up", "off" (ORCH_SCREEN=0 / not macOS
+        on purpose) or "down: <why>" (start failed: lessons can't see the screen)."""
+        boot = self._screen_boot
+        if boot is not None and not boot.done():
+            return "booting"
+        if getattr(self.screen, "active", False):
+            return "up"
+        err = getattr(self.screen, "start_error", None)
+        return f"down: {err}" if err else "off"
 
     async def auto_resume(self) -> bool:
         """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
@@ -1837,7 +1854,7 @@ async def health(checks: int = 0) -> dict:
     """Liveness (scripts poll it every 0.25 s, so it stays instant). ?checks=1 adds the setup checklist
     {items, ready, total}: the same rows as health.get, probed in a thread, never prompting."""
     out: dict[str, Any] = {"ok": True, "clients": len(engine.hub.clients), "demo": engine.modules.demo,
-                           "modules": engine.modules.describe()}
+                           "modules": engine.modules.describe(), "screen": engine.screen_status()}
     if checks and health_mod is not None:
         out.update(await engine.health_payload())
     return out
