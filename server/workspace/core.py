@@ -44,6 +44,54 @@ LESSON_VIEW = {
     "terminal.integrated.enablePersistentSessions": False,
     "terminal.integrated.hideOnStartup": "whenEmpty",
 }
+# Calm on a projector (the 1517 Fund demo, Nov 24): the lesson window shows the code, the ▷ Run button and the terminal,
+# nothing else. No Welcome tab, no tips or "install the recommended extensions?" toasts, no breadcrumbs, Open Editors
+# list, sticky header, lightbulbs, inlay hints or CodeLens over the code, no layout / chat buttons or search box in the
+# title bar, no "type to choose a language" hint in an empty file, no "a git repository was found in a parent folder"
+# prompt. Never touched: the editor title's actions (the ▷ Run button lives there), the terminal, the status bar, tabs.
+CALM_VIEW = {
+    "workbench.startupEditor": "none",
+    "workbench.tips.enabled": False,
+    "workbench.welcomePage.walkthroughs.openOnInstall": False,
+    "workbench.editor.empty.hint": "hidden",
+    "workbench.layoutControl.enabled": False,
+    "window.commandCenter": False,
+    "chat.commandCenter.enabled": False,
+    "breadcrumbs.enabled": False,
+    "explorer.openEditors.visible": 0,
+    "editor.stickyScroll.enabled": False,
+    "editor.lightbulb.enabled": "off",
+    "editor.inlayHints.enabled": "off",
+    "editor.codeLens": False,
+    "extensions.ignoreRecommendations": True,
+    "git.openRepositoryInParentFolders": "never",
+}
+# MIYAGI_DEMO=1: a slightly larger font, so the back of the room can read the code and the run's loss lines.
+DEMO_FONT = {"editor.fontSize": 16, "terminal.integrated.fontSize": 15}
+
+
+def demo_font() -> dict:
+    """DEMO_FONT when MIYAGI_DEMO=1 is set (read at call time), else {}."""
+    return dict(DEMO_FONT) if os.environ.get("MIYAGI_DEMO", "").strip() == "1" else {}
+
+
+def ensure_calm_view(folder: Path | str, *, demo: bool | None = None) -> bool:
+    """Merge CALM_VIEW (and DEMO_FONT when `demo`, default: MIYAGI_DEMO=1) into <folder>/.vscode/settings.json without
+    the other lesson keys (scripts/miyagi-demo-reset.sh). A value already there wins; a file that isn't plain JSON is
+    left alone. True when the file changed."""
+    font = demo_font() if demo is None else dict(DEMO_FONT) if demo else {}
+    want = {**CALM_VIEW, **font}
+    p = Path(folder) / ".vscode" / "settings.json"
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        if not isinstance(cur, dict) or {**want, **cur} == cur:
+            return False
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({**cur, **{k: v for k, v in want.items() if k not in cur}}, indent=2) + "\n", encoding="utf-8")
+        return True
+    except (OSError, ValueError) as e:
+        log.warning("could not write the calm VS Code view for %s: %s", Path(folder).name, e)
+        return False
 
 
 def _state_file(folder: Path) -> Path:
@@ -231,7 +279,7 @@ def _write_vscode_settings(folder: Path) -> None:
     # Only code lessons get this file. No Copilot Chat panel in a lesson window (it took ~30% of the width), and no AI
     # that writes the code for the learner (that defeats the lesson). The learner's global settings stay as they are.
     want = {"window.title": VSCODE_TITLE, "workbench.secondarySideBar.defaultVisibility": "hidden",
-            "chat.disableAIFeatures": True, **LESSON_VIEW, **python_terminal_settings(folder)}
+            "chat.disableAIFeatures": True, **LESSON_VIEW, **CALM_VIEW, **demo_font(), **python_terminal_settings(folder)}
     a11y = VSCODE_A11Y
     if not a11y:
         # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't
