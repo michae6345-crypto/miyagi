@@ -1,7 +1,7 @@
 {
   "name": "miyagi-overlay",
   "productName": "miyagi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "miyagi: turn any tutorial into an auto-graded lab",
   "author": "miyagi",

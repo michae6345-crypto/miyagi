@@ -48,6 +48,7 @@
  * D1 (Adrian, Nov 21): Claude only at launch, no Gemini. With GEMINI_ENABLED false the panel names Anthropic only (the
  * Lesson videos row below), like the consent screen (features/onboarding/consentCopy.ts).
  */
+import { CONTACT_EMAIL } from '../../../../../common/consent'
 import { GEMINI_ENABLED } from '../../../../../common/flags'
 
 export type FactId =
@@ -128,7 +129,10 @@ export const ROUTE = 'AI calls go through miyagi’s server, or direct with your
  * preferences, reminders, the error log and crash reports, usage state), the app's logs, the browser storage (the
  * YouTube player's cookies included), the engine's caches (searches, lessons, captions), runs, logs and saved progress.
  * ~/miyagi/lessons only when ticked. What stays: VS Code and its extensions, userData/engine.json (which engine to
- * run). Server unreachable: nothing at all is deleted.
+ * run). Server unreachable or refusing: nothing at all is deleted (offline, refused). A cloud with no delete route
+ * (404, account 'email'): this Mac's data is deleted all the same and `email` asks the learner to write to
+ * support@miyagi.study (common/consent.ts CONTACT_EMAIL) to remove the account. Once this Mac was wiped, no line may
+ * say "Nothing was deleted".
  */
 export const DELETE = {
   label: 'Delete account and data',
@@ -141,6 +145,7 @@ export const DELETE = {
   refused: 'Couldn’t delete your account. Nothing was deleted.',
   done: 'Your account and this Mac’s data are deleted.',
   pending: 'Deleted from this Mac. Your account goes within 30 days.',
+  email: `Deleted from this Mac. Email ${CONTACT_EMAIL} to remove your account.`,
   partial: 'Account deleted. Some files on this Mac stayed.',
   restart: 'miyagi starts again in a moment.'
 } as const

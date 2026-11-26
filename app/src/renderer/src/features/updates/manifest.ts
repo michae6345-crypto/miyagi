@@ -207,6 +207,8 @@ export function cleanNotes(raw: unknown): string[] {
       .replace(/\s*[\u2014\u2013]\s*/g, ', ')
       .replace(/\s+/g, ' ')
       .trim()
+    // "Build 1d453ca0" (ship-mac.sh via scripts/release-notes.sh) names the commit for the release page, not the card.
+    if (/^build\s+[0-9a-f]{7,40}$/i.test(t)) continue
     if (!t || /^(version|sha-?256)\s*[:=]/i.test(t) || /^https?:\/\//i.test(t) || /^[-=_*\s]+$/.test(t)) continue
     if (t.length > MAX_NOTE) t = `${t.slice(0, MAX_NOTE - 1).trimEnd()}…`
     out.push(t)

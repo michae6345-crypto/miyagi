@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import auth, { accessToken } from '../src/main/features/auth'
 import cloud, { installToken } from '../src/main/features/cloud'
+import { setGatePart } from '../src/main/gate'
 import cloudSession from '../src/main/features/cloudSession'
 import { createLinker, jwtClaims, readRecord, type LinkerDeps } from '../src/main/features/cloudLink'
 import { CLOUD, FakeCloud, FakeSupabase, hitCallback, makeHarness, makeJwt, lockSignInPort, startGoogle, stubFetch, until, writeSession, type Harness } from './harness'
@@ -12,6 +13,9 @@ import { CLOUD, FakeCloud, FakeSupabase, hitCallback, makeHarness, makeJwt, lock
 const ALICE = { sub: 'user-alice', email: 'alice@example.com', name: 'Alice Test' }
 const BOB = { sub: 'user-bob', email: 'bob@example.com', name: 'Bob Test' }
 const later = (): number => Math.floor(Date.now() / 1000) + 3600
+
+// cloud.ts mints only after the age step and consent (mintAllowed): this file tests what comes after both.
+setGatePart('consent', true)
 
 let supa: FakeSupabase
 let fake: FakeCloud
