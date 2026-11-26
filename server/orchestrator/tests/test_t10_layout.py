@@ -13,7 +13,7 @@ import time
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.tests.test_session import Rig, run
 from server.workspace import editor as E
-from server.workspace.tests.test_editor import CURSOR, FakeAX
+from server.workspace.tests.test_editor import CURSOR, FakeAX, screen
 
 # ---------------------------------------------------------------------------------------------- (1) window rect
 
@@ -30,25 +30,25 @@ def test_pill_clearance_is_on_by_default_and_named():
 
 def test_left_layout_starts_below_the_pill_and_ends_above_the_bar(monkeypatch):
     monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
-    monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 38, round(1728 * fraction), 1079))
+    monkeypatch.setattr(E, "lesson_screen", lambda: screen())  # no notch: the island sits below the menu bar
     ax, rep = FakeAX(fullscreen_prev=False, fullscreen_editor=False), {}
     E.arrange(CURSOR, None, rep, ax=ax, sleep=lambda s: None)
     _, _, x, y, w, h = ax.log[-1]
     assert (x, w) == (0, 1037) and y == 38 + E.PILL_CLEARANCE > PILL_BOTTOM
-    assert y + h == 38 + 1079 - E.BAR_CLEARANCE  # E22: still above the shortcut bar
+    assert y + h == 38 + 1079 - E.BAR_CLEARANCE  # down to the Dock (the bottom bar was retired Nov 21: 0)
     assert rep["frame"] == [0, round(y), 1037, round(h)]
 
 
 def test_full_screen_layout_starts_below_the_pill(monkeypatch):
     monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
     monkeypatch.setattr(E, "NATIVE_FULLSCREEN", False)
-    monkeypatch.setattr(E, "left_frame", lambda fraction=1.0: VISIBLE)
+    monkeypatch.setattr(E, "lesson_screen", lambda: screen())
     ax, rep = FakeAX(fullscreen_editor=False), {}
     E.make_fullscreen(CURSOR, rep, ax=ax, sleep=lambda s: None)
     frames = [e for e in ax.log if e[0] == "frame"]
     assert frames and rep["fullscreen"] == "done (maximized)"
     _, _, x, y, w, h = frames[0]
-    assert x == 0 and y == 38 + E.PILL_CLEARANCE > PILL_BOTTOM and w == 1728 - E.DRAWER_W
+    assert x == 0 and y == 38 + E.PILL_CLEARANCE > PILL_BOTTOM and w == 1728 - E.drawer_reserve()
     assert y + h == 38 + 1079 - E.BAR_CLEARANCE
 
 

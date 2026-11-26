@@ -8,6 +8,7 @@
  */
 import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'
+import { videoLayout } from '../../../../common/screenLayout'
 import { panelRect as dockPanelRect } from '../../core/dock'
 import { dockRect } from '../player/dock'
 import { useDrawer, type Side } from './store'
@@ -57,6 +58,12 @@ function leftEdge(layout: Layout): number {
 
 export function panelRect(layout: Layout, lessonMode = false, side: Side = drawnAt()): Rect {
   const wa = layout.workArea
+  // A video lesson's drawer on the right lives in the column beside VS Code: under the player on a 1440x900-class Mac,
+  // right of it on a wide screen (common/screenLayout.ts, Michael Nov 25: never over VS Code, never over the video).
+  if (!lessonMode && side === 'right') {
+    const p = videoLayout(wa).panel
+    return { x: p.x, y: p.y, w: p.width, h: Math.max(120, p.height) }
+  }
   const w = Math.min(lessonMode ? PANEL_W_LESSON : PANEL_W, wa.width - INSET * 2)
   const h = Math.max(320, wa.height - INSET * 2 - BAR_CLEARANCE)
   const x = side === 'left' ? leftEdge(layout) + INSET : rightEdge(layout, lessonMode) - INSET - w

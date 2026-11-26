@@ -108,10 +108,10 @@ onUi('reset', closeDrawer)
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
 // Every lesson opens it (Michael, Nov 15 9:15: in a video lesson the steps and their code weren't on screen while the
-// video played). A video lesson puts it on the LEFT edge, clear of the player docked on the right; a "Just teach me"
-// lesson keeps the right. A side the learner dragged it to wins in both.
-onMessage('lesson.ready', (p) => {
-  const side = savedSide() ?? (p.lesson.mode === 'lesson' ? 'right' : 'left')
+// video played). Both kinds of lesson put it on the right: a video lesson in the column beside VS Code, with the player
+// (geometry.ts panelRect; the left edge covered VS Code's Explorer, Michael Nov 25). A side the learner dragged it to wins.
+onMessage('lesson.ready', () => {
+  const side = savedSide() ?? 'right'
   useDrawer.setState({ open: true, side, at: side, concept: undefined, peekStep: undefined, claimed: false, via: 'edge' })
 })
 

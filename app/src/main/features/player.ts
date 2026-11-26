@@ -1,15 +1,16 @@
 /**
  * Main-process side of the player (renderer: src/renderer/src/features/player/).
  *
- *   - One frameless window, route `player`, docked to the right 40% of the work area (dock.ts).
- *     The user can drag it by its header and resize it; its bounds are saved and restored.
+ *   - One frameless window, route `player`, docked in the right column beside VS Code (dock.ts ->
+ *     common/screenLayout.ts videoLayout: above the steps drawer on a narrow column, beside it on a wide one).
+ *     Laid out there once per lesson start; the user can then drag it by its header and resize it (saved).
  *   - Hidden until lesson.ready, then shown with showInactive() so it never takes focus from the editor.
  *     Not focusable, except while the pointer is over it (renderer → player:hover).
  *   - Floats at the overlay's level ('screen-saver', one step below it), so the dim, spotlight and cards
  *     still draw over it, and on macOS it shows over full-screen apps on every Space (type 'panel').
  *
  * Handles (bridge.invoke from any window):
- *   player:dock    snap back to the right 40% (and save that)
+ *   player:dock    snap back to its dock in the right column (and save that)
  *   player:hover   (on: boolean) focusable while hovered
  *   player:mini    (on: boolean) minimize to a handle (its header) or grow back (features/player/mini.ts); broadcast
  *                  feat:player:mini on every change, and player:mini:state → boolean. Minimized counts as off screen, so
@@ -92,7 +93,9 @@ export default defineMainFeature({
   id: 'player',
   setup(ctx) {
     const file = join(ctx.app.getPath('userData'), 'player-bounds.json')
-    const dock = (): Rectangle => dockRect(ctx.display().workArea)
+    // The PRIMARY display's work area: where the overlay lives (index.ts displayNow) and where the engine lays VS Code out
+    // (server/workspace/editor.py lesson_screen), so VS Code, the player and the steps drawer never split across screens.
+    const dock = (): Rectangle => dockRect(screen.getPrimaryDisplay().workArea)
 
     const win: BrowserWindow = ctx.createWindow('player', {
       ...(loadBounds(file) ?? dock()),
@@ -193,6 +196,9 @@ export default defineMainFeature({
     }
 
     // ---- minimize to a handle (the header's restore / minimize button, Player.tsx) ----------------------------------
+    /** The lesson the player was last laid out for (once per lesson start), and one waiting for a restore from the handle. */
+    let laidOutFor: string | undefined
+    let pendingLayout: string | undefined
     const setMini = (on: boolean): boolean => {
       if (win.isDestroyed() || on === !!mini) return !!mini
       if (on) {
@@ -205,7 +211,12 @@ export default defineMainFeature({
         mini = undefined
         win.setResizable(true)
         win.setMinimumSize(360, 320)
-        win.setBounds(restoreRect(full, win.getBounds(), ctx.display().workArea))
+        // A lesson started while it was a handle: it grows back into that lesson's dock (laid out once, on restore).
+        if (pendingLayout) {
+          laidOutFor = pendingLayout
+          pendingLayout = undefined
+          win.setBounds(dock())
+        } else win.setBounds(restoreRect(full, win.getBounds(), ctx.display().workArea))
         save()
       }
       ctx.broadcast('player:mini', !!mini)
@@ -232,6 +243,19 @@ export default defineMainFeature({
       revealLater = false
       if (back) reveal()
     })
+
+    // Lay out once per lesson start (Michael, Nov 25): a new video lesson puts the player back in the right column
+    // beside VS Code (common/screenLayout.ts via dockRect), whatever bounds an older lesson left it at. During the
+    // lesson a move or resize is the learner's and stays (and is saved); a replay of the same lesson (an engine that
+    // came back after a deploy) doesn't move it.
+    const layOutOnce = (e: { payload?: unknown }): void => {
+      const id = (e.payload as { lesson?: { id?: string } } | undefined)?.lesson?.id
+      if (!id || id === laidOutFor || win.isDestroyed()) return
+      if (mini) return void (pendingLayout = id) // a handle now: the new lesson's dock applies when it grows back
+      laidOutFor = id
+      win.setBounds(dock())
+      save()
+    }
     let readyAt = 0
     ctx.engine.onEvent((e) => {
       // End lesson (Michael's desktop test 9): the empty panel ("The tutorial plays here once a lesson starts.") stayed
@@ -247,7 +271,10 @@ export default defineMainFeature({
       if (e.type !== 'lesson.ready') return
       readyAt = Date.now()
       if (textLesson(e)) hide()
-      else reveal()
+      else {
+        layOutOnce(e)
+        reveal()
+      }
     })
     // A lesson already running (e.g. DEMO=1 started before this feature loaded).
     const ready = [...ctx.engine.log].reverse().find((e) => e.type === 'lesson.ready')

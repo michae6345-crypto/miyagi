@@ -253,8 +253,9 @@ export function trackOverlayLifecycle(
       win.setOpacity(1)
     }, OVERLAY_RESTORE_MS)
   }
-  const swap = (): void => {
+  const swap = (...args: unknown[]): void => {
     if (!live()) return
+    if (workAreaOnly(args[2])) return // the menu bar / Dock showed or hid: the overlay's window doesn't move
     remember()
     win.setOpacity(0)
     restoreSoon()
@@ -293,6 +294,20 @@ export function trackOverlayLifecycle(
     if (spaceId !== undefined) sp?.unsubscribeWorkspaceNotification?.(spaceId)
     for (const [e, name, fn] of subs) (e as { removeListener?: (n: string, f: () => void) => void }).removeListener?.(name, fn)
   }
+}
+
+/**
+ * display-metrics-changed's third argument (Electron: changedMetrics) names ONLY the work area: the menu bar or the Dock
+ * showed or hid (a full-screen Space such as VS Code's coming or going, the Dock auto-hiding). The overlay covers the
+ * display's full bounds, so nothing about its window changed: no fade, no refit, no island collapse (Nov 25, MacBook
+ * Neo test: as VS Code opened, every Space switch faded the overlay and moved the pill, "back and forth"). Anything
+ * else, or no list at all, is a real display change.
+ */
+/** A work-area-only change (menu bar / Dock) is acted on once this long after the last one of its burst. */
+export const WORK_AREA_SETTLE_MS = 600
+
+export function workAreaOnly(changed: unknown): boolean {
+  return Array.isArray(changed) && changed.length > 0 && changed.every((m) => m === 'workArea')
 }
 
 /** The overlay covers the whole display (including the Mac menu bar, so the pill can hug the notch). */

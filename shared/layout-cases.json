@@ -1,0 +1,437 @@
+{
+ "about": "Golden layout cases shared by the engine (server/workspace/layout.py, server/workspace/tests/test_layout.py) and the app (app/src/common/screenLayout.ts, app/test/screenLayout.test.ts). Points, top-left origin. frame = the display, visible = NSScreen.visibleFrame = Electron display.workArea, safe_top = the notch. lesson.editor: VS Code beside the docked lesson panel (Just teach me); lesson.panel: app core/dock.ts panelRect; video.*: a video lesson (VS Code left, player + steps drawer in the right column). Change a number here only together with both implementations.",
+ "cases": [
+  {
+   "name": "13-inch 1440x900, no notch, Dock bottom (MacBook Neo class)",
+   "frame": [
+    0,
+    0,
+    1440,
+    900
+   ],
+   "visible": [
+    0,
+    25,
+    1440,
+    805
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      69,
+      1048,
+      761
+     ],
+     "panel": [
+      1064,
+      52,
+      360,
+      762
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      69,
+      864,
+      761
+     ],
+     "column_editor_w": 864,
+     "player": [
+      872,
+      33,
+      560,
+      465
+     ],
+     "panel": [
+      872,
+      514,
+      560,
+      308
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "13-inch 1440x900, no notch, Dock left",
+   "frame": [
+    0,
+    0,
+    1440,
+    900
+   ],
+   "visible": [
+    64,
+    25,
+    1376,
+    875
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      64,
+      69,
+      984,
+      831
+     ],
+     "panel": [
+      1064,
+      52,
+      360,
+      832
+     ]
+    },
+    "video": {
+     "editor": [
+      64,
+      69,
+      826,
+      831
+     ],
+     "column_editor_w": 826,
+     "player": [
+      898,
+      33,
+      534,
+      450
+     ],
+     "panel": [
+      898,
+      499,
+      534,
+      393
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "13-inch 1440x900, no notch, Dock hidden",
+   "frame": [
+    0,
+    0,
+    1440,
+    900
+   ],
+   "visible": [
+    0,
+    25,
+    1440,
+    875
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      69,
+      1048,
+      831
+     ],
+     "panel": [
+      1064,
+      52,
+      360,
+      832
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      69,
+      864,
+      831
+     ],
+     "column_editor_w": 864,
+     "player": [
+      872,
+      33,
+      560,
+      465
+     ],
+     "panel": [
+      872,
+      514,
+      560,
+      378
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "13-inch 1440x900, no notch, menu bar hidden, Dock bottom",
+   "frame": [
+    0,
+    0,
+    1440,
+    900
+   ],
+   "visible": [
+    0,
+    0,
+    1440,
+    830
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      68,
+      1048,
+      762
+     ],
+     "panel": [
+      1064,
+      52,
+      360,
+      762
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      68,
+      864,
+      762
+     ],
+     "column_editor_w": 864,
+     "player": [
+      872,
+      8,
+      560,
+      465
+     ],
+     "panel": [
+      872,
+      489,
+      560,
+      333
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "14-inch 1512x982, notch, Dock bottom",
+   "frame": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "visible": [
+    0,
+    38,
+    1512,
+    880
+   ],
+   "safe_top": 32,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      38,
+      1120,
+      880
+     ],
+     "panel": [
+      1136,
+      52,
+      360,
+      850
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      38,
+      907,
+      880
+     ],
+     "column_editor_w": 907,
+     "player": [
+      915,
+      46,
+      589,
+      481
+     ],
+     "panel": [
+      915,
+      543,
+      589,
+      367
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "14-inch 1512x982, notch, Dock hidden",
+   "frame": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "visible": [
+    0,
+    38,
+    1512,
+    944
+   ],
+   "safe_top": 32,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      38,
+      1120,
+      944
+     ],
+     "panel": [
+      1136,
+      52,
+      360,
+      914
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      38,
+      907,
+      944
+     ],
+     "column_editor_w": 907,
+     "player": [
+      915,
+      46,
+      589,
+      481
+     ],
+     "panel": [
+      915,
+      543,
+      589,
+      431
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
+   "name": "external 2560x1440 as the main display, Dock bottom",
+   "frame": [
+    0,
+    0,
+    2560,
+    1440
+   ],
+   "visible": [
+    0,
+    25,
+    2560,
+    1335
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      69,
+      2168,
+      1291
+     ],
+     "panel": [
+      2184,
+      52,
+      360,
+      1292
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      69,
+      1536,
+      1291
+     ],
+     "column_editor_w": 1536,
+     "player": [
+      1544,
+      33,
+      652,
+      1319
+     ],
+     "panel": [
+      2212,
+      33,
+      340,
+      1319
+     ],
+     "stacked": false
+    }
+   }
+  },
+  {
+   "name": "small 1280x800, no notch, Dock bottom",
+   "frame": [
+    0,
+    0,
+    1280,
+    800
+   ],
+   "visible": [
+    0,
+    25,
+    1280,
+    715
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      69,
+      888,
+      671
+     ],
+     "panel": [
+      904,
+      52,
+      360,
+      672
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      69,
+      768,
+      671
+     ],
+     "column_editor_w": 768,
+     "player": [
+      776,
+      33,
+      496,
+      383
+     ],
+     "panel": [
+      776,
+      432,
+      496,
+      300
+     ],
+     "stacked": true
+    }
+   }
+  }
+ ]
+}
