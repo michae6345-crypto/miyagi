@@ -36,7 +36,7 @@ export function SetupGatePanel(): ReactNode {
   const now = useNow()
   const g = s.gate
   if (!g) return null
-  const btns = actions(g)
+  const btns = actions(g, { receivedAt: s.receivedAt, now })
   const failed = g.phase === 'failed'
   const log = s.logFor ? g.items.find((x) => x.tool === s.logFor)?.log : undefined
   return (
@@ -69,6 +69,13 @@ export function SetupGatePanel(): ReactNode {
         >
           {log}
         </pre>
+      )}
+
+      {!failed && btns.some((b) => b.kind === 'continue_without') && (
+        <div className="mt-[18px] flex items-center justify-end gap-[8px]">
+          <QuietButton label="Continue without it" title="Start the lesson now; the install keeps going" busy={s.pressed === 'continue'}
+            onClick={() => press({ kind: 'continue_without' })} />
+        </div>
       )}
 
       {failed && (

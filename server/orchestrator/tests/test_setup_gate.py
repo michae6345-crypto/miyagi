@@ -240,3 +240,117 @@ def test_a_checkless_step_that_asks_for_work_waits_at_its_end(tmp_path, kind, pa
     assert ("step.passed" in types_) is passes
     if not passes:
         assert "video.pause" in types_ and r.s.segment_done
+
+
+# --------------------------------------------------------------------------- review fixes (H1-H3, M2)
+
+
+def test_continue_without_it_survives_the_next_queued_row():
+    g = G.SetupGate(Clock())
+    g.queue("tensorflow")
+    g.queue("matplotlib")
+    g.start("tensorflow")
+    g.continue_anyway()  # "Continue without it" after a minute
+    g.finish("tensorflow", {"ok": True})
+    g.start("matplotlib")  # Install all goes on: the lesson doesn't stop again
+    assert not g.holds
+    g.finish("matplotlib", {"ok": True})
+    g.start("numpy")  # a new Install press is a new round
+    assert g.holds
+
+
+def test_retry_runs_beside_the_command_queue(rig, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    go_on = threading.Event()
+
+    def slow_install(item, folder, on_line, on_progress=None, cancel=None):
+        go_on.wait(5)
+        return {"ok": True, "tool": item["tool"], "version": "2.21.0"}
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        G.gate(rig.s).start("tensorflow", "tensorflow")
+        G.gate(rig.s).finish("tensorflow", {"ok": False, "error": "x"})
+        monkeypatch.setattr(wsmod, "install", slow_install)
+        await asyncio.wait_for(rig.s.action("setup_retry"), 1.0)  # returns at once: the install is a task (H1)
+        await asyncio.sleep(0.05)
+        installing = G.gate(rig.s).rows["tensorflow"].status
+        await asyncio.wait_for(rig.s.action("setup_continue"), 1.0)  # Continue still gets through meanwhile
+        released = not G.gate(rig.s).holds
+        go_on.set()
+        await asyncio.sleep(0.1)
+        await rig.settle()
+        return installing, released, G.gate(rig.s).rows["tensorflow"].status
+
+    installing, released, final = run(go())
+    assert installing == "installing" and released and final == "done"
+
+
+def test_retry_rebuilds_a_failed_python_environment_and_settles_strays(rig, tmp_path):
+    from server.workspace import paths
+
+    folder = tmp_path / "lesson"
+    folder.mkdir()
+
+    def broken():
+        return False  # ensure_lesson_venv never raises; no .venv after it = failed
+
+    def works():
+        vpy = paths.venv_python(folder / ".venv")
+        vpy.parent.mkdir(parents=True, exist_ok=True)
+        vpy.write_text("", encoding="utf-8")
+        return True
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await G.run_venv(rig.s, str(folder), broken)
+        failed = G.gate(rig.s).payload()
+        rig.s._venv_job = (str(folder), works)
+        G.gate(rig.s).queue("ghost")  # a row nothing will install (an early return)
+        G.gate(rig.s).finish("ghost", {"ok": False, "error": "x"})
+        await rig.s.action("setup_retry")
+        await asyncio.sleep(0.1)
+        await rig.settle()
+        return failed, G.gate(rig.s).payload()
+
+    failed, after = run(go())
+    assert failed["phase"] == "failed" and failed["items"][0]["tool"] == "venv"
+    rows = {r["tool"]: r["status"] for r in after["items"]}
+    assert rows["venv"] == "done" and rows["ghost"] in ("skipped", "failed") and after["phase"] != "running"
+    assert not after["holds"] or after["phase"] == "failed"
+
+
+def test_a_live_gate_follows_lesson_ready_and_every_reconnect(rig):
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        idle = rig.s.snapshot()
+        G.gate(rig.s).start("tensorflow", "tensorflow")  # mid-install
+        return idle, rig.s.snapshot()
+
+    idle, busy = run(go())
+    assert "setup.gate" not in [t for t, _ in idle]  # nothing installing: the connect burst is unchanged
+    kinds = [t for t, _ in busy]
+    assert kinds[kinds.index("lesson.ready") + 1] == "setup.gate"  # the app clears on lesson.ready, then gets it back
+    gp = dict(busy)["setup.gate"]
+    assert gp["phase"] == "running" and gp["holds"] and gp["current"] == "tensorflow"
+
+
+def test_can_i_move_on_passes_a_held_checkless_step_without_the_judge(tmp_path):
+    r = Rig(tmp_path)
+
+    async def go():
+        await r.s.load_graph(_lesson("code", checks=False))
+        await r.settle()
+        await r.end_segment()
+        await r.settle()
+        assert not r.of("step.passed")
+        m = r.mark()
+        await r.s.action("check_step")
+        await r.settle()
+        return [e["type"] for e in r.since(m)]
+
+    assert "step.passed" in run(go())

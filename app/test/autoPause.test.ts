@@ -6,10 +6,10 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { onAway, resumesAfterPass, setupHolds, showsPlayGlyph, stepStartPlays, type PausedBy } from '../src/renderer/src/features/player/policy'
+import { onAway, releasePlays, resumesAfterPass, setupHolds, showsPlayGlyph, stepStartPlays, type PausedBy } from '../src/renderer/src/features/player/policy'
 
-test('away: a playing (or about to play) video pauses on lock, sleep and a hidden page', () => {
-  for (const signal of ['lock', 'sleep', 'page-hidden'] as const) {
+test('away: a playing (or about to play) video pauses on lock and sleep', () => {
+  for (const signal of ['lock', 'sleep'] as const) {
     assert.equal(onAway({ playing: true, wantPlay: true, signal }), 'pause')
     assert.equal(onAway({ playing: false, wantPlay: true, signal }), 'pause') // a deferred / wanted play is stopped too
     assert.equal(onAway({ playing: false, wantPlay: false, signal }), 'ignore')
@@ -30,6 +30,18 @@ test('setup holds the video for a waiting card or a holding gate', () => {
   // a live step that starts while setup holds waits (it starts when the gate lets go)
   assert.equal(stepStartPlays({ restoring: false, sinceBootMs: 1e6, setupHold: true }), false)
   assert.equal(resumesAfterPass({ playing: false, pausedBy: 'setup' as PausedBy, setupHold: true }), false)
+})
+
+test('setup letting go starts the clip, unless the screen locked or the Mac slept during the hold', () => {
+  assert.equal(releasePlays({ pausedBy: 'setup', awayDuringHold: false }), true)
+  assert.equal(releasePlays({ pausedBy: 'setup', awayDuringHold: true }), false)
+  for (const pausedBy of ['user', 'gate', 'hidden', 'away', undefined] as const) assert.equal(releasePlays({ pausedBy, awayDuringHold: false }), false, String(pausedBy))
+})
+
+test('a covered player is not away: page visibility is not an away signal (review M5)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../src/renderer/src/features/player/store.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(src, /away\('page-hidden'\)/)
 })
 
 test('nothing else resumes over the learner, the end, a hidden panel or a replayed step', () => {

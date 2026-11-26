@@ -93,7 +93,7 @@ export function rowText(x: SetupGateItem): string {
     case 'done':
       return x.note && /couldn't confirm/i.test(x.note) ? 'Installed (first import is slow)' : 'Installed'
     case 'skipped':
-      return x.errorCode === 'skipped_incompatible' ? 'Not needed on this Mac' : 'Skipped'
+      return x.errorCode === 'skipped_incompatible' ? 'Skipped: GPU add-on incompatible, runs on CPU' : 'Skipped'
     case 'failed':
       return "Didn't install"
     case 'installing':
@@ -133,13 +133,22 @@ export function clock(sec: number): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
-export type GateAction = { kind: 'retry' | 'details' | 'continue' } | { kind: 'skip'; tool: string }
+export type GateAction = { kind: 'retry' | 'details' | 'continue' | 'continue_without' } | { kind: 'skip'; tool: string }
+
+/** A required install running this long gets "Continue without it" (review H4: a slow link must never trap the lesson). */
+export const CONTINUE_WITHOUT_S = 60
+
+/** How long the row has been installing: its elapsedS when the gate arrived, plus the time since. */
+export function rowElapsedS(x: SetupGateItem, receivedAt: number, now: number): number {
+  return (x.elapsedS ?? 0) + Math.max(0, (now - receivedAt) / 1000)
+}
 
 /**
  * The buttons. failed: Retry (primary), Show details (when a log exists), Continue anyway. running: Skip on each
- * optional row still waiting or installing (nothing else: a required install can only finish or fail).
+ * optional row still waiting or installing, and "Continue without it" once a required install has run
+ * CONTINUE_WITHOUT_S (pass the state and now for that; the install keeps going, the lesson starts).
  */
-export function actions(g: SetupGate | undefined): GateAction[] {
+export function actions(g: SetupGate | undefined, at?: { receivedAt: number; now: number }): GateAction[] {
   if (!g) return []
   if (g.phase === 'failed') {
     const out: GateAction[] = [{ kind: 'retry' }]
@@ -147,13 +156,18 @@ export function actions(g: SetupGate | undefined): GateAction[] {
     out.push({ kind: 'continue' })
     return out
   }
-  return g.items.filter((x) => x.optional && (x.status === 'queued' || x.status === 'installing')).map((x) => ({ kind: 'skip' as const, tool: x.tool }))
+  const out: GateAction[] = g.items
+    .filter((x) => x.optional && (x.status === 'queued' || x.status === 'installing'))
+    .map((x) => ({ kind: 'skip' as const, tool: x.tool }))
+  const slow = !!at && g.holds && g.items.some((x) => !x.optional && x.status === 'installing' && rowElapsedS(x, at.receivedAt, at.now) >= CONTINUE_WITHOUT_S)
+  if (slow) out.push({ kind: 'continue_without' })
+  return out
 }
 
 /** The engine action for a button (Show details is local). */
 export function actionFor(a: GateAction): { kind: 'setup_retry' | 'setup_continue' | 'setup_skip'; text?: string } | undefined {
   if (a.kind === 'retry') return { kind: 'setup_retry' }
-  if (a.kind === 'continue') return { kind: 'setup_continue' }
+  if (a.kind === 'continue' || a.kind === 'continue_without') return { kind: 'setup_continue' }
   if (a.kind === 'skip') return { kind: 'setup_skip', text: a.tool }
   return undefined
 }

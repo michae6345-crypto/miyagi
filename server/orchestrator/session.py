@@ -111,7 +111,8 @@ ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "vide
                  "annotate"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
 QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser",
-                 "have_it", "get_it", "alternative", "open_in_app"}
+                 "have_it", "get_it", "alternative", "open_in_app",
+                 "setup_retry", "setup_continue", "setup_skip"}  # the setup gate's buttons answer with setup.gate
 # t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
 # position in an older read, then jumped 454 pt to where it was on screen)
 OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "1.0"))
@@ -3461,6 +3462,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         setup_apps.apply_choice(self)  # Nov 22: the real lesson's AutoCAD checks follow the learner's FreeCAD too
         self.m.set_lesson(new)
         await self.emit("lesson.ready", self._lesson_ready_payload())
+        if (gp := setup_gate.current_payload(self)) is not None:  # review H2: a live gate follows its lesson.ready
+            await self.emit("setup.gate", gp)
         self.waiting_more = False  # even if they skipped the placeholder: the real s1 starts now
         if self.steps:
             seg = self._segment(self.steps[min(idx, len(self.steps) - 1)])
@@ -3571,6 +3574,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if isinstance(build_s, (int, float)):
             ready["buildS"] = build_s  # contract (additive): seconds from the learner's command to this lesson.ready
         await self.emit("lesson.ready", ready)
+        if (gp := setup_gate.current_payload(self)) is not None:  # review H2: a live gate follows its lesson.ready
+            await self.emit("setup.gate", gp)
         self.editor_open = False
         if self.workspace is not None:  # S2 opens the editor at most once per lesson + folder
             self.workspace.lesson_key = str(graph.get("lesson", {}).get("id") or "")
@@ -6218,6 +6223,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
     NOT_WORK_ACTIONS = frozenset({"install", "install_all", "skip_setup", "open_editor", "open_in_browser", "download",
                                   "have_it", "get_it", "alternative", "open_in_app",
+                                  "setup_retry", "setup_continue", "setup_skip",
                                   "use_this_folder", "voice_toggle", "build", "pick_another",
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
@@ -7053,6 +7059,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await stage.check(self, step)
             return
         if await self._cue_guard(step):
+            return
+        if (not step.get("checks") and not step.get("precision_checks") and self.segment_done and not self.passed
+                and not self.lesson_mode and self._segment(step) and self._step_needs_action(step)):
+            # review M2: a video step with no checks, held at its clip's end (_segment_end: it asks the learner to act),
+            # has nothing to grade: "Can I move on?" is the learner saying it's done. No judge call. (A "Just teach me"
+            # step without checks still goes to the judge: it has no clip, the judge is its only grader.)
+            await self._pass_step()
             return
         self._checking = getattr(self, "_checking", 0) + 1
         try:
@@ -8847,6 +8860,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return out
         ready = {**self._lesson_ready_payload(), "replay": True}  # Nov 15: the SAME lesson again (a reconnect / restore)
         out.append(("lesson.ready", ready))
+        if (gp := setup_gate.current_payload(self)) is not None:  # review H2: a reconnect mid-install sees the gate
+            out.append(("setup.gate", gp))
         step, held = self.step, False
         if step is not None:
             if not (self.engaged or self.learner_started() or self.check_state and any(

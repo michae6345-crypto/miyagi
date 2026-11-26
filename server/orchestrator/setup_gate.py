@@ -24,8 +24,9 @@ import inspect
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 log = logging.getLogger("orchestrator.session")
 
@@ -92,9 +93,11 @@ class SetupGate:
         return r
 
     def start(self, tool: str, label: str = "", optional: bool = False) -> Row:
-        r = self.rows.get(tool) or self.queue(tool, label, optional)
-        if r.status != INSTALLING:
-            self.queue(tool, label, optional)
+        """A row's install begins. Already queued (Install all, Retry): it keeps the round's Continue anyway, so "Continue
+        without it" isn't undone by the next row starting. A new press (no row, or a settled one) is a new round."""
+        r = self.rows.get(tool)
+        if r is None or r.status not in (QUEUED, INSTALLING):
+            r = self.queue(tool, label, optional)
         r.status, r.started, r.progress, r.last_line = INSTALLING, self.clock(), {"phase": "starting"}, ""
         return r
 
@@ -267,6 +270,15 @@ async def settle(s: Any, tool: str, *, failed: bool = False) -> None:
     await publish(s)
 
 
+def current_payload(s: Any) -> dict | None:
+    """This lesson's gate as setup.gate sends it, or None when it is idle (no rows). Sent right after every lesson.ready
+    (replays included) and on every client connect, so an app that restarted or reconnected mid-install gets the live
+    gate back (review H2). An idle gate isn't sent: the app clears its gate on every lesson.ready and on a disconnect,
+    and the connect burst of an engine with nothing going on stays exactly as it was (test_launch_contract)."""
+    p = gate(s).payload()
+    return None if p["phase"] == "idle" else p
+
+
 def holds(s: Any) -> bool:
     g = getattr(s, "_setup_gate", None)
     return g is not None and getattr(s, "_setup_gate_epoch", None) == getattr(s, "lesson_epoch", 0) and g.holds
@@ -301,26 +313,64 @@ async def act(s: Any, kind: str, text: str | None) -> bool:
     if kind == "setup_retry":
         tools = g.retry(tool or None)
         await publish(s)
-        for t in tools:
-            item = next((it for it in getattr(s, "reqs", None) or [] if it.get("tool") == t), None)
-            await s._install(t, item=item)
+        # Never inside the command queue (review H1): a TensorFlow install can take an hour, and Skip / Continue anyway
+        # / step changes must still get through. One task runs the retried rows in turn.
+        spawn = getattr(s, "_spawn", None)
+        job = retry_rows(s, tools)
+        if spawn is not None:
+            spawn(job)
+        else:
+            await job
         return True
     return False
 
 
+async def retry_rows(s: Any, tools: list[str]) -> None:
+    """Install the retried rows one after another. The .venv row builds the environment again (run_venv); any row an
+    install left queued (an early return) is settled, so the gate never waits on it (review H3)."""
+    for t in tools:
+        if t == VENV:
+            job = getattr(s, "_venv_job", None)
+            if job is not None:
+                await run_venv(s, *job)
+            await settle(s, t, failed=job is None)
+            continue
+        item = next((it for it in getattr(s, "reqs", None) or [] if it.get("tool") == t), None)
+        await s._install(t, item=item)
+        await settle(s, t)
+
+
+VENV = "venv"
+
+
+def _venv_exists(folder: str) -> bool:
+    try:
+        from server.workspace import setup as ws_setup
+
+        return bool(ws_setup.venv_python(folder))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def run_venv(s: Any, folder: str, fn: Callable[[], Any]) -> Any:
     """The background .venv build (ensure_lesson_venv: a fresh Mac's lesson gets its .venv from miyagi's Python) as a
-    gate row, "Python environment": the lesson waits for it like any install."""
+    gate row, "Python environment": the lesson waits for it like any install. Kept (s._venv_job) so Retry can run it
+    again."""
+    s._venv_job = (folder, fn)
     g = gate(s)
-    g.start("venv", "Python environment")
+    g.start(VENV, "Python environment")
     await publish(s)
     try:
         made = await asyncio.to_thread(fn)
     except Exception as e:  # noqa: BLE001 - ensure_lesson_venv never raises; belt and braces
         made = None
         log.exception("lesson .venv failed")
-        g.finish("venv", {"ok": False, "error": f"Couldn't make the lesson's Python environment: {e}"})
+        g.finish(VENV, {"ok": False, "error": f"Couldn't make the lesson's Python environment: {e}"})
     else:
-        g.finish("venv", {"ok": True})  # False = nothing to make (a .venv exists / the Mac has its own Python)
+        if made or _venv_exists(folder):
+            g.finish(VENV, {"ok": True})
+        else:  # ensure_lesson_venv never raises: False with no .venv after it is a failure (its log says why)
+            g.finish(VENV, {"ok": False, "errorCode": "no_python",
+                            "error": "Couldn't make the lesson's Python environment. Press Retry, or Continue anyway."})
     await publish(s)
     return made

@@ -1666,6 +1666,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
         snap = engine.session.snapshot(ask_resume=engine.app_returning(), returning=engine.app_was_away())
         if not any(t == "status" for t, _ in snap):  # every (re)connect resyncs the island, whatever the early return
             snap = [*snap, ("status", {"state": engine.session.status or "idle"})]
+        if not any(t == "setup.gate" for t, _ in snap):  # review H2: every connect gets a live gate (none when idle)
+            from .setup_gate import current_payload
+
+            if (gp := current_payload(engine.session)) is not None:
+                snap = [*snap, ("setup.gate", gp)]
         for type_, payload in snap:
             await engine.hub.send_to(ws, type_, engine.session._tagged(type_, payload))
         for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health

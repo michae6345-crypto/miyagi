@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { SetupGate, SetupGateItem } from '../../shared/contracts/events'
-import { actionFor, actions, clock, elapsedS, headline, holds, initial, panelOpen, reduce, rowFraction, rowText, subline, type GateState } from '../src/renderer/src/features/setup-gate/machine'
+import { actionFor, actions, CONTINUE_WITHOUT_S, clock, elapsedS, headline, holds, initial, panelOpen, reduce, rowFraction, rowText, subline, type GateState } from '../src/renderer/src/features/setup-gate/machine'
 
 const row = (tool: string, extra: Partial<SetupGateItem> = {}): SetupGateItem => ({ tool, label: tool, status: 'queued', optional: false, ...extra })
 const gate = (items: SetupGateItem[], extra: Partial<SetupGate> = {}): SetupGate => ({
@@ -74,7 +74,7 @@ test('optional rows: Skip, and skipped rows say why', () => {
   const g = gate([row('tensorflow', { status: 'installing' }), row('tensorflow-metal', { optional: true })])
   assert.deepEqual(actions(g), [{ kind: 'skip', tool: 'tensorflow-metal' }])
   assert.deepEqual(actionFor({ kind: 'skip', tool: 'tensorflow-metal' }), { kind: 'setup_skip', text: 'tensorflow-metal' })
-  assert.equal(rowText(row('tensorflow-metal', { status: 'skipped', errorCode: 'skipped_incompatible' })), 'Not needed on this Mac')
+  assert.equal(rowText(row('tensorflow-metal', { status: 'skipped', errorCode: 'skipped_incompatible' })), 'Skipped: GPU add-on incompatible, runs on CPU')
   assert.equal(rowText(row('jupyter', { status: 'skipped' })), 'Skipped')
 })
 
@@ -85,6 +85,15 @@ test('elapsed time: from the engine startedAt, else elapsedS plus the time since
   assert.equal(elapsedS(t, 8_000), 13)
   assert.equal(clock(75), '1:15')
   assert.equal(clock(3725), '1:02:05')
+})
+
+test('a required install running a minute gets "Continue without it" (the install keeps going)', () => {
+  const g = gate([row('tensorflow', { status: 'installing', elapsedS: 50 })])
+  assert.deepEqual(actions(g, { receivedAt: 0, now: 5_000 }), []) // 55 s
+  assert.deepEqual(actions(g, { receivedAt: 0, now: (CONTINUE_WITHOUT_S - 50) * 1000 }), [{ kind: 'continue_without' }])
+  assert.deepEqual(actionFor({ kind: 'continue_without' }), { kind: 'setup_continue' })
+  // an optional row alone never offers it (it doesn't hold the lesson)
+  assert.deepEqual(actions(gate([row('jupyter', { status: 'installing', optional: true, elapsedS: 600 })], { holds: false }), { receivedAt: 0, now: 0 }), [{ kind: 'skip', tool: 'jupyter' }])
 })
 
 test('reset: a new lesson starts with no gate', () => {

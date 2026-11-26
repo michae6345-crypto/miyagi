@@ -13,12 +13,14 @@ Items: {tool, label, kind, why, needed, installed, ok, version, min_version, ins
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -1082,14 +1084,20 @@ def _pip_install(item: dict, r: dict, out: dict, *, workdir, python, emit, env, 
     _, pipv = probe([py, "-m", "pip", "--version"]) if popen is subprocess.Popen or run is not None else (1, "")
     bar = "raw" if pyinstall.pip_version_ok_for_raw(pipv) else "off"
     heavy = plan.heavy_mb >= 100
+    # pip >= 25.1 resumes a broken download instead of starting the 224 MB again (miyagi.app bundles pip 26.2.2)
+    resume = ["--resume-retries", "5"] if pyinstall.pip_supports_resume(pipv) else []
     argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", bar,
-            "--retries", "2", "--timeout", "120" if heavy else "60", plan.package]  # (stalls: our own retry, online first)
-    budget = max(timeout, HEAVY_TIMEOUT_S) if heavy else timeout
+            "--retries", "2", "--timeout", "120" if heavy else "60", *resume, plan.package]  # (stalls: our retry, online first)
+    # ONE deadline for every attempt together (review M3): a retry gets what is left, never another full hour
+    deadline = time.monotonic() + (max(timeout, HEAVY_TIMEOUT_S) if heavy else timeout)
     if heavy:
         emit(f"{pyinstall.norm(plan.package)} is a big download (about {plan.heavy_mb} MB): this can take a while.")
     tail: list[str] = []
     code, txt, attempts = 1, "", 0
     while attempts < PIP_ATTEMPTS:
+        if attempts and deadline - time.monotonic() <= 1:  # the shared deadline is spent: no attempt that can't run
+            code, txt = 124, "\n".join(tail + ["timed out"])
+            break
         attempts += 1
         prog = pyinstall.Progress()
 
@@ -1100,7 +1108,7 @@ def _pip_install(item: dict, r: dict, out: dict, *, workdir, python, emit, env, 
                 progress_cb({**prog.payload(), "attempt": attempt})
 
         emit("$ pip install " + plan.package + (f"  (attempt {attempts} of {PIP_ATTEMPTS})" if attempts > 1 else ""))
-        code, txt = _stream(argv, line_out, env, budget, popen, cancel)
+        code, txt = _stream(argv, line_out, env, max(1.0, deadline - time.monotonic()), popen, cancel)
         tail = (tail + [ln for ln in txt.splitlines() if pyinstall.parse_progress(ln) is None])[-40:]
         if code in (0, CANCELLED_EXIT):
             break
@@ -1165,12 +1173,24 @@ def check_python_packages_in(item: dict, py: str) -> dict:
 CANCELLED_EXIT = 130
 
 
+def _kill_group(p) -> None:
+    """Kill the process and its group (it was started with start_new_session); a fake popen in tests has no pid."""
+    pid = getattr(p, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        with contextlib.suppress(OSError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with contextlib.suppress(OSError, AttributeError):
+        p.kill()
+
+
 def _stream(argv: list[str], emit, env: dict, timeout: float, popen, cancel: threading.Event | None = None) -> tuple[int, str]:
     """Run argv, each output line to emit. The timeout is a deadline for the whole run, enforced while output is still
     streaming (before, it only counted after stdout closed, so a hung pip never timed out). cancel set: killed, 130."""
     tail: list[str] = []
     try:
-        p = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, env=env, bufsize=1)
+        # its own process group (review M4): pip's children (a wheel build, brew's curl) go with it on cancel / timeout
+        p = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, env=env,
+                  bufsize=1, start_new_session=True)
     except OSError as e:
         return 127, str(e)
     why: list[str] = []
@@ -1184,10 +1204,7 @@ def _stream(argv: list[str], emit, env: dict, timeout: float, popen, cancel: thr
             elif time.monotonic() >= deadline:
                 why.append("timed out")
             if why:
-                try:
-                    p.kill()
-                except (OSError, AttributeError):
-                    pass
+                _kill_group(p)
                 return
             stop.wait(0.25)
 
@@ -1204,11 +1221,13 @@ def _stream(argv: list[str], emit, env: dict, timeout: float, popen, cancel: thr
         try:
             code = p.wait(timeout=max(1.0, timeout))
         except subprocess.TimeoutExpired:
-            p.kill()
+            _kill_group(p)
             why.append("timed out")
             code = 124
     finally:
         stop.set()
+        with contextlib.suppress(Exception):
+            p.stdout.close()
     if why and why[0] == "cancelled":
         return CANCELLED_EXIT, "\n".join(tail + ["cancelled"])
     if why:

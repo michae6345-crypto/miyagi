@@ -13,11 +13,12 @@
  *      (video.play, video.seek {play}) in a window's boot replay or an engine restore keeps its position but not its play.
  *   5. A replay of the lesson the player already holds (lesson.ready {replay}, same id) neither stops nor rewinds it:
  *      the step.started {replay} after it leaves a video inside its clip exactly as it is.
- *   6. Nothing plays to nobody (user test Nov 25: "the video keeps playing for no reason"): the screen locking, the Mac
- *      going to sleep, or the panel's page going hidden pauses it as 'away'. Coming back never restarts it: the
- *      learner presses play (or a passed check moves the lesson on). A step's end still holds for its checks ('gate').
+ *   6. Nothing plays to nobody (user test Nov 25: "the video keeps playing for no reason"): the screen locking or the
+ *      Mac going to sleep pauses it as 'away'. Coming back never restarts it: the learner presses play. (Hiding or
+ *      minimizing the panel is rule 1. A player merely covered by another window keeps playing: page visibility is not
+ *      used, since the #287 layout can put windows over it.) A step's end still holds for its checks ('gate').
  *   7. The setup gate (setup.gate holds): the lesson's environment is still installing; the video waits as 'setup' and
- *      starts when the gate lets go.
+ *      starts when the gate lets go, unless the screen locked or the Mac slept meanwhile (then the learner starts it).
  */
 
 /** Who asked for playback. 'jump' = core seekVideo (a card's video link), in this window or relayed from another. */
@@ -109,7 +110,7 @@ export const showsPlayGlyph = (pausedBy?: PausedBy): boolean =>
   pausedBy === 'user' || pausedBy === 'hidden' || pausedBy === 'start' || pausedBy === 'away'
 
 /** Why nobody can watch right now (rule 6). */
-export type AwaySignal = 'lock' | 'sleep' | 'page-hidden'
+export type AwaySignal = 'lock' | 'sleep'
 
 /**
  * Rule 6: an away signal arrived. 'pause' when the video plays (or is about to: a deferred or wanted play), else
@@ -125,4 +126,12 @@ export function onAway(o: { playing: boolean; wantPlay: boolean; signal: AwaySig
  */
 export function setupHolds(o: { cardWaiting: boolean; gateHolds: boolean }): boolean {
   return o.cardWaiting || o.gateHolds
+}
+
+/**
+ * Rule 7: setup let go. Start the clip only if setup is still why it's paused and nobody went away during the hold
+ * (a lock or sleep while it installed: the learner may not be back, so they press play).
+ */
+export function releasePlays(o: { pausedBy?: PausedBy; awayDuringHold: boolean }): boolean {
+  return o.pausedBy === 'setup' && !o.awayDuringHold
 }

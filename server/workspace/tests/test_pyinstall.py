@@ -227,3 +227,52 @@ def test_stream_cancel_kills_it():
     code, txt = S._stream([sys.executable, "-c", "import time; time.sleep(20)"], lambda _l: None, {}, 30.0,
                           subprocess.Popen, ev)
     assert code == S.CANCELLED_EXIT and "cancelled" in txt
+
+
+# --------------------------------------------------------------------------- review fixes (M3, M4, low)
+
+
+def test_resume_retries_when_pip_has_it(lesson):
+    ScriptedPopen.script = [(OK, 0)]
+    S.install(dict(TF), workdir=lesson, popen=ScriptedPopen, net=lambda h: True, run=fake_run())
+    pip_run = next(c for c in ScriptedPopen.calls if "install" in c)
+    assert pip_run[pip_run.index("--resume-retries") + 1] == "5"
+    ScriptedPopen.calls, ScriptedPopen.script = [], [(OK, 0)]
+    S.install(dict(TF), workdir=lesson, popen=ScriptedPopen, net=lambda h: True, run=fake_run(pip="pip 24.3 from /x"))
+    assert "--resume-retries" not in next(c for c in ScriptedPopen.calls if "install" in c)
+    assert pyinstall.pip_supports_resume("pip 25.1 from /x") and not pyinstall.pip_supports_resume("pip 25.0.1 from /x")
+
+
+def test_one_deadline_for_every_attempt(lesson, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(S.time, "monotonic", lambda: clock[0])
+
+    class SlowStall(ScriptedPopen):
+        def __init__(self, argv, **kw):
+            super().__init__(argv, **kw)
+            clock[0] += 50.0  # each attempt takes 50 s of a 90 s budget
+
+    ScriptedPopen.script = [(STALL, 1)] * 3
+    item = {**TF, "tool": "numpy", "pip_name": "numpy", "label": "numpy"}
+    res = S.install(item, workdir=lesson, popen=SlowStall, net=lambda h: True, run=fake_run(), timeout=90.0)
+    assert not res["ok"] and res["attempts"] == 2 and res["errorCode"] == "timeout"  # not a third 90 s attempt
+    assert len([c for c in ScriptedPopen.calls if "install" in c]) == 2
+
+
+def test_cancel_kills_the_whole_process_group():
+    import subprocess
+    import time as _t
+
+    ev = threading.Event()
+    threading.Timer(0.3, ev.set).start()
+    t0 = _t.monotonic()
+    # the shell's `sleep` child holds the pipe open: killing only the shell would leave the read waiting 20 s
+    code, _ = S._stream(["/bin/sh", "-c", "sleep 20 & wait"], lambda _l: None, {}, 30.0, subprocess.Popen, ev)
+    assert code == S.CANCELLED_EXIT and _t.monotonic() - t0 < 5
+
+
+def test_wording_for_intel_and_the_gpu_add_on():
+    assert "Intel" in pyinstall.plan_package("tensorflow-macos", py=(3, 12), machine="x86_64").note
+    assert pyinstall.plan_package("tensorflow-metal").error.startswith("Skipped: GPU add-on incompatible, runs on CPU")
+    _, msg = pyinstall.explain_failure("Read timed out.", package="tensorflow")
+    assert "finished downloads" not in msg and "Retry" in msg

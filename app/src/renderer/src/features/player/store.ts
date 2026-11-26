@@ -33,7 +33,7 @@ import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
 import { setupWaiting } from '../cards/setupHold'
 import { useSetupGate } from '../setup-gate/store'
-import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, onAway, panelVisible, replayKeepsVideo, resumesAfterPass, setupHolds, startDeferred, stepStartPlays, type AwaySignal, type PausedBy, type PlayCause } from './policy'
+import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, onAway, panelVisible, releasePlays, replayKeepsVideo, resumesAfterPass, setupHolds, startDeferred, stepStartPlays, type AwaySignal, type PausedBy, type PlayCause } from './policy'
 import { FramePlayer } from './frame'
 import { describeYTError, isYouTubeId, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
@@ -732,6 +732,7 @@ onUi('reset', (payload) => {
   setupHold = false
   cardHold = false
   gateHold = false
+  awayDuringHold = false
   skippedIntro = undefined
   // Keep where it was (not the last cue): if a reconnect's reset remounts the panel, it comes back at this position.
   want = { ...want, t: now(), play: false }
@@ -757,6 +758,8 @@ let setupHold = false
 /** The two reasons setup holds (policy.ts setupHolds): a setup card waiting, and the setup gate (setup.gate holds). */
 let cardHold = false
 let gateHold = false
+/** The screen locked or the Mac slept while setup held the clip: its release doesn't start it (policy.ts rule 7). */
+let awayDuringHold = false
 const applySetupHold = (): void => holdForSetup(setupHolds({ cardWaiting: cardHold, gateHolds: gateHold }))
 
 /** on: pause (back to the clip's start if it only just began). off: play, if the setup hold is still why it's paused. */
@@ -764,6 +767,7 @@ function holdForSetup(on: boolean): void {
   if (on === setupHold) return
   setupHold = on
   if (on) {
+    awayDuringHold = false
     clearTimeout(resumeTimer)
     const seg = openSegment()
     const start = seg ? clipStart(seg) : undefined
@@ -773,8 +777,12 @@ function holdForSetup(on: boolean): void {
     go(undefined, back, false)
     return
   }
-  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end, a hidden panel).
-  if (usePlayer.getState().pausedBy === 'setup') player.play('setup')
+  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end, a hidden panel), and
+  // not if the screen locked or the Mac slept during the hold: then it waits, as 'away', for the learner's play.
+  const away = awayDuringHold
+  awayDuringHold = false
+  if (releasePlays({ pausedBy: usePlayer.getState().pausedBy, awayDuringHold: away })) player.play('setup')
+  else if (away && usePlayer.getState().pausedBy === 'setup') setUi({ pausedBy: 'away' })
 }
 
 /**
@@ -855,6 +863,7 @@ if (!isElectron && typeof document !== 'undefined') document.addEventListener('v
 /** The screen locked, the Mac is going to sleep, or the page went hidden: pause as 'away'. Coming back never plays it. */
 export function away(signal: AwaySignal): void {
   if (!isHost) return
+  if (setupHold) awayDuringHold = true
   if (onAway({ playing: usePlayer.getState().playing, wantPlay: want.play || !!deferred, signal }) !== 'pause') return
   deferred = undefined
   want = { ...want, t: now(), play: false }
@@ -867,13 +876,9 @@ export function away(signal: AwaySignal): void {
 
 if (isElectron && isHost) {
   // Main's powerMonitor (features/player.ts): lock-screen / suspend. Unlock / resume send nothing here on purpose.
+  // Page visibility is NOT a signal here (review M5): on macOS a player covered by another window can read as hidden,
+  // and the #287 layout may place windows over it. Hide and minimize already pause it (player:visible, rule 1).
   bridge.onFeature('player:away', (why) => away(why === 'sleep' ? 'sleep' : 'lock'))
-  // The page itself went hidden (a minimized or hidden window; on macOS also a fully covered one when Chromium reports
-  // it): only the edge to hidden acts, so a window that never reports visibility changes nothing.
-  if (typeof document !== 'undefined')
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') away('page-hidden')
-    })
 }
 
 // Browser stage: stand-ins for the main-process handlers (there's no window to move).

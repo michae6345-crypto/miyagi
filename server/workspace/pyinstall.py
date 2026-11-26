@@ -88,12 +88,15 @@ def plan_package(spec: str, *, py: PyVer | None = None, machine: str | None = No
     mac = system == "Darwin"
     if mac and name == "tensorflow-metal":
         return Plan("", skip=True, code="skipped_incompatible",
-                    error="tensorflow-metal (the GPU add-on) isn't installed: its last release breaks `import tensorflow` "
-                          f"on TensorFlow 2.20 and newer. TensorFlow {TF_LATEST} runs on the CPU without it, which is fine "
-                          "for this lesson.")
+                    error="Skipped: GPU add-on incompatible, runs on CPU. tensorflow-metal's last release breaks "
+                          f"`import tensorflow` on TensorFlow 2.20 and newer; TensorFlow {TF_LATEST} runs on the CPU "
+                          "without it, which is fine for this lesson.")
     note = ""
     if mac and name in ("tensorflow-macos", "tensorflow-cpu"):
-        note = (f"{name} is the old Mac name (or has no Mac build): installing plain tensorflow, which has Apple-silicon "
+        intel = (machine or "").lower() in ("x86_64", "amd64", "i386")
+        note = (f"{name} has no build for Intel Macs: installing plain tensorflow (2.16.2 is its last Intel Mac build)."
+                if intel else
+                f"{name} is the old Mac name (or has no Mac build): installing plain tensorflow, which has Apple-silicon "
                 "builds.")
         name, rest = "tensorflow", ""  # an old tutorial's floor (tensorflow-macos>=2.9) means nothing for tensorflow
     pkg = name + rest if name else spec
@@ -171,6 +174,12 @@ def pip_version_ok_for_raw(version_text: str) -> bool:
     return bool(m) and (int(m.group(1)), int(m.group(2))) >= (24, 1)
 
 
+def pip_supports_resume(version_text: str) -> bool:
+    """`pip --version` output -> does it take --resume-retries (pip 25.1+: resumes a broken download)?"""
+    m = re.search(r"pip (\d+)\.(\d+)", version_text or "")
+    return bool(m) and (int(m.group(1)), int(m.group(2))) >= (25, 1)
+
+
 # --------------------------------------------------------------------------- failures
 
 NETWORK = "network"
@@ -222,7 +231,7 @@ def explain_failure(text: str, *, package: str, exit_code: int | None = None, py
                       "press Retry, or try on a faster network.")
     if code == TIMEOUT:
         return code, (f"The download of {name} kept stalling{tries}. Your connection may be slow or dropping: "
-                      "press Retry (finished downloads are kept).")
+                      "press Retry, or try on a faster network.")
     if code == NETWORK:
         return code, f"Couldn't reach the Python package index to download {name}{tries}. Check your connection, then Retry."
     if code == DISK:
