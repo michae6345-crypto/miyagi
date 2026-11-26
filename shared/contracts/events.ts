@@ -742,7 +742,7 @@ export interface AppCommands {
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; elevenlabs: KeyState; tigerUrl: KeyState;
                                                      miyagiToken?: KeyState; cloud?: CloudState } } // same key names as config.keys   // v2: cloud = what the proxy said about this install's token
 export type CloudState = "ok" | "missing" | "paused" | "quota" | "unauthorized" | "offline" | "off";   // missing = a proxy but no token yet; off = no token / no proxy configured (BYOK or the engine's .env)
-export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
+export type KeyState = "ok" | "missing" | "invalid" | "env" | "cloud";   // "env" = falling back to the engine's .env; "cloud" = calls go through the miyagi cloud (install token)
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];
 export type AppMessage = { [K in keyof AppCommands]: { type: K; payload: AppCommands[K] } }[keyof AppCommands];
