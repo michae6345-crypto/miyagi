@@ -159,6 +159,9 @@ class ScreenReader:
         force=True also re-OCRs an unchanged screen. Captures are debounced (>= `debounce` s apart)."""
         self._pending_reason = reason
         self._force_next = self._force_next or force
+        kick = getattr(self.ax_reader, "kick", None)
+        if kick is not None and reason not in _AX_REASONS:  # a click / scroll / app switch: AX reads now too
+            kick()
         self._wake.set()
 
     @property
@@ -874,7 +877,7 @@ class ScreenReader:
             return None
 
     def _read_frame(self, img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay, frame: int,
-                    trigger: str) -> tuple[ScreenObservation, float]:
+                    trigger: str, ax_since: float | None = None) -> tuple[ScreenObservation, float]:
         """OCR one captured frame into a ScreenObservation. Changes no reader state: observe_now publishes the result,
         capture_once does not."""
         from . import macos
@@ -898,7 +901,10 @@ class ScreenReader:
                                 foreign=foreign, foreign_rects=foreign_rects)
         obs.editor = _editor_info(obs)
         if source == "live":
-            self._attach_cursor_and_ax(obs)
+            if ax_since is None:
+                self._attach_cursor_and_ax(obs)
+            else:
+                self._attach_cursor_and_ax(obs, ax_since)
         return obs, ms
 
     def capture_once(self, display_id: int | None = None, trigger: str = "ask", region: dict | None = None):
@@ -942,10 +948,17 @@ class ScreenReader:
         return obs, self._masked_pil(img, obs, overlay)
 
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
-        """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
+        """Capture + OCR synchronously. With force=False, skips OCR when nothing changed. A forced "check" / "locate"
+        never pairs the frame with AX read before the capture: the AX reader is kicked now (its snapshot runs alongside
+        the capture + OCR) and the frame waits up to AX_FRESH_WAIT_S for it, else goes without AX."""
         from . import health, macos
         with self._capture_lock:
             self._last_capture = time.time()
+            ax_since = None
+            if force and trigger in ("check", "locate") and getattr(self.ax_reader, "available", False) \
+                    and hasattr(self.ax_reader, "wait_fresh"):
+                ax_since = self._last_capture
+                self.ax_reader.kick()
             try:
                 img, screen, scale, windows, fixture_app, source, overlay_excluded = self._grab()
             except Exception as e:
@@ -980,17 +993,18 @@ class ScreenReader:
             thumb = _mask_thumb(thumb, overlay, screen)
             prev = self._latest
             stale = prev is None or (time.time() - prev.t) > self.max_age
-            if not force and not stale and layout == self._prev_layout and not _changed(
-                    self._prev_thumb, thumb, self.diff_pixels):
+            changed = layout != self._prev_layout or _changed(self._prev_thumb, thumb, self.diff_pixels)
+            if not force and not stale and not changed:
                 self._unchanged += 1
                 self.ocr_skipped += 1
                 return None
+            if changed:  # a max_age / forced re-OCR of the same picture keeps the idle backoff going
+                self._unchanged = 0
             self._prev_thumb, self._prev_layout = thumb, layout
-            self._unchanged = 0
 
             self._frame += 1
             obs, ms = self._read_frame(img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay,
-                                       self._frame, trigger)
+                                       self._frame, trigger, ax_since)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
                 self._latest, self._latest_image, self._latest_overlay = obs, img, overlay
@@ -1029,8 +1043,15 @@ class ScreenReader:
         from .vscode import window_shown
         return obs is None or obs.source != "live" or window_shown(snap.app, snap.window_title, obs.windows)
 
-    def _attach_cursor_and_ax(self, obs: ScreenObservation) -> None:
-        snap = self.ax_reader.latest() if self.ax_reader else None
+    AX_FRESH_WAIT_S = 0.3  # a check / locate frame waits at most this long for an AX read from after its capture
+
+    def _attach_cursor_and_ax(self, obs: ScreenObservation, since: float | None = None) -> None:
+        """`since` (a check / locate frame's capture time): only an AX snapshot taken at or after it, waited for up to
+        AX_FRESH_WAIT_S (the AX reader may be idling at 1-2 Hz); none in time -> this frame has no AX."""
+        if since is not None and hasattr(self.ax_reader, "wait_fresh"):
+            snap = self.ax_reader.wait_fresh(since, self.AX_FRESH_WAIT_S)
+        else:
+            snap = self.ax_reader.latest() if self.ax_reader else None
         if snap is not None and (time.time() - snap.t > 2.0 or not self._ax_shown(snap, obs)):
             snap = None
         if snap is not None:
@@ -1173,6 +1194,7 @@ def _ask_display(macos, display_id: int | None, region: dict | None) -> int | No
     return None
 
 
+_AX_REASONS = frozenset({"app", "document", "dirty", "terminal", "typing_pause"})  # pokes that came FROM the AX reader
 _DIFF_LUT = [0] * 13 + [255] * 243   # |a - b| > 12 -> 255
 
 

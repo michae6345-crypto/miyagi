@@ -1,8 +1,8 @@
 """Low-end Mac tier (MacBook Neo, 8 GB M1/M2 Airs): one place that decides how hard the screen sensors work.
 
 A Mac with <= 8 GB of RAM or <= 2 performance cores is "low": the AX worker polls at 5 Hz instead of 10 (and drops to
-1 Hz while nothing changes) and the idle heartbeat backs off further. Low Power Mode or running on battery ("saving")
-stretches the heartbeat and halves the active AX rate, on every Mac.
+1 Hz while nothing changes). On every Mac the capture heartbeat backs off to 10 s on an unchanged screen. Saving
+power (Low Power Mode on any Mac, or a low-tier Mac on battery) ramps that backoff faster and halves the active AX rate.
 
 Not done on purpose: capturing smaller frames. Measured offline (Nov 25, three VS Code fixtures): Vision OCR at 1.5 px/pt
 took the same time as at 2x (160 vs 164 ms, 216 vs 207 ms: Vision rescales internally) and lost 8-11% of the words.
@@ -35,7 +35,10 @@ class PerfProfile:
     # knobs the sensors read
     ax_hz: float = 10.0               # AX worker while things change
     ax_idle_hz: float = 2.0           # ... once nothing changed for AX_IDLE_AFTER_S
-    idle_heartbeat_max: float = 8.0   # the reader's no-change heartbeat grows up to this (s)
+    # The reader's no-change heartbeat grows up to this (s). 10, not 8: the reader re-OCRs an unchanged frame once it
+    # is > max_age (15 s) old (small text the thumbnail can't see), and with 8 s waits that came every 2nd capture
+    # (every 16 s: 38 OCRs / idle 10 min, more than the 31 of the old fixed 5 s); 10 s keeps it at every 20 s (31).
+    idle_heartbeat_max: float = 10.0
 
     @property
     def low(self) -> bool:
@@ -61,7 +64,7 @@ def profile_for(mem_bytes: int | None, perf_cores: int | None, override: str | N
             why.append(f"{cores} performance cores")
         low, reason = bool(why), ", ".join(why)
     if low:
-        return PerfProfile("low", reason, mem_gb, cores, ax_hz=5.0, ax_idle_hz=1.0, idle_heartbeat_max=10.0)
+        return PerfProfile("low", reason, mem_gb, cores, ax_hz=5.0, ax_idle_hz=1.0)
     return PerfProfile("normal", reason, mem_gb, cores)
 
 
@@ -127,7 +130,8 @@ def detect(refresh: bool = False) -> PerfProfile:
         return _profile
 
 
-_saving: tuple[float, bool] = (0.0, False)
+_power: tuple[float, bool, bool] = (-1e18, False, False)   # (read at, Low Power Mode, on battery)
+_power_lock = threading.Lock()
 SAVING_TTL_S = 60.0
 
 
@@ -147,19 +151,35 @@ def _on_battery() -> bool:
         return False
 
 
-def power_saving(now: float | None = None) -> bool:
-    """Low Power Mode on, or running on battery. Read at most once a minute (one `pmset` spawn); macOS only.
-    MIYAGI_PERF_SAVING=1/0 forces it."""
-    global _saving
+def saving_rule(low_power_mode: bool, on_battery: bool, low_tier: bool) -> bool:
+    """Pure: Low Power Mode saves on every Mac; battery alone only on a low-tier Mac (the app's tier.ts rule: a normal
+    Mac on battery keeps its normal pace)."""
+    return bool(low_power_mode or (low_tier and on_battery))
+
+
+def _power_state(now: float) -> tuple[bool, bool]:
+    """(Low Power Mode, on battery), read at most once per SAVING_TTL_S (double-checked under a lock: the reader,
+    AX and engine threads all ask, and only one of them spawns pmset)."""
+    global _power
+    t, lpm, batt = _power
+    if now - t < SAVING_TTL_S:
+        return lpm, batt
+    with _power_lock:
+        t, lpm, batt = _power
+        if now - t < SAVING_TTL_S:
+            return lpm, batt
+        lpm, batt = _low_power_mode(), _on_battery()
+        _power = (now, lpm, batt)
+        return lpm, batt
+
+
+def power_saving(now: float | None = None, low: bool | None = None) -> bool:
+    """Saving power: Low Power Mode, or a low-tier Mac (`low`; default: this Mac's tier) on battery. Read at most once
+    a minute (one `pmset` spawn); macOS only. MIYAGI_PERF_SAVING=1/0 forces it."""
     forced = os.environ.get("MIYAGI_PERF_SAVING")
     if forced in ("0", "1"):
         return forced == "1"
     if sys.platform != "darwin":
         return False
-    now = time.time() if now is None else now
-    t, val = _saving
-    if now - t < SAVING_TTL_S:
-        return val
-    val = _low_power_mode() or _on_battery()
-    _saving = (now, val)
-    return val
+    lpm, batt = _power_state(time.time() if now is None else now)
+    return saving_rule(lpm, batt, detect().low if low is None else low)

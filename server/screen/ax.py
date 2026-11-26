@@ -800,26 +800,29 @@ def snapshot() -> AXSnapshot | None:
                 rows = _xterm_rows(focused)
                 if rows:
                     snap.editor, snap.terminal_lines = None, rows
-    snap.under_mouse = _under_mouse(snap.mouse)
+    snap.under_mouse = _under_mouse(snap.mouse, pid=pid)
     snap.read_ms = (time.perf_counter() - t0) * 1000
     return snap
 
 
 # perf (low-end Macs): AXUIElementCopyElementAtPosition is a hit test inside the app under the pointer (Chromium's
-# renderer for VS Code), the costliest call in a snapshot. A pointer that hasn't moved gets the element read at most
-# UNDER_MOUSE_TTL_S ago (only cursor_context / describe prompts read it).
+# renderer for VS Code), the costliest call in a snapshot. A pointer that hasn't moved over the same front app gets the
+# element read at most UNDER_MOUSE_TTL_S ago (only cursor_context / describe prompts read it). Keyed by (front pid,
+# pointer): an app switch under a still pointer reads again at once.
 UNDER_MOUSE_TTL_S = 1.0
-_under_cache: tuple[float, tuple[float, float] | None, Element | None] = (0.0, None, None)
+_under_cache: tuple[float, tuple | None, Element | None] = (0.0, None, None)
 
 
-def _under_mouse(mouse: tuple[float, float], now: float | None = None, read=None) -> Element | None:
+def _under_mouse(mouse: tuple[float, float], now: float | None = None, read=None, pid: int | None = None
+                 ) -> Element | None:
     global _under_cache
     now = time.time() if now is None else now
+    key = (pid, mouse)
     t, at, el = _under_cache
-    if at == mouse and now - t < UNDER_MOUSE_TTL_S:
+    if at == key and now - t < UNDER_MOUSE_TTL_S:
         return el
     el = (read or element_at)(*mouse)
-    _under_cache = (now, mouse, el)
+    _under_cache = (now, key, el)
     return el
 
 
@@ -846,6 +849,8 @@ class AXReader:
         self._latest: AXSnapshot | None = None
         self._cbs: list[Callable[[AXSnapshot, str], object]] = []
         self._stop = threading.Event()
+        self._wake = threading.Event()          # kick(): read now instead of at the (idle) period's end
+        self._fresh = threading.Condition()     # notified on every new snapshot (wait_fresh)
         self._thread: threading.Thread | None = None
         self.available = False
         self.last_error: str | None = None
@@ -867,6 +872,7 @@ class AXReader:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=2)
 
@@ -887,7 +893,29 @@ class AXReader:
         while not self._stop.is_set():
             t0 = time.time()
             self._step(snapshot, t0)
-            self._stop.wait(max(0.01, self.next_period(t0) - (time.time() - t0)))
+            self._wake.wait(max(0.01, self.next_period(t0) - (time.time() - t0)))
+            self._wake.clear()
+
+    def kick(self) -> None:
+        """Read now (a click, scroll, app switch or a Check): ends an idle wait at once and runs at the active rate
+        again. Cheap; safe from any thread."""
+        self._active_at = time.time()
+        self._wake.set()
+
+    def wait_fresh(self, since: float, timeout: float = 0.3) -> AXSnapshot | None:
+        """Kick, then wait up to `timeout` s for a snapshot taken at or after `since` (time.time()). -> it, or None
+        when none came in time (no reader thread, AX stalled): the caller then uses no AX rather than an older one."""
+        deadline = time.time() + timeout
+        self.kick()
+        with self._fresh:
+            while True:
+                snap = self._latest
+                if snap is not None and snap.t >= since:
+                    return snap
+                left = deadline - time.time()
+                if left <= 0 or self._stop.is_set():
+                    return None
+                self._fresh.wait(left)
 
     def _step(self, read, now: float) -> None:
         """One snapshot: diff it against the last one, note activity. `read` is ax.snapshot (tests pass a fake)."""
@@ -898,7 +926,9 @@ class AXReader:
                 if _active(self._latest, snap):
                     self._active_at = now
                 self._diff(self._latest, snap)
-                self._latest = snap
+                with self._fresh:
+                    self._latest = snap
+                    self._fresh.notify_all()
                 self.last_error = None
         except Exception as e:  # noqa: BLE001
             self.last_error = f"{e.__class__.__name__}: {e}"

@@ -36,3 +36,14 @@ test('perf.css: only under data-low-power, and never stops a progress indicator'
   }
   assert.doesNotMatch(rules, /mg-spin|mg-thinking|mg-skeleton|bd-dots|bd-bars/)
 })
+
+test('perf: pmset Low Power Mode line, both spellings', async () => {
+  // main/features/perf.ts imports electron; the regex is the contract, kept in step here.
+  const LPM_LINE = /\b(lowpowermode|powermode)\s+1\b/
+  const src = readFileSync(new URL('../src/main/features/perf.ts', import.meta.url), 'utf8')
+  assert.ok(src.includes(String(LPM_LINE)), 'perf.ts LPM_LINE changed: update this test')
+  assert.equal(LPM_LINE.test(' lowpowermode         1\n'), true)
+  assert.equal(LPM_LINE.test(' powermode            1\n'), true)
+  assert.equal(LPM_LINE.test(' lowpowermode         0\n powermode 0'), false)
+  assert.equal(LPM_LINE.test(' highpowermode 1'), false)
+})
