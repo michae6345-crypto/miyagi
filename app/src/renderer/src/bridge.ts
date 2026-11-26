@@ -13,8 +13,14 @@ import { parseEngineMessage, type Incoming, type Outgoing } from '../../common/w
 import { describePlatform } from '../../main/platform'
 import type { Layout, TutBridge, UiSignal, Unsub } from '../../preload/api'
 import { stageNotch } from '../../common/notch'
-import { createMockEngine, type MockEngine } from '../../../mock/engine'
-import { scenarios } from '../../../mock/scenarios'
+import type { MockEngine } from '../../../mock/engine'
+
+/**
+ * The stage's mock engine, scenarios and fixture stand-ins (dev/stageMocks.ts). Only a dev build loads them, through
+ * a dynamic import: in `npm run build` import.meta.env.DEV is false, the import is dropped, and the packaged renderer
+ * carries no mock data. Electron never reaches this (window.tut is set), so neither do the node tests.
+ */
+type StageMocks = typeof import('./dev/stageMocks')
 
 export type EngineMode = 'electron' | 'socket' | 'inline'
 
@@ -44,6 +50,9 @@ type LinkInfo = { open: boolean; attempting: boolean; failures: number }
 
 function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   const params = new URLSearchParams(location.search)
+  const mocks: Promise<StageMocks | undefined> = import.meta.env.DEV
+    ? import('./dev/stageMocks').catch((e: unknown) => (console.warn('[tut] stage mocks failed to load', e), undefined))
+    : Promise.resolve(undefined)
   const platform = describePlatform(params.get('os') === 'win' ? 'win32' : 'darwin')
   const bus = new Map<string, Set<Cb>>()
   const fire = (name: string, payload?: unknown): void => bus.get(name)?.forEach((cb) => cb(payload))
@@ -73,17 +82,24 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     fire('feat:engine-link', l)
   }
 
+  let starting = false
   const startInline = (): void => {
-    if (inline) return
+    if (inline || starting) return
+    starting = true
     mode = 'inline'
-    const name = params.get('scenario') ?? 'full'
-    inline = createMockEngine(scenarios[name] ?? scenarios.full, dispatch, true, onFakeLink)
-    if (!scenarios[name]) console.warn(`[tut] no scenario "${name}"; have: ${Object.keys(scenarios).join(', ')}`)
-    console.info(`[tut] no engine answered: running the "${name}" mock inline`)
-    setStatus(true)
-    fire('feat:engine-link', { open: true, attempting: false, failures: 0 })
-    inline.start()
-    for (const m of queue.splice(0)) inline.handle(JSON.parse(m))
+    void mocks.then((m) => {
+      if (!m) return console.warn('[tut] this build has no mock engine: run npm run dev:web, or pass ?engine=socket')
+      const { createMockEngine, scenarios } = m
+      const name = params.get('scenario') ?? 'full'
+      const engine = createMockEngine(scenarios[name] ?? scenarios.full, dispatch, true, onFakeLink)
+      inline = engine
+      if (!scenarios[name]) console.warn(`[tut] no scenario "${name}"; have: ${Object.keys(scenarios).join(', ')}`)
+      console.info(`[tut] no engine answered: running the "${name}" mock inline`)
+      setStatus(true)
+      fire('feat:engine-link', { open: true, attempting: false, failures: 0 })
+      engine.start()
+      for (const q of queue.splice(0)) engine.handle(JSON.parse(q))
+    })
   }
 
   // The engine link as main reports it (main/engine.ts LinkInfo, review A16), same retry timing: every 1 s for the first
@@ -284,6 +300,8 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
       }
     },
     async invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+      // Some stand-ins register from dev/stageMocks.ts: wait for it before looking a handler up.
+      await mocks
       const fn = webHandlers.get(channel)
       if (!fn) throw new Error(`[tut] no web handler for "${channel}" (registerWebHandler in the feature)`)
       return (await fn(...args)) as T

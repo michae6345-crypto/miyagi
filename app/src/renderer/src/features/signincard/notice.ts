@@ -24,7 +24,8 @@ export type CloudNotice = { reason: string; status: number; resetsAt?: string }
  *   user    user_daily_cap: a signed-in learner's daily help
  *   daily   daily_requests / daily_spend: this install's (or network's) daily help
  *   global  daily_usd: the service-wide daily brake
- *   builds  lesson_builds (miyagi_lesson_quota): this month's new lesson builds
+ *   builds  lesson_builds (miyagi_lesson_quota): this month's shared builds. The lesson still builds here, just not
+ *           shared, so the line says that calmly and never says the learner ran out of lessons
  *   rate    *_hourly / rate_limit_error: too many requests just now
  *   full    new_installs / install_daily / install_global (miyagi_full): no room for new installs today
  *   other   a 429 this build doesn't know yet
@@ -108,6 +109,9 @@ export function formatReset(iso: string | undefined, now: Date = new Date(), opt
   return `on ${new Intl.DateTimeFormat(locale, { timeZone, month: 'short', day: 'numeric' }).format(t)}`
 }
 
+/** The lesson_builds cap: the lesson builds here all the same, only slower. */
+export const BUILDS_LINE = 'This lesson builds right here. It may take a minute.'
+
 /** The cap line: what ran out, then when it comes back. 12 words or fewer, no alarm. */
 export function capLine(n: CloudNotice, now: Date = new Date(), opts: ResetOpts = {}): string {
   const cap = capKind(n.reason)
@@ -123,7 +127,8 @@ export function capLine(n: CloudNotice, now: Date = new Date(), opts: ResetOpts 
     case 'global':
       return `miyagi is at today's limit. ${resets}`
     case 'builds':
-      return `You've used this month's new lessons. ${when ? `More ${when}.` : 'More soon.'}`
+      // cloud_cache.claim "denied": the build runs here anyway. Nothing ran out for the learner.
+      return BUILDS_LINE
     case 'rate':
       return `Too many requests just now. ${retry}`
     case 'full':

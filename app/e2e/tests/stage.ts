@@ -65,7 +65,13 @@ export async function openStage(page: Page, query: Record<string, string>, theme
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
   // Offline: only the stage itself (YouTube embeds, fonts CDNs, the cloud are never reached).
   await page.route(/^https?:\/\/(?!localhost[:/]|127\.0\.0\.1[:/])/, (r) => r.abort())
+  // The mock engine and the Stage load through dev-only dynamic imports (bridge.ts, main.tsx): wait for the inline
+  // mock to start in real time, or the scenario would begin partway through the virtual run below.
+  const mockStarted = page
+    .waitForEvent('console', { predicate: (m) => m.text().includes('[tut] no engine answered'), timeout: 15_000 })
+    .catch(() => undefined)
   await page.goto('/?' + new URLSearchParams({ ...query, appearance: theme }).toString(), { waitUntil: 'load' })
+  await mockStarted
   await page.evaluate(() => document.fonts.ready)
   await page.addStyleTag({ content: HIDE_CSS })
   // Virtual time: the scenario's scripted start-up (capped), then SETTLE_MS for app timers and transitions.

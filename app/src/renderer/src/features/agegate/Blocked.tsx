@@ -19,7 +19,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { fade } from '../../core/ui/motion'
 import { TextLink } from '../account/ui'
 import { useAuth } from '../auth/store'
-import { deleteAccount, type EraseStep } from '../settings/privacy/erase'
+import { deleteAccount, wiped, type EraseStep } from '../settings/privacy/erase'
 import { DELETE } from '../settings/privacy/facts'
 import { COPY, Frame } from './Steps'
 
@@ -53,7 +53,7 @@ export function Blocked(): ReactNode {
   }, [step])
 
   useEffect(() => {
-    if (step !== 'done' && step !== 'pending') return
+    if (!wiped(step)) return
     const t = setTimeout(() => void bridge.invoke('account:restart').catch(() => undefined), RESTART_MS)
     return () => clearTimeout(t)
   }, [step])
@@ -67,7 +67,7 @@ export function Blocked(): ReactNode {
 
   // Shown while signed in, and through the delete's own outcome (the sign-out clears the user mid-way).
   const deleting = step !== 'offer' || !!user
-  const line = step === 'done' ? BLOCKED_COPY.done : step === 'pending' ? DELETE.pending : step === 'offline' ? DELETE.offline : step === 'refused' ? DELETE.refused : undefined
+  const line = step === 'done' ? BLOCKED_COPY.done : step === 'pending' ? DELETE.pending : step === 'email' ? DELETE.email : step === 'offline' ? DELETE.offline : step === 'refused' ? DELETE.refused : undefined
 
   return (
     <Frame

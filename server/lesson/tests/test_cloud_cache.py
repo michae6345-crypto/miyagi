@@ -94,7 +94,7 @@ def cloud(monkeypatch):
     monkeypatch.setattr(cloud_cache, "_client", lambda timeout: FakeClient(c))
     monkeypatch.setattr(cloud_cache, "HELD_POLL_S", 0.01)
     monkeypatch.setattr(cloud_cache, "HELD_WAIT_S", 0.3)
-    monkeypatch.delenv(cloud_cache.ENV_OFF, raising=False)
+    monkeypatch.setenv(cloud_cache.ENV_OFF, "1")  # the shared cache is off by default: these tests turn it on
     cloud_cache.reset()
     yield c
     cloud_cache.reset()
@@ -225,6 +225,29 @@ def test_the_cloud_off_means_no_calls(fake, cloud, monkeypatch):
     monkeypatch.setenv(cloud_cache.ENV_OFF, "0")
     _build(refresh=True)
     assert cloud.calls == []
+
+
+def test_the_shared_cache_is_off_by_default(fake, cloud, monkeypatch):
+    """Stopgap (deploy audit Nov 25): the cloud serves the first upload of a video with no review, so with the cloud on
+    and no MIYAGI_LESSON_CACHE=1 nothing is downloaded, claimed or uploaded."""
+    monkeypatch.delenv(cloud_cache.ENV_OFF, raising=False)
+    assert config.cloud_on() and not cloud_cache.enabled()
+    g = _build()
+    assert g["steps"] and cloud.calls == []  # built here, never asked for nor shared
+    assert asyncio.run(cloud_cache.share(g, VID)) == "skipped" and cloud.calls == []
+
+
+def test_a_cloud_capability_turns_the_shared_cache_on_and_the_env_flag_wins(monkeypatch, cloud):
+    monkeypatch.delenv(cloud_cache.ENV_OFF, raising=False)
+    cloud_cache.set_cloud_capabilities(["something_else"])
+    assert not cloud_cache.enabled()
+    cloud_cache.set_cloud_capabilities([cloud_cache.CAPABILITY])
+    assert cloud_cache.enabled()
+    monkeypatch.setenv(cloud_cache.ENV_OFF, "0")  # =0 keeps it off whatever the cloud says
+    assert not cloud_cache.enabled()
+    monkeypatch.setenv(cloud_cache.ENV_OFF, "1")
+    cloud_cache.set_cloud_capabilities(None)
+    assert cloud_cache.enabled()
 
 
 # ------------------------------------------------------------------------------------------ someone else is building

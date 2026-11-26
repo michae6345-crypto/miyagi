@@ -5,7 +5,8 @@
 #   npm run ship:mac                    # build + ad-hoc sign + dmg  → app/dist/Miyagi-Mac.dmg
 #   npm run ship:mac -- --zip           # also app/dist/Miyagi-Mac.zip (what install.sh --app still downloads)
 #   npm run ship:mac -- --universal     # Apple silicon + Intel (bigger download)
-#   npm run ship:mac -- --publish       # also upload to the "mac" release (needs `gh auth login` + write access)
+#   npm run ship:mac -- --publish       # also upload to the "mac" release (needs `gh auth login` + write access),
+#                                       # then title it "miyagi <version>" and rewrite its notes (scripts/release-notes.sh)
 #
 # Env: MIYAGI_ENGINE_REF (default HEAD, this commit), MIYAGI_RELEASE_REPO (default adrian-erlikhman/miyagi),
 #      MIYAGI_DMG_FORMAT (default ULMO = lzma, macOS 10.15+; ULFO = lzfse, the format electron-builder writes).
@@ -85,12 +86,20 @@ fi
 echo "[ship] app on disk: $(du -sh "$APP" | cut -f1), engine inside: $(cat "$APP/Contents/Resources/engine/VERSION")"
 
 if [ "$PUBLISH" = 1 ]; then
-  echo "[ship] uploading to $REPO release 'mac'"
+  # The update card (features/updates/manifest.ts readRelease) finds the version in the title, so every publish
+  # titles the release "miyagi <version>" (app/package.json) and rewrites the notes for this build.
+  VERSION="$(node -p "require('./package.json').version")"
+  BUILD="$(git rev-parse --short=8 HEAD)"
+  NOTES="$(mktemp -t miyagi-notes)"
+  trap 'rm -f "$NOTES"' EXIT
+  bash scripts/release-notes.sh "$VERSION" "$BUILD" > "$NOTES"
+  echo "[ship] uploading to $REPO release 'mac' (miyagi $VERSION, build $BUILD)"
   gh release upload mac "$DMG" --clobber --repo "$REPO"
   if [ -f dist/Miyagi-Mac.zip ]; then
     gh release upload mac dist/Miyagi-Mac.zip --clobber --repo "$REPO"
   else
     echo "[ship] note: no zip uploaded, so install.sh --app (it downloads Miyagi-Mac.zip) keeps the old build. Add --zip to refresh it."
   fi
+  gh release edit mac --title "miyagi $VERSION" --notes-file "$NOTES" --repo "$REPO"
 fi
 echo "[ship] done. Test it (SHIP.md, 'Test before you publish') before anyone downloads it."

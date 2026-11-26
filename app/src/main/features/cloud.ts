@@ -7,6 +7,10 @@
  *      MIYAGI_CLOUD_URL=off (or 0 / false) = off: no network call at all (BYOK and the engine's own .env keep working).
  *   2. First run with a URL and no token: POST <host>/v1/install {app, os, arch} → {token, token_id}. One attempt per
  *      launch at start, again on an engine connect at most every RETRY_MS, or on cloud:retry.
+ *      Never before the age step and the consent screen are done (mintAllowed: agegate.ts ageStepCleared() and the
+ *      launch gate's consent part, main/gate.ts). Until then the phase reads 'minting' (on its way, no error) and the
+ *      mint waits; it runs once the gate's consent part or the age record changes and both are through. A token
+ *      already in install.bin is used as before: that needs no call.
  *   3. The token ("mi_" + random) is kept in userData/install.bin, encrypted with safeStorage (login Keychain on the
  *      Mac), exactly like the BYOK keys (features/settings.ts). No secure storage → memory for this run only.
  *   4. It reaches the engine only inside config.keys (miyagiToken + miyagiCloud), via EngineLink.setCloud: memory
@@ -34,6 +38,8 @@ import { app, safeStorage } from 'electron'
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
+import { gateView, onGate } from '../gate'
+import { ageStepCleared, onAgeChange } from './agegate'
 
 export type CloudPhase = 'off' | 'minting' | 'ok' | 'failed'
 /** What a renderer may see: never the token. */
@@ -88,6 +94,14 @@ export function envCloudUrl(env: NodeJS.ProcessEnv = process.env, packaged: bool
   const v = env.MIYAGI_CLOUD_URL
   if (packaged && v !== undefined && !OFF_RE.test(v.trim())) return undefined
   return v
+}
+
+/**
+ * May this launch ask miyagi-cloud for an install token? Only once the learner is through the age step (a band on
+ * file, no block) and agreed to this build's terms (the launch gate's consent part). Read live on every mint.
+ */
+export function mintAllowed(age: boolean = ageStepCleared(), consent: boolean = gateView().consent): boolean {
+  return age && consent
 }
 
 /** What the engine gets as config.keys.miyagiCloud: the proxy's API root (server/config.py cloud_url()). */
@@ -230,6 +244,8 @@ export default defineMainFeature({
     let inFlight: Promise<void> | undefined
     /** The cloud said 451 region_unavailable this launch: no automatic mint or heal until the learner retries. */
     let region = false
+    /** A mint waited for the age step and consent: run it once both are through. */
+    let deferred = false
 
     const view = (): CloudView => ({ state, configured: !!url, secure, hasToken: !!stored, ...(region ? { region: true } : {}) })
     const publish = (): void => ctx.broadcast('cloud', view())
@@ -264,6 +280,16 @@ export default defineMainFeature({
     const mint = (): Promise<void> => {
       if (!url || stored) return Promise.resolve()
       if (inFlight) return inFlight
+      if (!mintAllowed()) {
+        // Before the age step and consent: no call at all. On its way, not an error.
+        deferred = true
+        if (state !== 'minting') {
+          state = 'minting'
+          publish()
+        }
+        return Promise.resolve()
+      }
+      deferred = false
       lastTry = Date.now()
       state = 'minting'
       publish()
@@ -337,6 +363,13 @@ export default defineMainFeature({
       }
       apply()
     }
+
+    // The age step or the consent screen just finished: the mint that waited runs now (once).
+    const afterGate = (): void => {
+      if (deferred && url && !stored && !region && mintAllowed()) void mint()
+    }
+    onGate(afterGate)
+    onAgeChange(afterGate)
 
     apply()
     void mint()

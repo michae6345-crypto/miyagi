@@ -620,9 +620,11 @@ def test_live_mode_reports_failures_instead_of_faking(rig):
 
     run(go())
     errors = [e["message"] for e in r2.of("error")]
-    assert any("finder.search isn't available" in m for m in errors)
-    assert any("Coach unavailable: coach.diagnose failed: RuntimeError: api down" in m for m in errors)
-    assert any("diagrams.build isn't available" in m for m in errors)
+    from server.orchestrator.session import COACH_DOWN
+    assert "Search failed. Paste a YouTube link instead." in errors  # each failure is said, in plain words ...
+    assert COACH_DOWN in errors
+    assert "That didn't work. Try again in a moment." in errors
+    assert not any("available" in m or "api down" in m or "RuntimeError" in m for m in errors)  # ... never its text
     assert r2.of("search.done") == [{"total": 0}] and not r2.of("search.result")
     assert not r2.of("offtrack") and not r2.of("diagram")
 
@@ -1586,6 +1588,33 @@ def _fake_preflight(prefetched):
                                  prefetch=lambda rows, goal, **kw: prefetched.append((len(rows), goal)))
 
 
+def test_a_preflight_crash_toast_never_shows_the_exception(rig):
+    built = []
+    mod = _fake_preflight([])
+
+    async def boom(url, goal, row=None, on_late=None, api_keys=None):
+        raise RuntimeError("KeyError: 'kind' in /Users/someone/preflight.py")
+
+    mod.preflight = boom
+    rig.s.m._preflight_mod = lambda: mod
+
+    async def build(url, goal, workdir, **kw):
+        built.append(url)
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn("build chat gpt")
+        await rig.s.build_lesson(["r1"])
+        await rig.settle()
+
+    run(go())
+    errs = [e["message"] for e in rig.of("error")]
+    assert "Couldn't check this video first; building it anyway." in errs and built
+    assert not any("KeyError" in m or "/Users" in m for m in errs)
+
+
 def test_preflight_before_build_then_build_or_pick_another(rig):
     prefetched, built = [], []
     rig.s.m._preflight_mod = lambda: _fake_preflight(prefetched)
@@ -1795,7 +1824,8 @@ def test_offline_coach_errors_once_per_step_and_backs_off(rig):
             await rig.settle()
 
     run(go())
-    assert len([e for e in rig.of("error") if "Coach unavailable" in e["message"]]) == 1
+    from server.orchestrator.session import COACH_DOWN
+    assert len([e for e in rig.of("error") if e["message"] == COACH_DOWN]) == 1
     assert 2 <= len(calls) <= 4  # retried with backoff (15 s, 30 s...), not every second
 
 
@@ -2166,7 +2196,7 @@ def test_gemini_budget_stage_and_error_wording():
 
     st = BuildStage()
     st.on_progress("engine_switch", "budget")
-    assert st.text == "Today's Gemini budget is used up — reading the transcript instead"
+    assert st.text == "Today's Gemini budget is used up; reading the transcript instead"
     assert human_build_error(RuntimeError("no engine: gemini budget exhausted; transcript 429")).startswith(
         "Today's Gemini budget is used up")
 
@@ -2625,7 +2655,7 @@ def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch
 
     run(go())
     errs = [e["message"] for e in rig.of("error")]
-    assert errs == ["Miyagi can't see your screen. Check Screen Recording in System Settings."]
+    assert errs == ["miyagi can't see your screen. Check Screen Recording in System Settings."]
     assert rig.of("card")[-1]["title"] == "I can't see your screen"
 
 

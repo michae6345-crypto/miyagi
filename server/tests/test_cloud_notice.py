@@ -58,7 +58,7 @@ class _Claims:
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
-    monkeypatch.delenv(cloud_cache.ENV_OFF, raising=False)
+    monkeypatch.setenv(cloud_cache.ENV_OFF, "1")  # the shared cache is off by default: these tests turn it on
     monkeypatch.setattr(config, "cloud_url", lambda: CLOUD)
     monkeypatch.setattr(config, "cloud_token", lambda: TOKEN)
     verdicts: list = []

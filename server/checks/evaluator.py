@@ -1646,6 +1646,18 @@ _HOME_PATH = re.compile(r"^\s*/(?:Users|home)/([^/\s]+)\s*$")
 _GIT_SECTION_WORDS = {"untracked": "Untracked files", "staged": "Changes to be committed"}
 
 
+def _staged_since_status(bl: list[blocks.Block], i: int, rows: list[int], want: str) -> bool:
+    """A "staged" check matched on the command row of a clean ``git add`` (``git add learning.py``) that ran after every
+    ``git status`` listing on screen: the add is the newest word on what is staged, and an older listing (made before
+    it) can't say the file isn't. A later listing still decides (its own rows are the hit then)."""
+    b = bl[i]
+    if want != _GIT_SECTION_WORDS["staged"] or not b.command or 0 not in rows or b.failure() is not None:
+        return False
+    if not any(blocks.program_and_sub(s) == ("git", "add") for s in blocks.segments(b.command)):
+        return False
+    return not any(blocks.git_section(e.rows, len(e.rows)) for e in bl[i + 1:])
+
+
 def _scan_steps_cmds(check: dict) -> list[str]:
     return [*(check.get("_target_cmds") or []), *([check["_run_command"]] if check.get("_run_command") else [])]
 
@@ -1691,7 +1703,7 @@ def _not_the_steps_result(check: dict, ctx: RunContext, bl: list[blocks.Block], 
     status_shown = any(blocks.git_section(e.rows, len(e.rows)) for e in bl)  # a git status listing is on screen
     if want and status_shown and not re.search(r"\b(?:un|not\s+)staged\b", label, re.I):
         rows = [k for k, r in enumerate(b.rows) if search_wrapped(pattern, r)]
-        if not any(blocks.git_section(b.rows, k) == want for k in rows):
+        if not any(blocks.git_section(b.rows, k) == want for k in rows) and not _staged_since_status(bl, i, rows, want):
             return f"not listed under {want!r} in git status"
     if re.search(r"\bhome\b", label, re.I) and b.command is not None and (user := blocks.prompt_user(b.rows[0])):
         paths = [m for r in b.output if (h := search_screen(pattern, r)) and (m := _HOME_PATH.match(h.group(0)))]

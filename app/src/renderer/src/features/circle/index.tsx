@@ -21,7 +21,7 @@ import { PTT_ENABLED } from '../../../../common/flags'
 import { isElectron } from '../../bridge'
 import { defineFeature } from '../../core/registry'
 import { CircleLayer } from './Layer'
-import './web'
+// The stage's stand-in (./web.ts, scenario words) loads from dev/stageMocks.ts in a dev build only.
 
 /** The browser stage can show it with push to talk off (?circle=...); Electron follows PTT_ENABLED only. */
 const stageOn = !isElectron && typeof location !== 'undefined' && new URLSearchParams(location.search).has('circle')

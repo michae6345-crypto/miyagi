@@ -1,5 +1,5 @@
 import './styles.css'
-import { StrictMode, useEffect, useState, type ReactNode } from 'react'
+import { lazy, StrictMode, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MotionConfig } from 'motion/react'
 import type { Layout } from '../../preload/api'
@@ -12,7 +12,6 @@ import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
 import { installEditKeys } from './core/editKeys'
-import { Stage } from './dev/Stage'
 import { stageNotch } from '../../common/notch'
 
 // macOS: Backspace, Delete, ←/→ and ⌘A keep working in a field of a non-activating panel (the launcher, Settings), where
@@ -24,6 +23,9 @@ if (isElectron && bridge.platform.os === 'mac') installEditKeys()
  * In a browser (npm run dev:web) every route shows the stage; #/launcher opens the launcher on load.
  */
 const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 'stage')
+
+/** The browser stage (fake desktop and dev tools): a dev build only, through a dynamic import, so `npm run build` drops it. */
+const Stage = import.meta.env.DEV ? lazy(() => import('./dev/Stage').then((m) => ({ default: m.Stage }))) : undefined
 
 function useEngineFeed(): Layout {
   const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, notch: { hasNotch: false, x: (innerWidth - 185) / 2, width: 185, height: 32, place: 'below' }, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
@@ -56,7 +58,12 @@ function ElectronOverlay({ layout }: { layout: Layout }): ReactNode {
 
 function App(): ReactNode {
   const layout = useEngineFeed()
-  if (!isElectron) return <Stage openLauncher={route === 'launcher'} />
+  if (!isElectron)
+    return Stage ? (
+      <Suspense fallback={null}>
+        <Stage openLauncher={route === 'launcher'} />
+      </Suspense>
+    ) : null
   if (route === 'overlay') return <ElectronOverlay layout={layout} />
   const win = getFeatureWindows().find((w) => w.route === route)
   if (!win) return <div className="p-4 text-red-400">No feature window for route "{route}"</div>

@@ -215,13 +215,13 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
     signedIn = !!account?.signedIn
     name = signedIn ? (account?.name ?? account?.email ?? 'Signed in') : 'Not signed in'
     right = signedIn ? planLabel(account!.plan) : 'Sign in'
-    line = signedIn ? `${planLabel(account!.plan)} plan` : 'Sign in to sync'
+    line = signedIn ? `${planLabel(account!.plan)} plan` : 'Sign in'
     initial = signedIn ? initialOf(name) : undefined
   } else if (login) {
     signedIn = !!user
     name = user ? (user.name ?? user.email ?? 'Signed in') : 'Not signed in'
     right = user ? '' : 'Sign in'
-    line = user ? (user.email ?? 'Signed in') : 'Sign in to sync'
+    line = user ? (user.email ?? 'Signed in') : 'Sign in'
     initial = user?.avatarInitial
   } else {
     name = 'This Mac'

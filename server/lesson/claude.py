@@ -13,6 +13,7 @@ import copy
 import json
 import logging
 import os
+import re
 
 import anthropic
 from jsonschema import Draft202012Validator
@@ -92,12 +93,84 @@ def client() -> anthropic.AsyncAnthropic:
     return _client
 
 
+OFFLINE_LINE = "miyagi can't reach the internet. Check your connection and try again."
+CLAUDE_UNREACHABLE = "Claude unreachable"  # the log text of a network failure (no connection, DNS, TLS)
+
+
+class LessonCallError(RuntimeError):
+    """A model call that ended for a reason the learner can be told in one line, and that is never retried.
+    `code` names it (a server.config.CLOUD_ERRORS key, or "offline"); `line` is the learner-facing sentence. str() is
+    "<code>: <line>" (plus a detail for the log), so code that matches the text keeps working."""
+
+    code = "error"
+
+    def __init__(self, code: str, line: str, detail: str = ""):
+        super().__init__(f"{code}: {line}" + (f" ({detail})" if detail else ""))
+        self.code, self.line = code, line
+
+
+class CloudRefusal(LessonCallError):
+    """The miyagi cloud turned the call away: miyagi_paused | miyagi_quota | miyagi_auth | miyagi_region (429 quota,
+    401/403 auth, 451 region, 503 paused). The same call would be refused again, so it is never retried, escalated or
+    re-sent, and later calls in this run skip the request while the cloud's verdict holds (_refused_now)."""
+
+    def __init__(self, code: str):
+        super().__init__(code, server_config.CLOUD_ERRORS[code])
+
+
+class ClaudeOffline(LessonCallError):
+    """No connection to Claude (or the miyagi cloud) at all. The str() keeps "Claude unreachable" for the log."""
+
+    def __init__(self, detail: str = ""):
+        RuntimeError.__init__(self, f"{CLAUDE_UNREACHABLE}: {detail}" if detail else CLAUDE_UNREACHABLE)
+        self.code, self.line = "offline", OFFLINE_LINE
+
+
+_CODE_RE = re.compile(r"\b(" + "|".join(map(re.escape, server_config.CLOUD_ERRORS)) + r")\b")
+
+
+def user_line(err: "BaseException | str | None") -> str | None:
+    """The learner-facing sentence for a lesson model failure, or None when it is not one of ours: a typed
+    LessonCallError's line, else a miyagi cloud code (miyagi_quota ...) or "Claude unreachable" found in the text
+    (errors are often joined into one string, "no engine could build the lesson:\\nclaude: miyagi_quota: ...")."""
+    if err is None:
+        return None
+    cause: BaseException | None = err if isinstance(err, BaseException) else None
+    while cause is not None:
+        if isinstance(cause, LessonCallError):
+            return cause.line
+        cause = cause.__cause__
+    text = str(err)
+    if m := _CODE_RE.search(text):
+        return server_config.CLOUD_ERRORS[m.group(1)]
+    if CLAUDE_UNREACHABLE.lower() in text.lower():
+        return OFFLINE_LINE
+    return None
+
+
 def _cloud_fail(e: Exception) -> None:
-    """The miyagi cloud turned the call away (paused, over today's limit, install not verified): stop with the
-    plain card text instead of retrying it as a rate limit or reporting a bad key."""
+    """The miyagi cloud turned the call away (paused, over today's limit, install not verified, region): stop with the
+    plain card text (CloudRefusal) instead of retrying it as a rate limit or reporting a bad key."""
     code = server_config.cloud_error(e)
     if code:
-        raise RuntimeError(f"{code}: {server_config.CLOUD_ERRORS[code]}") from e
+        raise CloudRefusal(code) from e
+
+
+_VERDICT_CODES = {"quota": "miyagi_quota", "paused": "miyagi_paused", "unauthorized": "miyagi_auth"}
+
+
+def _refused_now() -> str | None:
+    """The cloud code a call through the miyagi cloud would get right now, without asking: the region block (451, this
+    run), or the live verdict on the current install token (over today's limit, paused, not verified). A Settings key
+    (_override_key) or a direct key never goes through the cloud: None."""
+    if _override_key:
+        return None
+    if server_config.region_blocked("anthropic"):
+        return "miyagi_region"
+    if server_config.mode("anthropic") != "cloud":
+        return None
+    v = server_config.cloud_verdict()
+    return _VERDICT_CODES.get(v["state"]) if v else None
 
 
 def strict_schema(schema: dict) -> dict:
@@ -306,8 +379,8 @@ async def _call_once(mid: str, system: "str | tuple[str, ...]", prompt: "str | l
         fb = {"betas": [server_config.FALLBACK_BETA], "fallbacks": "default"}
     kwargs.update(fb)
     fast = _use_fast() and mid.startswith("claude-opus-5-5")
-    if not _override_key and server_config.region_blocked("anthropic"):  # 451 this run: the same answer, no call
-        raise RuntimeError(f"miyagi_region: {server_config.CLOUD_ERRORS['miyagi_region']}")
+    if refused := _refused_now():  # 451 this run, or today's limit / paused / not verified: the same answer, no call
+        raise CloudRefusal(refused)
     api = client().beta.messages if "betas" in kwargs else client().messages
     try:
         try:
@@ -339,8 +412,9 @@ async def _call_once(mid: str, system: "str | tuple[str, ...]", prompt: "str | l
     except anthropic.APIStatusError as e:  # 4xx/5xx after the SDK's own retries
         _cloud_fail(e)
         raise RuntimeError(f"Claude call failed ({e.status_code}): {str(e)[:300]}") from e
-    except anthropic.APIConnectionError as e:
-        raise RuntimeError(f"Claude unreachable: {e}") from e
+    except anthropic.APIConnectionError as e:  # (APITimeoutError too) after the SDK's own retries
+        log.warning("Claude unreachable: %s", str(e)[:200])
+        raise ClaudeOffline(type(e).__name__) from e
     # tokens, cache reads/writes and dollars into the build + session tallies; logs the cache hit rate
     cost.record_usage(getattr(msg, "model", None) or mid, getattr(msg, "usage", None) or {},
                       label="claude" + (" fast" if fast else ""))
@@ -382,8 +456,9 @@ async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str 
         obj = await _generate_json_on(mid, system, prompt, schema, effort=effort, structured=structured, **px)
         problem = check(obj) if check else None
     except RuntimeError as e:
-        if not escalate or mid == escalation_model() or "rejected the API key" in str(e) or "rate-limited" in str(e):
-            raise
+        if (not escalate or mid == escalation_model() or isinstance(e, LessonCallError)
+                or "rejected the API key" in str(e) or "rate-limited" in str(e)):
+            raise  # a cloud refusal or no connection: another model would be refused / unreachable the same way
         problem = str(e)[:160]
     if not problem:
         return obj

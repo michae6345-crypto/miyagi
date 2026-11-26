@@ -13,15 +13,19 @@ import type { DeleteResult } from '../keys'
 
 /**
  * done: the account and this Mac's data are gone. pending: this Mac's are, the account goes within 30 days.
+ * email: this Mac's are; the cloud has no delete route (404), so the learner emails support to remove the account.
  * offline: the server couldn't be reached. refused: signed in, and the server couldn't delete the account (401 after a
  * refresh). In both of those nothing was deleted anywhere.
  */
-export type EraseStep = 'done' | 'pending' | 'offline' | 'refused'
-export type AccountOutcome = 'deleted' | 'none' | 'pending'
+export type EraseStep = 'done' | 'pending' | 'email' | 'offline' | 'refused'
+export type AccountOutcome = 'deleted' | 'none' | 'pending' | 'email'
+
+/** This Mac's data is gone (the line says so, then the app starts again). */
+export const wiped = (s: string): boolean => s === 'done' || s === 'pending' || s === 'email'
 
 export type Erase = {
   step: EraseStep
-  /** main's account answer (done or pending only). */
+  /** main's account answer (done, pending or email only). */
   account?: AccountOutcome
   /** false: something on this Mac couldn't be removed (main logs which, never the path). */
   local: boolean
@@ -40,7 +44,7 @@ function clean(raw: unknown): MainAnswer | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const r = raw as Record<string, unknown>
   if (r.ok !== true) return { ok: false, reason: typeof r.reason === 'string' ? r.reason : 'unreachable' }
-  const account = r.account === 'deleted' || r.account === 'pending' || r.account === 'none' ? r.account : undefined
+  const account = r.account === 'deleted' || r.account === 'pending' || r.account === 'none' || r.account === 'email' ? r.account : undefined
   return account ? { ok: true, account, local: r.local === true } : undefined
 }
 
@@ -52,5 +56,5 @@ export async function deleteAccount(invoke: Invoke, opts: { lessons: boolean }):
     (v) => v === true,
     () => false
   )
-  return { step: r.account === 'pending' ? 'pending' : 'done', account: r.account, local: r.local, deleted: deleted?.ok ? deleted : undefined, signedOut }
+  return { step: r.account === 'pending' ? 'pending' : r.account === 'email' ? 'email' : 'done', account: r.account, local: r.local, deleted: deleted?.ok ? deleted : undefined, signedOut }
 }

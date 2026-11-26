@@ -11,8 +11,12 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import cloud, { isRegionBlock, type CloudView } from '../src/main/features/cloud'
+import { setGatePart } from '../src/main/gate'
 import { createSessionClient } from '../src/main/features/cloudSession/client'
 import { CLOUD, FakeCloud, FakeSupabase, makeHarness, makeJwt, stubFetch, until, type Harness } from './harness'
+
+// cloud.ts mints only after the age step and consent (mintAllowed): this file tests what comes after both.
+setGatePart('consent', true)
 
 let fake: FakeCloud
 let h: Harness

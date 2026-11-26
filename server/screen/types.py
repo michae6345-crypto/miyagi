@@ -7,19 +7,29 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
-PERMISSION_HELP = (
-    "Screen capture is blocked. Grant Screen Recording permission:\n"
-    "  System Settings > Privacy & Security > Screen & System Audio Recording >\n"
-    "  enable the app that runs the engine (Terminal / iTerm2 / Visual Studio Code / Claude),\n"
-    "  then quit and reopen that app."
-)
+from .health import bundled_app
+
+
+def permission_help() -> str:
+    """What to grant when capture is blocked. Inside miyagi.app (MIYAGI_BUNDLED_PYTHON) the grant is miyagi's; a dev
+    engine started from a shell needs it on the app that runs it."""
+    if bundled_app():
+        return ("Screen capture is blocked. Turn on miyagi in System Settings > Privacy & Security >\n"
+                "  Screen & System Audio Recording, then quit and reopen miyagi.")
+    return ("Screen capture is blocked. Grant Screen Recording permission:\n"
+            "  System Settings > Privacy & Security > Screen & System Audio Recording >\n"
+            "  enable the app that runs the engine (Terminal / iTerm2 / Visual Studio Code / Claude),\n"
+            "  then quit and reopen that app.")
+
+
+PERMISSION_HELP = permission_help()  # the app sets MIYAGI_BUNDLED_PYTHON before the engine starts: fixed per process
 
 
 class ScreenPermissionError(RuntimeError):
     """The process may not capture the screen (macOS Screen Recording permission missing)."""
 
-    def __init__(self, msg: str = PERMISSION_HELP):
-        super().__init__(msg)
+    def __init__(self, msg: str | None = None):
+        super().__init__(msg or permission_help())
 
 
 @dataclass(frozen=True)

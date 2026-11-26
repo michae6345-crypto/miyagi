@@ -44,7 +44,8 @@ from .schema import LESSON_SCHEMA_VERSION, schema_errors
 
 log = logging.getLogger("server.lesson.cloud_cache")
 
-ENV_OFF = "MIYAGI_LESSON_CACHE"  # =0: never use the shared cache (tests, offline demos)
+ENV_OFF = "MIYAGI_LESSON_CACHE"  # =1: use the shared cache; =0: never (wins over the cloud); unset: the cloud decides
+CAPABILITY = "lesson_cache"  # the cloud capability that turns the shared cache on (set_cloud_capabilities)
 GET_TIMEOUT_S = 5.0
 CLAIM_TIMEOUT_S = 5.0
 PUT_TIMEOUT_S = 15.0
@@ -67,15 +68,32 @@ def _client(timeout: float) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout, follow_redirects=False)
 
 
+_cloud_allows = False  # the cloud said it reviews shared lessons (CAPABILITY): see set_cloud_capabilities
+
+
+def set_cloud_capabilities(caps) -> None:
+    """What the miyagi cloud says it offers (a list of names). The shared cache turns on only when it lists
+    CAPABILITY, i.e. once the cloud reviews a shared lesson before serving it to anyone else."""
+    global _cloud_allows
+    _cloud_allows = CAPABILITY in (caps or ())
+
+
 def enabled() -> bool:
-    return os.environ.get(ENV_OFF, "") != "0" and config.cloud_on()
+    """Is the shared lesson cache on? OFF by default (stopgap, deploy audit Nov 25: the cloud keeps the first upload of
+    a video with no review step, so one bad upload would be served to everyone): no download, no claim, no upload.
+    On only with MIYAGI_LESSON_CACHE=1 or the cloud's CAPABILITY, and always through the miyagi cloud; =0 keeps it off."""
+    flag = os.environ.get(ENV_OFF, "").strip()
+    if flag == "0" or not (flag == "1" or _cloud_allows):
+        return False
+    return config.cloud_on()
 
 
 def reset() -> None:
-    """Forget cooldown and per-video state (tests)."""
-    global _down_until, last_notice
+    """Forget cooldown, per-video state and the cloud's capability (tests)."""
+    global _down_until, last_notice, _cloud_allows
     _down_until = 0.0
     last_notice = None
+    _cloud_allows = False
     _claimed.clear()
     _shared.clear()
 
