@@ -13,7 +13,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { RowChev } from '../shell/ui'
 import { isSkinChosen } from '../buddy/skin'
-import { startTour } from '../tips/tourStore'
+import { declineTour, startTour } from '../tips/tourStore'
 import { BuddyStep } from './BuddyStep'
 import { thisDevice } from './device'
 import { LauncherHint } from './parts'
@@ -55,6 +55,11 @@ function ReadyScreen({ rows, onStart, onTour, again, mark, chrome = mark === fal
   const tour = (): void => {
     startTour()
     ;(onTour ?? home)()
+  }
+  // Skip declines the tour too: it won't start by itself after the hand-off (Settings still has Show me around).
+  const skip = (): void => {
+    declineTour()
+    home()
   }
   // v4 (Nov 24): the same top-anchored page as every setup step, left-aligned. The tree, the title and one line, the
   // sample lesson as the one row to open, then the ONE primary (Show me around; Done when setup is opened again) with
@@ -111,7 +116,7 @@ function ReadyScreen({ rows, onStart, onTour, again, mark, chrome = mark === fal
                   <PrimaryButton label="Show me around" onClick={tour} />
                 </span>
                 <span data-onb-secondary>
-                  <QuietButton label="Skip" onClick={home} />
+                  <QuietButton label="Skip" onClick={skip} />
                 </span>
               </>
             )}

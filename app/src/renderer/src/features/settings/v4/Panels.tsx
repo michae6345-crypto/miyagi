@@ -21,6 +21,7 @@ import { BuddyPreview, BuddySwatches } from '../../buddy/ColorPicker'
 import { words as buddyWords } from '../../buddy/name'
 import { PushToTalk } from '../../ptt/SettingsRows'
 import { startTour } from '../../tips/tourStore'
+import { requestClose } from '../store'
 import { useUpdates } from '../../updates/store'
 import { setPagePanel } from '../nav'
 import { useHealth } from '../permissions'
@@ -172,7 +173,7 @@ export function General4(): ReactNode {
             <SettingRowById id="tips" caption="" />
             <SettingRowById id="sidebar-status" caption="The Ready line at the foot of the sidebar." />
             <SettingRowById id="reset-tips" caption="See the first-run tips again." />
-            <Row label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={() => startTour()} />} />
+            <Row label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={showMeAround} />} />
             <Row label={`Set up ${copy.name}`} caption="Check permissions and VS Code again." right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />} />
           </Group>
           <AmbientSettings />
@@ -381,4 +382,14 @@ function KeyCaps({ k }: { k: 'launcher' }): ReactNode {
       ))}
     </span>
   )
+}
+
+/**
+ * Show me around: the tour draws in the overlay, and the Settings sheet's own window sits above the overlay (both
+ * float at the same level, the sheet raised last), so a tour started from the sheet drew behind it and the button
+ * looked dead. The sheet steps aside first (in the home window's Settings page this is a no-op), then main opens it.
+ */
+function showMeAround(): void {
+  requestClose()
+  startTour()
 }

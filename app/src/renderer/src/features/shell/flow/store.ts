@@ -38,6 +38,7 @@ import { bridge, isElectron } from '../../../bridge'
 import { setSetupOpener } from '../../../core/surfaces'
 import { markDone, markIntroSeen, useOnboarding, type GuidedStepId } from '../../onboarding/store'
 import { stageFlowStep } from '../../onboarding/web'
+import { requestAutoTour } from '../../tips/tourStore'
 import { ARRIVE_MS } from './motion'
 import { phaseAfter } from './phases'
 
@@ -253,6 +254,13 @@ bridge.onFeature('onboarding:gate', (raw) => {
   guessed = false
   writeOff(false)
   set({ login, consent, resume: undefined, again: false, phase: login ? 'login' : phaseAfter('login', { login, consent }) })
+})
+
+// Home is on screen with the first run over (handed over, put off, or no flow needed at all): the first-lesson
+// walkthrough's turn. Main starts it once, only when a first run made it due and it was never seen (welcome → sign
+// in → permissions → tour); setup opened again over home never asks.
+useFlow.subscribe((s, prev) => {
+  if (s.phase === 'off' && prev.phase !== 'off' && !prev.again) requestAutoTour()
 })
 
 // Remember the guided step on screen (main writes it to onboarding.json) while the flow runs, so a relaunch for
