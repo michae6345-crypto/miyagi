@@ -7,8 +7,9 @@
  *              getMediaAccessStatus('screen') wraps CGPreflightScreenCaptureAccess(), which keeps its first answer for
  *              the life of the process (electron/electron#42203; Apple's "Capturing screen content" sample: "restart
  *              the app to enable capture").
- *   - `probe`  a FRESH process (`miyagi-listen --probe-perms`, spawned by the app so TCC answers for miyagi): the only
- *              cheap way to see a Screen Recording grant without relaunching. ~5-40 ms warm, ~250 ms first spawn.
+ *   - `probe`  a FRESH process's answer (#282: `miyagi-listen --screens` `perms`, main/permissionProbe.ts; spawned by
+ *              the app so TCC answers for miyagi): the only cheap way to see a Screen Recording grant without a relaunch.
+ *              Measured ~30-40 ms warm, ~250 ms first spawn for a one-shot preflight run of the helper.
  *   - `engine` what the engine (child process, same responsible app) can actually do: ground truth for "the switch is
  *              on but it does not work" (a stale TCC row after an ad-hoc re-sign, a cached preflight in an engine
  *              that started before the grant).
@@ -51,23 +52,6 @@ export function installPlace(appPath: string): InstallPlace {
   if (appPath.startsWith('/Volumes/')) return 'dmg'
   if (/^\/Applications\//.test(appPath) || /^\/Users\/[^/]+\/Applications\//.test(appPath)) return 'applications'
   return 'other'
-}
-
-/** One JSON line from `miyagi-listen --probe-perms`. Anything else (old helper, garbage, timeout text) → null. */
-export function parsePermProbe(stdout: string): Partial<Record<PermKind, 'granted' | 'denied'>> | null {
-  const line = stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l.startsWith('{'))
-  if (!line) return null
-  try {
-    const o = JSON.parse(line) as Record<string, unknown>
-    const out: Partial<Record<PermKind, 'granted' | 'denied'>> = {}
-    for (const k of ['screen', 'accessibility'] as const) if (o[k] === 'granted' || o[k] === 'denied') out[k] = o[k]
-    return Object.keys(out).length ? out : null
-  } catch {
-    return null
-  }
 }
 
 export interface PermEvidence {
@@ -132,18 +116,4 @@ export function nextPollMs(s: PollState): number | null {
   if (!s.visible || s.pending.length === 0) return null
   if (s.sinceOpenMs !== null && s.sinceOpenMs < FAST_WINDOW_MS) return POLL_FAST_MS
   return POLL_IDLE_MS
-}
-
-/** Probe timeouts: the first spawn of an unsigned helper can take seconds on a slow or busy Mac (Gatekeeper / XProtect
- *  scan, cold dyld cache); later spawns are tens of ms. A timeout must never flip a kind to denied. */
-export const PROBE_TIMEOUT_FIRST_MS = 4000
-export const PROBE_TIMEOUT_MS = 1500
-
-/** Merge a probe outcome into the last known answer: a timeout or garbage keeps what we had. */
-export function mergeProbe(
-  prev: Partial<Record<PermKind, 'granted' | 'denied'>> | undefined,
-  next: Partial<Record<PermKind, 'granted' | 'denied'>> | null | 'timeout'
-): Partial<Record<PermKind, 'granted' | 'denied'>> | undefined {
-  if (next === 'timeout' || next === null) return prev
-  return { ...(prev ?? {}), ...next }
 }

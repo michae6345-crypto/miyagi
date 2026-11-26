@@ -7,16 +7,13 @@ import {
   FAST_WINDOW_MS,
   POLL_FAST_MS,
   POLL_IDLE_MS,
-  PROBE_TIMEOUT_FIRST_MS,
-  PROBE_TIMEOUT_MS,
   appBundlePath,
   installPlace,
   judgePermission,
-  mergeProbe,
   nextPollMs,
-  parsePermProbe,
   type PermEvidence
 } from '../src/main/permHealth'
+import { PROBE_MIN_MS, parseFreshPerms, relaunchKinds, throttledProbe, type Fresh } from '../src/main/permissionProbe'
 
 const base: PermEvidence = { main: 'denied', place: 'applications', build: '0.9.3' }
 
@@ -38,21 +35,35 @@ describe('install place (App Translocation / disk image)', () => {
   })
 })
 
-describe('probe parsing (fresh process read)', () => {
-  it('reads the helper JSON line', () => {
-    assert.deepEqual(parsePermProbe('{"screen":"granted","accessibility":"denied"}\n'), { screen: 'granted', accessibility: 'denied' })
-  })
-  it('ignores log noise before the JSON line', () => {
-    assert.deepEqual(parsePermProbe('objc[123]: Class X is implemented in both\n{"screen":"denied","accessibility":"granted"}'), {
-      screen: 'denied',
-      accessibility: 'granted'
+describe('#282 probe (miyagi-listen --screens perms): matrix cases', () => {
+  it('helper log noise before the JSON line is skipped', () => {
+    assert.deepEqual(parseFreshPerms('objc[123]: Class X is implemented in both\n{"perms":{"screen":"granted","accessibility":"denied"},"screens":[]}'), {
+      screen: 'granted',
+      accessibility: 'denied'
     })
   })
-  it('an old helper without --probe-perms (prints nothing / usage) gives null, never "denied"', () => {
-    assert.equal(parsePermProbe(''), null)
-    assert.equal(parsePermProbe('usage: miyagi-listen ...'), null)
-    assert.equal(parsePermProbe('{not json'), null)
-    assert.equal(parsePermProbe('{"screen":"maybe"}'), null)
+  it('MDM restricted is read as denied in main and never offered a restart', () => {
+    assert.deepEqual(relaunchKinds({ screen: 'denied' }, { screen: 'denied' }), [])
+  })
+  it('stale TCC row after an ad-hoc re-sign: fresh process denied too, so no restart is offered (needs reset-entry copy)', () => {
+    assert.deepEqual(relaunchKinds({ accessibility: 'denied' }, { accessibility: 'denied' }), [])
+    assert.equal(judgePermission('accessibility', { main: 'denied', probe: 'denied', place: 'applications', build: '2', lastGrantedBuild: '1' }).action, 'reset-entry')
+  })
+  it(
+    'a probe timeout (slow Mac, first Gatekeeper scan) keeps the last good answer instead of dropping the restart offer',
+    { todo: 'patch for #282: throttledProbe sets last = r ?? last' },
+    async () => {
+      let t = 0
+      let answer: Fresh | undefined = { screen: 'granted' }
+      const p = throttledProbe(async () => answer, 1000, () => t)
+      assert.deepEqual(await p.get(), { screen: 'granted' })
+      answer = undefined // execFile timed out
+      t = 1000
+      assert.deepEqual(await p.get(), { screen: 'granted' })
+    }
+  )
+  it('a switch flip shows within about a second while the learner is still in System Settings', { todo: 'patch for #282: POLL_MS 500 while watched, PROBE_MIN_MS 1000' }, () => {
+    assert.ok(PROBE_MIN_MS <= 1000)
   })
 })
 
@@ -124,23 +135,5 @@ describe('poll schedule: fast while it matters, nothing otherwise', () => {
   it('re-reads after the accessibility distributed note, including after tccd commits', () => {
     assert.equal(AX_NOTE_RECHECKS_MS[0], 0)
     assert.ok(AX_NOTE_RECHECKS_MS.some((ms) => ms >= 250))
-  })
-})
-
-describe('slow Macs: a probe timeout never flips a grant', () => {
-  it('the first spawn gets a long timeout (Gatekeeper scan of an unsigned helper)', () => {
-    assert.ok(PROBE_TIMEOUT_FIRST_MS >= 3000 && PROBE_TIMEOUT_MS >= 1000)
-  })
-  it('timeout or garbage keeps the last answer', () => {
-    const prev = { screen: 'granted' as const }
-    assert.deepEqual(mergeProbe(prev, 'timeout'), prev)
-    assert.deepEqual(mergeProbe(prev, null), prev)
-    assert.equal(mergeProbe(undefined, 'timeout'), undefined)
-  })
-  it('a fresh answer replaces only the kinds it has', () => {
-    assert.deepEqual(mergeProbe({ screen: 'denied', accessibility: 'granted' }, { screen: 'granted' }), {
-      screen: 'granted',
-      accessibility: 'granted'
-    })
   })
 })
