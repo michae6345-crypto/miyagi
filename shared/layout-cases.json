@@ -164,6 +164,60 @@
    }
   },
   {
+   "name": "13-inch 1440x900, no notch, menu bar hidden, Dock bottom",
+   "frame": [
+    0,
+    0,
+    1440,
+    900
+   ],
+   "visible": [
+    0,
+    0,
+    1440,
+    830
+   ],
+   "safe_top": 0,
+   "expect": {
+    "lesson": {
+     "editor": [
+      0,
+      68,
+      1048,
+      762
+     ],
+     "panel": [
+      1064,
+      52,
+      360,
+      762
+     ]
+    },
+    "video": {
+     "editor": [
+      0,
+      68,
+      864,
+      762
+     ],
+     "column_editor_w": 864,
+     "player": [
+      872,
+      8,
+      560,
+      465
+     ],
+     "panel": [
+      872,
+      489,
+      560,
+      333
+     ],
+     "stacked": true
+    }
+   }
+  },
+  {
    "name": "14-inch 1512x982, notch, Dock bottom",
    "frame": [
     0,

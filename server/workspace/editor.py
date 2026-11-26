@@ -397,11 +397,40 @@ def _set_frame(ax, win, x: float, y: float, w: float, h: float, *, mode: str | N
     with _arranged_lock:
         e = next((e for e in _arranged if _same_win(e[0], win)), None)
         if e is None:
-            _arranged.append([win, before, [(x, y, w, h)] + ([now] if now else []), mode])
+            e = [win, before, [(x, y, w, h)] + ([now] if now else []), mode]
+            _arranged.append(e)
         else:
             e[2] = [(x, y, w, h)] + ([now] if now else [])  # a later arrange (the drawer's room): its first frame stays
             e[3] = mode or e[3]
+        frames = e[2]
+    _later(SETTLED_READ_S, lambda: _note_settled(read, win, frames))
     return ok
+
+
+# VS Code (and macOS) may still adjust a window a moment after it was moved, more so on a slow Mac right after launch
+# (a title bar snap, a minimum size): that frame is Miyagi's too, not the learner moving it (_ownership).
+SETTLED_READ_S = 0.4
+
+
+def _later(delay_s: float, fn: Callable[[], None]) -> None:
+    t = threading.Timer(delay_s, fn)
+    t.daemon = True
+    t.start()
+
+
+def _note_settled(read, win, frames: list) -> None:
+    """Add the window's frame SETTLED_READ_S after Miyagi set it to the frames Miyagi set (only while that arrange is
+    the latest: a newer one replaced the list)."""
+    try:
+        now = read(win)
+    except Exception:  # noqa: BLE001
+        return
+    if not now:
+        return
+    with _arranged_lock:
+        e = next((e for e in _arranged if _same_win(e[0], win)), None)
+        if e is not None and e[2] is frames and not any(L.same(L.Rect.of(now), L.Rect.of(f), 0.5) for f in frames):
+            frames.append(tuple(now))
 
 
 def _ownership(ax, win) -> bool | None:
@@ -488,13 +517,23 @@ def restore_frames(ax=None) -> list[tuple]:
 _layout_lock = threading.Lock()
 _relayout_gen = 0
 _opening = 0  # open-time layouts in flight
+_pending_fit: tuple[str, dict | None] | None = None  # a follow-up that came while one was in flight: runs after it
 RELAYOUT_SETTLE_S = float(os.environ.get("MIYAGI_RELAYOUT_SETTLE_S", "0.5"))
 
 
-def _opening_layout(delta: int) -> None:
-    global _opening
+def _opening_layout(delta: int, ax=None) -> None:
+    """+1 as an open's layout starts, -1 when it ends: the last one to end runs the follow-up that came meanwhile
+    (fit_beside_drawer skipped it, the panel may have moved since the open read it)."""
+    global _opening, _pending_fit
     with _arranged_lock:
         _opening = max(0, _opening + delta)
+        pending = _pending_fit if delta < 0 and _opening == 0 else None
+        if pending is not None:
+            _pending_fit = None
+    if pending is not None:
+        folder, ed = pending
+        res = fit_beside_drawer(folder, ax=ax, editor=ed, settle_s=0)
+        log.info("layout: the follow-up held during the open: %s", res)
 
 
 def _settled(settle_s: float, sleep=time.sleep) -> bool:
@@ -610,7 +649,7 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
             put_away_other_lessons(ax, pid, folder, win, report)
         log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
     finally:
-        _opening_layout(-1)
+        _opening_layout(-1, ax)
 
 
 def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None, screen=None,
@@ -629,9 +668,11 @@ def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None, scree
         return "off (MIYAGI_DRAWER_W=0)"
     if not _settled(RELAYOUT_SETTLE_S if settle_s is None else settle_s, sleep):
         return "coalesced (a newer layout request follows)"
+    global _pending_fit
     with _arranged_lock:
         if _opening:
-            return "skipped: the open's own layout is still coming"
+            _pending_fit = (folder, editor)  # run once the open's layout is done (_opening_layout)
+            return "skipped: the open's own layout is still coming (runs after it)"
     try:
         if not ax_trusted():
             return "skipped: Accessibility not granted"
@@ -794,7 +835,7 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
             put_away_other_lessons(ax, pid, folder, win if getattr(ax, "folder_window", None) else None, report,
                                    sleep=sleep)
     finally:
-        _opening_layout(-1)
+        _opening_layout(-1, ax)
 
 
 # --------------------------------------------------------------------------- open

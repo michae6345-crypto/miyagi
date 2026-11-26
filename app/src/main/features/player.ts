@@ -93,7 +93,9 @@ export default defineMainFeature({
   id: 'player',
   setup(ctx) {
     const file = join(ctx.app.getPath('userData'), 'player-bounds.json')
-    const dock = (): Rectangle => dockRect(ctx.display().workArea)
+    // The PRIMARY display's work area: where the overlay lives (index.ts displayNow) and where the engine lays VS Code out
+    // (server/workspace/editor.py lesson_screen), so VS Code, the player and the steps drawer never split across screens.
+    const dock = (): Rectangle => dockRect(screen.getPrimaryDisplay().workArea)
 
     const win: BrowserWindow = ctx.createWindow('player', {
       ...(loadBounds(file) ?? dock()),
@@ -194,6 +196,9 @@ export default defineMainFeature({
     }
 
     // ---- minimize to a handle (the header's restore / minimize button, Player.tsx) ----------------------------------
+    /** The lesson the player was last laid out for (once per lesson start), and one waiting for a restore from the handle. */
+    let laidOutFor: string | undefined
+    let pendingLayout: string | undefined
     const setMini = (on: boolean): boolean => {
       if (win.isDestroyed() || on === !!mini) return !!mini
       if (on) {
@@ -206,7 +211,12 @@ export default defineMainFeature({
         mini = undefined
         win.setResizable(true)
         win.setMinimumSize(360, 320)
-        win.setBounds(restoreRect(full, win.getBounds(), ctx.display().workArea))
+        // A lesson started while it was a handle: it grows back into that lesson's dock (laid out once, on restore).
+        if (pendingLayout) {
+          laidOutFor = pendingLayout
+          pendingLayout = undefined
+          win.setBounds(dock())
+        } else win.setBounds(restoreRect(full, win.getBounds(), ctx.display().workArea))
         save()
       }
       ctx.broadcast('player:mini', !!mini)
@@ -238,10 +248,10 @@ export default defineMainFeature({
     // beside VS Code (common/screenLayout.ts via dockRect), whatever bounds an older lesson left it at. During the
     // lesson a move or resize is the learner's and stays (and is saved); a replay of the same lesson (an engine that
     // came back after a deploy) doesn't move it.
-    let laidOutFor: string | undefined
     const layOutOnce = (e: { payload?: unknown }): void => {
       const id = (e.payload as { lesson?: { id?: string } } | undefined)?.lesson?.id
-      if (!id || id === laidOutFor || win.isDestroyed() || mini) return // minimized to its handle: the learner's
+      if (!id || id === laidOutFor || win.isDestroyed()) return
+      if (mini) return void (pendingLayout = id) // a handle now: the new lesson's dock applies when it grows back
       laidOutFor = id
       win.setBounds(dock())
       save()

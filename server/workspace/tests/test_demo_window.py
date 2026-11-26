@@ -117,7 +117,8 @@ def test_lesson_window_fills_the_screen_beside_the_drawer(tmp_path, monkeypatch)
     monkeypatch.setattr(E, "lesson_screen", lambda: L.Screen(frame=L.Rect(0, 0, 1728, 1117), visible=L.Rect(0, 0, 1728, 1117)))
     ax, rep = FakeAX(), {}
     E.make_fullscreen(VSC, rep, folder=str(folder), ax=ax, sleep=lambda s: None)
-    top, h = E.PILL_CLEARANCE, 1117 - E.BAR_CLEARANCE - E.PILL_CLEARANCE
+    top = L.MENU_BAND + E.PILL_CLEARANCE  # no notch, menu bar hidden: still below its 24 pt band and the island row
+    h = 1117 - E.BAR_CLEARANCE - top
     right = 1728 - E.drawer_reserve()
     frame = [e for e in ax.log if e[0] == "frame"]
     assert frame == [("frame", "lesson", 0, top, round(right), h)]

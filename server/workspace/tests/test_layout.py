@@ -65,6 +65,16 @@ def test_notch_mac_starts_right_under_the_menu_bar_and_under_the_notch_when_it_a
     assert L.target(hidden, "lesson").y == 32  # never under the notch
 
 
+def test_no_notch_with_the_menu_bar_hidden_still_clears_the_island():
+    """#287 review: an auto-hidden menu bar on a Mac without a notch: the app still hangs the island from a 24 pt band
+    (#282 belowTop: 24 + the 34 pt pill = 58), so VS Code starts below that, not at 0 + 44."""
+    s = scr(by("13-inch 1440x900, no notch, menu bar hidden"))
+    assert s.visible.y == 0
+    top = L.target(s, "lesson").y
+    assert top == L.MENU_BAND + L.PILL_CLEARANCE and top >= 24 + 34
+    assert L.target(s, "video").y == top
+
+
 def test_dock_left_moves_the_editor_right_of_it():
     s = scr(by("13-inch 1440x900, no notch, Dock left"))
     assert L.target(s, "lesson").x == 64 and L.target(s, "video").x == 64
@@ -171,6 +181,8 @@ def rig(monkeypatch, tmp_path):
     monkeypatch.setattr(E, "_arranged", [])
     monkeypatch.setattr(E, "_released", [])
     monkeypatch.setattr(E, "_opening", 0)
+    monkeypatch.setattr(E, "_pending_fit", None)
+    monkeypatch.setattr(E, "_later", lambda s, fn: fn())  # the settled re-read runs at once
     monkeypatch.setattr(E, "_panel_rect", None)
     monkeypatch.setattr(E, "_app_v2", True)
     monkeypatch.setattr(E, "NATIVE_FULLSCREEN", False)
@@ -238,11 +250,51 @@ def test_a_burst_of_follow_ups_is_one_layout(rig, monkeypatch):
     assert results == ["narrowed"] and first.startswith("coalesced") and len(frames(ax)) == 1
 
 
-def test_follow_ups_wait_for_the_opens_own_layout(rig, monkeypatch):
+def test_follow_ups_wait_for_the_opens_own_layout_then_run_once(rig, monkeypatch):
+    """#287 review: a follow-up skipped while the open's layout runs isn't lost: it runs once when that layout ends."""
     monkeypatch.setattr(E, "_opening", 1)
     ax = AXW(frame=(0, 69, 1300, 700))
     assert E.fit_beside_drawer(rig, ax=ax, editor=VSC, settle_s=0).startswith("skipped: the open")
+    assert E.fit_beside_drawer(rig, ax=ax, editor=VSC, settle_s=0).startswith("skipped: the open")  # one pending
     assert frames(ax) == []
+    E._opening_layout(-1, ax)  # the open's layout ends (make_fullscreen / arrange's finally)
+    assert len(frames(ax)) == 1 and E._pending_fit is None
+    E._opening_layout(-1, ax)
+    assert len(frames(ax)) == 1  # nothing pending any more
+
+
+def test_the_open_runs_a_follow_up_that_came_while_it_waited_for_the_window(rig, monkeypatch):
+    ax = AXW()
+    seen = []
+
+    def sleep(_s):  # the open waits for the window; panel.state arrives meanwhile
+        if not seen:
+            seen.append(E.fit_beside_drawer(rig, ax=ax, editor=VSC, settle_s=0))
+
+    real = ax.folder_window
+    calls = {"n": 0}
+
+    def late_window(pid, folder):
+        calls["n"] += 1
+        return real(pid, folder) if calls["n"] > 1 else None
+
+    ax.folder_window = late_window
+    E.make_fullscreen(VSC, {}, folder=rig, ax=ax, sleep=sleep)
+    assert seen[0].startswith("skipped: the open")
+    assert len(frames(ax)) == 1  # the open's layout; the held follow-up then found it already there
+
+
+def test_vscode_settling_after_the_move_is_not_the_learner_moving_it(rig, monkeypatch):
+    """#287 review: VS Code / macOS nudge the window a moment after the move (slow Mac, right after launch); that frame
+    is re-read SETTLED_READ_S later and counts as Miyagi's, so the window isn't wrongly handed to the learner."""
+    ax = AXW()
+    want = L.target(NEO, "lesson")
+    nudged = (want.x, want.y + 6, want.w, want.h - 6)  # a title-bar snap
+    monkeypatch.setattr(E, "_later", lambda s, fn: (ax.frames.update(lesson=nudged), fn()))
+    E.make_fullscreen(VSC, {}, folder=rig, ax=ax, sleep=lambda s: None)
+    assert E._ownership(ax, "lesson") is True
+    ax.frames["lesson"] = (200, 200, 900, 600)  # the learner really moves it
+    assert E._ownership(ax, "lesson") is False
 
 
 def test_never_laid_out_window_is_narrowed_once_then_owned(rig):

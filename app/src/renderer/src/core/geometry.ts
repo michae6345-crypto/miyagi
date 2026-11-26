@@ -49,6 +49,18 @@ export function intersects(a: Rect, b: Rect): boolean {
  */
 export const coversAny = (card: Rect, holes: Rect[]): boolean => holes.some((h) => intersects(card, h))
 
+/**
+ * What an open, settled island card does when its boxes change (core/islandPlace.ts useIslandOffset):
+ *   'replace'  a new box lands under the card: place it again;
+ *   'track'    the boxes moved clear of the card: it stays put and remembers them as the boxes it was placed for;
+ *   'hold'     nothing to decide now: no change, no boxes, a held card, or the pointer is on the card (`still`). The old
+ *              boxes are kept, so when the pointer leaves the same change is looked at again (and may re-place it).
+ */
+export function onBoxChange(o: { changed: boolean; any: boolean; still: boolean; held: boolean; covers: () => boolean }): 'replace' | 'track' | 'hold' {
+  if (!o.changed || !o.any || o.still || o.held) return 'hold'
+  return o.covers() ? 'replace' : 'track'
+}
+
 export function contains(r: Rect, p: Point): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
 }

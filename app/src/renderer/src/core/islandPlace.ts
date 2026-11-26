@@ -34,7 +34,7 @@ import { useCards } from '../features/cards/store'
 import { useSpotlight } from '../features/spotlight/store'
 import { onMessage, onUi } from './bus'
 import { reservedLocal, useReserved } from './dock'
-import { coversAny, dockRect, hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
+import { coversAny, dockRect, hole, intersects, onBoxChange, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
 import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
@@ -336,9 +336,12 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   else if (!prev) next = still ? { id: card.id, boxes: keepOff, at: AT_NOTCH, until: 0 } : fresh() // grows out of the pill (opened under the pointer: stays put)
   else if (prev.id !== card.id) next = still ? { id: card.id, boxes: keepOff, at: prev.at, until: 0 } : fresh()
   else if (now < prev.until) next = { ...prev, boxes: keepOff, at: decide() } // still springing out: follow its real size
-  else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still && !HOLDS.has(card.id) && coversAny(cardAt(prev.at), keepOff)) next = fresh() // a new box under the card
-  else if (!sameBoxes(keepOff, prev.boxes)) next = { ...prev, boxes: keepOff } // the box moved clear of the card: it stays put
-  else next = prev
+  else {
+    // A new box under the card places it again; one that moved clear is remembered while the card stays put; with the
+    // pointer on the card nothing is decided (nor remembered) until it leaves (geometry.ts onBoxChange).
+    const act = onBoxChange({ changed: !sameBoxes(keepOff, prev.boxes), any: keepOff.length > 0, still, held: HOLDS.has(card.id), covers: () => coversAny(cardAt(prev.at), keepOff) })
+    next = act === 'replace' ? fresh() : act === 'track' ? { ...prev, boxes: keepOff } : prev
+  }
   const base = next?.at ?? AT_NOTCH
 
   // A3: out of what the engine says must stay visible (a quick-pick); back to `base` once it's gone. Any card, the

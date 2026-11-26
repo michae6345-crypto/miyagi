@@ -53,6 +53,9 @@ DOCKED_SLACK = 40.0
 # A Mac without a notch shows the island below the menu bar (y ~ menu bar .. +36): the editor's title bar starts under
 # it (t10). With a notch the island lives in the notch band, over the menu bar: no room needed.
 PILL_CLEARANCE = float(os.environ.get("MIYAGI_PILL_CLEARANCE", "44"))
+# A Mac without a notch keeps at least this band at the top for the menu bar, even when the menu bar auto-hides (app
+# common/notch.ts MIN_BAND: "a hidden menu bar still gets its 24 pt").
+MENU_BAND = 24.0
 # The bottom shortcut bar was retired (Michael, Nov 21: no bottom bar in any lesson): nothing kept free at the bottom
 # but the Dock (already outside the visible frame). MIYAGI_BAR_CLEARANCE brings back a margin.
 BAR_CLEARANCE = float(os.environ.get("MIYAGI_BAR_CLEARANCE", "0"))
@@ -152,9 +155,12 @@ def panel_rect(screen: Screen, w: float = PANEL_W) -> Rect:
 
 def work_area(screen: Screen, *, pill_clearance: float | None = None, bar_clearance: float | None = None) -> Rect:
     """The room an editor window may take on `screen`: the visible frame, below the notch (a menu bar set to auto-hide
-    leaves the notch where it is), below the island's row on a Mac without a notch, above BAR_CLEARANCE."""
+    leaves the notch where it is) or, without a notch, below a MENU_BAND even when the menu bar auto-hides, plus the
+    island's row there; above BAR_CLEARANCE."""
     vis, fr = screen.visible, screen.frame
-    top = max(vis.y, fr.y + screen.safe_top)
+    # The menu bar's band is there even when the menu bar auto-hides: the notch's height, else MENU_BAND (the app hangs
+    # the island below it: #282 belowTop = 24 + the 34 pt pill). Then the island's row on a Mac without a notch.
+    top = max(vis.y, fr.y + (screen.safe_top if screen.has_notch else MENU_BAND))
     clear = (PILL_CLEARANCE if pill_clearance is None else pill_clearance) if not screen.has_notch else 0.0
     bottom = vis.bottom - max(0.0, BAR_CLEARANCE if bar_clearance is None else bar_clearance)
     h = bottom - top

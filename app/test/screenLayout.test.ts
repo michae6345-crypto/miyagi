@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 import { VIDEO_LAYOUT, videoEditorWidth, videoLayout, type Box } from '../src/common/screenLayout'
-import { coversAny, dockRect } from '../src/renderer/src/core/geometry'
+import { coversAny, dockRect, onBoxChange } from '../src/renderer/src/core/geometry'
 import { OVERLAY_RESTORE_MS, trackOverlayLifecycle, workAreaOnly } from '../src/main/platform'
 
 type Case = { name: string; frame: number[]; visible: number[]; safe_top: number; expect: { video: { editor: number[]; column_editor_w: number; player: number[]; panel: number[]; stacked: boolean } } }
@@ -106,4 +106,21 @@ test('an open card re-places only for a box under it (the box following VS Code 
   assert.equal(coversAny(card, [{ x: 100, y: 400, w: 300, h: 40 }]), false) // the target slid down-left: card stays
   assert.equal(coversAny(card, [{ x: 100, y: 400, w: 300, h: 40 }, { x: 700, y: 100, w: 200, h: 30 }]), true)
   assert.equal(coversAny(card, []), false)
+})
+
+test('#287 review: with the pointer on the card a box change is neither acted on nor remembered', () => {
+  const base = { changed: true, any: true, still: false, held: false }
+  let asked = 0
+  const covers = (v: boolean) => () => (asked++, v)
+  assert.equal(onBoxChange({ ...base, covers: covers(true) }), 'replace')
+  assert.equal(onBoxChange({ ...base, covers: covers(false) }), 'track')
+  // pointer on the card: 'hold' keeps the OLD boxes, so once it leaves the same change is looked at again and a box
+  // under the card still re-places it (it used to be remembered as seen, and the card never moved)
+  asked = 0
+  assert.equal(onBoxChange({ ...base, still: true, covers: covers(true) }), 'hold')
+  assert.equal(asked, 0)
+  assert.equal(onBoxChange({ ...base, still: false, covers: covers(true) }), 'replace')
+  assert.equal(onBoxChange({ ...base, held: true, covers: covers(true) }), 'hold') // "Your lesson" sheet keeps its spot
+  assert.equal(onBoxChange({ ...base, any: false, covers: covers(true) }), 'hold') // the box cleared: keep the last
+  assert.equal(onBoxChange({ ...base, changed: false, covers: covers(true) }), 'hold')
 })
