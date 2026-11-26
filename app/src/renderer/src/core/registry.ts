@@ -11,6 +11,7 @@
 import type { ComponentType } from 'react'
 import type { Layout } from '../../../preload/api'
 import type { NotchView } from './notchGeometry'
+import type { PanelKind } from './islandTone'
 
 export type IslandMode = {
   id: string
@@ -31,6 +32,12 @@ export type IslandMode = {
    * mode that says nothing keeps showing its content. Cards (width set) ignore it. Below the menu bar it is unused.
    */
   notch?: { useView: () => NotchView; Left?: ComponentType; Right?: ComponentType }
+  /**
+   * A React hook: what kind of panel this mode shows right now, when that changes while it is open (the notch home turns
+   * 'warning' while a link it can't teach shows). Undefined = core/islandTone.ts MODE_PANEL decides. Only calm panels
+   * get bon's gradient in the notch.
+   */
+  useTone?: () => PanelKind | undefined
 }
 
 export type OverlayLayer = {

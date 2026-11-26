@@ -74,7 +74,7 @@ describe('plan at rest', () => {
   })
   test('open radii for the peek, closed otherwise', () => {
     assert.equal(plan().radii.top, 6)
-    assert.equal(plan({ open: true, view: 'drop' }).radii.top, 12)
+    assert.equal(plan({ open: true, view: 'drop' }).radii.top, 19)
   })
 })
 

@@ -10,6 +10,7 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useState, type DragEvent, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { ArrowUpRight, Link2, Play } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -17,6 +18,7 @@ import { useKey } from '../../core/keys'
 import { noteLearnMode, useLesson } from '../../core/lesson'
 import { notchOf } from '../../core/notchGeometry'
 import { useNotchInfo } from '../../core/notchInfo'
+import type { PanelKind } from '../../core/islandTone'
 import { defineFeature } from '../../core/registry'
 import { openLibrary } from '../../core/surfaces'
 import { Kbd, PrimaryButton, Thumb } from '../../core/ui/atoms'
@@ -29,8 +31,9 @@ import { resumeSaved, usePill } from '../pill/store'
 import { NotchLinkCard } from '../anylink/Card'
 import { pageAction, parseWebLink } from '../anylink/link'
 import { askLink, dropLink, useAnyLink, useLinkAny, usePreview } from '../anylink/store'
+import { homeTone } from './tone'
 
-/** The panel's own width (the island adds its open top radius, 12, each side): 584 wide in all, near Boring Notch's 640. */
+/** The panel's own width (the island adds its open top radius plus its taper, 19 + 18, each side): 634 wide in all, like Boring Notch's 640. */
 export const HOME_W = 560
 
 /** Open on hover in the notch, with the engine connected and no lesson step or build on screen. */
@@ -178,6 +181,17 @@ function DroppedLink({ url }: { url: string }): ReactNode {
 
 /** How long "Only YouTube links work here" stays after a drop that isn't one. */
 const MISS_MS = 2600
+/** A drop that wasn't a link miyagi can read is being said (a store, so the panel's tone can read it). */
+const useMiss = create<{ miss: boolean }>(() => ({ miss: false }))
+const setMiss = (miss: boolean): void => useMiss.setState({ miss })
+
+/** The panel's tone for the island: calm, or 'warning' while it says a link can't be used (./tone.ts). */
+function useHomeTone(): PanelKind {
+  const dropped = useAnyLink((s) => s.dropped)
+  const preview = usePreview(dropped)
+  const miss = useMiss((s) => s.miss)
+  return homeTone({ dropped, preview, miss })
+}
 
 /**
  * Drag a link onto the notch: a YouTube video builds at once; a page (with link.any) shows its preview card first. A
@@ -188,12 +202,14 @@ function DropZone(): ReactNode {
   const [over, setOver] = useState(false)
   const [sent, setSent] = useState(false)
   // A drop that isn't a YouTube link says so for a moment, then the zone reads as before (QA Q05).
-  const [miss, setMiss] = useState(false)
+  const miss = useMiss((s) => s.miss)
   useEffect(() => {
     if (!miss) return
     const t = setTimeout(() => setMiss(false), MISS_MS)
     return () => clearTimeout(t)
   }, [miss])
+  // Closing the panel ends the message: it never comes back with the next hover.
+  useEffect(() => () => setMiss(false), [])
   const linkOf = (e: DragEvent): string | undefined => {
     const raw = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     const url = raw.split(/\s+/).find((s) => /^https?:\/\//.test(s))
@@ -285,5 +301,5 @@ function Home(): ReactNode {
 
 export default defineFeature({
   id: 'notch-home',
-  islandModes: [{ id: 'notch-home', priority: 21, width: HOME_W, useActive: useHomeActive, Content: Home }]
+  islandModes: [{ id: 'notch-home', priority: 21, width: HOME_W, useActive: useHomeActive, Content: Home, useTone: useHomeTone }]
 })
