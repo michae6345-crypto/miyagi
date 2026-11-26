@@ -52,10 +52,7 @@ jobs:
   replay-mac:
     # The replay eval on the learner's OS too: macOS's case-insensitive disk is where git-basics misgraded unseen
     # (Linux CI is case-sensitive). Light: the replay only, offline, no app build.
-    # Pushes to main only (like mac-build): on every PR it would cost ~3,700 Mac min a month. It had not run at all since
-    # the macos-14 image was retired ("not supported": cancelled before it started), hence macos-latest.
-    if: github.event_name == 'push'
-    runs-on: macos-latest
+    runs-on: macos-14
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

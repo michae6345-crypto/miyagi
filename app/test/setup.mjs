@@ -20,3 +20,13 @@ registerHooks({
     return next(specifier, context)
   }
 })
+
+// Blocking stdout/stderr when they are pipes. `node --test` runs each file in a child that reports to the runner over a
+// pipe, and on macOS and Linux pipe writes are asynchronous: once the pipe is full (the runner busy with other files)
+// the rest waits in memory. --test-force-exit then calls process.exit(), the waiting writes are dropped, and the
+// runner never sees the rest of that file's tests: no failure, exit 0, just a lower '# tests' (CI saw 1385 to 1417).
+// A blocking write waits for the runner to read instead. Files and terminals already write synchronously.
+for (const stream of [process.stdout, process.stderr]) {
+  const handle = /** @type {{ setBlocking?: (on: boolean) => number } | undefined} */ (stream._handle)
+  if (!stream.isTTY && typeof handle?.setBlocking === 'function') handle.setBlocking(true)
+}
