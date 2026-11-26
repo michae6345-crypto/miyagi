@@ -344,10 +344,29 @@ def _save_text_lesson_at_step_2():
     return lesson, st
 
 
+def _poller_event(m: dict) -> bool:
+    """The system status poller's own events (system_status.py): setup health, AI busy, the offline blocker. They go
+    out on the poller's clock (its first health sample lands whenever the probe thread finishes), so they can fall
+    between any two replies; these tests are about the lesson, not the poller."""
+    t, p = m.get("type"), m.get("payload") or {}
+    return (t == "health" or (t == "status" and p.get("state") == "busy")
+            or (t == "blocker" and p.get("kind") == "network"))
+
+
+def _recv(ws) -> dict:
+    """The next message that isn't a poller event."""
+    while True:
+        m = ws.receive_json()
+        if not _poller_event(m):
+            return m
+
+
 def _restarted_engine(monkeypatch):
     """The restarted engine process: real main.app, stub modules, no workspace (no VS Code, no API calls); any
     build call fails the test (`calls`)."""
     from server.orchestrator import main
+
+    monkeypatch.setenv("MIYAGI_NET_PROBE", "0")  # no TCP probe from a test: network stays unknown, no blocker
 
     eng = main.Engine()
     eng.recorder.enabled = False
@@ -374,7 +393,7 @@ def test_restart_connect_never_auto_resumes_by_default(monkeypatch, state_dir):
     main, eng, calls = _restarted_engine(monkeypatch)
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
-            hello = ws.receive_json()
+            hello = _recv(ws)
             assert hello["type"] == "engine.hello" and not hello["payload"].get("restored")
         assert client.get("/state").json()["phase"] != "active"  # at most the resume offer, never the lesson itself
     assert eng.session.graph is None
@@ -396,7 +415,7 @@ def test_restart_connect_auto_resumes_the_saved_step(monkeypatch, state_dir):
             with client.websocket_connect("/") as ws:
                 got = []
                 while not any(m["type"] == "step.started" for m in got):
-                    got.append(ws.receive_json())
+                    got.append(_recv(ws))
                 assert [m["payload"]["stepId"] for m in got if m["type"] == "step.started"] == [s2]
                 assert not [m for m in got if m["type"] == "card" and m["payload"].get("kind") == "resume"]
         st = client.get("/state").json()
@@ -419,22 +438,22 @@ def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monke
     with TestClient(main.app) as client:
         for _ in range(2):  # connect, leave, connect again: nothing is answered yet
             with client.websocket_connect("/") as ws:
-                assert ws.receive_json()["type"] == "engine.hello"  # v2: always the first message
-                first = ws.receive_json()  # epoch/gen tags are additive
+                assert _recv(ws)["type"] == "engine.hello"  # v2: always the first message
+                first = _recv(ws)  # epoch/gen tags are additive
                 assert first["type"] == "status" and first["payload"]["state"] == "idle"  # Nov 21: only idle
                 ws.send_json({"type": "library.list", "payload": {}})  # the offer comes with the library
-                msgs = [ws.receive_json() for _ in range(2)]
+                msgs = [_recv(ws) for _ in range(2)]
                 assert [m["type"] for m in msgs] == ["library", "card"]
                 assert " · step 2 of 7" in msgs[1]["payload"]["body"]
         st = client.get("/state").json()
         assert st["phase"] == "awaiting_resume" and st["saved"]["stepId"] == s2 and st["saved"]["stepIndex"] == 1
         assert {p.name: p.read_bytes() for p in state_dir.iterdir()} == files  # not one byte rewritten
         with client.websocket_connect("/") as ws:
-            [ws.receive_json() for _ in range(2)]
+            [_recv(ws) for _ in range(2)]
             ws.send_json({"type": "action", "payload": {"kind": "resume"}})
             got = []
             while not any(m["type"] == "step.started" for m in got):
-                got.append(ws.receive_json())
+                got.append(_recv(ws))
             assert [m["payload"]["stepId"] for m in got if m["type"] == "step.started"] == [s2]
         st = client.get("/state").json()
         assert st["stepId"] == s2 and st["phase"] == "active"
