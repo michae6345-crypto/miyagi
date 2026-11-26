@@ -15,7 +15,7 @@
 import { ipcMain, screen, type App, type BrowserWindow, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
 import { windowSize } from '../renderer/src/core/theme'
 import { windowBackground } from './prefs'
-import { appWindowOptions, showInDock } from './platform'
+import { appWindowOptions, holdKeyboard, showInDock } from './platform'
 
 /** Route → size (points). The feature's FeatureWindow {kind:'app'} must use the same route. */
 export const APP_ROUTES = {
@@ -61,6 +61,8 @@ export type AppWindows = {
   get(route: string): BrowserWindow | undefined
   /** Is this webContents one of ours (an open app window)? */
   owns(sender: Electron.WebContents): boolean
+  /** Is any app window on screen? Activating miyagi then may switch Spaces to it (platform.ts keyStep). */
+  anyVisible(): boolean
 }
 
 export function setupAppWindows(deps: {
@@ -74,6 +76,15 @@ export function setupAppWindows(deps: {
   const args = new Map<AppRoute, Record<string, string | number | boolean> | undefined>()
 
   const syncDock = (): void => showInDock(deps.app, open.size > 0)
+
+  /**
+   * An app window is a normal window: bringing it forward is meant to activate miyagi. show() + focus() asks for that, but
+   * when the click came from a non-activating panel (the island, the launcher) the app behind can keep the keyboard, and
+   * typing in Library's fields went to it (a tester, Nov 25: "I can't even type coffee"). Still not key a moment later:
+   * ask again, then activate (holdKeyboard; here activating is the point: it is this very window macOS switches to).
+   */
+  const takeKeys = (win: BrowserWindow): void =>
+    void holdKeyboard(win, { app: deps.app, isOpen: () => !win.isDestroyed() && win.isVisible(), fieldFocused: () => true, appWindowOpen: () => false })
 
   const routeOf = (sender: Electron.WebContents): AppRoute | undefined => {
     for (const [r, w] of open) if (!w.isDestroyed() && w.webContents === sender) return r
@@ -91,6 +102,7 @@ export function setupAppWindows(deps: {
         if (have.isMinimized()) have.restore()
         have.show()
         have.focus()
+        takeKeys(have)
         return have
       }
       const frame = appWindowFrame(route)
@@ -107,6 +119,7 @@ export function setupAppWindows(deps: {
         if (win.isDestroyed()) return
         win.show()
         win.focus()
+        takeKeys(win)
       })
       win.on('closed', () => {
         if (open.get(route) === win) open.delete(route)
@@ -125,6 +138,7 @@ export function setupAppWindows(deps: {
       if (!w || w.isDestroyed()) return false
       w.show()
       w.focus()
+      takeKeys(w)
       return true
     },
     get(route) {
@@ -132,6 +146,10 @@ export function setupAppWindows(deps: {
     },
     owns(sender) {
       return routeOf(sender) !== undefined
+    },
+    anyVisible() {
+      for (const w of open.values()) if (!w.isDestroyed() && w.isVisible()) return true
+      return false
     }
   }
 

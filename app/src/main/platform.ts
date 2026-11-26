@@ -173,6 +173,67 @@ export function focusPanel(win: PanelLike): void {
   })
 }
 
+/**
+ * When a typing panel (the launcher: its field has the caret the moment it opens) asks again for the keyboard, after
+ * focusPanel. Each one runs only while the panel is open and still not key.
+ */
+export const KEY_RETRY_MS = [60, 200, 450] as const
+
+/** What the next retry does: nothing (it has the keys, it closed, not a Mac), focus the panel again, or activate miyagi. */
+export type KeyStep = 'stop' | 'focus' | 'activate'
+
+/**
+ * Pure: the retry `attempt` (index into KEY_RETRY_MS) for a typing panel that should hold the keyboard.
+ *
+ * The first retries only ask again as a panel (key window, miyagi stays inactive: no Space switch over a full-screen app).
+ * If the panel is STILL not key at the last one, the keystrokes are going to the app behind it (Michael's test 10 with
+ * Finder in front; a tester, Nov 25: "It's coffee. I can't even type coffee."), so the last retry activates miyagi,
+ * which makes AppKit route the keys to the panel. It does that only when it is safe:
+ *   - activate: the caller says the panel's text field has the caret (the launcher always does while it is open);
+ *     a panel without a focused field (Settings on open) never activates miyagi;
+ *   - no app window (home, Library, Progress, onboarding) is open: activating miyagi with one of those on another Space
+ *     is exactly what switched Spaces over a full-screen VS Code (main 1d453ca0). With only the panels, which are on
+ *     every Space, there is nowhere to switch to;
+ *   - once per open.
+ * The caller hands the keyboard back when the panel closes (index.ts hideLauncher: returnFocus to the previous app).
+ */
+export function keyStep(s: { mac: boolean; open: boolean; focused: boolean; attempt: number; fieldFocused: boolean; appWindowOpen: boolean; activated: boolean }): KeyStep {
+  if (!s.mac || !s.open || s.focused) return 'stop'
+  if (s.attempt < KEY_RETRY_MS.length - 1) return 'focus'
+  if (s.fieldFocused && !s.appWindowOpen && !s.activated) return 'activate'
+  return 'focus'
+}
+
+type KeyWin = Pick<BrowserWindow, 'isDestroyed' | 'isFocused' | 'focus'>
+type Timers = { set: (fn: () => void, ms: number) => unknown; clear: (t: unknown) => void }
+const realTimers: Timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (t) => clearTimeout(t as ReturnType<typeof setTimeout>) }
+
+/**
+ * Keep asking for the keyboard after focusPanel (KEY_RETRY_MS, keyStep). Returns a cancel for the retries still pending
+ * (the panel closed). onActivate: miyagi was activated, so whoever closes the panel hands the keyboard back.
+ */
+export function holdKeyboard(
+  win: KeyWin,
+  o: { app: Pick<App, 'focus'>; isOpen: () => boolean; fieldFocused: () => boolean; appWindowOpen: () => boolean; onActivate?: () => void; timers?: Timers }
+): () => void {
+  const timers = o.timers ?? realTimers
+  let activated = false
+  const pending = KEY_RETRY_MS.map((ms, attempt) =>
+    timers.set(() => {
+      if (win.isDestroyed()) return
+      const step = keyStep({ mac: isMac(), open: o.isOpen(), focused: win.isFocused(), attempt, fieldFocused: o.fieldFocused(), appWindowOpen: o.appWindowOpen(), activated })
+      if (step === 'stop') return
+      if (step === 'activate') {
+        activated = true
+        o.app.focus({ steal: true })
+        o.onActivate?.()
+      }
+      win.focus()
+    }, ms)
+  )
+  return () => pending.forEach((t) => timers.clear(t))
+}
+
 export function launcherGlassOptions(): BrowserWindowConstructorOptions {
   if (!nativeGlass()) return {}
   return isMac()

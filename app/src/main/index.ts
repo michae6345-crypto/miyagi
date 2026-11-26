@@ -32,6 +32,7 @@ import { overlaysHidden } from './overlayHide'
 import {
   describePlatform,
   focusPanel,
+  holdKeyboard,
   pillTopOverride,
   followSpaces,
   isLeavingModifier,
@@ -122,6 +123,8 @@ let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
+/** Cancels the launcher's keyboard retries still pending (platform.ts holdKeyboard). */
+let stopHoldingKeys: (() => void) | undefined
 /**
  * The island's top below the menu bar for a display (common/notch.ts belowTop via the notch service): flush with the
  * menu bar's bottom edge on a Mac, MIYAGI_PILL_TOP when set. Without the service (or before the helper answers) it is
@@ -375,16 +378,17 @@ function openLauncher(): void {
   // app, and over a full-screen VS Code macOS then switched Spaces to miyagi's home window (user report, main 1d453ca0).
   focusPanel(launcher)
   raise(launcher)
-  // Michael's test 10: with Finder in front the panel showed but the keystrokes kept going there. If the launcher still
-  // isn't key a moment later, ask again, still as a panel (never app.focus({steal}): that is the Space switch above).
-  if (process.platform === 'darwin') {
-    for (const ms of [60, 200]) {
-      setTimeout(() => {
-        if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
-        launcher.focus()
-      }, ms)
-    }
-  }
+  // Michael's test 10 (Finder in front) and a tester, Nov 25 ("I can't even type coffee"): the panel showed but the
+  // keystrokes kept going to the app behind it. If the launcher still isn't key a moment later, ask again as a panel;
+  // only if it is STILL not key, and no app window could pull macOS to another Space, activate miyagi once (keyStep).
+  // The field always has the caret while the launcher is open (Launcher.tsx), and hideLauncher hands the keyboard back.
+  stopHoldingKeys?.()
+  stopHoldingKeys = holdKeyboard(launcher, {
+    app,
+    isOpen: () => launcherOpen,
+    fieldFocused: () => true,
+    appWindowOpen: () => !!appWindows?.anyVisible()
+  })
   send(launcher, 'launcher:open', { from: islandSize })
   send(overlay, 'launcher:open') // the island hides: the launcher window has it now
 }
@@ -431,6 +435,8 @@ function onLauncherBlur(): void {
 
 function hideLauncher(): void {
   launcherOpen = false
+  stopHoldingKeys?.()
+  stopHoldingKeys = undefined
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
   const origin = launcherOrigin
