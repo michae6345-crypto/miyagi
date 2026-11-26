@@ -230,8 +230,10 @@ def test_pip_install_creates_lesson_venv(mac, tmp_path, monkeypatch):
     res = install(item, workdir=wd, popen=VenvPopen)
     assert FakePopen.calls[0] == ["/usr/local/bin/python3.12", "-m", "venv", str(wd / ".venv")]
     assert FakePopen.calls[1] == [str(paths.venv_python(wd / ".venv")), "-m", "pip", "install", "--disable-pip-version-check",
-                                  "--progress-bar", "off", "--retries", "2", "--timeout", "30", "pandas"]
-    # ed9078d: no progress-bar glyphs in the card; a dropped connection fails in about a minute, not five
+                                  "--progress-bar", "off", "--retries", "2", "--timeout", "60", "pandas"]
+    # ed9078d: no progress-bar glyphs in the card (a real pip >= 24.1 gets `raw`: "Progress N of M" lines, parsed into
+    # the setup gate's bar, never shown); Nov 25: a 60 s read stall (was 30 s: a slow link failed TensorFlow's 224 MB
+    # download), and a stalled download is retried by install() itself once the Mac is still online
     assert res["ok"] and res["version"] == "2.2.3"
 
 
