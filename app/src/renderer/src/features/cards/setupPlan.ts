@@ -172,7 +172,8 @@ export function setupCardWidth(overlayW: number, videoLesson: boolean, drawer: {
   if (!videoLesson) return cardW
   const dockX = dockRect({ x: 0, y: 0, width: overlayW, height: 900 }).x
   const left = (drawer.open && drawer.at === 'left' ? DRAWER_INSET + drawer.w : 0) + SIDE_GAP
-  const right = (drawer.open && drawer.at === 'right' ? dockX - DRAWER_INSET - drawer.w : dockX) - SIDE_GAP
+  // A right-hand drawer lives in the player's column (common/screenLayout.ts, Nov 25), never left of the player.
+  const right = dockX - SIDE_GAP
   const room = centre === undefined ? right - left : 2 * Math.min(centre - left, right - centre)
   return Math.round(Math.max(SETUP_MIN_W, Math.min(cardW, room)))
 }

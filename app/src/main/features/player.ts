@@ -1,15 +1,16 @@
 /**
  * Main-process side of the player (renderer: src/renderer/src/features/player/).
  *
- *   - One frameless window, route `player`, docked to the right 40% of the work area (dock.ts).
- *     The user can drag it by its header and resize it; its bounds are saved and restored.
+ *   - One frameless window, route `player`, docked in the right column beside VS Code (dock.ts ->
+ *     common/screenLayout.ts videoLayout: above the steps drawer on a narrow column, beside it on a wide one).
+ *     Laid out there once per lesson start; the user can then drag it by its header and resize it (saved).
  *   - Hidden until lesson.ready, then shown with showInactive() so it never takes focus from the editor.
  *     Not focusable, except while the pointer is over it (renderer → player:hover).
  *   - Floats at the overlay's level ('screen-saver', one step below it), so the dim, spotlight and cards
  *     still draw over it, and on macOS it shows over full-screen apps on every Space (type 'panel').
  *
  * Handles (bridge.invoke from any window):
- *   player:dock    snap back to the right 40% (and save that)
+ *   player:dock    snap back to its dock in the right column (and save that)
  *   player:hover   (on: boolean) focusable while hovered
  *   player:mini    (on: boolean) minimize to a handle (its header) or grow back (features/player/mini.ts); broadcast
  *                  feat:player:mini on every change, and player:mini:state → boolean. Minimized counts as off screen, so
@@ -232,6 +233,19 @@ export default defineMainFeature({
       revealLater = false
       if (back) reveal()
     })
+
+    // Lay out once per lesson start (Michael, Nov 25): a new video lesson puts the player back in the right column
+    // beside VS Code (common/screenLayout.ts via dockRect), whatever bounds an older lesson left it at. During the
+    // lesson a move or resize is the learner's and stays (and is saved); a replay of the same lesson (an engine that
+    // came back after a deploy) doesn't move it.
+    let laidOutFor: string | undefined
+    const layOutOnce = (e: { payload?: unknown }): void => {
+      const id = (e.payload as { lesson?: { id?: string } } | undefined)?.lesson?.id
+      if (!id || id === laidOutFor || win.isDestroyed() || mini) return // minimized to its handle: the learner's
+      laidOutFor = id
+      win.setBounds(dock())
+      save()
+    }
     let readyAt = 0
     ctx.engine.onEvent((e) => {
       // End lesson (Michael's desktop test 9): the empty panel ("The tutorial plays here once a lesson starts.") stayed
@@ -247,7 +261,10 @@ export default defineMainFeature({
       if (e.type !== 'lesson.ready') return
       readyAt = Date.now()
       if (textLesson(e)) hide()
-      else reveal()
+      else {
+        layOutOnce(e)
+        reveal()
+      }
     })
     // A lesson already running (e.g. DEMO=1 started before this feature loaded).
     const ready = [...ctx.engine.log].reverse().find((e) => e.type === 'lesson.ready')

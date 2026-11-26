@@ -7,6 +7,8 @@
  * full frame (menu bar included); a window at `origin` in that space maps them with toLocal.
  */
 
+import { VIDEO_LAYOUT, videoLayout } from '../../../common/screenLayout'
+
 export type Rect = { x: number; y: number; w: number; h: number }
 export type Point = { x: number; y: number }
 /** Electron's rect shape (width / height), as main and the player dock use it. */
@@ -39,6 +41,13 @@ export function isUsableRect(r: Partial<Rect> | undefined | null): r is Rect {
 export function intersects(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
+
+/**
+ * Does `card` cover any of `holes`? An open island card re-places for a new box only then (Nov 25, MacBook Neo test:
+ * while VS Code opened and was laid out, the engine re-sent the same target at each new window frame and the open card
+ * hopped after it). A box that moved somewhere the card doesn't cover leaves the card where it is (core/islandPlace.ts).
+ */
+export const coversAny = (card: Rect, holes: Rect[]): boolean => holes.some((h) => intersects(card, h))
 
 export function contains(r: Rect, p: Point): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
@@ -75,24 +84,17 @@ export function grow(r: Rect, by: number): Rect {
 
 // ---- the video player's dock (was features/player/dock.ts) -------------------------------------------------------
 
-/** The player docks in the right 40% of the work area. */
-export const DOCK_FRACTION = 0.4
-const DOCK_INSET = 8
-/** No bottom bar any more (Nov 21): the player ends at the work area's inset, like the drawer. */
-const DOCK_BAR_CLEARANCE = 0
+/** The player docks in the right column of the work area (VS Code takes the left 60%: common/screenLayout.ts). */
+export const DOCK_FRACTION = 1 - VIDEO_LAYOUT.editorFraction
 
 /**
- * Where the player docks: the right 40% of the work area, inset 8px, ending above the shortcut bar. Shared by main
- * (src/main/features/player.ts) and the browser stage, so both put it in the same place.
+ * Where the player docks in a video lesson: the right column of the work area, beside VS Code, on top of the steps
+ * drawer when the column is narrow (a 1440x900 Mac) or left of it when it's wide (common/screenLayout.ts videoLayout,
+ * Michael Nov 25). Shared by main (src/main/features/player.ts) and the browser stage, so both put it in the same place;
+ * the drawer, the cards (islandPlace offDock) and the spotlight read the same rect.
  */
 export function dockRect(workArea: Box): Box {
-  const width = Math.round(workArea.width * DOCK_FRACTION) - DOCK_INSET * 2
-  return {
-    x: workArea.x + workArea.width - width - DOCK_INSET,
-    y: workArea.y + DOCK_INSET,
-    width,
-    height: Math.max(320, workArea.height - DOCK_INSET * 2 - DOCK_BAR_CLEARANCE)
-  }
+  return videoLayout(workArea).player
 }
 
 /** Box (width/height) ↔ Rect (w/h). */
