@@ -131,9 +131,11 @@ precision, all of them before the step's actions are done, and 1 never passes.
 
 - **pinn-convection s7 can never pass.** Its `metric_trend` rows have `window: 5` (training steps). A trend needs at
   least 8 points in the window, so even a metric logged every step gives 6 at most.
-- **git-basics s6 fails its screen check for a correct learner.** The clone makes `GitGoing/`, and tab completion types
-  `cd GitGoing`, but the check's pattern `cd\s+.*gitgoing` is case-sensitive. The step passes only through precision's
-  `gitgoing/index.html`, and only on a case-insensitive disk. That route opens right after the clone, before the `cd`.
+- **git-basics s6 (fixed Nov 25).** The check's pattern `cd\s+.*gitgoing` never matches `cd GitGoing`, but the
+  step's clone made `GitGoing/index.html` (read case-aside, the same on a Mac and on Linux CI), so it passes on its
+  screen checks right after the clone. Its precision rows now name `GitGoing/`, the folder the clone makes.
+- **git-basics s3 and s4 (fixed Nov 25).** Their only precision rows were files the step makes before its git work
+  (`touch`, the print), so a correct learner went green before `git add`. The rows are gone; both pass on screen.
 
 Six more steps would go green on screen checks later, but precision moves a correct learner on first:
 - **git-basics s5**, after action 2 of 4: its one precision row is `def my_function`, so writing the function passes
@@ -161,7 +163,8 @@ Precision checks are much weaker than screen checks. In precision mode, these mi
 - rerunning beta 1.0 for the beta -1 step (pinn-convection s5): flags are dropped.
 
 The terminal scrollback causes two problems:
-- An old `git add learning.py` passes git s4 after a failed `git add learnig.py`.
+- An old `git add learning.py` passed git s4 after a failed `git add learnig.py`. Fixed Nov 25: a `git status`
+  listed since then is the newer word, so only s4's own add counts.
 - Stale `npm ERR!` lines fail react s1's `screen_absent` row after the fix. That fail also vetoes the precision route,
   so the step stays stuck until the learner clears the terminal. Today precision opens s1 before this can happen;
   it shows up once s1's precision row is tightened.

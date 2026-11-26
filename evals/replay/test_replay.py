@@ -10,7 +10,6 @@ import ast
 import copy
 import re
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -48,28 +47,7 @@ def test_cached_case_maps_every_lesson_step(case):
     assert scripted == lesson_ids, "the learner script follows the lesson's steps in order"
 
 
-def _case_sensitive_tmp() -> bool:
-    """Does the temp folder the replay writes lessons into tell `a` from `A`? (Linux yes, macOS and Windows no.)"""
-    with tempfile.TemporaryDirectory() as d:
-        (Path(d) / "a").touch()
-        return not (Path(d) / "A").exists()
-
-
-# Cases whose expected grades hold only where file names ignore case, as on macOS and Windows: on a case-sensitive
-# filesystem (Linux CI) they grade differently. Fix the lesson or the case, then drop it here.
-CASE_INSENSITIVE_ONLY = {
-    "git-basics": "the cached lesson's s8 precision check reads gitgoing/index.html while the learner edits "
-                  "GitGoing/index.html: it passes only where file names ignore case",
-}
-
-
-def _replay_param(case: dict):
-    why = CASE_INSENSITIVE_ONLY.get(case["id"])
-    marks = [pytest.mark.xfail(_case_sensitive_tmp(), reason=why, strict=True)] if why else []
-    return pytest.param(case, id=case["id"], marks=marks)
-
-
-@pytest.mark.parametrize("case", [_replay_param(c) for c in CACHED])
+@pytest.mark.parametrize("case", CACHED, ids=[c["id"] for c in CACHED])
 def test_replay_cached_lesson(case):
     result = harness.run_case(case)
     assert result["mode"] == "replay"
