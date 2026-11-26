@@ -12,6 +12,8 @@ Rows (ids are stable; the app owns every label and button):
     accessibility  Accessibility granted                            fix "permission.open" kind "accessibility"
     companion      the miyagi VS Code companion is installed        fix "install_companion" (VS Code found)
                    (and `running` when a VS Code window answers)        "get_vscode" (no VS Code)
+                   an older companion than MIN_COMPANION reads missing  fix "install_companion", `outdated` True
+                   (its token handshake is too old: the engine's calls answer 403)
     engine         this engine answers                              always ok when this code runs
     keys           an Anthropic key is set (app or .env)            fix "keys"; required False (cloud mode needs none)
 
@@ -44,6 +46,7 @@ STATES = (OK, MISSING, UNKNOWN)
 ROWS = ("screen", "accessibility", "companion", "engine", "keys")
 REQUIRED = frozenset({"screen", "accessibility", "companion", "engine"})
 COMPANION_ID = "miyagi.companion"  # vscode-ext/package.json publisher.name
+MIN_COMPANION = (0, 0, 7)  # older companions refuse the engine's calls (403); vscode-ext/package.json ships 0.0.8
 
 
 def _state(v: Any) -> str:
@@ -71,16 +74,22 @@ def from_probes(r: dict[str, Any]) -> list[dict]:
     if running:
         comp = OK  # a window answered: installed whatever the folder listing said
     vscode = r.get("vscode")
-    comp_fix = None
-    if comp != OK:
-        comp_fix = "get_vscode" if vscode is False else "install_companion"
     version = r.get("companionVersion")
     version = version if isinstance(version, str) and 0 < len(version) <= 32 else None
+    outdated = comp == OK and companion_outdated(version)
+    if outdated:
+        comp = MISSING  # installed, but too old to talk to this engine: the same fix as not installed
+    comp_fix = None
+    if outdated:
+        comp_fix = "install_companion"  # VS Code is there: the old companion runs in it
+    elif comp != OK:
+        comp_fix = "get_vscode" if vscode is False else "install_companion"
     keys = _state(r.get("keys"))
     return [
         item("screen", screen, fix="permission.open" if screen != OK else None, kind="screen"),
         item("accessibility", ax, fix="permission.open" if ax != OK else None, kind="accessibility"),
-        item("companion", comp, fix=comp_fix, running=running if comp == OK else None, version=version),
+        item("companion", comp, fix=comp_fix, running=running if comp == OK else None, version=version,
+             outdated=True if outdated else None),
         item("engine", OK),
         item("keys", keys, fix="keys" if keys == MISSING else None),
     ]
@@ -145,6 +154,16 @@ def _version_key(v: str) -> tuple[int, ...]:
     """"0.10.0" -> (0, 10, 0), so 0.10.0 ranks above 0.9.0 (a text sort gets that backwards). () when unparseable."""
     m = _VERSION_RE.match(v or "")
     return tuple(int(x) for x in m.group(0).split(".")) if m else ()
+
+
+def companion_outdated(version: str | None) -> bool:
+    """True when `version` parses and is older than MIN_COMPANION. An unknown or unparseable version is not outdated
+    (the folder listing can miss it; a wrong install prompt is worse than none)."""
+    key = _version_key(version or "")
+    if not key:
+        return False
+    pad = max(len(key), len(MIN_COMPANION))
+    return key + (0,) * (pad - len(key)) < MIN_COMPANION + (0,) * (pad - len(MIN_COMPANION))
 
 
 def _read_json(p: Path) -> Any:
