@@ -30,7 +30,7 @@ import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
-  fitPillTop,
+  pillTopOverride,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -45,7 +45,7 @@ import {
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
-import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
+import { belowTop, notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
 import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
 import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
@@ -77,7 +77,9 @@ const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
 /** Notch geometry and the other-notch-app flag (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
 /** Every window gets its layout again (Settings > General shows where the island is). Module level: the first notch read can land before whenReady has finished. */
-const resendLayout = (): void =>
+const resendLayout = (): void => {
+  // A helper read can change the band (a notch whose menu bar hides itself): the pill's top follows the overlay's display.
+  if (overlay && !overlay.isDestroyed()) platform.pillTop = belowTopNow(screen.getDisplayMatching(overlay.getBounds()))
   forEachWindow((w) => {
     const l = layoutFor(w)
     if (w === overlay) {
@@ -86,6 +88,7 @@ const resendLayout = (): void =>
     }
     send(w, 'layout', l)
   })
+}
 /** Island diagnostics (main/features/islandDiag.ts): bounds, level, grab and display measurements, log-only. Created once the overlay exists. */
 let islandDiag: IslandDiag | undefined
 /** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). Rotates at ~512 KB. */
@@ -114,8 +117,18 @@ let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
-/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
-let basePillTop = 0
+/**
+ * The island's top below the menu bar for a display (common/notch.ts belowTop via the notch service): flush with the
+ * menu bar's bottom edge on a Mac, MIYAGI_PILL_TOP when set. Without the service (or before the helper answers) it is
+ * the same rule from the work area alone, so a missing or slow helper still gives a top-anchored island.
+ */
+function belowTopNow(display: Electron.Display): number {
+  const override = pillTopOverride()
+  // The primary display always has a menu bar (shown or hiding itself). A second display with no band may have none at
+  // all ("Displays have separate Spaces" off): it gets the very top.
+  const menuBar = display.id === screen.getPrimaryDisplay().id || display.workArea.y > display.bounds.y
+  return notchService?.belowTopFor(display, override, menuBar) ?? belowTop(display, { mac: platform.os === 'mac', override, menuBar })
+}
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
@@ -561,12 +574,12 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the player host page; the video will not load', err)
     }
   }
-  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
-  // window exists: every renderer gets pillTop in its launch arguments.
-  basePillTop = platform.pillTop
-  platform.pillTop = fitPillTop(basePillTop, displayNow())
   // The notch geometry (miyagi-listen --screens, persisted last-good in userData) and the other-notch-app flag; a change re-sends the layout to every core window.
   notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
+  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it, and never floats below it (belowTopNow).
+  // Before any window exists: every renderer gets pillTop in its launch arguments. The cache is already loaded, the
+  // helper not needed.
+  platform.pillTop = belowTopNow(displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
   // The launch splash (main/splash.ts) waits for the renderer bundle's first load and, briefly, the engine link.
@@ -725,7 +738,7 @@ app.whenReady().then(async () => {
   /** Re-apply the display's bounds and the pill's fitted top to both core windows, raise them, send the layout. */
   const applyDisplay = (): void => {
     islandDiag?.snapshot('refit')
-    platform.pillTop = fitPillTop(basePillTop, displayNow())
+    platform.pillTop = belowTopNow(displayNow())
     for (const w of [overlay, launcher]) {
       if (w.isDestroyed()) continue
       w.setBounds(overlayBounds(displayNow()))
@@ -809,7 +822,7 @@ app.whenReady().then(async () => {
     },
     trusted: trustedSender
   })
-  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
+  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender, helperBin: helperPath })
   ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
   loadFeatures({

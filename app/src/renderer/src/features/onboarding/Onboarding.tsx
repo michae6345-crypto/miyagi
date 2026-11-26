@@ -11,8 +11,9 @@
  * unless it played already on this Mac (then setup); setup → setup; nothing → Review setup once setup is done, else
  * setup (with the intro the first time). A reopen with new args switches view; a reopen with none keeps the walk.
  *
- * Live, never prompting: permissions are watched only while this window is focused (main polls only then), health is
- * asked for on open and every HEALTH_MS while focused, and only when the engine said it understands health.get.
+ * Live, never prompting: permissions are watched while this window is on screen (main polls only then; also while the
+ * learner is in System Settings), health is asked for on open and every HEALTH_MS while focused, and only when the
+ * engine said it understands health.get.
  * Setup is done once every row is green (onboarding.json in userData).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -36,13 +37,21 @@ const ARGS_WAIT_MS = 250
 
 type Phase = 'intro' | 'setup' | 'ready' | 'checklist'
 
-/** Live, never prompting: watch permissions and ask for health while this window is focused (also the flow layer's). */
+/**
+ * Live, never prompting (also the flow layer's). Permissions are watched while this window is on screen, focused or
+ * not: the learner flips the switch in System Settings, which has the focus, and the row must turn green there and then
+ * (Nov 25: a learner on a MacBook Neo enabled both and still saw "Not yet", because watching stopped on blur). They are
+ * read again whenever the window comes back to the front. Health and cloud are asked for only while it is focused.
+ */
 export function useLive(): void {
   const hello = useLesson((s) => !!s.hello)
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined
+    const shown = (): boolean => !isElectron || document.visibilityState !== 'hidden'
+    const watch = (): void => watchPerms('window', shown())
     const focus = (): void => {
-      watchPerms('window', true)
+      watch()
+      void refreshPerms()
       requestHealth()
       refreshCloud()
       clearInterval(timer)
@@ -55,17 +64,20 @@ export function useLive(): void {
     const blur = (): void => {
       // The stage is one page: it never "leaves" the window.
       if (!isElectron) return
-      watchPerms('window', false)
+      // Permissions stay watched (System Settings has the focus now); only the engine asks stop.
       clearInterval(timer)
       timer = undefined
     }
     void refreshPerms()
+    watch()
     if (!isElectron || document.hasFocus()) focus()
     window.addEventListener('focus', focus)
     window.addEventListener('blur', blur)
+    document.addEventListener('visibilitychange', watch)
     return () => {
       window.removeEventListener('focus', focus)
       window.removeEventListener('blur', blur)
+      document.removeEventListener('visibilitychange', watch)
       clearInterval(timer)
       watchPerms('window', false)
     }

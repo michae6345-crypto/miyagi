@@ -26,6 +26,7 @@ import { useDashView } from '../dashboard/Dashboard'
 import { useDash } from '../dashboard/store'
 import type { DashData } from '../dashboard/types'
 import { summarize, useRows } from '../onboarding/rows'
+import { runAction } from '../onboarding/store'
 import { FEATURED } from './home/catalog'
 import { buildHome, coverFor, coverForTool, firstLessons, fromContract, isFirstRun, type CoverKind } from './home/data'
 import { FirstRunPage, HomePage, SetupNote } from './home/Page'
@@ -56,7 +57,7 @@ function useHero(data: DashData | undefined, dashLoading: boolean, items: Librar
   })
 }
 
-type Fix = { label: string; line: string }
+type Fix = { label: string; line: string; restart?: true }
 
 /** "Step 4 of 7 · Train it" → the count for the kicker and the step's own title for the line under the title. */
 function splitLine(line: string): { count?: string; sub: string } {
@@ -103,7 +104,7 @@ function ContAction({ hero, fix }: { hero: Hero; fix?: Fix }): ReactNode {
     <>
       {blocked && (
         <Ring>
-          <PrimaryButton label={fix!.label} onClick={() => void openOnboarding()} />
+          <PrimaryButton label={fix!.label} onClick={() => void (fix!.restart ? runAction('relaunch') : openOnboarding())} />
         </Ring>
       )}
       {!blocked && startable && (

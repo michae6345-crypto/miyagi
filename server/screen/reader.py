@@ -212,7 +212,24 @@ class ScreenReader:
         if ok != self.ax_trusted and self.ax_trusted is not None:
             log.warning("Accessibility permission %s", "granted" if ok else "REVOKED")
         self.ax_trusted = ok
+        if ok:
+            self._revive_ax_reader()
         return ok
+
+    def _revive_ax_reader(self) -> None:
+        """The AX worker checks the grant once, at start: an engine that started before the user turned Accessibility
+        on kept AX off until the next engine restart. AXIsProcessTrusted() is read live, so once it says yes, start
+        the worker that gave up (cheap no-op when it already runs)."""
+        r = self.ax_reader
+        if r is None or getattr(r, "available", True):
+            return
+        try:
+            r.start()
+            if r.available:
+                r.on_change(self._on_ax_change)
+                log.info("Accessibility granted while running: AX reader started")
+        except Exception as e:  # noqa: BLE001
+            log.warning("AX reader restart failed: %s", e)
 
     def reset_capture(self, why: str = "") -> None:
         """Forget capture state that sleep/wake, a display change or a blank frame can leave stale: the SCK filter and

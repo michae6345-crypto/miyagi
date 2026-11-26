@@ -140,7 +140,7 @@ export function StatusArea({ plan = true, setup: withSetup = true }: { plan?: bo
           </motion.div>
         ) : withSetup && fix ? (
           <motion.div layout="position" transition={spring}>
-            <Press className="flex w-full items-center" style={{ height: 32, padding: '0 8px', borderRadius: radius2.control, gap: 8 }} title={one.detail} aria-label={`${one.word}. Open setup.`} onClick={() => void openOnboarding()}>
+            <Press className="flex w-full items-center" style={{ height: 32, padding: '0 8px', borderRadius: radius2.control, gap: 8 }} title={one.detail} aria-label={fix.restart ? `${one.word}. Restart miyagi.` : `${one.word}. Open setup.`} onClick={() => void (fix.restart ? runAction('relaunch') : openOnboarding())}>
               <StatusGlyph state={one.state} size={14} />
               <span className="relative min-w-0 flex-1 truncate" data-status-word={one.state} style={{ fontSize: type2.sm, color: color.text }}>
                 {one.word}

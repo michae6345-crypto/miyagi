@@ -32,12 +32,21 @@ export type PlatformInfo = {
  * notch: the pill's words would be hidden behind it, and that is exactly where notch apps live (desktop test 5:
  * a notch app expands its panel over the notch on hover, so clicks near it can land on that app). So the default
  * stays just below the band, and MIYAGI_PILL_TOP (main-process env, px, 0-200) moves it: down (e.g. 56) to keep clear
- * of a notch app's hover zone. Up into the menu bar is no longer possible: main moves any value above the menu bar
- * (or the notch band) to just under it at launch (fitPillTop, launch-ease lane).
- * Read only in main; the browser stage (no `process`) always gets the default.
+ * of a notch app's hover zone. Up into the menu bar is no longer possible. This is only the value before main knows
+ * the display: main re-fits it per display with common/notch.ts belowTop (flush with the menu bar's bottom edge on a
+ * Mac unless MIYAGI_PILL_TOP is set). Read only in main; the browser stage (no `process`) always gets the default.
  */
 function pillTopFor(mac: boolean): number {
-  const fallback = mac ? 40 : 8
+  return pillTopOverride() ?? (mac ? 40 : 8)
+}
+
+/**
+ * MIYAGI_PILL_TOP when it is set to a usable value (px, 0-200), else undefined. Where the island goes below the menu
+ * bar is common/notch.ts belowTop: flush with the menu bar's bottom edge on a Mac by default (no more floating 16 pt under
+ * a 24 pt menu bar on a display without a notch, MacBook Neo, Nov 25); an override keeps the old rule (no higher than
+ * MENU_BAR_GAP under the band). Main only.
+ */
+export function pillTopOverride(): number | undefined {
   let raw: string | undefined
   try {
     raw = typeof process !== 'undefined' ? process.env?.MIYAGI_PILL_TOP : undefined
@@ -45,23 +54,7 @@ function pillTopFor(mac: boolean): number {
     raw = undefined
   }
   const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw)
-  return Number.isFinite(n) && n >= 0 && n <= 200 ? Math.round(n) : fallback
-}
-
-/** Air between the bottom of the menu bar (or the notch band) and the top of the pill. */
-const MENU_BAR_GAP = 4
-
-/**
- * Launch-ease lane: the pill never covers the menu bar's items or the notch. The display's work area starts under the
- * menu bar (macOS: about 24 pt, about 37 pt on a notched MacBook, where the band is the notch's height; Windows: a
- * taskbar docked at the top), so the pill goes no higher than MENU_BAR_GAP under it. The default (or a
- * MIYAGI_PILL_TOP) below that is kept as is; one above it is moved down. A menu bar that hides itself reports no band
- * (work area at the very top): the default stays, which already clears a notch.
- * Main only, once at launch for the primary display (renderers get pillTop in their launch arguments).
- */
-export function fitPillTop(pillTop: number, display: { bounds: Rect; workArea: Rect }): number {
-  const band = Math.max(0, display.workArea.y - display.bounds.y)
-  return band > 0 ? Math.max(pillTop, Math.round(band + MENU_BAR_GAP)) : pillTop
+  return Number.isFinite(n) && n >= 0 && n <= 200 ? Math.round(n) : undefined
 }
 
 export function describePlatform(os: string): PlatformInfo {

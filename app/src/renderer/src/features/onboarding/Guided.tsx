@@ -243,7 +243,8 @@ export function Guided({
   useEffect(() => setGuidedStep(row?.id), [row?.id])
   // The learner asked for a grant, and after REGRANT_MS macOS still does not report it. After an update macOS can drop
   // the grant while System Settings still shows miyagi on: tell them plainly to switch it off and on (or remove and add).
-  const stuckId = row && (row.id === 'screen' || row.id === 'accessibility') && row.state === 'watching' ? row.id : undefined
+  // Not when main saw the switch on and only a restart is left (row.restart): that row says so itself.
+  const stuckId = row && (row.id === 'screen' || row.id === 'accessibility') && row.state === 'watching' && !row.restart ? row.id : undefined
   useEffect(() => {
     setStuck(false)
     if (!stuckId) return
@@ -293,7 +294,7 @@ export function Guided({
     if (row.state === 'unknown') return { label: 'Continue', onClick: moveOn }
     const a = row.action
     if (a) {
-      const label = a.id === 'relaunch' ? 'Relaunch miyagi' : row.state === 'checking' ? row.word : a.label
+      const label = a.id === 'relaunch' ? 'Restart miyagi' : row.state === 'checking' ? row.word : a.label
       return { label, onClick: () => void runAction(a.id, a.item), busy: row.state === 'checking', disabled: row.state === 'checking' }
     }
     // Nothing to click: the step finishes on its own (the engine starting, access being set up, VS Code checked).
@@ -314,8 +315,10 @@ export function Guided({
           if (idx !== undefined) go(nextOpen(steps, idx, new Set(done).add(row.id)), idx)
         }
       }
-    // Screen Recording after the click: the primary is Relaunch; the pane can be opened again from here.
-    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('allow-screen') }
+    // Screen Recording after the click (or a grant only a restart picks up): the primary is Restart; the pane can be
+    // opened again from here.
+    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction(row.restart ? 'open-screen-pane' : 'allow-screen') }
+    if (row.id === 'accessibility' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('open-accessibility-pane') }
     return undefined
   }, [row, idx, steps, done, go])
 
