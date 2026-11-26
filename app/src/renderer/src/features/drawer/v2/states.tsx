@@ -14,20 +14,49 @@ import type { ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { X } from 'lucide-react'
 import { actionTone, color, copy, highlight, radius2, status, surface, type2 } from '../../../core/theme'
-import { Spinner } from '../../../core/ui/atoms'
+import { OptionButton, Spinner } from '../../../core/ui/atoms'
 import { Keycap } from '../../../core/ui/Keycap'
 import { beat, draw, pop, pressMotion, rise } from '../../../core/ui/motion'
 import { ThinkingDots } from '../../../core/ui/Thinking'
 import { Caption, Inline, Tip, tone } from './ui'
+import type { CheckIssue } from '../../../../../../../shared/contracts/events'
+import { QuietButton } from '../../../core/ui/buttons'
 
-export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
+/**
+ * Nov 25 (a learner pressed Check again six times and saw the same bare "Not yet"): the box says the reason, says when
+ * the check could not run ("Can't see your screen" + its fix), says "Checked again" on a repeat, and carries the help
+ * right where the learner is stuck: Explain and Hint (the Help row below can be scrolled out of a small screen's
+ * panel), plus the card's own Do it for me / Run it for me when the engine offers them.
+ */
+export type NotYetHelp = {
+  /** Explain / Hint pressed (triggerShortcut, the same path as the keys). */
+  onOption: (a: 'explain' | 'hint') => void
+  /** A step action from the card (apply_fix, run_command): sendAction. */
+  onAction: (a: 'apply_fix' | 'run_command') => void
+  /** The issue's own fix (Screen Recording settings). */
+  onFix?: (kind: CheckIssue['kind']) => void
+  /** The option still waiting for its answer (its keycap turns into the spinner). */
+  busy?: string
+  /** The link gate waits (miyagi can't answer): the options wait too. */
+  disabled?: boolean
+}
+
+const FIX_LABEL: Partial<Record<CheckIssue['kind'], string>> = { screen_off: 'Open Screen Recording settings' }
+
+export function NotYetBox({ lines, issue, again, actions, help }: { lines: string[]; issue?: CheckIssue; again?: boolean; actions?: string[]; help?: NotYetHelp }): ReactNode {
   const [first, ...rest] = lines
   const reduced = useReducedMotion()
+  const blocked = !!issue?.blocking
+  const heading = blocked ? issue!.title : 'Not yet'
+  const fix = blocked && issue && FIX_LABEL[issue.kind] ? issue : undefined
+  const step = (actions ?? []).filter((a): a is 'apply_fix' | 'run_command' => a === 'apply_fix' || a === 'run_command')
   return (
     <div style={{ padding: '16px 20px 0' }}>
       <div
         role="status"
         data-part="panel-notyet"
+        data-issue={issue?.kind}
+        data-blocking={blocked || undefined}
         className="flex flex-col gap-[4px]"
         style={{ boxShadow: `inset 0 0 0 1px ${surface.border}`, borderRadius: radius2.card, padding: '12px 16px' }}
       >
@@ -38,7 +67,14 @@ export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
             style={{ border: `2px solid ${status.notYet}` }}
             {...pop(reduced, 0.85)}
           />
-          <span style={{ fontSize: type2.md, fontWeight: 600, color: tone.text }}>Not yet</span>
+          <span className="min-w-0 flex-1 truncate" style={{ fontSize: type2.md, fontWeight: 600, color: tone.text }}>
+            {heading}
+          </span>
+          {again && (
+            <span data-part="panel-notyet-again" className="shrink-0" style={{ fontSize: type2.xs, color: tone.label }}>
+              Checked again
+            </span>
+          )}
         </div>
         {first && (
           <p className="m-0 break-words [text-wrap:pretty]" style={{ paddingLeft: 20, fontSize: type2.sm, lineHeight: '20px', color: tone.text }}>
@@ -50,6 +86,23 @@ export function NotYetBox({ lines }: { lines: string[] }): ReactNode {
             <Inline text={t} />
           </p>
         ))}
+        {help && (
+          <div data-part="panel-notyet-help" role="group" aria-label="Get help with this step" className="flex flex-wrap items-center gap-[6px]" style={{ paddingLeft: 20, paddingTop: 8 }}>
+            {fix && help.onFix && <QuietButton label={FIX_LABEL[fix.kind]!} onClick={() => help.onFix!(fix.kind)} />}
+            {(['explain', 'hint'] as const).map((a) => (
+              <OptionButton
+                key={a}
+                action={a}
+                label={a === 'explain' ? 'Explain' : 'Hint'}
+                busy={help.busy === a}
+                onClick={() => !help.disabled && help.busy !== a && help.onOption(a)}
+              />
+            ))}
+            {step.map((a) => (
+              <QuietButton key={a} label={a === 'apply_fix' ? 'Do it for me' : 'Run it for me'} busy={help.busy === a} disabled={help.disabled} onClick={() => help.onAction(a)} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

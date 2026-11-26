@@ -534,7 +534,8 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   open_in_browser: { label: 'Open in browser', Icon: BookOpen },
   // "Couldn't reach Claude" answer card: the engine re-sends the learner's last ask / explain / hint.
   retry: { label: 'Try again', Icon: RotateCcw },
-  // Judge "Not yet" card: the same Hint / Show me as the off-track card (drawn as OptionButtons in CardActions).
+  // Judge "Not yet" card: the same Explain / Hint / Show me as the off-track card (drawn as OptionButtons in CardActions).
+  explain: { label: 'Explain' },
   hint: { label: 'Hint' },
   show_me: { label: 'Show me' },
   // Smart setup (Nov 22): a licensed app (AutoCAD) is never installed. The engine labels them (setup.actionLabels:
@@ -548,8 +549,11 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   open_in_app: { label: 'Open in app', Icon: ExternalLink, primary: true }
 }
 
+/** A check's answer the learner is stuck on: "Not yet" (verdict not_done) or "Couldn't check" (checkIssue). */
+export const isCheckAnswer = (c: EngineCard): boolean => c.verdict === 'not_done' || !!c.checkIssue || c.title === 'Not yet'
+
 /** Card actions drawn as pastel OptionButtons with keycaps (like the off-track card), not as quiet buttons. */
-const OPTION = ['show_me', 'hint'] as const
+const OPTION = ['explain', 'show_me', 'hint'] as const
 type OptionCardAction = (typeof OPTION)[number]
 const isOption = (a: CardAction): a is OptionCardAction => (OPTION as readonly CardAction[]).includes(a)
 
@@ -833,7 +837,10 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
   // picks the one white primary; the card's other actions (Download, Open VS Code) stay quiet beside it.
   const setup = card.kind === 'setup'
   const plan = setup ? planSetup(card, installs, !!queue) : undefined
-  const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a)) && !(setup && PLAN_ACTIONS.has(a)))
+  // A "Not yet" / "Couldn't check" keeps its Explain / Hint / Show me even in a lesson (Nov 25: a learner on a collapsed
+  // panel got a Not yet with only Skip step, and no way to ask for help): the help row may not be on screen.
+  const stuck = isCheckAnswer(card)
+  const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a) && !stuck) && !(setup && PLAN_ACTIONS.has(a)))
   const primary = plan?.primary ? undefined : primaryOf(card, known)
   const keys = useKeys() // live: a rebound shortcut shows its own key
   const row = useRef<HTMLDivElement>(null)

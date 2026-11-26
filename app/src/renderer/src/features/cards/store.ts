@@ -8,6 +8,7 @@ import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
+import { handBackAfterCheck } from '../drawer/checkFocus'
 import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type CheckItem } from '../../core/lesson'
 import { reserveRect, useDock } from '../../core/dock'
 import type { CardKindV2 } from '../../../../../../shared/contracts/events'
@@ -176,6 +177,7 @@ export function cardAct(kind: CardAction, text?: string): void {
   // One answer at a time; Skip / Pick another always work (they just end the card).
   if (get().pending && !PER_ITEM.has(kind) && !CLOSE_NOW.has(kind)) return
   sendAction(kind, text)
+  if (kind === 'check_step') handBackAfterCheck() // Check again: the learner's app gets the keyboard back, never home
   if (PER_ITEM.has(kind)) return
   if (CLOSE_NOW.has(kind)) {
     closeCard()

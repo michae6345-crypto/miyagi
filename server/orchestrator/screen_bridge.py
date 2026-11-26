@@ -48,6 +48,7 @@ class ScreenBridge:
         # the learner picks a lesson. resume() starts it the first time. ORCH_SCREEN_EAGER=1: the old boot start.
         self.started = False
         self.start_error: str | None = None  # why start() gave up (None: it never failed); /health reports it
+        self.fresh_job: asyncio.Future | None = None  # the last Check's capture (fresh_frame), maybe still running
 
     @property
     def active(self) -> bool:
@@ -436,6 +437,7 @@ class ScreenBridge:
             await asyncio.sleep(timeout)
             return False
         job = asyncio.ensure_future(asyncio.to_thread(r.observe_now, True, "check"))
+        self.fresh_job = job  # check_health waits on this same capture a little longer before calling the screen stale
         try:
             await asyncio.wait_for(asyncio.shield(job), timeout)
             return True
