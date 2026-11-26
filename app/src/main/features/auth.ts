@@ -171,7 +171,7 @@ function sameState(got: string | null, want: string): boolean {
 }
 
 function str(v: unknown, max: number): string | undefined {
-  return typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined
+  return typeof v === 'string' && v.trim() ? Array.from(v.trim()).slice(0, max).join('') : undefined
 }
 
 /** The pieces of Supabase's session answer we keep. Anything malformed → undefined. */

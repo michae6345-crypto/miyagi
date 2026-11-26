@@ -25,7 +25,7 @@ export function Clamp({ text, lines, className = '', style }: { text: string; li
   const clamp: CSSProperties = open ? {} : { display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: lines, overflow: 'hidden' }
   return (
     <>
-      <div ref={ref} data-clamp={open ? 'open' : over ? 'folded' : undefined} className={`${className} ${can ? 'cursor-pointer' : ''}`} style={{ ...style, ...clamp }} onClick={toggle}>
+      <div ref={ref} dir="auto" data-clamp={open ? 'open' : over ? 'folded' : undefined} className={`${className} ${can ? 'cursor-pointer' : ''}`} style={{ ...style, ...clamp }} onClick={toggle}>
         {text}
       </div>
       {can && (
