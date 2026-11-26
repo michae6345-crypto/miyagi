@@ -17,6 +17,7 @@ import inspect
 import json
 import logging
 import os
+import sys
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -361,6 +362,13 @@ class Modules:
         return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson,
                         active_file=active_file, **({"exact_files": True} if exact_files else {}),
                         **({"memory": memory} if memory and _accepts(fn, "memory") else {}))
+
+    def last_judge_error(self) -> dict | None:
+        """Why the last judge_step got no answer ({kind, message, at}: coach.judge.last_error), or None."""
+        fn = self._real_fn("coach", "judge_step")
+        mod = sys.modules.get(getattr(fn, "__module__", "") or "") if fn is not None else None
+        err = getattr(mod, "last_error", None)
+        return err if isinstance(err, dict) else None
 
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:

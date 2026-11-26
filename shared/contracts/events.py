@@ -228,6 +228,24 @@ class MissingLine(_Model):
     state: Literal["ok", "missing"]
 
 
+class SelfCheck(_Model):
+    """Nov 25: the engine's self-check on a manual Check (orchestrator/check_health.py); cloud = GET /healthz, free."""
+    screen: Literal["ok", "off", "error", "paused", "asleep", "stale", "none"] | None = None
+    ocr: Literal["ok", "empty", "unknown"] | None = None
+    vscode: Literal["connected", "not_connected", "unknown"] | None = None
+    cloud: Literal["ok", "unreachable", "unauthorized", "paused", "quota", "missing", "off", "not_used", "unknown"] | None = None
+
+
+class CheckIssue(_Model):
+    """Nov 25: card.checkIssue: what a manual Check couldn't see. blocking: "Couldn't check", never "Not yet"."""
+    kind: Literal["screen_off", "screen_error", "screen_stale", "check_failed", "cloud_unreachable", "cloud_auth", "vscode_ext"]
+    title: str
+    body: str
+    next: str
+    blocking: bool | None = None
+    selfCheck: SelfCheck | None = None
+
+
 class HintStep(_Model):
     n: int
     of: int
@@ -917,9 +935,9 @@ class SkillGraphInfo(_Model):
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
-                     "retry", "hint", "show_me", "have_it", "get_it", "alternative",
+                     "retry", "hint", "show_me", "explain", "have_it", "get_it", "alternative",
                      "open_in_app"]  # open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender, with the miyagi bridge); label setup.actionLabels.open_in_app; text? = tool id; holdVideo false
-# have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
+# explain (Nov 25): on a "Not yet" / "Couldn't check" card, action explain (no text). have_it / get_it / alternative (Nov 22): a licensed app row. retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -958,6 +976,8 @@ class Card(_Model):
     fixCaption: str | None = None  # Not yet: what to do about them
     waiting: str | None = None  # footer while the engine waits ("Watching for a kernel to start")
     result: LessonResult | None = None  # kind "complete"
+    checkIssue: CheckIssue | None = None  # Nov 25: what a manual Check couldn't see (blocking: "Couldn't check")
+    checkedAt: int | None = None  # Nov 25: epoch ms of the manual Check this card answers
 
 
 class NetworkDiagram(_Model):

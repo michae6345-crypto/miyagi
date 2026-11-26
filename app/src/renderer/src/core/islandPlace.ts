@@ -34,7 +34,7 @@ import { useCards } from '../features/cards/store'
 import { useSpotlight } from '../features/spotlight/store'
 import { onMessage, onUi } from './bus'
 import { reservedLocal, useReserved } from './dock'
-import { dockRect, hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
+import { coversAny, dockRect, hole, intersects, onBoxChange, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './geometry'
 import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
@@ -262,7 +262,8 @@ type Aside = { id: string; clear: Rect[]; boxes: Rect[]; at?: Offset }
  * yet: their last place at rest), so the island springs from the notch straight to it. Its first SETTLE_MS may still
  * follow its real size. Then it holds still while it stays open: not for a chip that settles or moves (the caption
  * steps around the card, not the other way round), not when the card grows, not when the spotlight clears. Only a new
- * box (another target) places it again, and never while `still`: that waits until the pointer is off it. A card that
+ * box that lands UNDER the card places it again (coversAny: a box that moved elsewhere, e.g. VS Code being laid out,
+ * leaves it still), and never while `still`: that waits until the pointer is off it. A card that
  * opens or replaces another under the pointer keeps the spot it's at.
  *
  * The card's own targets (`card.targets`) count like the coach's, kept while the card is open: a spotlight clear or the
@@ -320,6 +321,12 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     const at = placeIsland(docked, [...keepOff, ...chips], room, avoid)
     return { x: home.x + at.x, y: home.y + at.y }
   }
+  // Where the card shows for an offset: offDock's slide included (as returned below), so "does it cover the box" is
+  // asked about the card the learner sees.
+  const cardAt = (at: Offset): Rect => {
+    const o = offDock({ ...notch, w, h }, at, playerOn, layout, !setup)
+    return { x: notch.x + o.x, y: notch.y + o.y, w, h }
+  }
   const spot = useRef<Spot>(undefined)
   const prev = spot.current
   const now = Date.now()
@@ -329,8 +336,12 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   else if (!prev) next = still ? { id: card.id, boxes: keepOff, at: AT_NOTCH, until: 0 } : fresh() // grows out of the pill (opened under the pointer: stays put)
   else if (prev.id !== card.id) next = still ? { id: card.id, boxes: keepOff, at: prev.at, until: 0 } : fresh()
   else if (now < prev.until) next = { ...prev, boxes: keepOff, at: decide() } // still springing out: follow its real size
-  else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still && !HOLDS.has(card.id)) next = fresh() // a new box
-  else next = prev
+  else {
+    // A new box under the card places it again; one that moved clear is remembered while the card stays put; with the
+    // pointer on the card nothing is decided (nor remembered) until it leaves (geometry.ts onBoxChange).
+    const act = onBoxChange({ changed: !sameBoxes(keepOff, prev.boxes), any: keepOff.length > 0, still, held: HOLDS.has(card.id), covers: () => coversAny(cardAt(prev.at), keepOff) })
+    next = act === 'replace' ? fresh() : act === 'track' ? { ...prev, boxes: keepOff } : prev
+  }
   const base = next?.at ?? AT_NOTCH
 
   // A3: out of what the engine says must stay visible (a quick-pick); back to `base` once it's gone. Any card, the

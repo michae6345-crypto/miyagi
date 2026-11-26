@@ -349,6 +349,10 @@ def ran_part(cmd: str, label: str, detail: str = "") -> str:
     return f"run {cmd[m.end():] if m else cmd} in the terminal"
 
 
+# The "Not yet" body when neither a row nor the judge says what is missing (check_health: then a blind check says why).
+GENERIC_NOT_YET = "The checks haven't passed yet"
+
+
 def not_yet_body(missing: str, rows: list[dict], *, sid: str, cmd: str = "", forced: bool = False) -> str:
     """The "Not yet" card body, from the failing rows the drawer shows (never the judge's free text when a row
     says what's left: "line 7 still needs ..." / the run), whole sentences, the step's exact command; a syntax
@@ -378,7 +382,7 @@ def not_yet_body(missing: str, rows: list[dict], *, sid: str, cmd: str = "", for
     elif syntax:
         main = f"Fix the syntax error in {syntax.get('file') or 'your file'}"
     else:
-        main = missing or "The checks haven't passed yet"
+        main = missing or GENERIC_NOT_YET
     lines = [_period(with_command(whole_sentences(main), cmd))]
     if syntax:
         d = str(syntax.get("detail") or "")

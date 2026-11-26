@@ -138,7 +138,7 @@ export interface EngineEvents {
   "card": { epoch?: number; gen?: number; stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
             dismissAfterMs?: number;      // the app closes the card on its own after this long (a one-line success: "requests installed ✓", no buttons)
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me" | "have_it" | "get_it" | "alternative" | "open_in_app">;    // open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend, made from Blender's factory scene when missing, opened with the miyagi bridge so no add-on install is needed); label in setup.actionLabels.open_in_app ("Open in Blender"); action open_in_app {text?: the app's tool id, absent = the lesson's app}; the card sends setup.holdVideo false   // have_it / get_it / alternative (Nov 22): a licensed app row (AutoCAD): "I have it" (engine re-checks this Mac), "Get it" (vendor page), "Try <free alternative>"; text = the row tool, optional   // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "install_all" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me" | "explain" | "have_it" | "get_it" | "alternative" | "open_in_app">;    // open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender: <lesson folder>/<stem>.blend, made from Blender's factory scene when missing, opened with the miyagi bridge so no add-on install is needed); label in setup.actionLabels.open_in_app ("Open in Blender"); action open_in_app {text?: the app's tool id, absent = the lesson's app}; the card sends setup.holdVideo false   // have_it / get_it / alternative (Nov 22): a licensed app row (AutoCAD): "I have it" (engine re-checks this Mac), "Get it" (vendor page), "Try <free alternative>"; text = the row tool, optional   // explain (Nov 25): on a "Not yet" / "Couldn't check" card, the same Explain as the off-track card (action explain, no text: the step explained)   // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
@@ -162,6 +162,8 @@ export interface EngineEvents {
             missingLines?: MissingLine[];  // v2 (Les-NotYet): the step's lines in order, each there or missing
             fixCaption?: string;           // v2 (Les-NotYet): what to do about them ("Add the first line, then run the cell")
             waiting?: string;              // v2 (Err-KernelInContext): the footer while the engine waits ("Watching for a kernel to start")
+            checkIssue?: CheckIssue;       // Nov 25 (Check again): what a manual Check couldn't see (Screen Recording off, the checks failed, the cloud, the VS Code extension). blocking: the card is "Couldn't check" (title/body/next say why and what to do), never "Not yet"; else a note on the "Not yet"
+            checkedAt?: number;            // Nov 25: epoch ms of the manual Check this card answers (a "Not yet" / "Couldn't check"): each press is a new answer, even with the same words
             result?: LessonResult };       // v2: kind "complete": what the lesson counted (never invented)
   "diagram": {
     kind: "network" | "gradients" | "heatmap" | "graph";
@@ -275,6 +277,23 @@ export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_ca
 /** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
 export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
 export interface MissingLine { text: string; state: "ok" | "missing" }
+/** Nov 25: the engine's self-check on a manual Check (server/orchestrator/check_health.py; GET /health selfCheck, GET /selfcheck).
+ *  No paid call: cloud is GET <cloud>/healthz. screen: is capture returning frames; ocr: does the frame have text; vscode: is the companion extension connected. */
+export interface SelfCheck {
+  screen?: "ok" | "off" | "error" | "paused" | "asleep" | "stale" | "none";
+  ocr?: "ok" | "empty" | "unknown";
+  vscode?: "connected" | "not_connected" | "unknown";
+  cloud?: "ok" | "unreachable" | "unauthorized" | "paused" | "quota" | "missing" | "off" | "not_used" | "unknown";
+}
+/** Nov 25: card.checkIssue. kind -> the app's fix button: screen_off = Screen Recording settings; the rest = Check again. */
+export interface CheckIssue {
+  kind: "screen_off" | "screen_error" | "screen_stale" | "check_failed" | "cloud_unreachable" | "cloud_auth" | "vscode_ext";
+  title: string;      // "Can't see your screen"
+  body: string;       // what it couldn't do, in one sentence
+  next: string;       // the next action, in one sentence ("Turn on Screen Recording for miyagi in System Settings, then press Check again.")
+  blocking?: boolean; // true: the check couldn't run (the card is "Couldn't check"); false: a note under the "Not yet"
+  selfCheck?: SelfCheck;
+}
 /** card kind "complete": what the lesson counted. Skips are counted as skips, never as passes. */
 export interface LessonResult { passed: number; skipped: number; total: number; minutes?: number; lessonId?: string; title?: string }
 export type HealthState = "ok" | "missing" | "off" | "checking" | "unknown";   // unknown = cannot tell without prompting (gray, never a failure)

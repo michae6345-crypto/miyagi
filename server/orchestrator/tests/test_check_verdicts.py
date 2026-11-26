@@ -152,8 +152,8 @@ def test_requests_get_without_params_or_raise_for_status_does_not_pass(tmp_path,
             rig.clock.t += 3  # a real second try, not a double press
         assert not rig.of("step.passed") and judged == ["s2", "s2"]
         first, again = [c for c in rig.of("card") if c["title"] == "Not yet"][-2:]
-        assert first["actions"] == ["hint", "show_me", "skip_step"]  # teach first
-        assert again["actions"] == ["apply_fix", "hint", "show_me", "skip_step"]  # Do it for me after a repeat
+        assert first["actions"] == ["hint", "show_me", "explain", "skip_step"]  # teach first
+        assert again["actions"] == ["apply_fix", "hint", "show_me", "explain", "skip_step"]  # Do it for me after a repeat
         assert 'params={"format": "j1"}' in first["body"] and "…" not in first["body"]
         assert first["body"].endswith(".")
         await _save(rig, screen, "weather.py", WEATHER)

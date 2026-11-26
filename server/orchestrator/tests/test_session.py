@@ -2347,7 +2347,7 @@ def test_check_step_passes_now_or_says_what_is_missing(rig):
         await rig.settle()
         new = rig.of("card")[n_cards:]
         assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
-        assert new[0]["actions"] == ["hint", "show_me", "skip_step"]  # t10: a video Not yet teaches too
+        assert new[0]["actions"] == ["hint", "show_me", "explain", "skip_step"]  # t10: a video Not yet teaches too
         assert new[0]["body"] == "Add a Tanh activation after the first Linear layer, then save the file."
         assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
         assert calls and "pinn_convection.py" in calls[0]
@@ -2388,7 +2388,7 @@ def test_check_step_without_a_judge_names_the_failing_checks(rig):
 
     run(go())
     card = rig.of("card")[-1]
-    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["hint", "show_me", "skip_step"]
+    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["hint", "show_me", "explain", "skip_step"]
 
 
 def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
@@ -3076,7 +3076,7 @@ def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp
     titles = [c["title"] for c in rig.of("card")]
     assert "Not yet" in titles and "Save calc.py" in titles
     assert any("Save calc.py" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
-    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["hint", "show_me", "skip_step"]
+    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["hint", "show_me", "explain", "skip_step"]
 
 
 def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):

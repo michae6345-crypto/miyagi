@@ -43,6 +43,8 @@ import {
   setupApp,
   OVERLAY_RESTORE_MS,
   trackOverlayLifecycle,
+  workAreaOnly,
+  WORK_AREA_SETTLE_MS,
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
@@ -765,7 +767,23 @@ app.whenReady().then(async () => {
   // Display events, wake and unlock: collapse the island and ask for one geometry read (the service debounces it
   // 250 ms, so a burst of display events is one helper call); a changed answer re-sends the layout through onChange.
   let refitTimer: ReturnType<typeof setTimeout> | undefined
-  const displayChanged = (): void => {
+  // Only the work area changed (menu bar / Dock shown or hidden, a full-screen Space coming or going): no collapse, no
+  // fade (platform.ts workAreaOnly). The layout follows once the burst is over and only if it really differs, so a
+  // Space switch out and back (VS Code opening) moves nothing.
+  let workAreaTimer: ReturnType<typeof setTimeout> | undefined
+  let lastWorkArea = JSON.stringify(screen.getPrimaryDisplay().workArea)
+  const workAreaChanged = (): void => {
+    clearTimeout(workAreaTimer)
+    workAreaTimer = setTimeout(() => {
+      const now = JSON.stringify(screen.getPrimaryDisplay().workArea)
+      if (now === lastWorkArea) return
+      lastWorkArea = now
+      resendLayout()
+    }, WORK_AREA_SETTLE_MS)
+  }
+  const displayChanged = (_e?: unknown, _d?: unknown, changed?: unknown): void => {
+    if (workAreaOnly(changed)) return workAreaChanged()
+    lastWorkArea = JSON.stringify(screen.getPrimaryDisplay().workArea)
     islandDiag?.snapshot('display')
     void islandDiag?.refreshScreens('display')
     collapseIsland()

@@ -112,13 +112,16 @@ def test_lesson_window_fills_the_screen_beside_the_drawer(tmp_path, monkeypatch)
     folder = _folder(tmp_path)
     monkeypatch.setattr(E, "NATIVE_FULLSCREEN", False)
     monkeypatch.setattr(E, "panel_rect", lambda: None)
-    monkeypatch.setattr(E, "left_frame", lambda fraction=E.EDITOR_FRACTION: (0, 0, round(1728 * fraction), 1117))
+    from server.workspace import layout as L
+
+    monkeypatch.setattr(E, "lesson_screen", lambda: L.Screen(frame=L.Rect(0, 0, 1728, 1117), visible=L.Rect(0, 0, 1728, 1117)))
     ax, rep = FakeAX(), {}
     E.make_fullscreen(VSC, rep, folder=str(folder), ax=ax, sleep=lambda s: None)
-    top, h = E.PILL_CLEARANCE, 1117 - E.BAR_CLEARANCE - E.PILL_CLEARANCE
+    top = L.MENU_BAND + E.PILL_CLEARANCE  # no notch, menu bar hidden: still below its 24 pt band and the island row
+    h = 1117 - E.BAR_CLEARANCE - top
     right = 1728 - E.drawer_reserve()
     frame = [e for e in ax.log if e[0] == "frame"]
-    assert frame == [("frame", "lesson", 0, top, max(round(1728 * E.EDITOR_FRACTION), round(right)), h)]
+    assert frame == [("frame", "lesson", 0, top, round(right), h)]
     assert frame[0][2] + frame[0][4] < 1728  # it ends before the drawer
     assert ("minimize", "old") in ax.log and ax.log[-1] == ("raise", "lesson")
     assert rep["fullscreen"] == "done (maximized)" and rep["put_away"] == ["old-lesson-abc123"]

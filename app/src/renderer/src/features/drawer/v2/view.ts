@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
+import type { CheckIssue, MissingLine, StepKind } from '../../../../../../../shared/contracts/events'
 import { useLesson, useThinking } from '../../../core/lesson'
 import { usePressed } from '../../../core/shortcuts'
 import { useStepDetail } from '../plan'
@@ -30,13 +30,16 @@ export function pickView(f: { passed: boolean; checking: boolean; notyet: boolea
 }
 
 /**
- * Les-Checking's input: the learner's Check press while the engine thinks (or just after, before it answers), or the
- * stage's &panel=checking. Exported so the pill beside the panel says the same thing ("Checking", never "Watching").
+ * Les-Checking's input: a Check press still waiting for its answer (panelStore's flight: from the press until the
+ * check's own card, its thinking ending, or CHECK_MAX_MS), the old press rule (thinking, or the first PRESS_GRACE_MS),
+ * or the stage's &panel=checking. Exported so the pill beside the panel says the same thing ("Checking", never
+ * "Watching"). Nov 25: an unrelated card on the way cleared the press and Checking vanished mid-check.
  */
 export function useChecking(): boolean {
   const thinking = useThinking()
   const press = usePressed(useShallow((p) => ({ kind: p.kind, at: p.at })))
   const stage = usePanel((s) => !!s.stageChecking)
+  const flying = usePanel((s) => !!s.flight && !s.flight.stuck)
   const pressed = press.kind === 'check_step'
   const [fresh, setFresh] = useState(false)
   useEffect(() => {
@@ -47,14 +50,25 @@ export function useChecking(): boolean {
     const id = setTimeout(() => setFresh(false), left)
     return () => clearTimeout(id)
   }, [pressed, press.at])
-  return stage || (pressed && (thinking || fresh))
+  return stage || flying || (pressed && (thinking || fresh))
 }
+
+/** The last Check got no answer at all within CHECK_MAX_MS (the panel says so under the button). */
+export const useCheckStuck = (): boolean => usePanel((s) => !!s.flight?.stuck)
 
 export type NotYetInfo = {
   /** The first line is the finding (white), the rest say more (muted). Backticks mark code. */
   lines: string[]
   missing?: MissingLine[]
   fixCaption?: string
+  /** Nov 25: the check couldn't see what it needs. blocking: the box says the issue's title ("Can't see your screen"), not "Not yet". */
+  issue?: CheckIssue
+  /** The card's own step actions the box offers (apply_fix = Do it for me, run_command = Run it for me). */
+  actions?: string[]
+  /** This is the 2nd+ check answer on the step: "Checked again" (each press visibly answered). */
+  again?: boolean
+  /** The answer's id: a new one re-plays the box's entrance, so the same words still read as a fresh answer. */
+  key?: string
 }
 
 export type HintInfo = { lines: string[]; n?: number; of?: number }
@@ -100,11 +114,14 @@ const splitLines = (t: string | undefined): string[] =>
 
 const GENERIC = /^(not yet|hint)\.?$/i
 
-function notYetFrom(card: PanelCard | undefined, off: { title: string; body: string } | undefined, fails: { label: string; detail?: string }[]): NotYetInfo {
+function notYetFrom(card: PanelCard | undefined, off: { title: string; body: string } | undefined, fails: { label: string; detail?: string }[], n?: number): NotYetInfo {
   if (card) {
+    const issue = card.checkIssue
+    const base = { actions: card.actions, again: (n ?? 0) > 1, key: card.checkedAt !== undefined ? String(card.checkedAt) : undefined }
+    if (issue?.blocking) return { ...base, lines: [issue.body, issue.next].filter(Boolean), issue }
     const title = card.title?.trim()
     const lines = [...(title && !GENERIC.test(title) ? [title] : []), ...splitLines(card.body)]
-    return { lines, missing: card.missingLines?.length ? card.missingLines : undefined, fixCaption: card.fixCaption?.trim() || undefined }
+    return { ...base, lines, issue, missing: card.missingLines?.length ? card.missingLines : undefined, fixCaption: card.fixCaption?.trim() || undefined }
   }
   if (off) return { lines: [off.title, ...splitLines(off.body)].filter(Boolean) }
   const f = fails[0]
@@ -123,6 +140,7 @@ export function usePanelModel(): PanelModel {
   const held = usePanel((s) => s.heldPass)
   const hintCard = usePanel((s) => s.hint)
   const notYet = usePanel((s) => s.notYet)
+  const notYetN = notYet.n
   const detail = useStepDetail((s) => s.detail)
   const checking = useChecking()
   const l = useLesson(
@@ -191,7 +209,7 @@ export function usePanelModel(): PanelModel {
     step,
     passed,
     skipped,
-    notYet: view === 'notyet' ? notYetFrom(card, offInfo, fails) : undefined,
+    notYet: view === 'notyet' ? notYetFrom(card, offInfo, fails, notYetN) : undefined,
     hint: view === 'hint' && hint ? hintFrom(hint) : undefined,
     summary: summary?.trim() || undefined,
     upNext: last ? undefined : upNext,

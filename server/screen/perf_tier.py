@@ -20,6 +20,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+from server.config import safe_env
+
 log = logging.getLogger("server.screen.perf")
 
 LOW_MEM_BYTES = 8 * 1024 ** 3 + 256 * 1024 ** 2   # <= 8 GB (+ slack: hw.memsize is exact, never above 8 GiB there)
@@ -92,7 +94,8 @@ def ax_period(profile: PerfProfile, idle_for: float, saving: bool = False) -> fl
 
 def _sysctl_int(name: str) -> int | None:
     try:
-        out = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=2, check=False).stdout.strip()
+        out = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=2, check=False,
+                             env=safe_env()).stdout.strip()
         return int(out) if out else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
@@ -145,7 +148,8 @@ def _low_power_mode() -> bool:
 
 def _on_battery() -> bool:
     try:
-        out = subprocess.run(["pmset", "-g", "ps"], capture_output=True, text=True, timeout=2, check=False).stdout
+        out = subprocess.run(["pmset", "-g", "ps"], capture_output=True, text=True, timeout=2, check=False,
+                             env=safe_env()).stdout
         return "Battery Power" in out
     except (OSError, subprocess.SubprocessError):
         return False

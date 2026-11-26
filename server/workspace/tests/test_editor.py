@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from server.workspace import editor as E
+from server.workspace import layout as L
 from server.workspace import setup as S
 from server.workspace.tests.test_setup import FakeMac, reqs_reply
 from server.workspace.tests.test_workspace import FakeClient, load
@@ -111,19 +112,34 @@ class FakeAX:
         return True
 
 
-def test_arrange_unfullscreens_previous_and_docks_editor_left(monkeypatch):
+def screen(w=1728, h=1117, top=38, bottom=0, left=0, notch=0.0):
+    """A display for the layout tests: menu bar `top` pt, Dock `bottom` / `left` pt, notch height `notch`."""
+    return L.Screen(frame=L.Rect(0, 0, w, h), visible=L.Rect(left, top, w - left, h - top - bottom), safe_top=notch)
+
+
+def test_arrange_never_unfullscreens_and_docks_editor_left(monkeypatch):
+    """Nov 25: the app the learner was in keeps its full screen (each exit was a Space switch while VS Code opened);
+    the lesson window takes the left 60%, below the island's row, down to the Dock (no bottom bar any more)."""
     monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
-    monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 38, round(1728 * fraction), 1079))
+    monkeypatch.setattr(E, "lesson_screen", lambda: screen())
+    ax, rep = FakeAX(fullscreen_prev=True, fullscreen_editor=False), {}
+    E.arrange(CURSOR, {"pid": 111, "name": "Safari"}, rep, ax=ax, sleep=lambda s: None)
+    top, h = 38 + E.PILL_CLEARANCE, 1079 - E.PILL_CLEARANCE
+    assert ax.log == [("frame", "ed", 0, top, 1037, h)]
+    assert rep == {"arranged": True, "frame": [0, round(top), 1037, round(h)], "arrange": "done"}
+
+
+def test_arrange_leaves_a_full_screen_lesson_window_alone(monkeypatch):
+    monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
+    monkeypatch.setattr(E, "lesson_screen", lambda: screen())
     ax, rep = FakeAX(fullscreen_prev=True, fullscreen_editor=True), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Safari"}, rep, ax=ax, sleep=lambda s: None)
-    top, h = 38 + E.PILL_CLEARANCE, 1079 - E.BAR_CLEARANCE - E.PILL_CLEARANCE  # t10: below the pill, E22: above the bar
-    assert ax.log == [("exit_fs", "prev"), ("exit_fs", "ed"), ("frame", "ed", 0, top, 1037, h)]
-    assert rep == {"unfullscreened": "Safari", "arranged": True, "frame": [0, round(top), 1037, round(h)], "arrange": "done"}
+    assert ax.log == [] and rep["arrange"].startswith("left as it is: full screen")
 
 
 def test_arrange_leaves_windowed_apps_alone(monkeypatch):
     monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
-    monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 0, 600, 800))
+    monkeypatch.setattr(E, "lesson_screen", lambda: screen(w=1000, h=825, top=25))
     ax, rep = FakeAX(fullscreen_prev=False), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Terminal"}, rep, ax=ax, sleep=lambda s: None)
     assert ("exit_fs", "prev") not in ax.log and "unfullscreened" not in rep and rep["arranged"]
