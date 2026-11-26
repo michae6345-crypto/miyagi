@@ -3,7 +3,8 @@
  * (island mode, priority 75), says which one, keeps the learner's place (core useCurrentStep), shows every row live,
  * and offers the one fix: Open System Settings (core permissions:open, after the macOS prompt on this click only).
  * Accessibility can be skipped ("Keep going without pointing"); Screen Recording can't (miyagi can't see without it),
- * so its second button is Relaunch (macOS often applies that grant only after one).
+ * so its second button is Restart miyagi (macOS often applies that grant only after one). When main saw the switch on
+ * and only a restart is left (the row's `restart`), Restart miyagi is the primary and the pane the second button.
  * It closes on its own when the grant is back or the engine resumes the lesson.
  */
 import { motion } from 'motion/react'
@@ -45,12 +46,12 @@ function TextButton({ label, onClick }: { label: string; onClick: () => void }):
 
 export function Recovery(): ReactNode {
   const rec = useOnboarding((s) => s.recovery)
-  const asked = useOnboarding((s) => (rec ? s.asked[rec.kind] : undefined))
   const rows = useRows()
   const step = useCurrentStep()
   if (!rec) return null
   const place = savedPlace(step)
   const name = NAME[rec.kind]
+  const restart = !!rows.find((r) => r.id === rec.kind)?.restart
   return (
     <div data-onb-recovery={rec.kind} role="alertdialog" aria-labelledby="onb-rec-title" className="flex flex-col gap-[24px] p-[24px]" style={{ width: RECOVERY_W }}>
       <div className="flex flex-col gap-[16px]">
@@ -84,11 +85,17 @@ export function Recovery(): ReactNode {
       </div>
 
       <div className="flex flex-col gap-[8px]">
-        <PrimaryButton size="lg" block label="Open System Settings" onClick={() => void runAction(rec.kind === 'screen' ? 'allow-screen' : 'open-accessibility')} />
-        {rec.kind === 'accessibility' ? (
+        {restart ? (
+          <PrimaryButton size="lg" block label="Restart miyagi" onClick={() => void runAction('relaunch')} />
+        ) : (
+          <PrimaryButton size="lg" block label="Open System Settings" onClick={() => void runAction(rec.kind === 'screen' ? 'allow-screen' : 'open-accessibility')} />
+        )}
+        {restart ? (
+          <TextButton label="Open System Settings" onClick={() => void runAction(rec.kind === 'screen' ? 'open-screen-pane' : 'open-accessibility-pane')} />
+        ) : rec.kind === 'accessibility' ? (
           <TextButton label="Keep going without pointing" onClick={keepGoing} />
         ) : (
-          asked && <TextButton label="Relaunch miyagi" onClick={() => void runAction('relaunch')} />
+          <TextButton label="Restart miyagi" onClick={() => void runAction('relaunch')} />
         )}
       </div>
     </div>
