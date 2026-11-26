@@ -919,6 +919,9 @@ def presented_token(request: Request) -> str:
     return token_from_headers(request.headers.get)
 
 
+ACCOUNT_BANNED_MESSAGE = "This account has been disabled."
+
+
 def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     token = presented_token(request)
     if not token or len(token) > 200:
@@ -928,9 +931,12 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     if row is None:
         return None, error(401, "authentication_error", "Unknown install token. Get a new one at /v1/install.")
     request.state.tok = h[:PREFIX_LEN]
-    request.state.linked = 1 if store.get_link(h) else None  # linked or not, for the log line: never the account id
+    link = store.get_link(h)
+    request.state.linked = 1 if link else None  # linked or not, for the log line: never the account id
     if row["disabled"]:
         return None, error(403, "permission_error", "This install has been disabled.")
+    if link and store.user_banned(link["user_id"]):
+        return None, error(403, "permission_error", ACCOUNT_BANNED_MESSAGE)
     return h, None
 
 
@@ -2347,6 +2353,20 @@ verifier = supabase_auth.SupabaseVerifier.from_env()  # SUPABASE_URL, SUPABASE_A
 LINK_MAX_BODY = 16 * 1024  # {"access_token": "<JWT>"}: a Supabase JWT is 1-2 KB
 
 
+def claims_identity(claims: dict) -> tuple[str | None, bool]:
+    """(identity hash of the verified token's email or None, whether to trust it as a mapping). The hash is always
+    computed, so a ban is always checked. `trusted` (write the user-to-identity mapping and the carry-over) holds for an
+    OAuth sign-in, read from app_metadata (set by Supabase Auth only), or a top-level email_verified of true. user_metadata
+    is the user's to edit and is never read here."""
+    am = claims.get("app_metadata")
+    providers = set()
+    if isinstance(am, dict):
+        many = am.get("providers")
+        providers = {p for p in [am.get("provider"), *(many if isinstance(many, list) else [])] if isinstance(p, str)}
+    oauth = bool(providers - {"email", "phone", "anonymous"})
+    return store.identity_hash(claims.get("email")), oauth or claims.get("email_verified") is True
+
+
 def link_error(status: int, kind: str) -> JSONResponse:
     return JSONResponse({"error": kind}, status_code=status)
 
@@ -2377,7 +2397,12 @@ async def link_from_request(request: Request) -> tuple[str, dict, dict] | JSONRe
         return link_error(503, "link_unavailable")
     except supabase_auth.BadAccessToken:
         return link_error(403, "bad_access_token")
-    if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER):
+    id_hash, trusted = claims_identity(claims)
+    if store.is_banned(id_hash) or store.user_banned(claims["sub"]):  # the same person after deleting the account: the ban is on the identity, not the install
+        log.warning("link refused: banned identity")
+        store.ban_user(claims["sub"], "linked with a banned identity", id_hash if store.is_banned(id_hash) else None, overwrite=False)  # its user id and installs follow the ban
+        return link_error(403, "account_banned")
+    if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER, id_hash if trusted else None):
         log.warning("link refused: the user already has %d installs linked", LINK_MAX_INSTALLS_PER_USER)
         return link_error(403, "too_many_installs")
     request.state.linked = 1
@@ -2466,6 +2491,11 @@ async def finish_account_delete(user_id: str) -> str:
     return "pending"
 
 
+def _carry_ban_on_delete(user_id: str, id_hash: str) -> None:
+    if store.user_banned(user_id):
+        store.ban_identity(id_hash, "banned user deleted their account", overwrite=False)  # the ban follows the email too
+
+
 @app.post("/v1/account/delete")
 async def account_delete(request: Request):
     """Contract (the app builds against it):
@@ -2504,7 +2534,10 @@ async def account_delete(request: Request):
         user_id = claims["sub"]
     if not live and user_id is None:
         return link_error(401, "bad_install_token")
-    n = await run_in_threadpool(store.delete_account, h if live else None, user_id)
+    id_hash, trusted = claims_identity(claims) if user_id else (None, False)
+    if user_id and id_hash and trusted:
+        await run_in_threadpool(_carry_ban_on_delete, user_id, id_hash)
+    n = await run_in_threadpool(store.delete_account, h if live else None, user_id, id_hash if trusted else None)
     log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",
              "live" if live else "gone")
     account = await finish_account_delete(user_id) if user_id else "none"
@@ -3260,6 +3293,62 @@ async def admin_set_disabled(prefix: str, request: Request):
         return error(409, "conflict", f"{len(matched)} tokens match; use a longer prefix.")
     log.info("admin: token %s %s", prefix[:PREFIX_LEN], "disabled" if disable else "enabled")
     return {"token": matched[0][:PREFIX_LEN], "disabled": disable}
+
+
+class IdentityBody(BaseModel):
+    user_id: str | None = Field(default=None, min_length=1, max_length=64)
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    reason: str = Field(default="", max_length=200)
+
+
+def _identity_from_body(body: IdentityBody) -> tuple[str | None, JSONResponse | None]:
+    """The id_hash an admin names by `email` (hashed here, never stored) or by a live account's `user_id`."""
+    if bool(body.user_id) == bool(body.email):
+        return None, error(400, "invalid_request_error", "Give exactly one of user_id or email.")
+    if body.email:
+        ih = store.identity_hash(body.email)
+        return (ih, None) if ih else (None, error(400, "invalid_request_error", "email is not an address."))
+    return None, None
+
+
+@app.post("/admin/identities/ban")
+@app.post("/admin/identities/unban")
+async def admin_identity_ban(request: Request):
+    """Ban (or unban) a person by provider identity, so deleting the account and signing in again does not lift it.
+    Ban also disables the install tokens of every account with that identity. Unban only lifts the identity ban:
+    re-enable tokens with /admin/tokens/{prefix}/enable."""
+    if denied := require_admin(request):
+        return denied
+    body = await read_model(request, IdentityBody)
+    if isinstance(body, JSONResponse):
+        return body
+    ih, bad = _identity_from_body(body)
+    if bad:
+        return bad
+    unban = request.url.path.endswith("/unban")
+    if ih is None:  # by user id: works for users linked before identities were recorded
+        known = store.user_known(body.user_id)
+        ident = store.identity_of(body.user_id)
+        pid = ident[:PREFIX_LEN] if ident else None
+        if unban:
+            return {"id": pid, "banned": False, "was_banned": store.unban_user(body.user_id), "known": known}
+        n = store.ban_user(body.user_id, body.reason)
+        log.info("admin: user banned, %d token(s) disabled", n)
+        return {"id": pid, "banned": True, "tokens_disabled": n, "known": known}
+    if unban:
+        removed = store.unban_identity(ih)
+        log.info("admin: identity %s unbanned", ih[:PREFIX_LEN])
+        return {"id": ih[:PREFIX_LEN], "banned": False, "was_banned": removed, "known": True}
+    n = store.ban_identity(ih, body.reason)
+    log.info("admin: identity %s banned, %d token(s) disabled", ih[:PREFIX_LEN], n)
+    return {"id": ih[:PREFIX_LEN], "banned": True, "tokens_disabled": n, "known": True}
+
+
+@app.get("/admin/identities")
+async def admin_identities(request: Request):
+    if denied := require_admin(request):
+        return denied
+    return {"banned": store.banned_identities()}
 
 
 class PlanBody(BaseModel):

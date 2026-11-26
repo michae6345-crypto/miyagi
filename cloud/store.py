@@ -226,6 +226,41 @@ CREATE TABLE IF NOT EXISTS lesson_revocations (
     revoked_at REAL NOT NULL,
     PRIMARY KEY (video_id, schema)
 );
+-- Durable identity (abuse): id_hash is an HMAC-SHA256 of the normalized provider email, never the email. It survives
+-- account deletion, so a ban and the day's spend / month's builds cannot be reset by deleting and signing in again.
+CREATE TABLE IF NOT EXISTS banned_identities (
+    id_hash    TEXT PRIMARY KEY,
+    reason     TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+-- Which identity a live Supabase user is (written on link, dropped with the account): lets admin ban by user id.
+CREATE TABLE IF NOT EXISTS banned_users (
+    user_id    TEXT PRIMARY KEY,
+    id_hash    TEXT,                       -- the identity it was banned with, when known
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_identity (
+    user_id TEXT PRIMARY KEY,
+    id_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS user_identity_hash ON user_identity (id_hash);
+-- Written by delete_account: what the identity had used on that UTC day (requests, usd, tokens), counted into the
+-- caps of any later account with the same id_hash until the day ends.
+CREATE TABLE IF NOT EXISTS identity_usage (
+    id_hash  TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    requests INTEGER NOT NULL DEFAULT 0,
+    usd      REAL NOT NULL DEFAULT 0,
+    tokens   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (id_hash, day)
+);
+-- Same for the month's lesson builds (a count: the videos themselves are not kept).
+CREATE TABLE IF NOT EXISTS identity_builds (
+    id_hash TEXT NOT NULL,
+    month   TEXT NOT NULL,
+    builds  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (id_hash, month)
+);
 """
 
 log = logging.getLogger("miyagi.cloud")
@@ -252,6 +287,32 @@ def net_key_from_env() -> tuple[bytes, str]:
     if a:
         return hmac.new(a.encode(), b"miyagi-cloud net hash v1", hashlib.sha256).digest(), "ADMIN_TOKEN"
     return secrets.token_bytes(32), "random"
+
+def identity_key_from_env() -> bytes | None:
+    """IDENTITY_HASH_KEY (trimmed) as the identity hash key, or None: the Store then generates a random key once and
+    keeps it in its settings table, so it survives restarts with the database."""
+    k = os.environ.get("IDENTITY_HASH_KEY", "").strip()
+    return k.encode() if k else None
+
+
+def normalize_email(email) -> str | None:
+    """Lowercased, trimmed email; for gmail.com / googlemail.com also without dots and any +tag in the local part
+    (Google treats those as the same mailbox); any +tag in the local part is dropped on every domain. None when it is
+    not an address."""
+    if not isinstance(email, str):
+        return None
+    e = email.strip().lower()
+    local, sep, domain = e.rpartition("@")
+    if not sep or not local or not domain or len(e) > 320:
+        return None
+    local = local.split("+", 1)[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        local = local.replace(".", "")
+        domain = "gmail.com"
+    if not local:
+        return None
+    return f"{local}@{domain}"
+
 
 PLANS = ("free", "pro")  # free: the caps in app.py apply; pro: no caps
 
@@ -289,7 +350,7 @@ def default_db_path() -> str:
 class Store:
     """SQLite store. Calls are short and serialized by a lock; fine for one Render instance."""
 
-    def __init__(self, path: str, net_key: bytes | None = None) -> None:
+    def __init__(self, path: str, net_key: bytes | None = None, identity_key: bytes | None = None) -> None:
         self.path = path
         if net_key is None:
             net_key, source = net_key_from_env()
@@ -308,6 +369,7 @@ class Store:
         if "mint_net" not in cols:  # the network a token was minted from (NULL for older tokens: no network cap)
             self._db.execute("ALTER TABLE tokens ADD COLUMN mint_net TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS tokens_mint_net ON tokens (mint_net)")
+        self._identity_key = identity_key or identity_key_from_env() or self._stored_identity_key()
         self._migrate_first_writer_lessons()
         self._minimise_stored_networks()
         self._pruned_hour = -1
@@ -321,6 +383,110 @@ class Store:
         if net is None or net in _NET_PLAIN or net.startswith(NET_HASH_PREFIX):
             return net
         return NET_HASH_PREFIX + hmac.new(self._net_key, net.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+
+    def _stored_identity_key(self) -> bytes:
+        """No IDENTITY_HASH_KEY: a random key, generated once and kept in settings (never a constant, never derived
+        from another secret). Lose the database and every ban and carry-over goes with it, so set the env var."""
+        row = self._db.execute("SELECT value FROM settings WHERE key = 'identity_key'").fetchone()
+        if row:
+            return bytes.fromhex(row[0])
+        k = secrets.token_bytes(32)
+        self._db.execute("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('identity_key', ?, ?)",
+                         (k.hex(), time.time()))
+        row = self._db.execute("SELECT value FROM settings WHERE key = 'identity_key'").fetchone()
+        if "RENDER" in os.environ:
+            log.warning("IDENTITY_HASH_KEY is not set: using a random key kept in the database. Set it in the dashboard "
+                        "so bans and carry-overs survive a database loss.")
+        return bytes.fromhex(row[0])
+
+    def identity_hash(self, email) -> str | None:
+        """The durable identity key for a provider email: HMAC-SHA256 (hex) of the normalized address; None when the
+        token carried no usable email. The email itself is never stored."""
+        e = normalize_email(email)
+        if e is None:
+            return None
+        return hmac.new(self._identity_key, e.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def is_banned(self, id_hash: str | None) -> bool:
+        return bool(id_hash) and bool(self._q("SELECT 1 FROM banned_identities WHERE id_hash = ?", (id_hash,)))
+
+    def user_banned(self, user_id: str) -> bool:
+        """The user id is banned (banned_users), or its identity is. Covers a banned person who changes email: the
+        Supabase user id stays the same."""
+        return bool(self._q("SELECT 1 FROM banned_users WHERE user_id = ? UNION ALL "
+                            "SELECT 1 FROM user_identity u JOIN banned_identities b ON b.id_hash = u.id_hash "
+                            "WHERE u.user_id = ?", (user_id, user_id)))
+
+    def user_known(self, user_id: str) -> bool:
+        """The cloud has seen this user id (an install linked to it, a recorded identity, or an earlier ban)."""
+        return bool(self._q("SELECT 1 FROM links WHERE user_id = ? UNION ALL SELECT 1 FROM user_identity WHERE user_id = ? "
+                            "UNION ALL SELECT 1 FROM banned_users WHERE user_id = ?", (user_id, user_id, user_id)))
+
+    def identity_of(self, user_id: str) -> str | None:
+        rows = self._q("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,))
+        return rows[0]["id_hash"] if rows else None
+
+    def ban_identity(self, id_hash: str, reason: str = "", overwrite: bool = True) -> int:
+        """Ban the identity and every user mapped to it (banned_users), and disable every install token linked to them.
+        An identity nobody is mapped to yet is still recorded: that person's next link is refused. overwrite=False (the
+        automatic callers) keeps an existing row's reason. Returns the tokens."""
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                self._db.execute("INSERT INTO banned_identities (id_hash, reason, created_at) VALUES (?, ?, ?) "
+                                 "ON CONFLICT (id_hash) DO " + ("UPDATE SET reason = excluded.reason" if overwrite else "NOTHING"),
+                                 (id_hash, reason[:200], time.time()))
+                users = [r[0] for r in self._db.execute("SELECT user_id FROM user_identity WHERE id_hash = ?", (id_hash,))]
+                n = self._ban_users_locked(users, id_hash)
+                self._db.execute("COMMIT")
+                return n
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def ban_user(self, user_id: str, reason: str = "", id_hash: str | None = None, overwrite: bool = True) -> int:
+        """Ban a Supabase user id directly (works for a user linked before identities were recorded), its identity too
+        when known, and disable every install linked to it. Returns the tokens disabled."""
+        ih = self.identity_of(user_id)
+        if ih:
+            return self.ban_identity(ih, reason, overwrite)
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                n = self._ban_users_locked([user_id], id_hash)
+                self._db.execute("COMMIT")
+                return n
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def _ban_users_locked(self, users: list[str], id_hash: str | None) -> int:
+        n = 0
+        for u in users:
+            self._db.execute("INSERT INTO banned_users (user_id, id_hash, created_at) VALUES (?, ?, ?) "
+                             "ON CONFLICT (user_id) DO UPDATE SET id_hash = COALESCE(excluded.id_hash, id_hash)",
+                             (u, id_hash, time.time()))
+            n += self._db.execute("UPDATE tokens SET disabled = 1 WHERE token_hash IN "
+                                  "(SELECT token_hash FROM links WHERE user_id = ?)", (u,)).rowcount
+        return n
+
+    def unban_identity(self, id_hash: str) -> bool:
+        with self._lock:
+            self._db.execute("DELETE FROM banned_users WHERE id_hash = ?", (id_hash,))
+            return self._db.execute("DELETE FROM banned_identities WHERE id_hash = ?", (id_hash,)).rowcount > 0
+
+    def unban_user(self, user_id: str) -> bool:
+        """Lift a user-id ban and, when it is mapped, its identity's ban."""
+        ih = self.identity_of(user_id)
+        with self._lock:
+            gone = self._db.execute("DELETE FROM banned_users WHERE user_id = ?", (user_id,)).rowcount > 0
+        return (self.unban_identity(ih) if ih else False) or gone
+
+    def banned_identities(self) -> list[dict]:
+        return [{"id": r["id_hash"][:PREFIX_LEN], "reason": r["reason"], "created_at": r["created_at"]}
+                for r in self._q("SELECT id_hash, reason, created_at FROM banned_identities ORDER BY created_at")]
 
     def _minimise_stored_networks(self) -> None:
         """Databases from before the hashes: every stored address or prefix becomes its keyed hash (so the limits
@@ -616,8 +782,18 @@ class Store:
     def builds_in_month(self, token_hash: str, month: str | None = None, user_id: str | None = None) -> int:
         """Distinct videos claimed this month by this install, or with `user_id` by every install linked to that user."""
         scope, arg = self._build_scope(token_hash, user_id)
-        rows = self._q(f"SELECT COUNT(DISTINCT video_id) AS n FROM builds WHERE month = ? AND {scope}", (month or this_month(), arg))
-        return int(rows[0]["n"])
+        m = month or this_month()
+        with self._lock:
+            n = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND {scope}", (m, arg)).fetchone()[0]
+            return int(n) + self._build_carry(user_id, m)
+
+    def _build_carry(self, user_id: str | None, month: str) -> int:
+        """Builds this identity used this month before an account deletion (identity_builds). Lock held."""
+        if not user_id:
+            return 0
+        r = self._db.execute("SELECT COALESCE(SUM(b.builds), 0) FROM identity_builds b JOIN user_identity u "
+                             "ON u.id_hash = b.id_hash WHERE u.user_id = ? AND b.month = ?", (user_id, month)).fetchone()
+        return int(r[0])
 
     @staticmethod
     def _build_scope(token_hash: str, user_id: str | None) -> tuple[str, str]:
@@ -678,6 +854,7 @@ class Store:
         month = this_month()
         scope, arg = self._build_scope(token_hash, user_id)
         n = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND {scope}", (month, arg)).fetchone()[0]
+        n += self._build_carry(user_id, month)
         if self._db.execute("SELECT 1 FROM builds WHERE token_hash = ? AND month = ? AND video_id = ?",
                             (token_hash, month, video_id)).fetchone():
             return True, n
@@ -787,6 +964,10 @@ class Store:
             mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
                                       "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
             reqs, usd = reqs + int(mr), usd + float(mu)
+            cr, cu, ct = self._db.execute(
+                "SELECT COALESCE(SUM(i.requests), 0), COALESCE(SUM(i.usd), 0), COALESCE(SUM(i.tokens), 0) FROM identity_usage i "
+                "JOIN user_identity u ON u.id_hash = i.id_hash WHERE u.user_id = ? AND i.day = ?", (user_id, day)).fetchone()
+            reqs, usd, toks = reqs + int(cr), usd + float(cu), toks + int(ct)
         return reqs, usd, toks
 
     def user_usage_today(self, user_id: str) -> tuple[int, float, int]:
@@ -991,9 +1172,9 @@ class Store:
                 "installs_linked": int(self._q("SELECT COUNT(*) FROM links")[0][0])}
 
     # links ----------------------------------------------------------------
-    def link_user(self, token_hash: str, user_id: str) -> None:
+    def link_user(self, token_hash: str, user_id: str, id_hash: str | None = None) -> None:
         """Link an install to a user. Re-linking the same pair keeps the first linked_at."""
-        self.link_user_capped(token_hash, user_id, 0)
+        self.link_user_capped(token_hash, user_id, 0, id_hash)
 
     def _keep_usage_behind(self, token_hash: str, user_id: str) -> None:
         """Inside link_user_capped's transaction, before the link changes: when the install moves to `user_id` from
@@ -1016,7 +1197,7 @@ class Store:
             self._db.execute("INSERT INTO moved_usage (token_hash, day, from_user, from_net, requests, usd) "
                              "VALUES (?, ?, ?, ?, ?, ?)", (token_hash, day, old_user, net, int(reqs), float(usd)))
 
-    def link_user_capped(self, token_hash: str, user_id: str, max_installs: int) -> bool:
+    def link_user_capped(self, token_hash: str, user_id: str, max_installs: int, id_hash: str | None = None) -> bool:
         """link_user, unless the user already has `max_installs` (> 0) other installs linked. Returns whether it linked.
         The install's usage today stays counted against the user or network pool it leaves (_keep_usage_behind)."""
         with self._lock:
@@ -1029,6 +1210,11 @@ class Store:
                         self._db.execute("ROLLBACK")
                         return False
                 self._keep_usage_behind(token_hash, user_id)
+                cur = self._db.execute("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,)).fetchone()
+                banned = cur and self._db.execute("SELECT 1 FROM banned_identities WHERE id_hash = ?", (cur[0],)).fetchone()
+                if id_hash and not banned:  # never move a banned user to a fresh, unbanned identity
+                    self._db.execute("INSERT INTO user_identity (user_id, id_hash) VALUES (?, ?) "
+                                     "ON CONFLICT (user_id) DO UPDATE SET id_hash = excluded.id_hash", (user_id, id_hash))
                 self._db.execute("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "
                                  "ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, linked_at = excluded.linked_at "
                                  "WHERE links.user_id != excluded.user_id", (token_hash, user_id, time.time()))
@@ -1049,13 +1235,45 @@ class Store:
     def installs_of(self, user_id: str) -> list[str]:
         return [r["token_hash"] for r in self._q("SELECT token_hash FROM links WHERE user_id = ?", (user_id,))]
 
-    def delete_account(self, token_hash: str | None, user_id: str | None = None) -> dict:
+    def _carry_over(self, user_id: str | None, id_hash: str | None, hs: list[str], day: str) -> None:
+        """Inside delete_account's transaction, before anything is deleted: write what the identity used today and this
+        month (usage of its installs plus what moved away from the user today, and its builds) to identity_usage /
+        identity_builds, added to what an earlier deletion left. Nothing is written without an identity."""
+        if not user_id:
+            return
+        if not id_hash:
+            row = self._db.execute("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,)).fetchone()
+            id_hash = row[0] if row else None
+        if not id_hash:
+            return
+        inn = f"IN ({','.join('?' * len(hs))})" if hs else "IN (NULL)"
+        r, u, t = self._db.execute(f"SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0), COALESCE(SUM(input_tokens + "
+                                   f"output_tokens), 0) FROM usage WHERE day = ? AND token_hash {inn}", (day, *hs)).fetchone()
+        mr, mu = self._db.execute("SELECT COALESCE(SUM(requests), 0), COALESCE(SUM(usd), 0) FROM moved_usage "
+                                  "WHERE day = ? AND from_user = ?", (day, user_id)).fetchone()
+        r, u = int(r) + int(mr), float(u) + float(mu)
+        if r or u or int(t):
+            self._db.execute("INSERT INTO identity_usage (id_hash, day, requests, usd, tokens) VALUES (?, ?, ?, ?, ?) "
+                             "ON CONFLICT (id_hash, day) DO UPDATE SET requests = requests + excluded.requests, "
+                             "usd = usd + excluded.usd, tokens = tokens + excluded.tokens", (id_hash, day, r, u, int(t)))
+        month = this_month()
+        b = self._db.execute(f"SELECT COUNT(DISTINCT video_id) FROM builds WHERE month = ? AND token_hash {inn}",
+                             (month, *hs)).fetchone()[0]
+        if int(b):
+            self._db.execute("INSERT INTO identity_builds (id_hash, month, builds) VALUES (?, ?, ?) "
+                             "ON CONFLICT (id_hash, month) DO UPDATE SET builds = builds + excluded.builds",
+                             (id_hash, month, int(b)))
+
+    def delete_account(self, token_hash: str | None, user_id: str | None = None, id_hash: str | None = None) -> dict:
         """Delete every row tied to install `token_hash` (None: none) and, with `user_id`, to that user and every install linked to
         it, in one transaction. Returns {"installs": n, <table>: rows deleted or scrubbed}.
 
         Kept, with nothing that points back at anyone:
         - an approved shared lesson the install uploaded: its uploader becomes 'deleted-<random>' and its network
           hash is cleared. Its body is the lesson for a public video (shared, reviewed content), not the learner's.
+        - disabled install tokens stay (still disabled, detached from the user): deleting an account never lifts a
+          ban. The day's usage and month's builds of the user's identity (id_hash) are carried over (identity_usage,
+          identity_builds) so deleting and signing in again does not reset the caps; banned_identities is never touched.
         - today's spend of the deleted installs, folded into the per-day total row (token_hash AGGREGATE), so the
           global brake and spend alerts still see what today cost; and, for an anonymous install, today's spend
           against its mint network's hash (moved_usage, no install, pruned after SHORT_RETAIN_DAYS), so deleting and
@@ -1070,6 +1288,7 @@ class Store:
                 hs = sorted(hashes)
                 inn = f"IN ({','.join('?' * len(hs))})"
                 n: dict[str, int] = {"installs": len(hs)}
+                self._carry_over(user_id, id_hash, hs, day)
 
                 anon = self._db.execute(f"SELECT t.mint_net, COALESCE(SUM(u.requests), 0), COALESCE(SUM(u.usd), 0) FROM tokens t "
                                         f"JOIN usage u ON u.token_hash = t.token_hash AND u.day = ? WHERE t.token_hash {inn} "
@@ -1107,7 +1326,9 @@ class Store:
                 if user_id:
                     link_sql, link_args = link_sql + " OR user_id = ?", [*hs, user_id]
                 n["links"] = self._db.execute(link_sql, link_args).rowcount
-                n["tokens"] = self._db.execute(f"DELETE FROM tokens WHERE token_hash {inn}", hs).rowcount
+                n["tokens"] = self._db.execute(f"DELETE FROM tokens WHERE token_hash {inn} AND disabled = 0", hs).rowcount
+                if user_id:
+                    self._db.execute("DELETE FROM user_identity WHERE user_id = ?", (user_id,))
                 self._db.execute("COMMIT")
                 return n
             except BaseException:
@@ -1169,6 +1390,9 @@ class Store:
                     n[table] = self._db.execute(f"DELETE FROM {table} WHERE day < ?", (short,)).rowcount
                 n["mints"] = self._db.execute("DELETE FROM mints WHERE hour < ?", (int(t // 3600) - 48,)).rowcount
                 n["lesson_claims"] = self._db.execute("DELETE FROM lesson_claims WHERE expires_at <= ?", (t,)).rowcount
+                n["identity_usage"] = self._db.execute("DELETE FROM identity_usage WHERE day < ?", (short,)).rowcount
+                n["identity_builds"] = self._db.execute("DELETE FROM identity_builds WHERE month < ?",
+                                                        (datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m"),)).rowcount
                 n["region_days"] = self._db.execute("DELETE FROM region_days WHERE day < ?", (cut,)).rowcount
                 # funnel: a row older than retention (by its own first_at) is counted into funnel_daily, then deleted
                 self._db.execute("INSERT INTO funnel_daily (day, name, installs) SELECT strftime('%Y-%m-%d', first_at, "
