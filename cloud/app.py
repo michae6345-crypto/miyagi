@@ -2353,13 +2353,17 @@ verifier = supabase_auth.SupabaseVerifier.from_env()  # SUPABASE_URL, SUPABASE_A
 LINK_MAX_BODY = 16 * 1024  # {"access_token": "<JWT>"}: a Supabase JWT is 1-2 KB
 
 
-def claims_identity(claims: dict) -> str | None:
-    """The durable identity hash of a verified token's email, or None: no email, or one Supabase marks unverified
-    (then it is no identity: no ban mapping, no carry-over; the link itself still works)."""
-    meta = claims.get("user_metadata")
-    if claims.get("email_verified") is False or (isinstance(meta, dict) and meta.get("email_verified") is False):
-        return None
-    return store.identity_hash(claims.get("email"))
+def claims_identity(claims: dict) -> tuple[str | None, bool]:
+    """(identity hash of the verified token's email or None, whether to trust it as a mapping). The hash is always
+    computed, so a ban is always checked. `trusted` (write the user-to-identity mapping and the carry-over) holds for an
+    OAuth sign-in, read from app_metadata (set by Supabase Auth only), or a top-level email_verified of true. user_metadata
+    is the user's to edit and is never read here."""
+    am = claims.get("app_metadata")
+    providers = set()
+    if isinstance(am, dict):
+        providers = {p for p in [am.get("provider"), *(am.get("providers") or [])] if isinstance(p, str)}
+    oauth = bool(providers - {"email", "phone", "anonymous"})
+    return store.identity_hash(claims.get("email")), oauth or claims.get("email_verified") is True
 
 
 def link_error(status: int, kind: str) -> JSONResponse:
@@ -2392,11 +2396,12 @@ async def link_from_request(request: Request) -> tuple[str, dict, dict] | JSONRe
         return link_error(503, "link_unavailable")
     except supabase_auth.BadAccessToken:
         return link_error(403, "bad_access_token")
-    id_hash = claims_identity(claims)
+    id_hash, trusted = claims_identity(claims)
     if store.is_banned(id_hash) or store.user_banned(claims["sub"]):  # the same person after deleting the account: the ban is on the identity, not the install
         log.warning("link refused: banned identity")
+        store.ban_user(claims["sub"], "linked with a banned identity", id_hash if store.is_banned(id_hash) else None)  # its user id and installs follow the ban
         return link_error(403, "account_banned")
-    if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER, id_hash):
+    if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER, id_hash if trusted else None):
         log.warning("link refused: the user already has %d installs linked", LINK_MAX_INSTALLS_PER_USER)
         return link_error(403, "too_many_installs")
     request.state.linked = 1
@@ -2485,6 +2490,11 @@ async def finish_account_delete(user_id: str) -> str:
     return "pending"
 
 
+def _carry_ban_on_delete(user_id: str, id_hash: str) -> None:
+    if store.user_banned(user_id):
+        store.ban_identity(id_hash, "banned user deleted their account")  # the ban follows the email too
+
+
 @app.post("/v1/account/delete")
 async def account_delete(request: Request):
     """Contract (the app builds against it):
@@ -2523,10 +2533,10 @@ async def account_delete(request: Request):
         user_id = claims["sub"]
     if not live and user_id is None:
         return link_error(401, "bad_install_token")
-    id_hash = claims_identity(claims) if user_id else None
-    if user_id and id_hash and store.user_banned(user_id):
-        store.ban_identity(id_hash, "banned user deleted their account")  # the ban follows the email too
-    n = await run_in_threadpool(store.delete_account, h if live else None, user_id, id_hash)
+    id_hash, trusted = claims_identity(claims) if user_id else (None, False)
+    if user_id and id_hash:
+        await run_in_threadpool(_carry_ban_on_delete, user_id, id_hash)
+    n = await run_in_threadpool(store.delete_account, h if live else None, user_id, id_hash if trusted else None)
     log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",
              "live" if live else "gone")
     account = await finish_account_delete(user_id) if user_id else "none"
@@ -3316,18 +3326,21 @@ async def admin_identity_ban(request: Request):
         return bad
     unban = request.url.path.endswith("/unban")
     if ih is None:  # by user id: works for users linked before identities were recorded
+        known = store.user_known(body.user_id)
+        ident = store.identity_of(body.user_id)
+        pid = ident[:PREFIX_LEN] if ident else None
         if unban:
-            return {"banned": False, "was_banned": store.unban_user(body.user_id)}
+            return {"id": pid, "banned": False, "was_banned": store.unban_user(body.user_id), "known": known}
         n = store.ban_user(body.user_id, body.reason)
         log.info("admin: user banned, %d token(s) disabled", n)
-        return {"banned": True, "tokens_disabled": n}
+        return {"id": pid, "banned": True, "tokens_disabled": n, "known": known}
     if unban:
         removed = store.unban_identity(ih)
         log.info("admin: identity %s unbanned", ih[:PREFIX_LEN])
-        return {"id": ih[:PREFIX_LEN], "banned": False, "was_banned": removed}
+        return {"id": ih[:PREFIX_LEN], "banned": False, "was_banned": removed, "known": True}
     n = store.ban_identity(ih, body.reason)
     log.info("admin: identity %s banned, %d token(s) disabled", ih[:PREFIX_LEN], n)
-    return {"id": ih[:PREFIX_LEN], "banned": True, "tokens_disabled": n}
+    return {"id": ih[:PREFIX_LEN], "banned": True, "tokens_disabled": n, "known": True}
 
 
 @app.get("/admin/identities")

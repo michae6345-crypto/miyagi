@@ -153,7 +153,7 @@ def test_unban_lets_the_identity_link_again(make_cloud):
     assert client.post("/admin/identities/ban", headers=ADMIN, json={"email": EMAIL}).status_code == 200
     assert link(client, headers).status_code == 403
     r = client.post("/admin/identities/unban", headers=ADMIN, json={"email": EMAIL})
-    assert r.status_code == 200 and r.json() == {"id": r.json()["id"], "banned": False, "was_banned": True}
+    assert r.status_code == 200 and r.json() == {"id": r.json()["id"], "banned": False, "was_banned": True, "known": True}
     assert link(client, headers).status_code == 200
     assert client.get("/admin/identities", headers=ADMIN).json()["banned"] == []
     assert client.post("/admin/identities/unban", headers=ADMIN, json={"email": EMAIL}).json()["was_banned"] is False
@@ -203,13 +203,53 @@ def test_ban_by_email_of_an_unmapped_user_refuses_the_next_link(make_cloud):
     assert link(client, headers, email="never.seen@example.org").status_code == 403
 
 
-def test_unverified_email_is_no_identity_but_still_links(make_cloud):
+def test_user_metadata_cannot_dodge_a_ban_or_a_carry_over(make_cloud):
+    """user_metadata is the user's to edit: a Google sign-in with email_verified=false there is still the same identity."""
     client, app_mod, _ = make_cloud()
-    headers, _t = new_install(client)
+    s = app_mod.store
+    fake = {"user_metadata": {"email_verified": False}}
+    headers, t = new_install(client)
+    h = app_mod.hash_token(t)
+    assert client.post("/v1/link", headers=headers, json={"access_token": make_token(email=EMAIL, **fake)}).status_code == 200
+    assert s.identity_of(USER) == s.identity_hash(EMAIL)  # mapped, so the carry-over below has a key
+    s.add_tokens(h, "anthropic", "claude-haiku-5-5", 10, 10, 0.75)
+    assert delete(client, headers, {"access_token": make_token(email=EMAIL, **fake)}).status_code == 200
+    headers2, _t2 = new_install(client)
+    assert client.post("/v1/link", headers=headers2, json={"access_token": make_token(email=EMAIL, sub=OTHER, **fake)}).status_code == 200
+    assert s.user_usage_today(OTHER)[1] == pytest.approx(0.75)
     assert client.post("/admin/identities/ban", headers=ADMIN, json={"email": EMAIL}).status_code == 200
-    r = client.post("/v1/link", headers=headers, json={"access_token": make_token(email=EMAIL, email_verified=False)})
-    assert r.status_code == 200
-    assert app_mod.store.identity_of(USER) is None
+    headers3, _t3 = new_install(client)
+    r = client.post("/v1/link", headers=headers3, json={"access_token": make_token(email=EMAIL, sub="33333333-2222-4333-8444-555555555555", **fake)})
+    assert r.status_code == 403 and r.json() == {"error": "account_banned"}
+
+
+def test_email_password_signin_is_banned_but_not_mapped(make_cloud):
+    _, app_mod, _ = make_cloud()
+    claims = {"email": EMAIL, "app_metadata": {"provider": "email", "providers": ["email"]}}
+    ih, trusted = app_mod.claims_identity(claims)
+    assert ih == app_mod.store.identity_hash(EMAIL) and trusted is False
+    assert app_mod.claims_identity({**claims, "email_verified": True})[1] is True
+    assert app_mod.claims_identity({"email": EMAIL, "app_metadata": {"provider": "google"}})[1] is True
+
+
+def test_ban_by_email_of_a_legacy_user_is_completed_when_their_link_is_refused(make_cloud):
+    client, app_mod, _ = make_cloud()
+    s = app_mod.store
+    headers, t = new_install(client)
+    h = app_mod.hash_token(t)
+    s.link_user(h, USER)  # legacy: no identity row
+    r = client.post("/admin/identities/ban", headers=ADMIN, json={"email": EMAIL})
+    assert r.json()["tokens_disabled"] == 0 and s.get_token(h)["disabled"] == 0
+    assert client.post("/v1/session", headers=headers, json={"access_token": tok()}).status_code == 403
+    assert s.get_token(h)["disabled"] == 1 and s.user_banned(USER)
+
+
+def test_admin_answers_have_one_shape(make_cloud):
+    client, _app, _ = make_cloud()
+    r = client.post("/admin/identities/ban", headers=ADMIN, json={"user_id": "never-seen"}).json()
+    assert r == {"id": None, "banned": True, "tokens_disabled": 0, "known": False}
+    for body in ({"user_id": "never-seen"}, {"email": EMAIL}):
+        assert set(client.post("/admin/identities/unban", headers=ADMIN, json=body).json()) == {"id", "banned", "was_banned", "known"}
 
 
 def test_identity_key_is_random_persisted_and_not_derived(make_cloud):

@@ -417,6 +417,11 @@ class Store:
                             "SELECT 1 FROM user_identity u JOIN banned_identities b ON b.id_hash = u.id_hash "
                             "WHERE u.user_id = ?", (user_id, user_id)))
 
+    def user_known(self, user_id: str) -> bool:
+        """The cloud has seen this user id (an install linked to it, a recorded identity, or an earlier ban)."""
+        return bool(self._q("SELECT 1 FROM links WHERE user_id = ? UNION ALL SELECT 1 FROM user_identity WHERE user_id = ? "
+                            "UNION ALL SELECT 1 FROM banned_users WHERE user_id = ?", (user_id, user_id, user_id)))
+
     def identity_of(self, user_id: str) -> str | None:
         rows = self._q("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,))
         return rows[0]["id_hash"] if rows else None
@@ -439,7 +444,7 @@ class Store:
                     self._db.execute("ROLLBACK")
                 raise
 
-    def ban_user(self, user_id: str, reason: str = "") -> int:
+    def ban_user(self, user_id: str, reason: str = "", id_hash: str | None = None) -> int:
         """Ban a Supabase user id directly (works for a user linked before identities were recorded), its identity too
         when known, and disable every install linked to it. Returns the tokens disabled."""
         ih = self.identity_of(user_id)
@@ -448,7 +453,7 @@ class Store:
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
-                n = self._ban_users_locked([user_id], None)
+                n = self._ban_users_locked([user_id], id_hash)
                 self._db.execute("COMMIT")
                 return n
             except BaseException:
