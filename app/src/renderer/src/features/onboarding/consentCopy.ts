@@ -8,8 +8,8 @@
  *     GEMINI_ENABLED); with the flag on, the Google (Gemini) line for video lessons comes back;
  *   - close private apps and tabs first;
  *   - miyagi is AI and can be wrong.
- * Then the "I agree" line with the terms and the privacy policy linked (common/consent.ts LEGAL_URL), and ONE primary
- * whose label matches the sentence above it: "By continuing you agree" and Continue.
+ * Then the "I agree" checkbox with the terms and the privacy policy linked (common/consent.ts LEGAL_URL), and ONE
+ * primary, Continue, which stays disabled until the box is ticked.
  * Push to talk (#226) and the coach's web search (#227) are off for launch: never describe either here.
  */
 import { GEMINI_ENABLED } from '../../../../common/flags'
@@ -28,10 +28,14 @@ const AI: ConsentRow = { id: 'ai', line: 'miyagi is AI and can be wrong.', detai
 
 export const CONSENT_ROWS: readonly ConsentRow[] = GEMINI_ENABLED ? [SCREEN, VIDEOS, PRIVATE, AI] : [SCREEN, PRIVATE, AI]
 
-/** The "I agree" line, in parts so the two links sit inside it. Read as one sentence: AGREE_LINE. */
-export const AGREE = { lead: 'By continuing you agree to the ', terms: 'terms', and: ' and ', privacy: 'privacy policy', end: '.' } as const
+/** The "I agree" checkbox's label, in parts so the two links sit inside it. Read as one sentence: AGREE_LINE.
+ *  Michael, Nov 26: an explicit checkbox the learner ticks, not "By continuing you agree". Continue stays disabled
+ *  until it is ticked. */
+export const AGREE = { lead: 'I agree to the ', terms: 'terms', and: ' and ', privacy: 'privacy policy', end: '.' } as const
 export const AGREE_LINE = `${AGREE.lead}${AGREE.terms}${AGREE.and}${AGREE.privacy}${AGREE.end}`
-/** The one primary: it matches "By continuing". */
+/** The one primary. Disabled until the checkbox is ticked. */
 export const CONTINUE = 'Continue'
+/** Shown if Continue (or Enter) is pressed before the box is ticked. */
+export const AGREE_NEEDED = 'Tick the box to agree before you continue.'
 /** If main didn't record it (an IPC failure): say so plainly, and the learner can press Continue again. */
 export const AGREE_FAILED = "Couldn't save that. Try again."

@@ -255,11 +255,10 @@ describe('the consent screen copy (onboarding/consentCopy.ts)', () => {
   })
 
   test('the "I agree" line links the terms and the privacy policy, and the button matches it', () => {
-    assert.equal(AGREE_LINE, 'By continuing you agree to the terms and privacy policy.')
+    assert.equal(AGREE_LINE, 'I agree to the terms and privacy policy.')
     assert.equal(AGREE.terms, 'terms')
     assert.equal(AGREE.privacy, 'privacy policy')
     assert.equal(CONTINUE, 'Continue')
-    assert.ok(AGREE_LINE.startsWith('By continuing'), 'the one primary is Continue, as the sentence says')
     assert.deepEqual(LEGAL_URL, { terms: 'https://miyagi.study/terms', privacy: 'https://miyagi.study/privacy' })
   })
 
@@ -295,5 +294,20 @@ describe('links (R06): every miyagi.study page the app opens exists or is about 
     for (const path of found) assert.ok(['/', '/privacy', '/terms'].includes(path), `a link to https://miyagi.study${path}`)
     assert.ok(found.has('/privacy') && found.has('/terms'))
     assert.equal(CONTACT_EMAIL, 'support@miyagi.study')
+  })
+})
+
+describe('the consent checkbox (Michael, Nov 26)', () => {
+  const screen = readFileSync(join(__dirname, '../src/renderer/src/features/onboarding/Consent.tsx'), 'utf8')
+  test('the agree line is a checkbox, unticked at first', () => {
+    assert.match(screen, /type="checkbox"/)
+    assert.match(screen, /const \[checked, setChecked\] = useState\(false\)/)
+  })
+  test('Continue is disabled until the box is ticked', () => {
+    assert.match(screen, /disabled=\{busy \|\| !checked\}/)
+  })
+  test('Continue or Enter without the tick records nothing and asks for the tick', () => {
+    const go = screen.slice(screen.indexOf('const go = useCallback'), screen.indexOf('const ok = await agree()'))
+    assert.match(go, /if \(!checked\) \{\s*setNudge\(true\)\s*return/)
   })
 })

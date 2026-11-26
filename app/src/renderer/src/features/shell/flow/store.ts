@@ -6,7 +6,7 @@
  *   pending  a first open of the home window on this Mac: it asks main whether the flow is on (onboarding:get)
  *   intro    the branded intro (features/onboarding Intro), the first time only
  *   login    "Sign in to miyagi" (features/auth Login), while main says the login is needed
- *   consent  what miyagi sends, that it is AI, "By continuing you agree" (features/onboarding Consent, R05 and R06),
+ *   consent  what miyagi sends, that it is AI, the "I agree" checkbox (features/onboarding Consent, R05 and R06),
  *            while main says this build's policy version isn't agreed to yet. Always before setup: no macOS prompt
  *            and no capture before it
  *   setup    guided setup (features/onboarding Guided): Screen Recording, Accessibility, VS Code, Getting miyagi ready

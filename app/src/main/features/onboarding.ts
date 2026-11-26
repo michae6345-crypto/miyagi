@@ -20,7 +20,7 @@
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
  *   - Consent first (launch register R05, R06): no prompt and no capture before the learner continued past the consent
- *     screen ("By continuing you agree to the terms and privacy policy") for this build's CONSENT_VERSION
+ *     screen (the ticked "I agree to the terms and privacy policy" checkbox) for this build's CONSENT_VERSION
  *     (common/consent.ts). onboarding:prompt refuses until then, and the launch gate's 'consent' part stays closed, so
  *     no overlay, launcher or lesson exists either. onboarding:agree stamps prefs.consent {version, at} with main's own
  *     clock (main/prefs.ts patchPrefs; a renderer's prefs:set can't write it). A build with a newer CONSENT_VERSION
@@ -355,7 +355,7 @@ export default defineMainFeature({
       step: flag.step,
       gate: gateView()
     }))
-    // The consent screen's Continue ("By continuing you agree to the terms and privacy policy"). Main stamps the record
+    // The consent screen's Continue (only after "I agree to the terms and privacy policy" is ticked). Main stamps the record
     // itself: this build's version and main's clock, never a version or time from a window.
     ctx.handle('onboarding:agree', () => {
       if (!consentCurrent(getPrefs().consent)) patchPrefs({ consent: makeConsent() })

@@ -22,7 +22,7 @@ export const LEGAL_URL = { terms: 'https://miyagi.study/terms', privacy: 'https:
 export const OPERATOR = 'the miyagi team'
 export const CONTACT_EMAIL = 'support@miyagi.study'
 
-/** The record of the learner's "By continuing you agree": which version, and when (an ISO 8601 time from main). */
+/** The record of the learner's ticked "I agree" checkbox: which version, and when (an ISO 8601 time from main). */
 export type Consent = { version: string; at: string }
 
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/
