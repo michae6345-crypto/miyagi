@@ -209,7 +209,7 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
     intro = 1 if (windows and windows[0][2] and windows[0][2][0].startswith("(intro)")) else 0
     context = transcript.format_metadata(meta)
     known_text, checked = await builder._known_text(vid), {}
-    goal_task = asyncio.ensure_future(goal_match(goal, meta))
+    goal_task = builder.end_with_build(asyncio.ensure_future(goal_match(goal, meta)))
     log.info("long video (%s): %d windows %s", gemini._mmss(meta["length_s"]), len(windows),
              [f"{gemini._mmss(a)}-{gemini._mmss(b)}" for a, b, _ in windows])
     builder._emit("planning", f"{len(windows)} parts")

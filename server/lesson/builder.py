@@ -59,6 +59,16 @@ _first: contextvars.ContextVar = contextvars.ContextVar("lesson_first_step", def
 _batched: contextvars.ContextVar = contextvars.ContextVar("lesson_batched", default=None)  # batched.BatchedAdapt
 
 
+def end_with_build(task: asyncio.Future | None) -> asyncio.Future | None:
+    """A side call a build starts and may not await to the end (research shielded from a bounded wait, the goal match):
+    cancelled when the build's own task ends, so a build stopped mid-way (End, Stop building, a new lesson, a removed
+    plan) never leaves it running and spending model calls. A build that finished already used (or no longer needs) it."""
+    me = asyncio.current_task()
+    if task is not None and me is not None:
+        me.add_done_callback(lambda _t: None if task.done() else task.cancel())
+    return task
+
+
 def _emit(stage: str, message: str = "") -> None:
     cb = _progress.get()
     if cb is None:
@@ -397,7 +407,7 @@ async def _build_lesson_impl(
             _emit("done", f"{time.time() - t0:.0f}s")
             return graph
 
-        goal_task = asyncio.ensure_future(progressive.goal_match(goal, meta)) if meta.get("title") else None
+        goal_task = end_with_build(asyncio.ensure_future(progressive.goal_match(goal, meta))) if meta.get("title") else None
         if first is not None:
             first.goal_task = goal_task
         try:

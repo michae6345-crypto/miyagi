@@ -278,7 +278,7 @@ async def _build_text_lesson(goal: str, workdir: str, on_update, counter: dict, 
             page.cache_hit(g)
         return g
 
-    research_task = asyncio.ensure_future(_safe_research(goal) if page is None else _no_research())
+    research_task = builder.end_with_build(asyncio.ensure_future(_safe_research(goal) if page is None else _no_research()))
     summary = info.summary_for_prompt().replace(str(info.root), "the lesson folder")
 
     def plan_ok(o: dict) -> str | None:
