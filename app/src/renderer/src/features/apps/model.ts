@@ -11,6 +11,7 @@
  *   installState(…)    installed / missing / unknown, from main's scan, the engine's health rows and "I have it"
  *   sidebarApps(…)     the apps the sidebar lists: the learner's pinned list, or the default
  *   togglePinned(…)    the pinned list after a tick in the picker
+ *   libraryNavResets() whether picking Library goes back to the Library list (from an app's page, or from Library)
  *
  * Names come from the catalog (`tool.label`); nothing here names a lesson. Marks: names only (the note's trademark
  * section); each app gets a neutral glyph in the mark's slot.
@@ -207,4 +208,14 @@ export function togglePinned(shown: readonly string[], id: string): string[] {
   if (!isApp(id)) return [...shown]
   const next = shown.includes(id) ? shown.filter((x) => x !== id) : [...shown, id]
   return APPS.map((a) => a.id).filter((x) => next.includes(x))
+}
+
+/**
+ * Picking Library (its sidebar row, ⌘2) lands on the Library list when an app's page is up: that page lives on
+ * Library, but it is not Library (the sidebar marks the app's row). Picking Library while on Library also goes back
+ * to the list from any of its views. From another page, Library comes back as it was left, unless that was an app.
+ */
+export function libraryNavResets(target: string, page: string, view: { kind: string }): boolean {
+  if (target !== 'lessons' || view.kind === 'library') return false
+  return view.kind === 'app' || page === 'lessons'
 }

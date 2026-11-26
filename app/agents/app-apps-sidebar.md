@@ -11,6 +11,8 @@ click opens the app's page, and **Add app** opens a small picker to pin or unpin
 - **Sidebar** (`features/shell/Sidebar.tsx` feeds `features/apps/SidebarApps.tsx`): "Apps" right under Progress, one
   row per app (neutral line glyph + the catalog's name; "Not installed" on the right when the scan says so), the open
   app's row marked (Library is then not marked), then **Add app**. Compact sidebar: glyphs only, names as tooltips.
+  Picking Library from an app's page (its row, the arrow keys or ⌘2) lands on the Library list (`apps/store.ts`
+  `goToPage`, `model.ts` `libraryNavResets`); Library again from Browse plans or a plan also goes back to the list.
   `SideRow` / `SideLabel` moved from Sidebar.tsx into `shell/ui.tsx` so the section renders from plain data.
 - **Default list** (`pinnedApps: null`): apps installed on this Mac, plus apps the learner has lessons or plans in
   that nothing says are missing; with nothing known at all, the four supported apps.

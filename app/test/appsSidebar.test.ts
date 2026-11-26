@@ -4,13 +4,14 @@
  * lesson's own fields; main's scan only checks fixed bundle names; the sidebar section renders from plain data.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { before, describe, test } from 'node:test'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryItem, PlanState } from '../../shared/contracts/events'
 import { cleanAppIds, DEFAULT_PREFS, MAX_PREF_APPS, sanitizePrefs } from '../src/common/prefs'
 import { APP_BUNDLES, installedApps } from '../src/main/features/apps'
-import { appContent, appForTool, APPS, catalogApps, hasActivity, installState, lessonApp, sidebarApps, togglePinned, toolIndex } from '../src/renderer/src/features/apps/model'
+import { appContent, appForTool, APPS, catalogApps, hasActivity, installState, lessonApp, libraryNavResets, sidebarApps, togglePinned, toolIndex } from '../src/renderer/src/features/apps/model'
 import { planStateFromCatalog, PLANS, planById, START_HERE } from '../src/renderer/src/features/plans/catalog'
 import scenario from '../mock/scenarios/apps.json'
 
@@ -152,6 +153,36 @@ describe('the sidebar list', () => {
     assert.deepEqual(togglePinned(['fusion', 'vscode'], 'freecad'), ['vscode', 'freecad', 'fusion'])
     assert.deepEqual(togglePinned(['vscode', 'blender'], 'vscode'), ['blender'])
     assert.deepEqual(togglePinned(['vscode'], 'xcode'), ['vscode'])
+  })
+})
+
+describe('picking Library from an app page', () => {
+  // goToPage (apps/store) shows the Library list when libraryNavResets says so, then sets the page.
+  type View = { kind: 'library' } | { kind: 'plans' } | { kind: 'plan'; id: string } | { kind: 'app'; id: string }
+  const pick = (target: string, page: string, view: View): View => (libraryNavResets(target, page, view) ? { kind: 'library' } : view)
+  test('the Library row (or ⌘2) on an app page lands on the Library list', () => {
+    assert.deepEqual(pick('lessons', 'lessons', { kind: 'app', id: 'blender' }), { kind: 'library' })
+  })
+  test('from another page, an app page left open is not where Library lands', () => {
+    assert.deepEqual(pick('lessons', 'home', { kind: 'app', id: 'blender' }), { kind: 'library' })
+  })
+  test('Library again from its own views goes back to the list', () => {
+    assert.deepEqual(pick('lessons', 'lessons', { kind: 'plans' }), { kind: 'library' })
+    assert.deepEqual(pick('lessons', 'lessons', { kind: 'plan', id: 'intro-blender' }), { kind: 'library' })
+  })
+  test('from another page, a plan left open comes back as it was', () => {
+    assert.deepEqual(pick('lessons', 'home', { kind: 'plan', id: 'intro-blender' }), { kind: 'plan', id: 'intro-blender' })
+  })
+  test('other pages never touch the Library view', () => {
+    for (const target of ['home', 'skills', 'progress', 'settings', 'account']) assert.deepEqual(pick(target, 'lessons', { kind: 'app', id: 'vscode' }), { kind: 'app', id: 'vscode' })
+  })
+  test('the sidebar rows, its arrow keys and ⌘1..⌘6 all pick pages through goToPage', () => {
+    const src = (p: string): string => readFileSync(new URL(`../src/renderer/src/features/${p}`, import.meta.url), 'utf8')
+    const sidebar = src('shell/Sidebar.tsx')
+    assert.match(sidebar, /onClick=\{\(\) => goToPage\(id\)\}/)
+    assert.match(sidebar, /goToPage\(MAIN\[to\]\)/)
+    assert.match(src('shell/Shell.tsx'), /goToPage\(PAGES\[n - 1\]\.id\)/)
+    assert.match(src('apps/store.ts'), /if \(libraryNavResets\(id, useShell\.getState\(\)\.page, usePlans\.getState\(\)\.view\)\) showLibrary\(\)/)
   })
 })
 

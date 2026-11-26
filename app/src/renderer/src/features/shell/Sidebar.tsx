@@ -31,7 +31,7 @@ import { PLANS } from '../plans/catalog'
 import { usePlans } from '../plans/store'
 import { appName } from '../apps/model'
 import { AppPicker } from '../apps/Picker'
-import { closePicker, openApp, openPicker, refreshInstalled, useApps, useAppStates, useSidebarApps } from '../apps/store'
+import { closePicker, goToPage, openApp, openPicker, refreshInstalled, useApps, useAppStates, useSidebarApps } from '../apps/store'
 import { SidebarApps } from '../apps/SidebarApps'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
@@ -74,7 +74,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
     const to = e.key === 'ArrowDown' ? Math.min(last, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1
     if (to < 0) return
     e.preventDefault()
-    setPage(MAIN[to])
+    goToPage(MAIN[to])
   }
   // Keep keyboard focus on the selected row when the arrows (or the number shortcuts while the nav has focus) move it.
   useEffect(() => {
@@ -88,7 +88,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
       {MAIN.map((id) => {
         const p = PAGES.find((x) => x.id === id)!
         const index = PAGES.findIndex((x) => x.id === id)
-        return <SideRow key={id} icon={icon(NAV_ICON[id] ?? p.icon)} label={pageLabel(id)} on={page === id && !(id === 'lessons' && onApp)} compact={compact} onClick={() => setPage(id)} data={{ 'data-shell-nav': id }} keys={`Meta+${index + 1} Control+${index + 1}`} />
+        return <SideRow key={id} icon={icon(NAV_ICON[id] ?? p.icon)} label={pageLabel(id)} on={page === id && !(id === 'lessons' && onApp)} compact={compact} onClick={() => goToPage(id)} data={{ 'data-shell-nav': id }} keys={`Meta+${index + 1} Control+${index + 1}`} />
       })}
     </nav>
   )

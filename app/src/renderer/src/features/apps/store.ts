@@ -9,6 +9,7 @@
  *   resetPins()      back to miyagi's default list (pinnedApps null)
  *   markHave(id)     "I have it" (prefs.haveApps)
  *   openApp(id)      the app's page: the Library page with the plans view set to that app
+ *   goToPage(id)     a sidebar or ⌘N page pick: Library from an app's page lands on the Library list
  *   getApp(id)       "Get <app>": its download page through main's setup list (never the engine, never any URL)
  */
 import { useMemo } from 'react'
@@ -17,10 +18,10 @@ import { bridge } from '../../bridge'
 import { setPrefs, usePrefs } from '../../core/prefs'
 import { useLibrary } from '../library/store'
 import { PLANS } from '../plans/catalog'
-import { showApp, usePlans } from '../plans/store'
+import { showApp, showLibrary, usePlans } from '../plans/store'
 import { useHealth } from '../settings/permissions'
-import { setPage } from '../shell/store'
-import { appContent, appMeta, APPS, hasActivity, installState, sidebarApps, togglePinned, type InstallState } from './model'
+import { setPage, useShell, type PageId } from '../shell/store'
+import { appContent, appMeta, APPS, hasActivity, installState, libraryNavResets, sidebarApps, togglePinned, type InstallState } from './model'
 import './web'
 
 type State = {
@@ -86,6 +87,12 @@ export function openApp(id: string): void {
   closePicker()
   setPage('lessons')
   showApp(id)
+}
+
+/** A page pick from the sidebar or ⌘N: Library from an app's page (or from Library's own views) shows the list. */
+export function goToPage(id: PageId): void {
+  if (libraryNavResets(id, useShell.getState().page, usePlans.getState().view)) showLibrary()
+  setPage(id)
 }
 
 /** "Get <app>": main opens the page only if it is on its setup list (main/safeOpen.ts). */
