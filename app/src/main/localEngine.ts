@@ -102,8 +102,31 @@ export const QUIT_GRACE_MS = 3000
 export const QUIT_CONFIRM_MS = 2000
 const UNMANAGED_TIMEOUT_MS = 12_000
 
+/**
+ * Where Michael's installer lives: the same ref bundle-engine.mjs falls back to for install.sh (INSTALL_REFS).
+ * integration/live and main carry no scripts/install.sh, so a one-liner on either answered 404 (audit, Nov 25).
+ */
+export const INSTALLER_REF = 'claude/distribution'
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
-const ONE_LINER = 'curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/miyagi/integration/live/scripts/install.sh | bash'
+export const ONE_LINER = `curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/miyagi/${INSTALLER_REF}/scripts/install.sh | bash`
+
+/** The engine's files are the learner's alone: owner-only, whatever the login session's umask (022 on a stock Mac). */
+export const ENGINE_UMASK = 0o077
+
+/**
+ * Run `fn` (a spawn) with umask ENGINE_UMASK, then put the old one back. A child takes its umask at fork, so the engine
+ * and everything it starts (lesson folders, state, logs, caches) write files no other user on the Mac can read. Not
+ * on Windows (no umask there). process.umask(mask) is the setter; it returns the old value.
+ */
+export function withPrivateUmask<T>(fn: () => T, platform: string = process.platform): T {
+  if (platform === 'win32') return fn()
+  const old = process.umask(ENGINE_UMASK)
+  try {
+    return fn()
+  } finally {
+    process.umask(old)
+  }
+}
 
 /** True when something accepts a TCP connection on 127.0.0.1:port within `ms`. */
 function listening(port: number, ms = 700): Promise<boolean> {
@@ -546,8 +569,8 @@ export function setupLocalEngine(
   /** Details (paths, error codes) go to engine.log only; the pill gets plain fixed copy. */
   const note = (msg: string): void => {
     try {
-      mkdirSync(join(home, 'logs'), { recursive: true })
-      appendFileSync(logs, `--- ${new Date().toISOString()} ${msg}\n`)
+      mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 })
+      appendFileSync(logs, `--- ${new Date().toISOString()} ${msg}\n`, { mode: 0o600 })
     } catch {
       // No log is no reason to fail.
     }
@@ -709,7 +732,7 @@ export function setupLocalEngine(
   const install = async (): Promise<boolean> => {
     if (!(await copySource())) return false
     return new Promise((resolve) => {
-      const p = d.spawn('bash', [join(bundle, 'install.sh'), '--src', src, '--no-app', '--no-vscode', '--no-start', '--yes'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+      const p = withPrivateUmask(() => d.spawn('bash', [join(bundle, 'install.sh'), '--src', src, '--no-app', '--no-vscode', '--no-start', '--yes'], { env, stdio: ['ignore', 'pipe', 'pipe'] }), d.platform)
       const onData = (b: Buffer): void => {
         // eslint-disable-next-line no-control-regex
         const last = b.toString().replace(/\x1b\[[0-9;]*m/g, '').split('\n').map((l) => l.replace(/^\[miyagi\]\s*/, '').trim()).filter(Boolean).pop()
@@ -734,11 +757,12 @@ export function setupLocalEngine(
   }
 
   /** Spawn the engine. Its own process group, so quitting stops it and anything it started (see killGroup). */
-  const spawnEngine = (): ChildProcess => {
+  const spawnEngine = (): ChildProcess => withPrivateUmask(() => spawnEngineNow(), d.platform)
+  const spawnEngineNow = (): ChildProcess => {
     if (runtime === 'launcher') return d.spawn(launcher, [], { env: launcherEnv(env, packaged), stdio: 'ignore', detached: true })
     // Bundled Python: no launcher script in between, so this app writes the log the launcher would have.
-    mkdirSync(join(home, 'logs'), { recursive: true })
-    const fd = openSync(logs, 'a')
+    mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 })
+    const fd = openSync(logs, 'a', 0o600)
     try {
       writeSync(fd, `--- ${new Date().toISOString()} engine start (bundled Python, ${bundleVersion()})\n`)
       // -s: no user site-packages; -B: no .pyc written; -m with cwd = src puts src first on sys.path (no PYTHONPATH).
@@ -1041,6 +1065,21 @@ const VSCODE_BUNDLE_ID = 'com.microsoft.VSCode'
 
 type Bundled = { id: string; version: string; vsix: string }
 
+/** The oldest companion the engine works with (older ones get 403s from it: engine.log, Nov 25). */
+export const COMPANION_MIN = '0.0.7'
+/** After launch, this long before the quiet check (VS Code's CLI is slow; nothing else should wait on it). */
+const COMPANION_CHECK_MS = 20_000
+
+/**
+ * Replace the learner's companion with the one inside the app, without asking? Only when they have it already and it
+ * is older than ours (`outdated`: below COMPANION_MIN is always that), only in a built app, only the companion itself
+ * (no Marketplace extension, no network). Never a first install: that stays the learner's Install button.
+ */
+export function autoUpdateCompanion(s: Pick<CompanionStatus, 'state' | 'version' | 'bundled'>, packaged: boolean): boolean {
+  if (!packaged || s.state !== 'outdated' || !s.version || !s.bundled) return false
+  return compareVersions(s.version, s.bundled) < 0
+}
+
 /** The .vsix this app carries (bundle-engine.mjs writes companion.json next to it). */
 function bundledCompanion(): Bundled | null {
   const dir = vscodeDir()
@@ -1057,7 +1096,7 @@ function bundledCompanion(): Bundled | null {
 }
 
 /** Numeric dotted-version compare: <0 when a is older. */
-function compareVersions(a: string, b: string): number {
+export function compareVersions(a: string, b: string): number {
   const pa = a.split(/[.-]/).map((x) => parseInt(x, 10) || 0)
   const pb = b.split(/[.-]/).map((x) => parseInt(x, 10) || 0)
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -1147,7 +1186,8 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
     return { state: 'installed', version, bundled: bundled?.version, needs }
   }
 
-  const install = async (): Promise<CompanionStatus> => {
+  /** `companionOnly`: just our .vsix (the quiet update below), never the Marketplace extensions. */
+  const install = async (opts: { companionOnly?: boolean } = {}): Promise<CompanionStatus> => {
     const bundled = bundledCompanion()
     const code = await findCodeCli()
     if (!code) return tell({ state: 'no-vscode', bundled: bundled?.version })
@@ -1164,11 +1204,38 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
     // Python and Jupyter from the Marketplace (needs the network). The companion works without them, so a miss here
     // leaves it installed with `needs` still listing what to add.
     for (const id of COMPANION_NEEDS) {
-      if (before?.has(id)) continue
+      if (opts.companionOnly || before?.has(id)) continue
       tell({ state: 'installing', bundled: bundled?.version, line: id === 'ms-python.python' ? 'Adding Python support' : 'Adding notebook support' })
       await runCli(code, ['--install-extension', id], 300_000)
     }
     return tell(await probe())
+  }
+
+  const runInstall = (opts: { companionOnly?: boolean } = {}): Promise<CompanionStatus> => {
+    // One install at a time: a second click waits for the first.
+    if (!installing) {
+      installing = install(opts)
+        .catch((): CompanionStatus => tell({ state: 'failed', line: "VS Code didn't install the companion." }))
+        .finally(() => {
+          installing = null
+        })
+    }
+    return installing
+  }
+
+  // An older companion than the one in the app (below COMPANION_MIN the engine refuses it): update it quietly, once,
+  // a while after launch. Only a built Mac app; the probe never prompts and needs no network.
+  if (app.isPackaged && process.platform === 'darwin') {
+    const t = setTimeout(() => {
+      void probe()
+        .then((s) => {
+          if (!autoUpdateCompanion(s, true) || installing) return
+          console.log(`[companion] updating ${s.version} to ${s.bundled}`)
+          return runInstall({ companionOnly: true })
+        })
+        .catch(() => console.warn('[companion] the quiet update did not run'))
+    }, COMPANION_CHECK_MS)
+    t.unref?.()
   }
 
   ipcMain.handle('feat:engine-local:companion', async (e) => {
@@ -1178,14 +1245,6 @@ function setupCompanion(broadcast: (channel: string, payload: unknown) => void, 
   })
   ipcMain.handle('feat:engine-local:companion-install', async (e) => {
     if (!trusted(e)) return undefined
-    // One install at a time: a second click waits for the first.
-    if (!installing) {
-      installing = install()
-        .catch((): CompanionStatus => tell({ state: 'failed', line: "VS Code didn't install the companion." }))
-        .finally(() => {
-          installing = null
-        })
-    }
-    return installing
+    return runInstall()
   })
 }

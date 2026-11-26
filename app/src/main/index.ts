@@ -48,6 +48,7 @@ import { VOICE_ENABLED } from '../common/flags'
 import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
 import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
 import { helperPath } from './features/ptt'
+import { offerMoveToApplications } from './features/location'
 import { getPrefs, onPrefsChange } from './prefs'
 import { holdSplash, holdUntilPainted, showSplash, skipSplash } from './splash'
 
@@ -543,6 +544,9 @@ app.on('web-contents-created', (_e, wc) => hardenContents(wc))
 app.whenReady().then(async () => {
   setupApp(app)
   setupIdentity()
+  // A built app run from Downloads or the DMG offers to move to Applications first (features/location.ts), before
+  // the engine or any window starts: Move quits this copy and opens the moved one.
+  if (await offerMoveToApplications()) return
   hardenSession()
   youtubeReferer()
   if (!process.env.ELECTRON_RENDERER_URL) {
