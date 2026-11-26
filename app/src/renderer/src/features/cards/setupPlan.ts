@@ -42,7 +42,7 @@ export type SetupPlan = {
 
 export type ToolKind = 'install' | 'licensed' | 'web' | 'download' | 'none'
 
-const PACKAGE = new Set<Row['install']['method']>(['pip', 'brew', 'brew_cask'])
+const PACKAGE = new Set<Row['install']['method']>(['pip', 'brew', 'brew_cask', 'vscode_ext'])
 
 /** What kind of thing is missing: decides the primary. */
 export function toolKind(x: Row): ToolKind {

@@ -328,14 +328,18 @@ PYTHON_TERMINAL = {
     # Desktop test 12: the lesson's .venv sat expanded in the Explorer (about 25 rows of bin/, lib/...), pushing the
     # lesson's own files to the bottom. Hidden from the Explorer only; the terminal and the kernel still use it.
     "files.exclude": {"**/.venv": True, "**/__pycache__": True},
+    # Nov 26 (user test, TensorFlow MNIST notebook): the Python extension's interpreter for this folder, which is also
+    # the Jupyter extension's first pick for the notebook's kernel ("No kernel determined" without it). Only a first
+    # pick: a kernel or interpreter the learner chose in VS Code wins.
+    "python.defaultInterpreterPath": f"{_VENV}/bin/python",
 }
 
 
 def is_python_folder(folder: Path) -> bool:
-    """A Python lesson folder: its .venv, requirements.txt / pyproject.toml, or a .py file at the top."""
+    """A Python lesson folder: its .venv, requirements.txt / pyproject.toml, or a .py / .ipynb file at the top."""
     try:
         return ((folder / ".venv").is_dir() or (folder / "requirements.txt").is_file()
-                or (folder / "pyproject.toml").is_file() or any(folder.glob("*.py")))
+                or (folder / "pyproject.toml").is_file() or any(folder.glob("*.py")) or any(folder.glob("*.ipynb")))
     except OSError:
         return False
 
@@ -352,6 +356,7 @@ def python_terminal_settings(folder: Path) -> dict:
     out = json.loads(json.dumps(PYTHON_TERMINAL))
     if sys.platform == "win32":
         out["terminal.integrated.env.windows"] = dict(_PYTHON_TERMINAL_WINDOWS)
+        out["python.defaultInterpreterPath"] = f"{_VENV}/Scripts/python.exe"
     return out
 
 

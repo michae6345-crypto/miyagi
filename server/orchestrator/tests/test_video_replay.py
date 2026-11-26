@@ -363,8 +363,9 @@ def test_t10_the_step_file_is_never_inside_the_venv(rp):
 
 
 def test_t10_vscode_opens_the_notebook_not_the_activate_script(rp, monkeypatch):
-    """t10 CP3: the auto-open ran `code <folder> -g <folder>/.venv/bin/activate`. Now the folder opens (no -g: that's
-    for text files) and the companion extension shows mnist.ipynb in the notebook editor."""
+    """t10 CP3: the auto-open ran `code <folder> -g <folder>/.venv/bin/activate`. Now the folder opens on mnist.ipynb
+    (Nov 26: S2 puts it in as a plain path, `code <folder> <nb>`, a tab of the lesson window even without the companion;
+    never `-g`, which is for text files) and the companion extension shows it in the notebook editor too."""
     opened, shown = [], []
 
     def fake_open(folder, force=False, full=False, explicit=False, file=None, **kw):
@@ -384,7 +385,7 @@ def test_t10_vscode_opens_the_notebook_not_the_activate_script(rp, monkeypatch):
         await rp.settle()
 
     run(go())
-    assert opened == [None] and shown == [str(rp.folder.resolve() / NB)]
+    assert opened == [str(rp.folder.resolve() / NB)] and shown == [str(rp.folder.resolve() / NB)]
 
 
 def test_t10_no_untitled_notebook_in_any_step_copy(rp):

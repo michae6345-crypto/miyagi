@@ -159,6 +159,10 @@ def fit_full(visible: tuple[float, float, float, float], panel: dict | None = No
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
 Runner = Callable[[list[str]], bool]
+# How long the one-time layout waits for the lesson's window to show its folder. Nov 26: 8 s was too short for a cold
+# VS Code start that also loads a notebook and the Jupyter extension on a low-end Mac (the layout never ran); the
+# "Just teach me" layout already waited 20 s.
+ARRANGE_WAIT_S = float(os.environ.get("MIYAGI_ARRANGE_WAIT_S", "20"))
 
 
 # --------------------------------------------------------------------------- which editor
@@ -237,10 +241,45 @@ def code_cli() -> str | None:
     return ed["cli"] if ed else _cli(EDITORS["vscode"])
 
 
-def goto_argv(path: str | Path, line: int = 1) -> list[str] | None:
-    """`<cli> -r -g <file>:<line>` for the preferred editor (reuse its window), or None."""
+def is_notebook(path: str | Path | None) -> bool:
+    return bool(path) and str(path).lower().endswith(".ipynb")
+
+
+def file_args(target: str | Path | None) -> list[str]:
+    """The CLI arguments that show `target` as a tab: `-g <file>` for a text file; a notebook goes in as a plain path
+    (`-g` opened mnist.ipynb as JSON text, t10), so VS Code shows it in its notebook editor. [] for no target."""
+    if not target:
+        return []
+    return [str(target)] if is_notebook(target) else ["-g", str(target)]
+
+
+def lesson_folder_of(path: str | Path) -> Path | None:
+    """The Miyagi lesson folder (a folder right under the lessons root) that holds `path`, else None."""
+    try:
+        from .paths import lessons_root
+
+        root, p = lessons_root().expanduser().resolve(), Path(path).expanduser().resolve()
+        if root not in p.parents:
+            return None
+        top = root / p.relative_to(root).parts[0]
+        return top if top.is_dir() and top != p and not top.name.startswith(".") else None
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def goto_argv(path: str | Path, line: int = 1, *, folder: str | Path | None = None) -> list[str] | None:
+    """The jump to <file>:<line> in the preferred editor, or None. A file of a lesson folder (`folder`, else the lesson
+    folder that holds it): `<cli> <folder> -g <file>:<line>`, so it opens as a tab of THAT folder's window (Nov 26: `-r`
+    reuses whichever window was last active, the learner's own project or a separate one). A notebook: `<cli> <folder>
+    <file.ipynb>` (no line: `-g` is for text files). Anything else: `<cli> -r -g <file>:<line>` as before."""
     cli = code_cli()
-    return [cli, "-r", "-g", f"{path}:{max(1, int(line))}"] if cli else None
+    if not cli:
+        return None
+    home = Path(folder) if folder else lesson_folder_of(path)
+    if is_notebook(path):
+        return [cli, str(home), str(path)] if home else [cli, "-r", str(path)]
+    where = f"{path}:{max(1, int(line))}"
+    return [cli, str(home), "-g", where] if home else [cli, "-r", "-g", where]
 
 
 # --------------------------------------------------------------------------- Accessibility (optional)
@@ -786,7 +825,7 @@ def editor_pid(editor: dict) -> int | None:
     return find_pid(editor["app"], editor.get("bundle") or EDITORS.get(editor.get("id", ""), {}).get("bundle"))
 
 
-def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_s: float = 8.0,
+def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_s: float = ARRANGE_WAIT_S,
             fraction: float = EDITOR_FRACTION, sleep=time.sleep, folder: str | None = None) -> None:
     """Video lessons, with Accessibility: the lesson's window (the one showing `folder`; else the editor's focused
     window) takes the left of the overlay's display (layout.plan mode "video": the left `fraction`, the right column
@@ -892,7 +931,7 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
         # folder and no window has this one) -> `-n`: this folder gets a window of its own. E21: `-r` swapped it into
         # the old lesson's window, which then asked to save weather.py under Miyagi's sheet; the old window is
         # minimized instead (put_away_other_lessons), its unsaved edits kept, no dialog.
-        argv = [ed["cli"], *(["-n"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
+        argv = [ed["cli"], *(["-n"] if reuse_window else []), str(folder)] + file_args(target)
         report["command"] = " ".join([Path(argv[0]).name, *argv[1:]])
         report["opened"] = run(argv)
     if not report["opened"] and sys.platform == "darwin":
@@ -1273,7 +1312,7 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
             return {"opened": False, "already": True, "error": "no supported editor installed (VS Code)"}
         target = Path(file) if file and Path(file).is_absolute() else (Path(key[1]) / file if file else None)
         if ed.get("cli"):
-            argv = [ed["cli"], key[1]] + (["-g", str(target)] if target and target.is_file() else [])
+            argv = [ed["cli"], key[1]] + file_args(target if target and target.is_file() else None)
         elif sys.platform == "darwin":  # the app is there but no CLI (none on PATH, none inside it): macOS opens it
             argv = ["open", "-a", ed.get("app_path") or ed["app"], key[1]] + ([str(target)] if target and target.is_file() else [])
         else:
@@ -1389,6 +1428,22 @@ def _lesson_window_alive(folder: str | Path) -> bool:
     return name in names
 
 
+def lesson_window_open(folder: str | Path) -> bool:
+    """Is a VS Code window showing this lesson folder open right now, for sure? The companion's windows first, then
+    the window titles. Unknown is NO (unlike _lesson_window_alive): an automatic jump is optional, a new window isn't."""
+    seen = _companion_has_folder(folder)
+    if seen is not None:
+        return seen
+    try:
+        from .active import vscode_windows
+
+        wins = vscode_windows()
+    except Exception:  # noqa: BLE001 - no window list: not sure
+        return False
+    name = Path(folder).expanduser().resolve().name
+    return any(isinstance(w, dict) and w.get("folder_name") == name for w in wins or [])
+
+
 def _titles_readable() -> bool:
     """Can this process read other apps' window titles (macOS Screen Recording)? Preflight only: never prompts."""
     if sys.platform != "darwin":
@@ -1437,15 +1492,22 @@ def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]]
 
 def jump(path: str | Path, line: int = 1, *, explicit: bool = False, runner: Runner | None = None,
          focus: Callable[[], tuple[str, str] | None] | None = None, window_up: Callable[[dict], bool] | None = None,
-         opening: Callable[[], bool] | None = None) -> bool:
-    """`code -r -g <file>:<line>`, but only when it can't steal focus or spawn a window:
+         opening: Callable[[], bool] | None = None,
+         folder_window: Callable[[Path], bool] | None = None) -> bool:
+    """goto_argv's jump, but only when it can't steal focus or spawn a window:
     automatic jumps (explicit=False) run only when the editor is ALREADY the active app, its window is up,
-    and no lesson folder is still waiting to open. explicit=True (a learner action: Do it for me) always jumps."""
+    no lesson folder is still waiting to open, and, for a file of a lesson folder, a window of THAT folder is open
+    (folder_window, default lesson_window_open: review of #296, `code <folder> -g` would otherwise open a new window
+    for it). explicit=True (a learner action: Do it for me) always jumps."""
     ed = preferred_editor()
     argv = goto_argv(path, line)
     if not ed or not argv:
         return False
     if not explicit:
+        home = lesson_folder_of(path)
+        if home is not None and not (folder_window or lesson_window_open)(home):
+            log.debug("jump skipped: no window of %s (won't open one)", home.name)
+            return False
         if opening() if opening else any(st["state"] != "open" for st in list(_opened.values())):
             log.debug("jump skipped: the editor is still opening")
             return False
