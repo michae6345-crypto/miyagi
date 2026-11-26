@@ -15,11 +15,16 @@
  *
  * `relaunch` (Nov 25, a learner on a MacBook Neo had to press Skip): the kinds switched on in System Settings that this
  * process can't see until miyagi restarts (macOS caches Screen Recording per process). A fresh miyagi-listen --screens
- * tells (main/permissionProbe.ts); only asked while something is off and a window watches, at most every 3 s. The
+ * tells (main/permissionProbe.ts); only asked while something is off and a window watches, at most every 2 s. The
  * windows offer "Restart miyagi" for them (onboarding:relaunch).
  *
- * Live while watched: main polls every POLL_MS while any window watches (a window keeps watching while it is on screen,
- * also while the learner is over in System Settings), and reads again at once when miyagi comes back to the front.
+ * One source, live and cheap (Nov 25): every window's banners, badges and rows read this (feat:permissions, broadcast to
+ * ALL windows on any change, whoever caused the read), so a grant clears everywhere at once.
+ *   events   miyagi comes back to the front (did-become-active, browser-window-focus) and macOS's
+ *            com.apple.accessibility.api distributed notification (an Accessibility switch flipped): read now, always.
+ *   poll     every POLL_MS, only while a window watches (the setup screen on show, a recovery card, Settings >
+ *            Permissions) AND something is still off; it stops once both grants read granted (events still run).
+ *   probe    the ground truth for "on, but only after a restart": a fresh miyagi-listen (main/permissionProbe.ts).
  */
 import { app, BrowserWindow, ipcMain, systemPreferences, type IpcMainInvokeEvent } from 'electron'
 import type { PermissionKind } from '../../../shared/contracts/events'
@@ -29,7 +34,9 @@ import { openSystemSettings } from './safeOpen'
 export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown'
 export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number; relaunch?: RelaunchKind[] }
 
-const POLL_MS = 2000
+const POLL_MS = 1000
+/** After the Accessibility notification, macOS can take a moment to answer the new value: read then, and once more. */
+const AX_SETTLE_MS = [250, 1200] as const
 const KINDS: PermissionKind[] = ['screen', 'accessibility', 'automation']
 
 export function setupPermissions(deps: {
@@ -41,7 +48,7 @@ export function setupPermissions(deps: {
   helperBin?: () => string
   /** Tests: replace the fresh-process probe. */
   probe?: () => Promise<Fresh | undefined>
-}): { read(): Permissions; readFull(): Promise<Permissions> } {
+}): { read(): Permissions; readFull(): Promise<Permissions>; refresh(): Promise<Permissions> } {
   const read = (): Permissions => {
     const external = deps.engineExternal()
     const base: Permissions = { screen: 'unknown', accessibility: 'unknown', automation: 'unknown', external, at: Date.now() }
@@ -85,38 +92,49 @@ export function setupPermissions(deps: {
   /** webContents ids whose destroyed / closed listeners are in place. */
   const seen = new Set<number>()
 
-  let ticking = false
-  const tick = async (): Promise<void> => {
-    if (ticking) return
-    ticking = true
-    try {
-      const p = await readFull()
-      const key = KINDS.map((k) => p[k]).join(',') + p.external + (p.relaunch ?? []).join('+')
-      if (key === last) return
+  /** The last full read, and a broadcast to every window when it changed (any read, any trigger). */
+  const publish = (p: Permissions): Permissions => {
+    const key = KINDS.map((k) => p[k]).join(',') + p.external + (p.relaunch ?? []).join('+')
+    if (key !== last) {
       last = key
       deps.broadcast('permissions', p)
-    } finally {
-      ticking = false
     }
+    // Both on: nothing left to poll for (events still read). Something off again: poll again while watched.
+    settled = p.screen === 'granted' && p.accessibility === 'granted' && !p.relaunch
+    sync()
+    return p
   }
+  let settled = false
+  let ticking: Promise<Permissions> | undefined
+  const tick = (): Promise<Permissions> => (ticking ??= readFull().then(publish).finally(() => (ticking = undefined)))
   const sync = (): void => {
-    if (watchers.size && !timer) {
-      void tick()
+    const want = watchers.size > 0 && !settled
+    if (want && !timer) {
       timer = setInterval(() => void tick(), POLL_MS)
-    } else if (!watchers.size && timer) {
+      timer.unref?.()
+    } else if (!want && timer) {
       clearInterval(timer)
       timer = undefined
     }
   }
 
-  // Back from System Settings: read now, not on the next poll (only while a window watches; never prompts).
-  const onFront = (): void => {
-    if (watchers.size) void tick()
+  // Back from System Settings: read now, not on the next poll. Cheap (two in-process reads; the probe is rate-limited
+  // and runs only while something is off). Never prompts.
+  const now = (): void => void tick()
+  app.on('did-become-active', now)
+  app.on('browser-window-focus', now)
+  // An Accessibility switch flipped anywhere: macOS posts this distributed notification (no polling needed for it).
+  try {
+    if (process.platform === 'darwin' && typeof systemPreferences.subscribeNotification === 'function')
+      systemPreferences.subscribeNotification('com.apple.accessibility.api', () => {
+        for (const ms of AX_SETTLE_MS) setTimeout(now, ms).unref?.()
+      })
+  } catch {
+    /* no notification: the poll and the front events still catch it */
   }
-  app.on('browser-window-focus', onFront)
-  app.on('did-become-active', onFront)
 
-  ipcMain.handle('feat:permissions:get', (e) => (deps.trusted(e) ? readFull() : undefined))
+  // A read asked for by one window is published to all (a grant seen anywhere clears every banner).
+  ipcMain.handle('feat:permissions:get', (e) => (deps.trusted(e) ? tick() : undefined))
   ipcMain.handle('feat:permissions:open', (e, kind: unknown) => (deps.trusted(e) && KINDS.includes(kind as PermissionKind) ? openSystemSettings(kind) : false))
   ipcMain.handle('feat:permissions:watch', (e, on: unknown) => {
     if (!deps.trusted(e)) return false
@@ -141,8 +159,9 @@ export function setupPermissions(deps: {
       }
     } else watchers.delete(id)
     sync()
+    if (on === true) void tick()
     return true
   })
 
-  return { read, readFull }
+  return { read, readFull, refresh: tick }
 }

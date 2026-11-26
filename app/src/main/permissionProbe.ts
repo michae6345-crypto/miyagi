@@ -17,7 +17,7 @@ export type Fresh = Partial<Record<RelaunchKind, 'granted' | 'denied'>>
 const KINDS: readonly RelaunchKind[] = ['screen', 'accessibility']
 const PROBE_TIMEOUT_MS = 2000
 /** A probe spawns a process: at most this often, and only while something is not granted and a window watches. */
-export const PROBE_MIN_MS = 3000
+export const PROBE_MIN_MS = 2000
 
 /** The `perms` field of the helper's --screens line. Never throws; undefined when there is none (an older helper). */
 export function parseFreshPerms(text: string): Fresh | undefined {

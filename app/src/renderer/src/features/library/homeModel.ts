@@ -129,9 +129,11 @@ export function recentLine(r: Recent): string {
  * The one thing left to set up: the button's label (what to do) and a short line (where it stands). The two never say
  * the same words, since the card shows both side by side. undefined = nothing to fix.
  */
-export function setupFix(rows: Row[]): { label: string; line: string } | undefined {
+export function setupFix(rows: Row[]): { label: string; line: string; restart?: true } | undefined {
   const r = rows.find((x) => x.state !== 'passed' && x.state !== 'unknown')
   if (!r) return undefined
+  // On in System Settings, and macOS applies it once miyagi restarts: the button restarts, it doesn't open setup.
+  if (r.restart) return { label: 'Restart miyagi', line: `${r.label} is on after a restart.`, restart: true }
   const L: Record<Row['id'], { label: string; line: string }> = {
     screen: { label: 'Allow Screen Recording', line: 'Screen Recording is off.' },
     accessibility: { label: 'Turn on Accessibility', line: 'Accessibility is off.' },
