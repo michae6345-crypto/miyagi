@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import auth from '../src/main/features/auth'
 import cloud, { installToken } from '../src/main/features/cloud'
+import { setGatePart } from '../src/main/gate'
 import cloudSession, { viewOf } from '../src/main/features/cloudSession'
 import { BACKOFF_MS, createSessionClient, readSession, recordOf, type SessionDeps } from '../src/main/features/cloudSession/client'
 import { USER_DATA_FILES } from '../src/main/features/accountDelete/wipe'
@@ -47,6 +48,9 @@ function scripted(replies: Reply[]): { fetch: typeof fetch; sent: Sent[] } {
   }) as typeof fetch
   return { fetch: f, sent }
 }
+
+// cloud.ts mints only after the age step and consent (mintAllowed): this file tests what comes after both.
+setGatePart('consent', true)
 
 let h: Harness
 let logs: string[]
