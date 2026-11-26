@@ -11,8 +11,9 @@ on:
 # Read-only token; actions pinned to the commit their major tag pointed at, as in ci.yml.
 permissions:
   contents: read
+# One run per workflow and branch/PR: a newer commit cancels the older run, on main too (it is moot once superseded).
 concurrency:
-  group: engine-ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
   engine:

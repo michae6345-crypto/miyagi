@@ -6,26 +6,44 @@ name: app-visual
 # images is uploaded as an artifact.
 # Intended UI change: the run fails on the diff, then re-shoots what differed and uploads app-visual-baselines (the full
 # __screenshots__ folder: committed PNGs plus this runner's new ones). Review the report, unzip the artifact over app/e2e/tests/__screenshots__
-# and commit. (workflow_dispatch update=true does the same, but only once this file is on the default branch.)
+# and commit. (workflow_dispatch update=true does the same.)
+# Mac minutes (~15 a run): nightly on main, by hand, or on a PR that carries the `run-ui-tests` label.
 on:
-  pull_request:
-    paths: ["app/**", ".github/workflows/app-visual.yml"]
-  push:
-    branches: [main, michael/app-ui-v4]
-    paths: ["app/**", ".github/workflows/app-visual.yml"]
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC, 1am Pacific, on the default branch (main)
   workflow_dispatch:
     inputs:
+      ref:
+        description: "Branch, tag or SHA to test (empty: the branch picked in 'Use workflow from')"
+        type: string
+        default: ""
       update:
         description: "Write new baselines (uploaded as an artifact, never committed by the job)"
         type: boolean
         default: false
+  pull_request:
+    types: [labeled, synchronize] # runs only when the label is added, or on new commits to a labeled PR (job `if`)
+    paths: ["app/**", ".github/workflows/app-visual.yml"] # a labeled PR that touches no app file costs nothing
 permissions:
   contents: read
+# One run per branch/PR; a newer one cancels the older. A nightly run gets its own group so it is never cancelled
+# mid-way, and a PR event that will not run (no label) gets its own too, so it never cancels a labeled run.
 concurrency:
-  group: app-visual-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # a push to app-ui-v4 always finishes (it lands every few minutes)
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'schedule' && format('nightly-{0}', github.run_id)
+      || (github.event_name == 'pull_request'
+          && !((github.event.action == 'labeled' && github.event.label.name == 'run-ui-tests')
+               || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-ui-tests')))
+          && format('skip-{0}', github.run_id))
+      || inputs.ref || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 jobs:
   visual:
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.action == 'labeled' && github.event.label.name == 'run-ui-tests')
+      || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-ui-tests'))
     runs-on: macos-latest
     timeout-minutes: 45 # ~12 min of shots (scenarios settle first) plus a re-shoot of what failed
     env:
@@ -33,6 +51,7 @@ jobs:
       CI: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ inputs.ref }}" } # empty: the event's own ref
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: "app/package-lock.json\napp/e2e/package-lock.json" }
       - name: app dependencies (the stage)

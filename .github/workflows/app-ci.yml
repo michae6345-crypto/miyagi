@@ -1,8 +1,10 @@
 name: app-ci
-# The Electron app on the platform it ships for (macOS): install from the lockfile, typecheck, and the offline unit
-# tests with a per-test timeout, so one stuck test fails on its own instead of holding the job until timeout-minutes.
+# The Electron app's offline checks: install from the lockfile, typecheck, and the unit tests with a per-test timeout,
+# so one stuck test fails on its own instead of holding the job until timeout-minutes.
 # The tests fake Electron, Supabase Auth and the cloud (app/test/setup.mjs, app/test/harness.ts): nothing leaves the
 # runner but sockets on 127.0.0.1. Node comes from app/.nvmrc (test/setup.mjs needs 22.15+ for registerHooks).
+# Linux runs everything (the fakes inject the platform); a small macOS slice runs only the files whose tests skip
+# off darwin (see `mac` below). Mac minutes cost 10x Linux ones: keep that slice small. See .github/CI.md.
 on:
   pull_request:
     paths: ["app/**", ".github/workflows/app-ci.yml"]
@@ -11,12 +13,13 @@ on:
 # Least privilege, and actions pinned to the commit their major tag pointed at (same pins as ci.yml).
 permissions:
   contents: read
+# One run per workflow and branch/PR: a newer commit cancels the older run, on main too (it is moot once superseded).
 concurrency:
-  group: app-ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
   app:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # typecheck and the tests never start Electron
@@ -27,5 +30,39 @@ jobs:
         with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: app/package-lock.json }
       - run: npm ci
       - run: npm run typecheck
+      # spec to the log, TAP to a file for the guard below. test/setup.mjs makes each file's report pipe blocking:
+      # without it a file's report could be cut short at --test-force-exit and the run still passed (1385-1417 tests).
       - name: unit tests (test/*.test.ts, 60 s per test)
-        run: node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000 test/*.test.ts
+        run: >-
+          node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=test-report.tap
+          test/*.test.ts
+      # Fails when a test file's report stopped part-way or the total fell below the floor (1,417 tests on Nov 26).
+      # Raise the floor as the suite grows; lower it only when tests are deleted on purpose.
+      - name: every test file reported in full
+        if: ${{ !cancelled() }}
+        run: node scripts/check-test-report.mjs test-report.tap 1410
+  mac:
+    # Only the test files with tests gated on process.platform === 'darwin' (they skip on Linux): the overlay as an
+    # NSPanel, the display/lock lifecycle and work-area changes, and the TCC permission reads. Everything else is
+    # covered by the Linux job above. Add a file here when you add a darwin-only test.
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: app/package-lock.json }
+      - run: npm ci
+      - name: macOS-only unit tests
+        run: >-
+          node --import tsx --import ./test/setup.mjs --test --test-force-exit --test-timeout=60000
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=tap --test-reporter-destination=test-report.tap
+          test/overlayWindow.test.ts test/overlayLifecycle.test.ts test/screenLayout.test.ts test/permissionsRefresh.test.ts
+      - name: every test file reported in full (36 tests on Nov 26)
+        if: ${{ !cancelled() }}
+        run: node scripts/check-test-report.mjs test-report.tap 36
