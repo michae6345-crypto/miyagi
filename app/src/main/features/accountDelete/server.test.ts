@@ -114,8 +114,8 @@ test('403 and the refresh fails (signed out by now): straight to the signed-out 
   assert.deepEqual(c.calls.map((x) => x.body), [{ access_token: 'jwt-old' }, {}])
 })
 
-test('offline, a timeout, 5xx, 404 or a malformed 200: unreachable (the caller deletes nothing)', async () => {
-  for (const a of ['offline', [503, { error: 'unavailable' }], [500], [404], [200, { ok: false }], [200, { ok: true, account: 'gone' }], [403, { error: 'other' }]] as const) {
+test('offline, a timeout, 5xx or a malformed 200: unreachable (the caller deletes nothing)', async () => {
+  for (const a of ['offline', [503, { error: 'unavailable' }], [500], [200, { ok: false }], [200, { ok: true, account: 'gone' }], [403, { error: 'other' }]] as const) {
     const r = await deleteOnServer(deps(cloud([a as never]).fetch))
     assert.deepEqual(r, { ok: false, reason: 'unreachable' }, JSON.stringify(a))
   }
@@ -123,6 +123,15 @@ test('offline, a timeout, 5xx, 404 or a malformed 200: unreachable (the caller d
   const hang = (async (_u: string, init: RequestInit) =>
     new Promise((_r, reject) => init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))))) as unknown as typeof fetch
   assert.deepEqual(await deleteOnServer(deps(hang, { timeoutMs: 20 })), { ok: false, reason: 'unreachable' })
+})
+
+test('404 (a cloud with no delete route): this Mac still goes, the account by email', async () => {
+  assert.deepEqual(await deleteOnServer(deps(cloud([[404, { detail: 'Not Found' }]]).fetch)), { ok: true, account: 'email', via: 'no-route' })
+  assert.deepEqual(await deleteOnServer(deps(cloud([[404]]).fetch, { accessToken: async () => undefined })), { ok: true, account: 'email', via: 'no-route' })
+  // after a refresh too (401, then 404 with the new token)
+  const c = cloud([[401], [404]])
+  assert.deepEqual(await deleteOnServer(deps(c.fetch)), { ok: true, account: 'email', via: 'no-route' })
+  assert.equal(c.calls.length, 2)
 })
 
 test('a refresh that goes offline mid-way is unreachable too', async () => {

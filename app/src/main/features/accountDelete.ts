@@ -5,13 +5,15 @@
  *     1. the server first (accountDelete/server.ts): POST /v1/account/delete with the install token and the Supabase
  *        access token. Unreachable: {ok: false, reason: 'unreachable'}; signed in and the account could not be
  *        deleted (401 after a refresh): {ok: false, reason: 'account'}. Either way NOTHING is deleted here.
+ *        A cloud with no delete route (404) is not a failure: this Mac is wiped and account is 'email' (the learner
+ *        emails support@miyagi.study to remove the account). accountDelete/run.ts keeps that order.
  *        An under-13 block in force (age.json) is put back after the wipe: deleting can't lift it.
  *     2. then everything miyagi keeps on this Mac (accountDelete/wipe.ts eraseTargets): the files and folders in
  *        userData, the logs, the engine's caches and state, ~/miyagi/lessons only when `lessons` is true. The install
  *        token leaves memory and the engine too (cloud.ts forgetInstall). Electron's storage goes through the session
  *        API: cookies, localStorage, IndexedDB, service workers and the HTTP cache (the YouTube player's iframe runs in
  *        the default session). The built-in lessons the app ships are put back into the engine's cache.
- *     → {ok: true, account: 'deleted' | 'none' | 'pending', local: true when nothing was left behind}
+ *     → {ok: true, account: 'deleted' | 'none' | 'pending' | 'email', local: true when nothing was left behind}
  *     The renderer then calls settings:delete (the keys in settings.ts's memory and on the engine) and auth:sign-out
  *     (the session in auth.ts's memory), and account:restart.
  *   account:restart → a built app relaunches from new (every feature's memory goes too: the first-run screen, the
@@ -30,10 +32,11 @@ import { AGE_FILE, readAge, writeAge } from './agegate/store'
 import { blockActive, todayOf } from '../../renderer/src/features/agegate/age'
 import { accessToken, refreshedAccessToken } from './auth'
 import { forgetInstall, installToken } from './cloud'
-import { deleteOnServer, type AccountOutcome } from './accountDelete/server'
+import { runDelete, type DeleteAccountResult } from './accountDelete/run'
+import { deleteOnServer } from './accountDelete/server'
 import { allowedRoots, engineHome, eraseTargets, insideRoots, wipe, type Where } from './accountDelete/wipe'
 
-export type DeleteAccountResult = { ok: true; account: AccountOutcome; local: boolean } | { ok: false; reason: 'unreachable' | 'account' | 'busy' }
+export type { DeleteAccountResult }
 
 function where(lessons: boolean): Where {
   let crashDumps: string | undefined
@@ -78,10 +81,8 @@ export default defineMainFeature({
   setup(ctx) {
     let running: Promise<DeleteAccountResult> | undefined
 
-    const run = async (lessons: boolean): Promise<DeleteAccountResult> => {
-      const server = await deleteOnServer({ fetch: (i, init) => fetch(i, init), install: installToken, accessToken, refreshedAccessToken })
-      if (!server.ok) return { ok: false, reason: server.reason }
-
+    /** This Mac's part, once the server said yes (or has no delete route): true when nothing was left behind. */
+    const wipeHere = async (lessons: boolean): Promise<boolean> => {
       forgetInstall()
       const w = where(lessons)
       const ageFile = join(w.userData, AGE_FILE)
@@ -104,8 +105,14 @@ export default defineMainFeature({
       ageForgotten()
       if (!files.ok) console.warn(`[account-delete] left behind: ${files.failed.join(', ')}`)
       if (files.skipped.length) console.warn(`[account-delete] skipped (outside miyagi's folders): ${files.skipped.join(', ')}`)
-      return { ok: true, account: server.account, local: files.ok && storage }
+      return files.ok && storage
     }
+
+    const run = (lessons: boolean): Promise<DeleteAccountResult> =>
+      runDelete({
+        server: () => deleteOnServer({ fetch: (i, init) => fetch(i, init), install: installToken, accessToken, refreshedAccessToken }),
+        local: () => wipeHere(lessons)
+      })
 
     ctx.handle('account:delete', (p) => {
       if (running) return { ok: false, reason: 'busy' } satisfies DeleteAccountResult

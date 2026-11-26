@@ -28,7 +28,7 @@ import { pressMotion } from '../../../core/ui/motion'
 import { openLegal, useAuth } from '../../auth/store'
 import { stage } from '../env'
 import type { KeysView } from '../keys'
-import { deleteAccount } from '../privacy/erase'
+import { deleteAccount, wiped } from '../privacy/erase'
 import { DELETE, POLICY_LINE } from '../privacy/facts'
 import '../privacy/deleteWeb'
 import { Sees } from '../privacy/Sees'
@@ -37,7 +37,7 @@ import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
 import { takeDeleteAsk } from '../v4/facts'
 
 /** offline: the server couldn't be reached, nothing was deleted. done / pending: deleted; a restart follows. */
-type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | 'refused'
+type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'email' | 'offline' | 'refused'
 /** How long the deleted line shows before the app starts again (account:restart). */
 const RESTART_MS = 2600
 
@@ -128,7 +128,7 @@ export function DeleteAccount({
 
   // Deleted: the line shows for a moment, then a built app starts again from the first-run screen.
   useEffect(() => {
-    if (step !== 'done' && step !== 'pending') return
+    if (!wiped(step)) return
     const t = setTimeout(() => void bridge.invoke('account:restart').catch(() => undefined), RESTART_MS)
     return () => clearTimeout(t)
   }, [step])
@@ -149,7 +149,7 @@ export function DeleteAccount({
 
   /** The server couldn't be reached, or couldn't delete the account: nothing was deleted, Try again runs it again. */
   const retry = step === 'offline' || step === 'refused'
-  const deletedLine = step === 'pending' ? DELETE.pending : leftovers ? DELETE.partial : DELETE.done
+  const deletedLine = step === 'pending' ? DELETE.pending : step === 'email' ? DELETE.email : leftovers ? DELETE.partial : DELETE.done
 
   return (
     <>
@@ -200,7 +200,7 @@ export function DeleteAccount({
                   <span role="alert" style={{ color: color.text }}>
                     {step === 'offline' ? DELETE.offline : DELETE.refused}
                   </span>
-                ) : step === 'done' || step === 'pending' ? (
+                ) : wiped(step) ? (
                   <span role="status" style={{ color: color.text }}>
                     {here(deletedLine)} {DELETE.restart}
                   </span>
@@ -209,7 +209,7 @@ export function DeleteAccount({
                 )
               }
               right={
-                step === 'done' || step === 'pending' ? (
+                wiped(step) ? (
                   <OnWord>Deleted</OnWord>
                 ) : (
                   <OutlineButton label={retry ? 'Try again' : button} aria={retry ? 'Try deleting again' : label} onClick={retry ? () => void erase() : open} />
