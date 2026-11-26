@@ -35,6 +35,7 @@ No other dependencies: the rate limiter is plain ASGI, not slowapi.
 | `POST /admin/alerts/test` | `X-Admin-Token` | Sends one test alert to `ALERT_WEBHOOK_URL` (once a UTC day, like every alert). `{alerts, sent}`. |
 | `GET /admin`, `POST /admin` | admin token typed into a form | The same report as HTML. The token is posted in the form body, never in the URL. |
 | `POST /admin/tokens/{prefix}/disable` and `/enable` | `X-Admin-Token` | Turn one install token off or on, by the first 8+ hex characters of its hash. |
+| `POST /admin/identities/ban` and `/unban` | `X-Admin-Token` | Body `{"email": "..."}` or `{"user_id": "..."}` (exactly one), optional `"reason"`. Bans the person by identity hash (survives account deletion and a new Supabase id): `/v1/link` and `/v1/session` answer 403 `account_banned`, model and other install calls 403 `permission_error`. Ban also disables the install tokens linked to that identity; unban does not re-enable them. `GET /admin/identities` lists bans (12-hex id prefix, reason). Deleting an account keeps disabled install tokens disabled and carries that day's usage and month's builds over to the same identity. |
 | `POST /admin/tokens/{prefix}/plan` | `X-Admin-Token` | Body `{"plan": "free"}` or `{"plan": "pro"}`. Pro installs skip the per-install caps. |
 | `GET /admin/lessons/pending` | `X-Admin-Token` | Uploaded lessons waiting for review: video, schema, 16-hex body hash, uploader prefix, size, and what to read before approving: the `libraries` it installs, every `commands` entry it suggests or runs, its `files`, and `full`, the path of the whole body. |
 | `GET /admin/lessons/{video_id}/candidates/{hash}` | `X-Admin-Token` | The whole body of the candidates whose body hash starts with `hash` (8+ hex; `?schema=N` optional): every instruction, code block, solution, hint and explanation learners would receive, plus the review summary. Read it before approving. |
@@ -599,7 +600,8 @@ from before this version are converted on startup. Per-install rows are pruned a
 | `lesson_claims`: video_id, schema, token_hash, claimed_at, expires_at | One install builds a video at a time | Until released or expired (`LESSON_CLAIM_TTL_S`), pruned hourly; deleted with the install |
 | `lessons` | Legacy first-upload cache, emptied into `lesson_candidates` on startup | Empty |
 | `mints`: bucket (keyed hash), hour, n | Mint limits per network | At most 49 hours |
-| `region_days`: day, country, blocked, n | Region block counts (no install, no address) | `RETAIN_DAYS` |
+| `region_days`: day, country, blocked, n | Region block counts (no install, no address) | `IDENTITY_HASH_KEY` | derived from `ADMIN_TOKEN` (fixed dev value if that is unset too) | The key the durable identity hash (HMAC-SHA256 of the normalized sign-in email, never stored raw) uses for account bans and the cap carry-over across account deletion. Set it explicitly and keep it: changing it (or `ADMIN_TOKEN` without it) forgets every ban and carry-over. |
+| `RETAIN_DAYS` |
 | `install_days`: day, n | `NEW_INSTALLS_PER_DAY` (a count, no install) | Kept (one row a day) |
 | `alerts_sent`: day, key (`token:<prefix>` names an install) | One alert per key a day | 2 days |
 | `settings`: key, value | The runtime pause | Kept |
