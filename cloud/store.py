@@ -426,14 +426,15 @@ class Store:
         rows = self._q("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,))
         return rows[0]["id_hash"] if rows else None
 
-    def ban_identity(self, id_hash: str, reason: str = "") -> int:
+    def ban_identity(self, id_hash: str, reason: str = "", overwrite: bool = True) -> int:
         """Ban the identity and every user mapped to it (banned_users), and disable every install token linked to them.
-        An identity nobody is mapped to yet is still recorded: that person's next link is refused. Returns the tokens."""
+        An identity nobody is mapped to yet is still recorded: that person's next link is refused. overwrite=False (the
+        automatic callers) keeps an existing row's reason. Returns the tokens."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 self._db.execute("INSERT INTO banned_identities (id_hash, reason, created_at) VALUES (?, ?, ?) "
-                                 "ON CONFLICT (id_hash) DO UPDATE SET reason = excluded.reason",
+                                 "ON CONFLICT (id_hash) DO " + ("UPDATE SET reason = excluded.reason" if overwrite else "NOTHING"),
                                  (id_hash, reason[:200], time.time()))
                 users = [r[0] for r in self._db.execute("SELECT user_id FROM user_identity WHERE id_hash = ?", (id_hash,))]
                 n = self._ban_users_locked(users, id_hash)
@@ -444,12 +445,12 @@ class Store:
                     self._db.execute("ROLLBACK")
                 raise
 
-    def ban_user(self, user_id: str, reason: str = "", id_hash: str | None = None) -> int:
+    def ban_user(self, user_id: str, reason: str = "", id_hash: str | None = None, overwrite: bool = True) -> int:
         """Ban a Supabase user id directly (works for a user linked before identities were recorded), its identity too
         when known, and disable every install linked to it. Returns the tokens disabled."""
         ih = self.identity_of(user_id)
         if ih:
-            return self.ban_identity(ih, reason)
+            return self.ban_identity(ih, reason, overwrite)
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:

@@ -2361,7 +2361,8 @@ def claims_identity(claims: dict) -> tuple[str | None, bool]:
     am = claims.get("app_metadata")
     providers = set()
     if isinstance(am, dict):
-        providers = {p for p in [am.get("provider"), *(am.get("providers") or [])] if isinstance(p, str)}
+        many = am.get("providers")
+        providers = {p for p in [am.get("provider"), *(many if isinstance(many, list) else [])] if isinstance(p, str)}
     oauth = bool(providers - {"email", "phone", "anonymous"})
     return store.identity_hash(claims.get("email")), oauth or claims.get("email_verified") is True
 
@@ -2399,7 +2400,7 @@ async def link_from_request(request: Request) -> tuple[str, dict, dict] | JSONRe
     id_hash, trusted = claims_identity(claims)
     if store.is_banned(id_hash) or store.user_banned(claims["sub"]):  # the same person after deleting the account: the ban is on the identity, not the install
         log.warning("link refused: banned identity")
-        store.ban_user(claims["sub"], "linked with a banned identity", id_hash if store.is_banned(id_hash) else None)  # its user id and installs follow the ban
+        store.ban_user(claims["sub"], "linked with a banned identity", id_hash if store.is_banned(id_hash) else None, overwrite=False)  # its user id and installs follow the ban
         return link_error(403, "account_banned")
     if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER, id_hash if trusted else None):
         log.warning("link refused: the user already has %d installs linked", LINK_MAX_INSTALLS_PER_USER)
@@ -2492,7 +2493,7 @@ async def finish_account_delete(user_id: str) -> str:
 
 def _carry_ban_on_delete(user_id: str, id_hash: str) -> None:
     if store.user_banned(user_id):
-        store.ban_identity(id_hash, "banned user deleted their account")  # the ban follows the email too
+        store.ban_identity(id_hash, "banned user deleted their account", overwrite=False)  # the ban follows the email too
 
 
 @app.post("/v1/account/delete")
@@ -2534,7 +2535,7 @@ async def account_delete(request: Request):
     if not live and user_id is None:
         return link_error(401, "bad_install_token")
     id_hash, trusted = claims_identity(claims) if user_id else (None, False)
-    if user_id and id_hash:
+    if user_id and id_hash and trusted:
         await run_in_threadpool(_carry_ban_on_delete, user_id, id_hash)
     n = await run_in_threadpool(store.delete_account, h if live else None, user_id, id_hash if trusted else None)
     log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",

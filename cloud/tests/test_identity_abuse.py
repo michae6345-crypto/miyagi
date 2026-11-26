@@ -258,3 +258,14 @@ def test_identity_key_is_random_persisted_and_not_derived(make_cloud):
     assert len(s._identity_key) == 32
     again = type(s)(s.path)
     assert again._identity_key == s._identity_key and again.identity_hash(EMAIL) == s.identity_hash(EMAIL)
+
+
+def test_automatic_bans_keep_the_admins_reason(make_cloud):
+    client, _app, _ = make_cloud()
+    headers, _t = new_install(client)
+    assert link(client, headers).status_code == 200
+    client.post("/admin/identities/ban", headers=ADMIN, json={"email": EMAIL, "reason": "admin says abuse"})
+    headers2, _t2 = new_install(client)
+    assert link(client, headers2).status_code == 403  # refused: the automatic path bans again
+    assert delete(client, headers2, {"access_token": tok()}).status_code in (200, 401)
+    assert [b["reason"] for b in client.get("/admin/identities", headers=ADMIN).json()["banned"]] == ["admin says abuse"]
