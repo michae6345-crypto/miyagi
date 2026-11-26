@@ -103,6 +103,10 @@ class ScreenReader:
         self.ax_trusted: bool | None = None   # Accessibility grant at the last check (None = not checked / n.a.)
         self._ax_check = None                  # tests: replaces ax.trusted()
         self._ticks = 0
+        from . import perf_tier
+        self.profile = perf_tier.detect()   # low-end Mac: slower idle heartbeat (perf_tier.py)
+        self._unchanged = 0                  # captures in a row that found the screen unchanged (idle backoff)
+        self.ocr_skipped = 0                 # perf counter: captures whose OCR was skipped (frame unchanged)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -162,9 +166,18 @@ class ScreenReader:
         """Seconds between captures when nothing triggers one."""
         return self.heartbeat_with_events if (self.events and self.events.available) else self.interval
 
+    def next_wait(self) -> float:
+        """Seconds until the next no-trigger capture: the heartbeat, stretched while the screen stays unchanged and
+        when the Mac saves power (perf_tier.idle_heartbeat). Without event triggers it backs off at most 2x, since
+        only AX changes would poke it then."""
+        from . import perf_tier
+        base = self.heartbeat
+        cap = self.profile.idle_heartbeat_max if (self.events and self.events.available) else base * 2
+        return perf_tier.idle_heartbeat(base, self._unchanged, perf_tier.power_saving(), cap)
+
     def _run(self) -> None:
         while not self._stop.is_set():
-            woke = self._wake.wait(self.heartbeat)
+            woke = self._wake.wait(self.next_wait())
             self._wake.clear()
             if self._stop.is_set():
                 break
@@ -969,8 +982,11 @@ class ScreenReader:
             stale = prev is None or (time.time() - prev.t) > self.max_age
             if not force and not stale and layout == self._prev_layout and not _changed(
                     self._prev_thumb, thumb, self.diff_pixels):
+                self._unchanged += 1
+                self.ocr_skipped += 1
                 return None
             self._prev_thumb, self._prev_layout = thumb, layout
+            self._unchanged = 0
 
             self._frame += 1
             obs, ms = self._read_frame(img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay,
@@ -1157,11 +1173,25 @@ def _ask_display(macos, display_id: int | None, region: dict | None) -> int | No
     return None
 
 
+_DIFF_LUT = [0] * 13 + [255] * 243   # |a - b| > 12 -> 255
+
+
 def _changed(a: bytes | None, b: bytes, min_pixels: int) -> bool:
+    """At least `min_pixels` thumbnail pixels moved by more than 12 gray levels. Pillow does the per-pixel work in C
+    (the pure-Python loop walked all 121k pixels of every frame that differed by a blinking caret: ~5-10 ms a tick)."""
     if a is None or len(a) != len(b):
         return True
     if a == b:
         return False
+    try:
+        from PIL import Image, ImageChops
+        ia, ib = Image.frombytes("L", (len(a), 1), a), Image.frombytes("L", (len(b), 1), b)
+        return ImageChops.difference(ia, ib).point(_DIFF_LUT).histogram()[255] >= min_pixels
+    except Exception:  # noqa: BLE001  (no Pillow: the slow path)
+        return _changed_py(a, b, min_pixels)
+
+
+def _changed_py(a: bytes, b: bytes, min_pixels: int) -> bool:
     n = 0
     for x, y in zip(a, b):
         if abs(x - y) > 12:
