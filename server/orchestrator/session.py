@@ -43,6 +43,7 @@ from . import check_health, config, curated, editor_text, lesson_notebook, missi
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
+from ..textclip import clip_ask, clip_topic
 from . import captions  # V9: a box's caption never restates the code it sits on
 from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not "Ran .venv/bin/python nn.py")
 from . import spot_lines  # t5: which editor line a lesson box goes on
@@ -242,6 +243,15 @@ def _model_line(e: BaseException) -> str | None:
 
 BUILD_FAILED = "Couldn't build this lesson. Try again, or pick another video."
 COACH_DOWN = "The coach can't answer right now. It will try again soon."
+
+
+def build_deadline_s() -> float:
+    """The overall lesson-build deadline in seconds: MIYAGI_BUILD_DEADLINE_S, default 8 minutes."""
+    try:
+        v = float(os.environ.get("MIYAGI_BUILD_DEADLINE_S", ""))
+        return v if v > 0 else 480.0
+    except ValueError:
+        return 480.0
 
 
 def human_build_error(e: BaseException) -> str:
@@ -2066,6 +2076,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # ------------------------------------------------------------------ search + build
     async def learn(self, query: str, mode: str | None = None) -> None:
+        query = clip_topic(query)  # a pasted essay as the topic: search, build and the model see at most 500 chars
         if stage.wanted(mode):  # the launcher's Demo option (or MIYAGI_STAGE=1): the staged neural-net lesson
             await self.learn_demo(query)
             return
@@ -2221,6 +2232,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             factory() if factory is not None else self._build(url, goal, video_meta, transcript_only=transcript_only))
         self._build_task = task
         task.add_done_callback(lambda t: setattr(self, "_build_task", None) if self._build_task is t else None)
+        self._watch_build_deadline(task)
         if not await perf.until_loaded(task, self._loaded_evt):
             return  # the lesson is running; cancel_build / end_lesson still stop the rest of the build
         try:
@@ -2230,6 +2242,28 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     def building(self) -> bool:
         return self._build_task is not None and not self._build_task.done()
+
+    def _watch_build_deadline(self, task: asyncio.Future) -> None:
+        """An overall deadline on a build that has not reached step 1 (MIYAGI_BUILD_DEADLINE_S, default 480 s): cancel
+        it, and its own interrupted path reports the existing build-failed event with a friendly reason."""
+        self._deadline_hit = False
+        loaded = self._loaded_evt
+
+        async def watch() -> None:
+            await asyncio.sleep(build_deadline_s())
+            if task.done() or loaded.is_set():
+                return  # finished, or the lesson is live and the rest builds on in the background
+            log.warning("lesson build passed its %.0f s deadline: cancelling", build_deadline_s())
+            self._deadline_hit = True
+            task.cancel()
+
+        timer = asyncio.ensure_future(watch())
+        task.add_done_callback(lambda _t: timer.cancel())
+
+    def _interrupted_message(self) -> str:
+        if getattr(self, "_deadline_hit", False):
+            return "This is taking too long. Check your connection and try again."
+        return "The lesson build was interrupted. Try again."
 
     async def cancel_build(self) -> None:
         """Cancel an in-flight build quietly (the caller reports what happens next)."""
@@ -2452,7 +2486,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if self._quiet_cancel:  # end_lesson / a new learn: they report what happens next
                 raise
             log.warning("lesson build interrupted")
-            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            await asyncio.shield(self._build_failed(self._interrupted_message()))
             raise
         finally:
             live["on"] = False
@@ -2669,7 +2703,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             if self._quiet_cancel:
                 raise
-            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            await asyncio.shield(self._build_failed(self._interrupted_message()))
             raise
         finally:
             done.set()
@@ -6097,6 +6131,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """`region` / `ask_id` / `source`: circle to ask (Nov 22, action ask + region; circle_ask.py). `ask_id` on a
         typed or spoken ask is echoed on its answer card. `capture` (the helper's crop, AskCapture) and `release_t`
         (time.monotonic when the command arrived): the fast, streamed circle ask (circle_ask.answer)."""
+        text = clip_ask(text)  # a huge paste never goes whole to the model (textclip.MAX_ASK_CHARS)
         context_memory.on_action(self, kind, text)  # "skipped setup", "has AutoCAD": later answers know (never raises)
         if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
             await self._begin("Start")
