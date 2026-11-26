@@ -260,8 +260,8 @@ type SetupItem = NonNullable<Payload<'card'>['setup']>['items'][number]
 /** The engine's own install-all action, once it exists (not in shared/contracts yet): sent instead of the local chain. */
 export const INSTALL_ALL = 'install_all'
 /** Install methods that go through `install {text: tool}` (download / open open a page instead; none has nothing). */
-const INSTALLS = new Set<SetupItem['install']['method']>(['pip', 'brew', 'brew_cask'])
-/** The engine runs this row's install itself (`install {text: tool}`): pip / brew / brew_cask, never download, open or none. */
+const INSTALLS = new Set<SetupItem['install']['method']>(['pip', 'brew', 'brew_cask', 'vscode_ext'])
+/** The engine runs this row's install itself (`install {text: tool}`): pip / brew / brew_cask / vscode_ext, never download, open or none. */
 export const engineInstalls = (x: SetupItem): boolean => INSTALLS.has(x.install.method)
 /** A row is done when the card says ok or its install just succeeded (before the re-sent card confirms it). */
 export const itemDone = (x: SetupItem, installs: Record<string, Install>): boolean => x.ok || !!installs[x.tool]?.ok

@@ -354,3 +354,53 @@ def test_can_i_move_on_passes_a_held_checkless_step_without_the_judge(tmp_path):
         return [e["type"] for e in r.since(m)]
 
     assert "step.passed" in run(go())
+
+
+# --------------------------------------------------------------------------- the notebook kernel (user test Nov 26)
+
+
+def test_a_notebook_kernel_that_cant_start_is_a_failed_gate_row_until_retry(rig, monkeypatch):
+    from server.orchestrator import lesson_notebook
+    from server.orchestrator import workspace as wsmod
+
+    monkeypatch.setattr(lesson_notebook, "name", lambda s: "mnist.ipynb")
+    base = _reqs(rig.state)
+
+    def reqs(graph, folder):
+        return [{**base(graph, folder)[0], "tool": "ipykernel", "label": "Jupyter kernel (ipykernel)",
+                 "installed": rig.state.get("ipykernel", False), "ok": rig.state.get("ipykernel", False)}]
+    monkeypatch.setattr(wsmod, "requirements", reqs)
+    probes = []
+    answers = [{"ok": False, "errorCode": "missing", "error": "The notebook kernel can't start: zmq isn't installed in "
+                "the lesson's .venv. Press Retry to install the Jupyter kernel (ipykernel)."}, {"ok": True, "version": "7"}]
+    monkeypatch.setattr(G, "kernel_probe", lambda folder: probes.append(folder) or answers[len(probes) - 1])
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await rig.s.action("install", "ipykernel")
+        await asyncio.sleep(0.05)
+        await rig.settle()
+        failed = G.gate(rig.s).payload()
+        await rig.s.action("setup_retry", G.KERNEL)
+        await asyncio.sleep(0.1)
+        await rig.settle()
+        return failed, G.gate(rig.s).payload()
+
+    failed, after = run(go())
+    row = next(r for r in failed["items"] if r["tool"] == G.KERNEL)
+    assert failed["phase"] == "failed" and failed["holds"]
+    assert row["label"] == "Notebook kernel" and row["status"] == "failed" and "zmq" in row["error"]
+    assert next(r for r in after["items"] if r["tool"] == G.KERNEL)["status"] == "done"
+    assert after["phase"] == "done" and not after["holds"] and len(probes) == 2
+
+
+def test_no_kernel_row_outside_a_vs_code_notebook_lesson(rig, monkeypatch):
+    monkeypatch.setattr(G, "kernel_probe", lambda folder: (_ for _ in ()).throw(AssertionError("probed")))
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        return await G.check_kernel(rig.s)
+
+    assert run(go()) is None and G.KERNEL not in G.gate(rig.s).rows

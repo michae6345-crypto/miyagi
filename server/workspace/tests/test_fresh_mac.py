@@ -1,4 +1,5 @@
 """A fresh Mac: the only Python is miyagi.app's (MIYAGI_BUNDLED_PYTHON), PATH=/usr/bin:/bin, no Homebrew."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -104,7 +105,96 @@ def test_ipykernel_only_for_a_vs_code_notebook_lesson():
     assert [it["tool"] for it in S._items(raw, nb)][-1] == "ipykernel"
     colab = {**nb, "lesson": {"title": "MNIST in Google Colab"}}
     assert "ipykernel" not in [it["tool"] for it in S._items(raw, colab)]
-    assert "ipykernel" not in [it["tool"] for it in S._items({"editor": {"needed": False, "why": ""}, "tools": []}, nb)]
+    # Nov 26 (user test): Claude said "No editor needed" for a video that starts Jupyter in a browser. Miyagi runs every
+    # non-Colab notebook lesson in VS Code, so the editor is needed and the kernel row is there anyway.
+    items = S._items({"editor": {"needed": False, "why": "Jupyter runs in the browser"}, "tools": []}, nb)
+    assert items[0]["kind"] == "editor" and items[0]["needed"] and items[0]["why"] == S.NOTEBOOK_EDITOR_WHY
+    assert "ipykernel" in [it["tool"] for it in items]
+    assert not S._items({"editor": {"needed": False, "why": "x"}, "tools": []}, colab)[0]["needed"]
+
+
+def test_notebook_lesson_rows_kernel_first_no_jupyter_server_and_vscode_extensions():
+    nb = {"lesson": {"title": "TensorFlow MNIST", "libraries": {"tensorflow": "2"}},
+          "steps": [{"id": "s1", "title": "Create venv and start Jupyter", "instructions": "", "run_command": "jupyter notebook"}]}
+    raw = {"editor": {"needed": False, "why": "the browser"},
+           "tools": [{"tool": "python", "kind": "runtime"}, {"tool": "jupyter", "kind": "python_package"},
+                     {"tool": "notebook", "kind": "python_package"}, {"tool": "tensorflow", "kind": "python_package"}]}
+    tools = [it["tool"] for it in S._items(raw, nb)]
+    # no Jupyter server packages (VS Code runs the cells), the kernel before TensorFlow, VS Code's extensions under it
+    assert tools == ["vscode", S.VSCODE_NOTEBOOK, "python", "ipykernel", "tensorflow"]
+    raw["tools"].append({"tool": "ipykernel", "kind": "python_package"})
+    assert [it["tool"] for it in S._items(raw, nb)].count("ipykernel") == 1
+    plain = {"lesson": {"title": "Flask"}, "steps": [{"id": "s1", "title": "t", "instructions": "", "file": "app.py"}]}
+    assert S.VSCODE_NOTEBOOK not in [it["tool"] for it in S._items({"editor": {"needed": True, "why": ""}, "tools": []}, plain)]
+
+
+def _ext_dir(tmp_path, monkeypatch, entries=None, folders=(), obsolete=None):
+    d = tmp_path / "exts"
+    d.mkdir(exist_ok=True)
+    monkeypatch.setenv("VSCODE_EXTENSIONS", str(d))
+    if entries is not None:
+        (d / "extensions.json").write_text(json.dumps(entries), encoding="utf-8")
+    for f in folders:
+        (d / f).mkdir()
+    if obsolete:
+        (d / ".obsolete").write_text(json.dumps(obsolete), encoding="utf-8")
+    return d
+
+
+def test_vscode_extensions_from_the_index_or_folder_names(tmp_path, monkeypatch):
+    _ext_dir(tmp_path, monkeypatch, entries=[
+        {"identifier": {"id": "ms-python.python"}, "relativeLocation": "ms-python.python-2026.2.0-darwin-arm64"},
+        {"identifier": {"id": "ms-toolsai.jupyter"}, "relativeLocation": "ms-toolsai.jupyter-2026.1.0"}],
+        obsolete={"ms-toolsai.jupyter-2026.1.0": True})  # uninstalled, not pruned yet
+    assert S.vscode_extensions() == {"ms-python.python": True, "ms-toolsai.jupyter": False}
+    (tmp_path / "exts" / "extensions.json").unlink()
+    (tmp_path / "exts" / ".obsolete").unlink()
+    (tmp_path / "exts" / "ms-toolsai.jupyter-2026.1.0").mkdir()
+    assert S.vscode_extensions() == {"ms-python.python": False, "ms-toolsai.jupyter": True}
+    monkeypatch.setenv("VSCODE_EXTENSIONS", str(tmp_path / "none"))
+    assert S.vscode_extensions() == {"ms-python.python": False, "ms-toolsai.jupyter": False}
+
+
+def test_extension_row_checks_and_installs_only_the_missing_fixed_ids(tmp_path, monkeypatch):
+    d = _ext_dir(tmp_path, monkeypatch, folders=("ms-python.python-2026.2.0",))
+    row = S.check(dict(S.NOTEBOOK_EXT_ROW))
+    assert not row["ok"] and row["missingExtensions"] == ["ms-toolsai.jupyter"]
+    r = S.recipe(row, None)
+    assert r["method"] == "vscode_ext" and "ms-toolsai.jupyter" in r["command"]
+    monkeypatch.setattr(S, "_vscode_cli", lambda: "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code")
+    ran = []
+
+    def popen(argv, **kw):  # VS Code's CLI, mocked: it "installs" by making the folder
+        ran.append(argv)
+        (d / f"{argv[-1]}-1.0.0").mkdir()
+        return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
+
+    res = S.install({**row, "install": r}, popen=popen, net=lambda host: True)
+    assert res["ok"] and ran == [[ran[0][0], "--install-extension", "ms-toolsai.jupyter"]]
+    assert S.check(dict(S.NOTEBOOK_EXT_ROW))["ok"]
+    monkeypatch.setattr(S, "_vscode_cli", lambda: None)
+    shutil_rm = __import__("shutil").rmtree
+    shutil_rm(d / "ms-toolsai.jupyter-1.0.0")
+    res = S.install(dict(S.NOTEBOOK_EXT_ROW), popen=popen, net=lambda host: True)
+    assert not res["ok"] and res["errorCode"] == "no_vscode" and "VS Code" in res["error"]
+
+
+def test_kernel_check_says_why_the_notebook_kernel_cant_start(tmp_path):
+    wd = tmp_path / "lesson"
+    wd.mkdir()
+    assert S.kernel_check(wd)["errorCode"] == "no_python"
+    py = paths.venv_python(wd / ".venv")
+    py.parent.mkdir(parents=True)
+    py.write_text("", encoding="utf-8")
+    seen = []
+    ok = S.kernel_check(wd, run=lambda argv, timeout=0: seen.append(argv) or (0, "7.1.0\n"))
+    assert ok == {"ok": True, "version": "7.1.0"} and seen[0][:2] == [str(py), "-c"] and "ipykernel" in seen[0][2]
+    bad = S.kernel_check(wd, run=lambda argv, timeout=0: (1, "Traceback...\nModuleNotFoundError: No module named 'ipykernel'"))
+    assert not bad["ok"] and bad["errorCode"] == "missing" and "ipykernel isn't installed" in bad["error"]
+    slow = S.kernel_check(wd, run=lambda argv, timeout=0: (S.TIMEOUT, ""))
+    assert not slow["ok"] and "too long" in slow["error"]
+    broken = S.kernel_check(wd, run=lambda argv, timeout=0: (1, "ImportError: dlopen(libzmq.dylib): image not found"))
+    assert not broken["ok"] and broken["errorCode"] == "broken_import" and "can't start" in broken["error"]
 
 
 def test_one_venv_build_per_folder_at_a_time(monkeypatch, tmp_path):

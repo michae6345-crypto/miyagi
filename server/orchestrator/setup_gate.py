@@ -329,6 +329,15 @@ async def retry_rows(s: Any, tools: list[str]) -> None:
     """Install the retried rows one after another. The .venv row builds the environment again (run_venv); any row an
     install left queued (an early return) is settled, so the gate never waits on it (review H3)."""
     for t in tools:
+        if t == KERNEL:  # the notebook kernel: ipykernel again (its install checks the kernel after), else check again
+            item = next((it for it in getattr(s, "reqs", None) or [] if it.get("tool") == "ipykernel"), None)
+            if item is not None:
+                await s._install("ipykernel", item=item)
+                await settle(s, "ipykernel")
+            if gate(s).rows.get(KERNEL) is None or gate(s).rows[KERNEL].status == QUEUED:
+                await check_kernel(s)
+            await settle(s, t, failed=True)
+            continue
         if t == VENV:
             job = getattr(s, "_venv_job", None)
             if job is not None:
@@ -374,3 +383,44 @@ async def run_venv(s: Any, folder: str, fn: Callable[[], Any]) -> Any:
                             "error": "Couldn't make the lesson's Python environment. Press Retry, or Continue anyway."})
     await publish(s)
     return made
+
+
+# ------------------------------------------------------------------------- the notebook kernel (user test Nov 26)
+
+KERNEL = "kernel"
+KERNEL_LABEL = "Notebook kernel"
+# installs after which a VS Code notebook lesson checks that its kernel starts in the lesson's .venv
+KERNEL_TOOLS = frozenset({"ipykernel", "jupyter", "notebook", "jupyterlab"})
+
+
+def kernel_probe(folder: str) -> dict:
+    """server.workspace.setup.kernel_check (tests replace this). Blocking."""
+    from server.workspace import setup as ws_setup
+
+    return ws_setup.kernel_check(folder)
+
+
+async def check_kernel(s: Any) -> dict | None:
+    """A VS Code notebook lesson, right after its kernel package installed: can the notebook kernel start in the
+    lesson's .venv (ipykernel and its imports, no kernel started)? A gate row "Notebook kernel": done, or failed with a
+    plain sentence (Retry installs ipykernel again; Continue anyway), so the learner never meets VS Code's "No kernel"
+    picker with nothing said. None when it doesn't apply (not gated, not a VS Code notebook lesson, no folder)."""
+    folder = getattr(s, "workdir", None)
+    if not folder or not applies(s):
+        return None
+    from . import lesson_notebook
+
+    if not lesson_notebook.name(s):
+        return None
+    g = gate(s)
+    g.start(KERNEL, KERNEL_LABEL)
+    await publish(s)
+    try:
+        res = dict(await asyncio.to_thread(kernel_probe, folder))
+    except Exception as e:  # noqa: BLE001 - kernel_check never raises; belt and braces
+        log.exception("notebook kernel check failed")
+        res = {"ok": False, "errorCode": "unknown", "error": f"Couldn't check the notebook kernel: {e}"}
+    g.finish(KERNEL, res)
+    log.info("notebook kernel in %s: %s", folder, "ready" if res.get("ok") else res.get("error"))
+    await publish(s)
+    return res

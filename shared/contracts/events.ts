@@ -333,7 +333,7 @@ export interface Progress {
 export interface SetupItem {
   tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "node_package" | "web_app"; why: string;   // node_package (ambient help, Nov 24): a project's package.json dependencies as one row
   needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
-  install: { method: "brew" | "brew_cask" | "pip" | "npm" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)   // npm (ambient help): `npm install` in the project folder (setup.fix only)
+  install: { method: "brew" | "brew_cask" | "pip" | "npm" | "vscode_ext" | "download" | "open" | "none"; command?: string; url?: string };  // vscode_ext (Nov 26): `code --install-extension` for a notebook lesson's Python + Jupyter extensions, through `install {text: tool}` like pip  // web_app: method "open" + https url (nothing to install)   // npm (ambient help): `npm install` in the project folder (setup.fix only)
   from?: string;       // ambient help (Nov 24), setup.report: the project file (and line) that asked for it: "requirements.txt:4", ".nvmrc", "Dockerfile"
   // Nov 22, additive (server/workspace/apps.py). A licensed app (AutoCAD, Photoshop, Excel, MATLAB...) is never installed:
   // install.method is "download" with the vendor's page, and the row offers actions instead of Install.
