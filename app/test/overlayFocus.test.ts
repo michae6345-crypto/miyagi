@@ -114,6 +114,11 @@ describe('overlay focus', () => {
     assert.doesNotMatch(settings, /win\.show\(\)/)
   })
 
+  test('front-app never re-activates another app on its own (the old handBack flip-flop)', () => {
+    const front = code(read('main/features/front-app.ts'))
+    assert.doesNotMatch(front, /execFile\(\s*'open'/)
+  })
+
   test('the player is a non-activating panel too', () => {
     const player = code(read('main/features/player.ts'))
     assert.match(player, /\.\.\.panelType\(\)/)
