@@ -12,7 +12,7 @@
    The tag has to match the version. If it doesn't, the run stops at `plan`. A tag such as `v0.2.0-beta.1` makes a prerelease.
 3. The run then does this:
    - **checks**: the app checks from ci.yml (typecheck, build, unit tests, no secret Supabase keys).
-   - **build**, once per arch: `app/scripts/release-mac.sh` puts the engine inside the app (`MIYAGI_ENGINE_REF`, default `origin/integration/live`), builds the app, then the dmg, the update zip and `latest-mac.yml`. Apple silicon builds on `macos-latest`. Intel builds on `macos-15-intel`, because the bundled Python has to run on the build Mac to be precompiled.
+   - **build**, once per arch: `app/scripts/release-mac.sh` puts the engine inside the app (from the commit being released; `MIYAGI_ENGINE_REF` picks another ref), builds the app, then the dmg, the update zip and `latest-mac.yml`. Apple silicon builds on `macos-latest`. Intel builds on `macos-15-intel`, because the bundled Python has to run on the build Mac to be precompiled.
    - **assemble**: merges the two feeds into one `latest-mac.yml`, writes `SHA256SUMS.txt` and writes the notes. The notes say **unsigned** when the build had no Developer ID.
    - **publish**: sends everything to the target (next section). It is a **draft** by default.
 4. Open the draft, run the checks in SHIP.md's "Test before you publish" on the dmg, then press Publish.
@@ -70,7 +70,7 @@ Use the `target` input, or for tag pushes the repo variable `RELEASE_TARGET`. Pi
 | `r2` | Cloudflare R2 through its S3 API: `<prefix>/<tag>/…`. A non-draft also replaces `<prefix>/latest/…`, which is the stable URL for the site and the update feed. | secrets `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, variables `R2_BUCKET`, `R2_PREFIX` (default `mac`) |
 | `none` | Builds only. The files stay on the run as the `release-<tag>` artifact for 30 days. | nothing |
 
-Other repo variables (all optional): `RELEASE_DRAFT=false` publishes tag pushes right away. `RELEASE_INTEL=false` skips Intel. `MIYAGI_ENGINE_REF` sets the engine branch. `MAC_ARM64_RUNNER` and `MAC_X64_RUNNER` set the runners. `MIYAGI_UPDATE_FEED_URL` sets the feed URL electron-builder records.
+Other repo variables (all optional): `RELEASE_DRAFT=false` publishes tag pushes right away. `RELEASE_INTEL=false` skips Intel. `MIYAGI_ENGINE_REF` bundles another engine ref than the released commit (leave it unset: main is one trunk, so the app and its engine ship from the same commit). `MAC_ARM64_RUNNER` and `MAC_X64_RUNNER` set the runners. `MIYAGI_UPDATE_FEED_URL` sets the feed URL electron-builder records.
 
 ## Secrets to add later (Adrian or Michael, in Settings › Secrets and variables › Actions)
 

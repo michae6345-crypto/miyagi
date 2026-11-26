@@ -71,7 +71,7 @@ npm run ship:mac -- --universal  # Apple silicon + Intel (bigger)
 npm run ship:mac -- --x64        # Intel only → app/dist/Miyagi-Mac-x64.dmg
 ```
 
-`ship:mac` does four things. It puts the engine in (`scripts/bundle-engine.mjs`), builds the app (`--dir`) and signs it ad hoc. Then it packs that signed app into the dmg: electron-builder's `dmg` target with the art in `build/dmg/` (layout in `agents/dmg-art.md`), recompressed to lzma (ULMO). Set `MIYAGI_DMG_FORMAT=ULFO` for lzfse. A zip is made only with `--zip`. The engine comes from `origin/integration/live` (set `MIYAGI_ENGINE_REF` to use another branch). `install.sh` comes from the same branch, or from `origin/claude/distribution` until PR #66 is merged. The last lines print which engine commit went in.
+`ship:mac` does four things. It puts the engine in (`scripts/bundle-engine.mjs`), builds the app (`--dir`) and signs it ad hoc. Then it packs that signed app into the dmg: electron-builder's `dmg` target with the art in `build/dmg/` (layout in `agents/dmg-art.md`), recompressed to lzma (ULMO). Set `MIYAGI_DMG_FORMAT=ULFO` for lzfse. A zip is made only with `--zip`. The engine comes from the commit you build (set `MIYAGI_ENGINE_REF` to use another ref). `install.sh` comes from the same commit, or from `origin/claude/distribution` until PR #66 is merged. The last lines print which engine commit went in.
 
 ## Test before you publish (about 15 minutes)
 

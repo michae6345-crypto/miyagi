@@ -17,7 +17,7 @@
 # Names: arm64 keeps Miyagi-Mac.dmg (what the site and the in-app update card link to); x64 is Miyagi-Mac-x64.dmg. Zips
 # carry the arch (Miyagi-Mac-arm64.zip, Miyagi-Mac-x64.zip): electron-updater picks the file by "arm64" in its name.
 #
-# Env: MIYAGI_ENGINE_REF (default origin/integration/live), MIYAGI_DMG_FORMAT (ULMO), MIYAGI_UPDATE_FEED_URL (the
+# Env: MIYAGI_ENGINE_REF (default HEAD, this commit), MIYAGI_DMG_FORMAT (ULMO), MIYAGI_UPDATE_FEED_URL (the
 #      generic feed URL electron-builder records; latest-mac.yml itself only names files), MIYAGI_RELEASE_OUT
 #      (dist/release). Writes dist/release/<files> and dist/release/build-<arch>.json (what was built and how).
 set -euo pipefail

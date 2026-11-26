@@ -40,9 +40,9 @@ on:
         type: boolean
         default: true
       engine_ref:
-        description: Engine branch bundled into the app (git ref)
+        description: Engine commit bundled into the app (git ref). HEAD is the commit being released
         type: string
-        default: origin/integration/live
+        default: HEAD
 permissions: {}
 concurrency:
   group: release-${{ github.ref }}
@@ -92,12 +92,12 @@ jobs:
             exit 1
           fi
           if [ "$EVENT" = workflow_dispatch ]; then
-            target="$IN_TARGET"; draft="$IN_DRAFT"; intel="$IN_INTEL"; engine_ref="${IN_ENGINE_REF:-origin/integration/live}"
+            target="$IN_TARGET"; draft="$IN_DRAFT"; intel="$IN_INTEL"; engine_ref="${IN_ENGINE_REF:-HEAD}"
           else
             target="${VAR_TARGET:-github}"
             draft=true; [ "${VAR_DRAFT:-}" = false ] && draft=false
             intel=true; [ "${VAR_INTEL:-}" = false ] && intel=false
-            engine_ref="${VAR_ENGINE_REF:-origin/integration/live}"
+            engine_ref="${VAR_ENGINE_REF:-HEAD}"
           fi
           case "$target" in github|github-public|r2|none) ;; *) echo "::error::unknown target '$target'"; exit 1 ;; esac
           case "$engine_ref" in *[!A-Za-z0-9._/-]*|"") echo "::error::engine_ref '$engine_ref' isn't a plain git ref"; exit 1 ;; esac
@@ -158,7 +158,8 @@ jobs:
     defaults: { run: { working-directory: app } }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        # Full history and every branch: bundle-engine.mjs packs the engine from origin/integration/live with git archive.
+        # Full history and every branch: bundle-engine.mjs packs the engine from this commit with git archive (one trunk),
+        # and takes install.sh from origin/claude/distribution while main has no scripts/install.sh.
         # No credentials left in .git/config (its own `git fetch` then just warns on a private repo and uses these refs).
         with: { fetch-depth: 0, persist-credentials: false }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

@@ -108,6 +108,17 @@ describe('names: what is published is what the update card pins', () => {
     assert.doesNotMatch(intel, /gh release (edit|upload)/)
   })
 
+  test('the engine in a release is the released commit, not a branch (one trunk since Nov 25)', () => {
+    // main carries the app and the engine together, and bundle-engine.mjs defaults to HEAD. A branch name here would
+    // override that and ship a tag's app with an older engine.
+    const yml = repoFile('.github', 'workflows', 'release.yml')
+    assert.match(yml, /\n {6}engine_ref:\n[^\n]+\n {8}type: string\n {8}default: HEAD\n/)
+    assert.match(yml, /engine_ref="\$\{IN_ENGINE_REF:-HEAD\}"/)
+    assert.match(yml, /engine_ref="\$\{VAR_ENGINE_REF:-HEAD\}"/)
+    const texts = { 'release.yml': yml, 'release-mac.sh': repoFile('app', 'scripts', 'release-mac.sh'), 'RELEASING.md': repoFile('RELEASING.md') }
+    for (const [name, text] of Object.entries(texts)) assert.doesNotMatch(text, /integration\/live/, `${name} still names the old engine branch`)
+  })
+
   test('electron-builder.yml and the docs use the same dmg name', () => {
     assert.match(repoFile('app', 'electron-builder.yml'), /\ndmg:\n {2}artifactName: Miyagi-Mac\.\$\{ext\}\n/)
     const doc = repoFile('RELEASING.md')
