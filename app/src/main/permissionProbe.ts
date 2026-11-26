@@ -15,9 +15,12 @@ export type RelaunchKind = 'screen' | 'accessibility'
 export type Fresh = Partial<Record<RelaunchKind, 'granted' | 'denied'>>
 
 const KINDS: readonly RelaunchKind[] = ['screen', 'accessibility']
-const PROBE_TIMEOUT_MS = 2000
-/** A probe spawns a process: at most this often, and only while something is not granted and a window watches. */
-export const PROBE_MIN_MS = 2000
+/** A warm probe answers in ~30-40 ms; this is the ceiling. */
+export const PROBE_TIMEOUT_MS = 2000
+/** The first probe of a run: Gatekeeper's first scan of a freshly installed helper can take longer than 2 s (#286). */
+export const FIRST_PROBE_TIMEOUT_MS = 4000
+/** A probe spawns a process: at most this often, and only while something is not granted (#286: 1 s). */
+export const PROBE_MIN_MS = 1000
 
 /** The `perms` field of the helper's --screens line. Never throws; undefined when there is none (an older helper). */
 export function parseFreshPerms(text: string): Fresh | undefined {
@@ -39,46 +42,62 @@ export function parseFreshPerms(text: string): Fresh | undefined {
 /** The kinds a fresh process sees as granted while this one doesn't: only a relaunch picks them up. */
 export function relaunchKinds(here: Partial<Record<RelaunchKind, string>>, fresh: Fresh | undefined): RelaunchKind[] {
   if (!fresh) return []
-  return KINDS.filter((k) => here[k] !== undefined && here[k] !== 'granted' && here[k] !== 'unknown' && fresh[k] === 'granted')
+  return KINDS.filter((k) => here[k] !== undefined && here[k] !== 'granted' && here[k] !== 'unknown' && here[k] !== 'restricted' && fresh[k] === 'granted')
 }
 
 /** Run the helper's --screens and read its `perms`. Resolves undefined on any failure (missing, timeout, old helper). */
-export function probeFreshPerms(bin: string): Promise<Fresh | undefined> {
+export function probeFreshPerms(bin: string, timeoutMs: number = PROBE_TIMEOUT_MS): Promise<Fresh | undefined> {
   return new Promise((resolve) => {
     try {
       if (!bin || !existsSync(bin)) return resolve(undefined)
-      execFile(bin, ['--screens'], { timeout: PROBE_TIMEOUT_MS, maxBuffer: 1 << 20 }, (err, stdout) => resolve(err ? undefined : parseFreshPerms(String(stdout))))
+      execFile(bin, ['--screens'], { timeout: timeoutMs, maxBuffer: 1 << 20 }, (err, stdout) => resolve(err ? undefined : parseFreshPerms(String(stdout))))
     } catch {
       resolve(undefined)
     }
   })
 }
 
+/** After this many probes with the same answer, wait longer between probes: BACKOFF_MS[0], then [1] after twice as many. */
+export const BACKOFF_AFTER = 10
+export const BACKOFF_MS = [10_000, 30_000] as const
+
 /**
- * A rate-limited probe: answers the last result when asked again within `minMs`, one call in flight at a time.
- * `reset()` forgets the last answer (everything is granted now: nothing to ask).
+ * A rate-limited probe: answers the last result when asked again within `minMs`, one call in flight at a time. A probe
+ * that gives no answer (a timeout on a slow Mac) keeps the last good one, so "Restart miyagi" doesn't flicker away (#286).
+ * Ten answers in a row that change nothing slow it to every 10 s, twenty to every 30 s; a change speeds it up again.
+ * `peek()` is the last answer without probing; `reset()` forgets it (everything is granted now: nothing to ask).
  */
-export function throttledProbe(probe: () => Promise<Fresh | undefined>, minMs = PROBE_MIN_MS, now: () => number = Date.now): { get(): Promise<Fresh | undefined>; reset(): void } {
+export function throttledProbe(
+  probe: () => Promise<Fresh | undefined>,
+  minMs = PROBE_MIN_MS,
+  now: () => number = Date.now
+): { get(): Promise<Fresh | undefined>; peek(): Fresh | undefined; reset(): void } {
   let last: Fresh | undefined
   let at = -Infinity
+  let same = 0
   let inflight: Promise<Fresh | undefined> | undefined
+  const gap = (): number => (same >= 2 * BACKOFF_AFTER ? BACKOFF_MS[1] : same >= BACKOFF_AFTER ? BACKOFF_MS[0] : minMs)
   return {
     get() {
       if (inflight) return inflight
-      if (now() - at < minMs) return Promise.resolve(last)
+      if (now() - at < gap()) return Promise.resolve(last)
       inflight = probe()
         .catch(() => undefined)
         .then((r) => {
-          last = r
+          const next = r ?? last
+          same = JSON.stringify(next) === JSON.stringify(last) ? same + 1 : 0
+          last = next
           at = now()
-          return r
+          return last
         })
         .finally(() => (inflight = undefined))
       return inflight
     },
+    peek: () => last,
     reset() {
       last = undefined
       at = -Infinity
+      same = 0
     }
   }
 }

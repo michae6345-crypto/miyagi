@@ -51,7 +51,6 @@ describe('#282 probe (miyagi-listen --screens perms): matrix cases', () => {
   })
   it(
     'a probe timeout (slow Mac, first Gatekeeper scan) keeps the last good answer instead of dropping the restart offer',
-    { todo: 'patch for #282: throttledProbe sets last = r ?? last' },
     async () => {
       let t = 0
       let answer: Fresh | undefined = { screen: 'granted' }
@@ -62,7 +61,7 @@ describe('#282 probe (miyagi-listen --screens perms): matrix cases', () => {
       assert.deepEqual(await p.get(), { screen: 'granted' })
     }
   )
-  it('a switch flip shows within about a second while the learner is still in System Settings', { todo: 'patch for #282: POLL_MS 500 while watched, PROBE_MIN_MS 1000' }, () => {
+  it('a switch flip shows within about a second while the learner is still in System Settings', () => {
     assert.ok(PROBE_MIN_MS <= 1000)
   })
 })

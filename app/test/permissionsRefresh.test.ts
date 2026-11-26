@@ -7,7 +7,10 @@
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseFreshPerms, relaunchKinds, throttledProbe, type Fresh } from '../src/main/permissionProbe'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { BACKOFF_AFTER, BACKOFF_MS, parseFreshPerms, relaunchKinds, throttledProbe, type Fresh } from '../src/main/permissionProbe'
 
 // The shared electron fake has no ipcMain (engineIsolation.test.ts adds its own the same way): record the handlers here.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -54,6 +57,29 @@ describe('permissionProbe (pure)', () => {
     assert.equal(calls, 3)
   })
 
+  test('ten answers that change nothing slow the probe to 10 s, twenty to 30 s; a change speeds it up again', async () => {
+    let t = 0
+    let calls = 0
+    let answer: Fresh = { screen: 'granted' }
+    const p = throttledProbe(async () => (calls++, answer), 1000, () => t)
+    for (let i = 0; i <= BACKOFF_AFTER; i++) {
+      await p.get()
+      t += 1000
+    }
+    const before = calls
+    await p.get() // 1 s after the last: backed off, no new call
+    assert.equal(calls, before)
+    t += BACKOFF_MS[0]
+    await p.get()
+    assert.equal(calls, before + 1)
+    answer = { screen: 'denied' }
+    t += BACKOFF_MS[0]
+    await p.get() // a change resets the count
+    t += 1000
+    await p.get()
+    assert.equal(calls, before + 3)
+  })
+
   test('a probe that throws reads as no answer', async () => {
     const p = throttledProbe(async () => {
       throw new Error('spawn failed')
@@ -98,7 +124,7 @@ describe('main/permissions.ts', { skip: process.platform !== 'darwin' && 'macOS 
     // Both switched on in System Settings: this process still reads Screen Recording off, a fresh one sees both.
     fresh = { screen: 'granted', accessibility: 'granted' }
     ax = true
-    await wait(2300) // past the probe rate limit
+    await wait(1200) // past the probe rate limit (PROBE_MIN_MS)
     const front = electron.appListeners.filter(([ev]) => ev === 'did-become-active').map(([, fn]) => fn)
     assert.ok(front.length >= 1, 'reads when miyagi comes back to the front')
     for (const fn of front) fn()
@@ -126,6 +152,100 @@ describe('main/permissions.ts', { skip: process.platform !== 'darwin' && 'macOS 
     await wait(2300)
     assert.equal(reads, before, 'no polling once both grants read granted')
 
+    await handlers.get('feat:permissions:watch')!({ sender }, false)
+  })
+
+  type Sent = { screen: string; accessibility: string; relaunch?: string[]; hint?: Record<string, string> }
+  const fakeReads = (state: { screen: string; ax: boolean }): void => {
+    const sp = electron.systemPreferences as Record<string, unknown>
+    sp.getMediaAccessStatus = () => state.screen
+    sp.isTrustedAccessibilityClient = () => state.ax
+  }
+  const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+  test('Accessibility never flashes "Restart needed": main is live, a restart is flagged only after 2 s of disagreement', async () => {
+    const state = { screen: 'granted', ax: false }
+    fakeReads(state)
+    const { setupPermissions } = await import('../src/main/permissions')
+    const sent: Sent[] = []
+    const perms = setupPermissions({ engineExternal: () => false, broadcast: (_c, p) => sent.push(p as Sent), trusted: () => true, probe: async () => ({ screen: 'granted', accessibility: 'granted' }), build: 'b1', place: 'applications' })
+    const sender = { id: 21, once: () => undefined }
+    await handlers.get('feat:permissions:watch')!({ sender }, true)
+    // The fresh process sees Accessibility on a moment before main does: no restart offer.
+    let p = await perms.refresh()
+    assert.equal(p.relaunch, undefined)
+    // main catches up: plain granted.
+    state.ax = true
+    p = await perms.refresh()
+    assert.equal(p.accessibility, 'granted')
+    assert.equal(p.relaunch, undefined)
+    // A real, lasting disagreement (rare): flagged only once it has lasted 2 s.
+    state.ax = false
+    assert.equal((await perms.refresh()).relaunch, undefined)
+    await wait(2100)
+    assert.deepEqual((await perms.refresh()).relaunch, ['accessibility'])
+    await handlers.get('feat:permissions:watch')!({ sender }, false)
+  })
+
+  test('restart-loop guard: still not seen after one restart on this build → the off-and-on hint, not Restart again', async () => {
+    const state = { screen: 'denied', ax: true }
+    fakeReads(state)
+    const { setupPermissions } = await import('../src/main/permissions')
+    const grantsFile = join(mkdtempSync(join(tmpdir(), 'miyagi-perm-')), 'perm-grants.json')
+    let relaunched = 0
+    const deps = { engineExternal: () => false, broadcast: () => undefined, trusted: () => true, probe: async (): Promise<Fresh> => ({ screen: 'granted', accessibility: 'granted' }), grantsFile, build: 'b1', place: 'applications' as const, relaunch: () => void relaunched++ }
+    const sender = { id: 31, once: () => undefined }
+    const first = setupPermissions(deps)
+    await handlers.get('feat:permissions:watch')!({ sender }, true)
+    assert.deepEqual((await first.refresh()).relaunch, ['screen'])
+    assert.equal(await handlers.get('feat:permissions:relaunch')!({ sender }), true)
+    assert.equal(relaunched, 1)
+    await handlers.get('feat:permissions:watch')!({ sender }, false)
+
+    // "After the restart" (same build, same file): macOS still says no here.
+    const second = setupPermissions(deps)
+    await handlers.get('feat:permissions:watch')!({ sender }, true)
+    const p = await second.refresh()
+    assert.equal(p.relaunch, undefined)
+    assert.equal(p.hint?.screen, 'reset')
+    // Granted for real later: the guard is cleared and a later build may offer a restart again.
+    state.screen = 'granted'
+    assert.equal((await second.refresh()).hint, undefined)
+    await handlers.get('feat:permissions:watch')!({ sender }, false)
+  })
+
+  test('no probe once every off kind is known to need a restart, and none while no window watches; restricted is its own state', async () => {
+    const state = { screen: 'denied', ax: true }
+    fakeReads(state)
+    const { setupPermissions } = await import('../src/main/permissions')
+    let probes = 0
+    const perms = setupPermissions({ engineExternal: () => false, broadcast: () => undefined, trusted: () => true, probe: async () => (probes++, { screen: 'granted', accessibility: 'granted' } as Fresh), build: 'b1', place: 'applications' })
+    await perms.refresh()
+    assert.equal(probes, 0, 'nobody watches: no spawn')
+    const sender = { id: 41, once: () => undefined }
+    await handlers.get('feat:permissions:watch')!({ sender }, true)
+    await perms.refresh()
+    assert.equal(probes, 1)
+    await wait(1100)
+    await perms.refresh()
+    assert.equal(probes, 1, 'screen is already known to need a restart: nothing new to learn')
+    state.screen = 'restricted'
+    const p = await perms.refresh()
+    assert.equal(p.screen, 'restricted')
+    assert.equal(p.relaunch, undefined)
+    assert.equal(p.hint?.screen, 'managed')
+    await handlers.get('feat:permissions:watch')!({ sender }, false)
+  })
+
+  test('running from the disk image: hint move, never a restart offer', async () => {
+    fakeReads({ screen: 'denied', ax: false })
+    const { setupPermissions } = await import('../src/main/permissions')
+    const perms = setupPermissions({ engineExternal: () => false, broadcast: () => undefined, trusted: () => true, probe: async () => ({ screen: 'denied', accessibility: 'denied' }), build: 'b1', place: 'dmg' })
+    const sender = { id: 51, once: () => undefined }
+    await handlers.get('feat:permissions:watch')!({ sender }, true)
+    const p = await perms.refresh()
+    assert.equal(p.place, 'dmg')
+    assert.deepEqual(p.hint, { screen: 'move', accessibility: 'move' })
     await handlers.get('feat:permissions:watch')!({ sender }, false)
   })
 })
