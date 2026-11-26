@@ -4,8 +4,9 @@
  * Lesson"). Left: the lesson to pick up (the engine's saved offer, else the most recent unfinished lesson), with one
  * white Continue. Right: ask miyagi, a drop zone for a link (drag a YouTube link onto the notch to build a lesson; with
  * the engine's "link.any", any page: an article, a docs page or a GitHub repo, ANY-LINK.md), and lessons ready to run.
- * Footer: the library. A dropped page first shows its preview card on the left (anylink/Card NotchLinkCard: what it
- * is, about how long, or why miyagi can't teach it) with its own Build lesson; the ✕ puts Continue back.
+ * Footer: the library, and bon in its own slot. A dropped page first shows its preview card on the left (anylink/Card
+ * NotchLinkCard: what it is, about how long, or why miyagi can't teach it) with its own Build lesson; the ✕ puts
+ * Continue back. Column widths, spacing and the progress segments come from ./layout.ts (MIC-89).
  * During a lesson the overview card (priority 20) is the hover card; below the menu bar nothing changes.
  */
 import { motion } from 'motion/react'
@@ -32,9 +33,12 @@ import { NotchLinkCard } from '../anylink/Card'
 import { pageAction, parseWebLink } from '../anylink/link'
 import { askLink, dropLink, useAnyLink, useLinkAny, usePreview } from '../anylink/store'
 import { homeTone } from './tone'
+import { HOME, HOME_W, dropLabel, homeColumns, progressSegs } from './layout'
 
-/** The panel's own width (the island adds its open top radius plus its taper, 19 + 18, each side): 634 wide in all, like Boring Notch's 640. */
-export const HOME_W = 560
+export { HOME_W }
+
+/** The columns' widths (./layout.ts): fixed, so no line in the left half can push past the divider (MIC-89). */
+const COLS = homeColumns()
 
 /** Open on hover in the notch, with the engine connected and no lesson step or build on screen. */
 function useHomeActive(hover: boolean): boolean {
@@ -79,15 +83,29 @@ function thumbOf(item: LibraryItem | undefined): string | undefined {
   return yt ? thumbnailFor(yt.videoId) : undefined
 }
 
-/** Thin segments: done white, the step you're on gray, the rest a dim track. */
+/** Thin segments across the left column only: done white, the step you're on gray, the rest a dim track. */
 function Progress({ n, total }: { n: number; total: number }): ReactNode {
-  const segs = Math.min(total, 24)
-  const at = Math.round(((n - 1) / total) * segs)
   return (
-    <div className="mt-[8px] flex gap-[3px]" aria-hidden>
-      {Array.from({ length: segs }, (_, i) => (
-        <div key={i} className="h-[3px] flex-1 rounded-full" style={{ background: i < at ? color.text : i === at ? color.gray : fill.track }} />
+    <div data-home-progress className="flex w-full gap-[3px]" aria-hidden>
+      {progressSegs(n, total).map((seg, i) => (
+        <div key={i} className="h-[3px] min-w-0 flex-1 rounded-full" style={{ background: seg === 'done' ? color.text : seg === 'at' ? color.gray : fill.track }} />
       ))}
+    </div>
+  )
+}
+
+/** The Continue thumbnail: the video's frame, else the bonsai on a tile of the same 16:9 size, so the text always starts at one x. */
+function PickThumb({ src }: { src?: string }): ReactNode {
+  const { w, h } = HOME.thumb
+  return (
+    <div data-home-thumb className="shrink-0">
+      {src ? (
+        <Thumb w={w} h={h} src={src} />
+      ) : (
+        <div className="flex items-center justify-center rounded-[8px]" style={{ width: w, height: h, background: fill.tile }}>
+          <MiyagiMark size={26} />
+        </div>
+      )}
     </div>
   )
 }
@@ -95,43 +113,46 @@ function Progress({ n, total }: { n: number; total: number }): ReactNode {
 function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
   const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const resuming = usePill((s) => s.resuming)
-  const linkAny = useLinkAny()
   if (!pick)
     return (
-      <div className="flex h-full flex-col justify-between">
-        <div>
-          <div className="text-[15px] font-semibold" style={{ color: color.text }}>
+      <div className="flex h-full min-w-0 flex-col justify-between gap-[12px]">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold leading-[20px]" style={{ color: color.text }}>
             Learn anything by doing.
           </div>
-          <div className="mt-[4px] text-[13px]" style={{ color: color.label }}>
-            {linkAny ? 'Ask for a topic or drop in a link.' : 'Ask for a topic or drop in a video.'}
+          <div className="mt-[4px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+            Ask for a topic or drop in a link.
           </div>
         </div>
-        <div className="flex">
+        <div className="flex" data-home-continue>
           <PrimaryButton label="Start a lesson" kbd={launcherKey} onClick={() => bridge.emit('launcher:toggle')} />
         </div>
       </div>
     )
+  // Three groups spaced evenly down the column (MIC-89): the title block, the progress, Continue lesson. The title is two
+  // lines at most beside the thumbnail and the step line one line under both; each ends in … with its full text as a tooltip.
   return (
-    <div className="flex h-full flex-col justify-between">
-      <div className="flex gap-[12px]">
-        {pick.thumb ? <Thumb w={112} h={63} src={pick.thumb} /> : <div className="flex h-[63px] w-[63px] shrink-0 items-center justify-center rounded-[10px]" style={{ background: fill.tile }}><MiyagiMark size={30} /></div>}
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium uppercase tracking-[.06em]" style={{ color: color.label }}>
-            Continue
-          </div>
-          <div className="mt-[2px] line-clamp-2 text-[14px] font-semibold leading-[18px]" style={{ color: color.text }}>
-            {pick.title}
-          </div>
-          {pick.meta && (
-            <div className="mt-[2px] truncate text-[12px]" style={{ color: color.label }}>
-              {pick.meta}
+    <div className="flex h-full min-w-0 flex-col justify-between gap-[12px]">
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-start" style={{ gap: HOME.thumbGap }}>
+          <PickThumb src={pick.thumb} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium uppercase leading-[14px] tracking-[.06em]" style={{ color: color.label }}>
+              Continue
             </div>
-          )}
+            <div data-home-title title={pick.title} className="mt-[2px] line-clamp-2 break-words text-[14px] font-semibold leading-[18px]" style={{ color: color.text }}>
+              {pick.title}
+            </div>
+          </div>
         </div>
+        {pick.meta && (
+          <div title={pick.meta} className="mt-[8px] truncate text-[12px] leading-[16px]" style={{ color: color.label }}>
+            {pick.meta}
+          </div>
+        )}
       </div>
       {pick.n && pick.total ? <Progress n={pick.n} total={pick.total} /> : null}
-      <div className="mt-[10px] flex">
+      <div className="flex" data-home-continue>
         <PrimaryButton label={resuming ? 'Opening…' : 'Continue lesson'} icon={Play} disabled={resuming} onClick={pick.go} />
       </div>
     </div>
@@ -139,13 +160,13 @@ function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
 }
 
 /** A quiet row on the right: neutral chrome, never a pastel. */
-function Row({ children, onClick, title }: { children: ReactNode; onClick: () => void; title?: string }): ReactNode {
+function Row({ children, onClick, title, fit = false }: { children: ReactNode; onClick: () => void; title?: string; fit?: boolean }): ReactNode {
   return (
     <motion.button
       type="button"
       title={title}
-      className="flex h-[30px] w-full shrink-0 cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]"
-      style={{ color: color.text }}
+      className={`flex ${fit ? 'w-auto' : 'w-full min-w-0'} shrink-0 cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]`}
+      style={{ color: color.text, height: HOME.row }}
       whileHover={{ backgroundColor: fill.chipHover }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
@@ -220,8 +241,8 @@ function DropZone(): ReactNode {
       role="button"
       tabIndex={-1}
       data-drop-link
-      className="flex h-[44px] shrink-0 cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] text-[12px]"
-      style={{ border: `1px dashed ${over ? color.text : fill.rule}`, color: over ? color.text : color.label, background: over ? fill.chip : 'transparent' }}
+      className="flex w-full min-w-0 shrink-0 cursor-pointer items-center gap-[8px] rounded-[10px] px-[8px] text-[12px]"
+      style={{ height: HOME.drop, border: `1px dashed ${over ? color.text : fill.rule}`, color: over ? color.text : color.label, background: over ? fill.chip : 'transparent' }}
       onClick={() => bridge.emit('launcher:toggle')}
       onDragOver={(e) => {
         e.preventDefault()
@@ -242,7 +263,7 @@ function DropZone(): ReactNode {
     >
       <Link2 size={14} strokeWidth={1.8} className="shrink-0" />
       <span className="truncate" aria-live="polite">
-        {sent ? 'Building your lesson…' : miss ? (linkAny ? 'That isn’t a link miyagi can read' : 'Only YouTube links work here') : linkAny ? 'Drop a link to learn it' : 'Drop a YouTube link'}
+        {dropLabel({ sent, miss, linkAny })}
       </span>
     </div>
   )
@@ -253,45 +274,50 @@ function Home(): ReactNode {
   const pick = usePick()
   const dropped = useAnyLink((s) => s.dropped)
   const items = useLibrary((s) => s.items)
-  const ready = librarySections(items, pick?.title).ready.slice(0, 2)
+  const ready = librarySections(items, pick?.title).ready.slice(0, HOME.ready)
   // Fresh lessons each time the panel opens (cheap: the engine answers from its cache).
   useEffect(() => refreshLibrary(), [])
   return (
-    <div className="flex flex-col px-[18px] pb-[14px] pt-[12px]" data-notch-home style={{ width: HOME_W }}>
-      {/* At least 136 tall, and as tall as the right column needs: at a fixed 136 its five rows (184 with two lessons
-          ready) were squeezed, the drop zone down to about half its height (MIC-83). The left half is a grid so its
-          card's h-full still fills it. */}
-      <div className="flex gap-[18px]" style={{ minHeight: 136 }}>
-        <div className="grid min-w-0 flex-1">
+    <div className="flex flex-col" data-notch-home style={{ width: HOME_W, padding: `${HOME.padTop}px ${HOME.padX}px ${HOME.padBottom}px` }}>
+      {/* Two fixed columns (./layout.ts, MIC-89), so nothing in the left half can push past the divider. Both stretch to
+          one height: at least HOME.minBody and as tall as the right column needs (a fixed 136 squeezed its rows, MIC-83).
+          The left half is a one-track grid so its card's h-full still fills it; the track is minmax(0, 1fr), because an
+          auto track grew to its widest nowrap line and ran the step line and the progress under the right column.
+          Focus order: Continue lesson, ask miyagi, the ready lessons, Library, bon. */}
+      <div className="flex items-stretch" style={{ minHeight: HOME.minBody, gap: HOME.gutter }}>
+        <div data-home-left className="grid shrink-0" style={{ width: COLS.left, gridTemplateColumns: 'minmax(0, 1fr)' }}>
           {dropped ? <DroppedLink url={dropped} /> : <ContinueCard pick={pick} />}
         </div>
-        <div className="w-px shrink-0" style={{ background: fill.rule }} />
-        <div className="flex w-[200px] shrink-0 flex-col gap-[4px]">
-          <Row onClick={() => bridge.emit('launcher:toggle')} title={`${copy.ask}`}>
+        <div data-home-rule className="shrink-0" style={{ width: HOME.rule, background: fill.rule }} />
+        <div data-home-right className="flex min-w-0 shrink-0 flex-col" style={{ width: COLS.right, gap: HOME.rowGap }}>
+          <Row onClick={() => bridge.emit('launcher:toggle')} title={copy.ask}>
             <MiyagiMark size={14} />
-            <span className="flex-1 truncate">{copy.ask}</span>
+            <span className="min-w-0 flex-1 truncate">{copy.ask}</span>
             {/* One keycap per action (QA Q06): with no lesson to continue, Start a lesson already shows it. */}
-            {pick && <Kbd>{launcherKey}</Kbd>}
+            {pick && <Kbd className="shrink-0">{launcherKey}</Kbd>}
           </Row>
           <DropZone />
+          {/* Each title uses the column's full width, then … with the whole name as a tooltip. */}
           {ready.map((r) => (
             <Row key={r.id} onClick={() => void startLibraryLesson(r.id)} title={r.title}>
               <Play size={12} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
-              <span className="truncate">{r.title}</span>
+              <span className="min-w-0 flex-1 truncate">{r.title}</span>
             </Row>
           ))}
-          <div className="flex-1" />
-          {/* bon sits by Library: tap it and it plays (features/buddy Poke.tsx; Michael, Nov 24). */}
-          <div className="flex items-center gap-[4px]">
-            <div className="min-w-0 flex-1">
-              <Row onClick={() => void openLibrary()}>
-                <span className="flex-1" style={{ color: color.label }}>
-                  Library
-                </span>
-                <ArrowUpRight size={13} strokeWidth={1.8} style={{ color: color.label }} />
+          <div className="flex-1" style={{ minHeight: HOME.footGap - HOME.rowGap }} />
+          {/* The footer shares Continue lesson's bottom line. Library is a link its own width; bon has its own slot at the
+              end, clear of it (tap bon and it plays: features/buddy Poke.tsx; Michael, Nov 24). */}
+          <div className="flex shrink-0 items-center" style={{ height: HOME.row, gap: HOME.bonGap }}>
+            <div data-home-library className="min-w-0">
+              <Row onClick={() => void openLibrary()} fit>
+                <span style={{ color: color.label }}>Library</span>
+                <ArrowUpRight size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
               </Row>
             </div>
-            <PokeBon size={26} />
+            <div className="flex-1" />
+            <div data-home-bon className="flex shrink-0 items-center justify-center" style={{ width: HOME.row, height: HOME.row }}>
+              <PokeBon size={HOME.bon} />
+            </div>
           </div>
         </div>
       </div>

@@ -1,0 +1,20 @@
+{
+  "name": "notch-home",
+  "on": {
+    "connect": "step_nh",
+    "library.list@step_nh": "nh_library"
+  },
+  "segments": {
+    "step_nh": [
+      { "wait": 30, "type": "engine.hello", "payload": { "version": "mock", "contract": "2026-11-20", "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state"] } },
+      { "wait": 20, "type": "status", "payload": { "state": "idle" } }
+    ],
+    "nh_library": [
+      { "wait": 150, "type": "library", "payload": { "items": [
+        { "id": "nh_cad", "title": "Draw a floor plan from a reference image in AutoCAD", "steps": 7, "estMinutes": 25, "tools": [], "ready": true, "source": { "kind": "youtube", "title": "Draw a floor plan from a reference image in AutoCAD", "url": "https://www.youtube.com/watch?v=aUtOcAdFlr1" }, "progress": { "stepIndex": 0, "stepTitle": "Set up profile reference and layout", "total": 7 } },
+        { "id": "nh_react", "title": "React Basics: Building Reusable Components with Props", "steps": 6, "estMinutes": 20, "tools": ["vscode"], "ready": true },
+        { "id": "nh_pinn", "title": "PINNs for 1D Linear Convection with PyTorch", "steps": 8, "estMinutes": 30, "tools": ["vscode"], "ready": true }
+      ] } }
+    ]
+  }
+}
