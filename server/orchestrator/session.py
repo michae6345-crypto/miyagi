@@ -739,6 +739,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.notebook_lesson = False  # Colab / Jupyter lesson: the browser counts as the workspace
         self._build_task: asyncio.Task | None = None
         self._quiet_cancel = False
+        self._deadline_hit = False  # the build deadline cancelled the build (_watch_build_deadline)
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
@@ -2248,12 +2249,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         it, and its own interrupted path reports the existing build-failed event with a friendly reason."""
         self._deadline_hit = False
         loaded = self._loaded_evt
+        limit = build_deadline_s()
 
         async def watch() -> None:
-            await asyncio.sleep(build_deadline_s())
-            if task.done() or loaded.is_set():
-                return  # finished, or the lesson is live and the rest builds on in the background
-            log.warning("lesson build passed its %.0f s deadline: cancelling", build_deadline_s())
+            await asyncio.sleep(limit)
+            if task.done() or loaded.is_set() or self.graph is not None:
+                return  # finished, or the lesson is live (even half-loaded) and the rest builds on in the background
+            log.warning("lesson build passed its %.0f s deadline: cancelling", limit)
             self._deadline_hit = True
             task.cancel()
 
@@ -2261,7 +2263,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         task.add_done_callback(lambda _t: timer.cancel())
 
     def _interrupted_message(self) -> str:
-        if getattr(self, "_deadline_hit", False):
+        if self._deadline_hit:
             return "This is taking too long. Check your connection and try again."
         return "The lesson build was interrupted. Try again."
 

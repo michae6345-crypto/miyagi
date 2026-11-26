@@ -80,9 +80,9 @@ def escalation_model() -> str:
 
 _client_sig: str | None = None
 
-# A slow or dead network must not hold a build for the SDK default (600 s, 2 retries): the call streams, so `read` is
-# the longest silence between chunks; connect/write/pool are short. The overall cap is the build deadline (session.py).
-CLIENT_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
+# A slow or dead network must not hold a build for the SDK default (600 s, 2 retries): every call streams (some with adaptive thinking, whose first byte can be slow), so
+# `read` (120 s) is the longest silence between chunks; connect/write/pool are short. The overall cap is the build deadline (session.py).
+CLIENT_TIMEOUT = httpx.Timeout(120.0, connect=10.0, write=20.0, pool=10.0)
 CLIENT_MAX_RETRIES = 2
 
 
