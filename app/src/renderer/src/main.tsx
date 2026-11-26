@@ -11,8 +11,13 @@ import './core/islandDiagReport' // log-only island measurements for main's isla
 import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
+import { installEditKeys } from './core/editKeys'
 import { Stage } from './dev/Stage'
 import { stageNotch } from '../../common/notch'
+
+// macOS: Backspace, Delete, ←/→ and ⌘A keep working in a field of a non-activating panel (the launcher, Settings), where
+// the key can arrive without AppKit's edit command (core/editKeys.ts). It acts only when the key changed nothing.
+if (isElectron && bridge.platform.os === 'mac') installEditKeys()
 
 /**
  * Electron loads index.html#/<route>: 'overlay' (core) or a feature window route ('launcher', …).
