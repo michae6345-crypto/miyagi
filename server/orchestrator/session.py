@@ -4624,7 +4624,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             gen = self.step_gen
             try:
                 gate = await self._gate_off_loop(step, ctx, precision)
-            except Exception:
+            except Exception as e:
                 log.exception("evaluate_gate failed")
                 self._eval_error = f"{type(e).__name__}: {e}"[:200]  # a manual Check says "Couldn't run the checks"
                 if not self._eval_error_sent:  # once per step, not once per frame
