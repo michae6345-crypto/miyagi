@@ -39,7 +39,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, curated, editor_text, lesson_notebook, missing_module, perf, scene_watch, stage, where_row
+from . import check_health, config, curated, editor_text, lesson_notebook, missing_module, perf, scene_watch, stage, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -775,6 +775,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
         self._eval_error_sent = False
+        self._eval_error: str | None = None  # why the last evaluate_gate raised (a manual Check says so)
+        self.last_self_check: dict | None = None  # check_health.self_check: the last manual Check's report (GET /health)
         self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the editor lacks it
         self._latch_t: dict[str, float] = {}  # checkId -> wall clock of its last real pass (a save after it may un-pass)
         self._unsaved_holds: set[str] = set()  # latched checks held this evaluation that the file on disk lacks
@@ -4603,6 +4605,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 gate = await self._gate_off_loop(step, ctx, precision)
             except Exception as e:
                 log.exception("evaluate_gate failed")
+                self._eval_error = f"{type(e).__name__}: {e}"[:200]  # a manual Check says "Couldn't run the checks"
                 if not self._eval_error_sent:  # once per step, not once per frame
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
@@ -6146,8 +6149,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                        else ["hint", "show_me"])  # t10: a video lesson's Not yet keeps its teach buttons (Card has no explain)
             actions += ["skip_step"]
         log.info("action %s: nothing to do; notice %r", kind, title)
+        extra: dict = {}
+        if kind == "check_step" and step is not None and title == "Not yet":  # the panel's Not yet, re-shown as checked now
+            extra = {"verdict": "not_done", "checkedAt": self._wall_ms()}
         await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
-                                 "body": body, **({"actions": actions} if actions else {})})
+                                 "body": body, **({"actions": actions} if actions else {}), **extra})
 
     # Setup and help presses aren't work on the step: they must not open the check gate or start the
     # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
@@ -7032,11 +7038,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         gen = self.step_gen
         self._check_asked_t = self.clock()  # T11: they asked: off-track cards may speak before the video's gate
         await self._status("thinking", detail="Checking your work")
+        # Nov 25 (Check again, always "Not yet"): the check says what it could see. The cloud probe (GET /healthz,
+        # free, cached a minute) runs beside the capture; the self-check below decides "Couldn't check" vs "Not yet".
+        cloud_job = check_health.start_cloud_probe()
+        fresh_ok: bool | None = None
+        self._eval_error = None
         if self.lesson_mode and self._run_command(step):  # a run step checks the code that will run: saved first
             await self._save_step_file(step)
         if self.screen is not None:  # a new frame, not one from before their last keystroke
             if (fresh := getattr(self.screen, "fresh_frame", None)) is not None:
-                await fresh(self.check_wait_s)  # returns as soon as that frame is in (was a flat 1.2 s sleep)
+                fresh_ok = bool(await fresh(self.check_wait_s))  # returns as soon as that frame is in (was a flat 1.2 s sleep)
             else:
                 self.screen.poke()
                 if self.check_wait_s:
@@ -7055,6 +7066,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             active_job.add_done_callback(lambda t: t.cancelled() or t.exception())  # unread when the checks pass
         await self.evaluate("check")
         if self.passed or gen != self.step_gen:
+            return
+        if self._eval_error:  # the checks themselves failed: "Couldn't run the checks", never a stale "Not yet"
+            rep = await check_health.self_check(self, fresh=fresh_ok, cloud_job=cloud_job)
+            await self._check_issue_card(step, check_health.issue_for(rep, has_files=False, eval_error=self._eval_error))
             return
         if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
             await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
@@ -7085,6 +7100,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._status("watching", check=True)
             return
         screen, files, exact = self._judge_inputs(step)
+        rep = await check_health.self_check(self, fresh=fresh_ok, exact=exact, cloud_job=cloud_job)
+        if gen != self.step_gen or self.passed:
+            return
+        step_file = self._step_file(step) or step.get("file")
+        blocker = check_health.screen_issue(rep, has_files=bool(files), file=step_file)
+        if blocker is not None and blocker.get("blocking"):  # no frame and no file: a judge would see nothing new
+            await self._check_issue_card(step, blocker)
+            return
         active = None
         if active_job is not None:
             try:
@@ -7098,7 +7121,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                               exact_files=exact, **self._memory_kw(step, "judge", files))
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
-            verdict = None
+            verdict, judge_error = None, {"kind": "api", "message": f"{type(e).__name__}: {e}"[:200]}
+        else:
+            last = getattr(self.m, "last_judge_error", None)
+            judge_error = (last() if callable(last) else None) if verdict is None else None
         if gen != self.step_gen or self.passed:
             return
         said = (verdict or {}).get("missing")  # the judge's own words (the engine's below replace them)
@@ -7156,8 +7182,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             body, verdict = fixed["body"], {**(verdict or {}), "target": None}
             if fixed["title"] != "Not yet":
                 title = fixed["title"]
+        issue = check_health.issue_for(rep, has_files=bool(files), file=step_file, judge_error=judge_error,
+                                       exact=exact, lesson_mode=self.lesson_mode)
+        if check_health.explains_blank(issue) and body.startswith(code_gate.GENERIC_NOT_YET):
+            await self._check_issue_card(step, {**issue, "blocking": True})  # nothing specific to say, and the check
+            return  # was blind (no screen / no judge): say why it couldn't tell, never a bare "Not yet"
         ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
-        if ids and ids <= self._offtracked_checks and self.last_offtrack:
+        if ids and ids <= self._offtracked_checks and self.last_offtrack and issue is None:
             await self._status("offtrack", check=True)  # the offtrack card on screen already says what's missing
             return
         self._carded_checks |= ids
@@ -7171,9 +7202,32 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
         if not self.lesson_mode:  # t10 (CP11, CP15): a video lesson's Not yet had only Skip step; s2's had all three
             teach = ["hint", "show_me"]  # (the Card contract has no "explain"; the off-track has it)
-        if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": title, "body": body,
-                                  "actions": teach + ["skip_step"]}, window_s=2.0):
+        card = {"stepId": step["id"], "kind": "answer", "title": title, "body": body, "actions": teach + ["skip_step"],
+                "verdict": "not_done", "checkedAt": self._wall_ms()}  # the panel shows it (Les-NotYet) with its reason
+        if issue is not None:  # half-blind (no screen, the cloud, the extension): the reason, and why it may be partial
+            card["body"] = f"{body}\n{issue['body']}"
+            card["checkIssue"] = issue
+        if await self._emit_card(card, window_s=2.0):
             self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
+        await self._status("offtrack" if self.last_offtrack else "watching", check=True)
+
+    @staticmethod
+    def _wall_ms() -> int:
+        return int(time.time() * 1000)
+
+    async def _check_issue_card(self, step: dict, issue: dict | None) -> None:
+        """A manual Check that couldn't see what it needs (Screen Recording off, the checks failed, nothing to read and
+        the cloud down): "Couldn't check" with the reason and the next action (contract Card.checkIssue), never a plain
+        "Not yet". Check again stays the way to retry; Hint / Explain still work (they don't need the screen)."""
+        if issue is None:
+            issue = check_health._issue("check_failed", "Couldn't run the checks", "Something went wrong while checking this step.",
+                                        "Press Check again.", True, getattr(self, "last_self_check", None))
+        log.info("check_step: %s couldn't check (%s): %s", step["id"], issue.get("kind"), issue.get("body"))
+        await self._emit_card({"stepId": step["id"], "kind": "step", "title": issue["title"],
+                               "body": f"{issue['body']}\n{issue['next']}", "checkIssue": issue,
+                               "checkedAt": self._wall_ms(),
+                               "actions": (["run_command"] if self._run_command(step) else []) + ["check_step", "hint", "skip_step"]},
+                              window_s=0.0)
         await self._status("offtrack" if self.last_offtrack else "watching", check=True)
 
     # ------------------------------------------------------------------ check evidence (E3, QA 11-14)

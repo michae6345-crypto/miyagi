@@ -1855,9 +1855,20 @@ async def health(checks: int = 0) -> dict:
     {items, ready, total}: the same rows as health.get, probed in a thread, never prompting."""
     out: dict[str, Any] = {"ok": True, "clients": len(engine.hub.clients), "demo": engine.modules.demo,
                            "modules": engine.modules.describe(), "screen": engine.screen_status()}
+    if (last := getattr(engine.session, "last_self_check", None)) is not None:
+        out["selfCheck"] = last  # the last manual Check's self-check (screen, OCR, VS Code extension, cloud)
     if checks and health_mod is not None:
         out.update(await engine.health_payload())
     return out
+
+
+@app.get("/selfcheck")
+async def selfcheck() -> dict:
+    """The Check self-check now (check_health.py): is capture returning frames, is OCR producing text, is the VS Code
+    extension connected, is miyagi cloud reachable (GET /healthz, free, cached a minute). Never a model call."""
+    from . import check_health
+
+    return await check_health.self_check(engine.session, probe_cloud=True)
 
 
 @app.get("/library")

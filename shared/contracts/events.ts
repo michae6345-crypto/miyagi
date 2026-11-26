@@ -162,6 +162,8 @@ export interface EngineEvents {
             missingLines?: MissingLine[];  // v2 (Les-NotYet): the step's lines in order, each there or missing
             fixCaption?: string;           // v2 (Les-NotYet): what to do about them ("Add the first line, then run the cell")
             waiting?: string;              // v2 (Err-KernelInContext): the footer while the engine waits ("Watching for a kernel to start")
+            checkIssue?: CheckIssue;       // Nov 25 (Check again): what a manual Check couldn't see (Screen Recording off, the checks failed, the cloud, the VS Code extension). blocking: the card is "Couldn't check" (title/body/next say why and what to do), never "Not yet"; else a note on the "Not yet"
+            checkedAt?: number;            // Nov 25: epoch ms of the manual Check this card answers (a "Not yet" / "Couldn't check"): each press is a new answer, even with the same words
             result?: LessonResult };       // v2: kind "complete": what the lesson counted (never invented)
   "diagram": {
     kind: "network" | "gradients" | "heatmap" | "graph";
@@ -275,6 +277,23 @@ export type BuildFailCode = "unreadable_code" | "no_steps" | "too_long" | "no_ca
 /** A way out of a failed build: transcript only (learn_url {url, transcriptOnly: true}) or a cached library lesson (library.start {id}). */
 export interface BuildAlternative { kind: "transcript" | "library"; title: string; meta?: string; id?: string; url?: string }
 export interface MissingLine { text: string; state: "ok" | "missing" }
+/** Nov 25: the engine's self-check on a manual Check (server/orchestrator/check_health.py; GET /health selfCheck, GET /selfcheck).
+ *  No paid call: cloud is GET <cloud>/healthz. screen: is capture returning frames; ocr: does the frame have text; vscode: is the companion extension connected. */
+export interface SelfCheck {
+  screen?: "ok" | "off" | "error" | "paused" | "asleep" | "stale" | "none";
+  ocr?: "ok" | "empty" | "unknown";
+  vscode?: "connected" | "not_connected" | "unknown";
+  cloud?: "ok" | "unreachable" | "unauthorized" | "paused" | "quota" | "missing" | "off" | "not_used" | "unknown";
+}
+/** Nov 25: card.checkIssue. kind -> the app's fix button: screen_off = Screen Recording settings; the rest = Check again. */
+export interface CheckIssue {
+  kind: "screen_off" | "screen_error" | "screen_stale" | "check_failed" | "cloud_unreachable" | "cloud_auth" | "vscode_ext";
+  title: string;      // "Can't see your screen"
+  body: string;       // what it couldn't do, in one sentence
+  next: string;       // the next action, in one sentence ("Turn on Screen Recording for miyagi in System Settings, then press Check again.")
+  blocking?: boolean; // true: the check couldn't run (the card is "Couldn't check"); false: a note under the "Not yet"
+  selfCheck?: SelfCheck;
+}
 /** card kind "complete": what the lesson counted. Skips are counted as skips, never as passes. */
 export interface LessonResult { passed: number; skipped: number; total: number; minutes?: number; lessonId?: string; title?: string }
 export type HealthState = "ok" | "missing" | "off" | "checking" | "unknown";   // unknown = cannot tell without prompting (gray, never a failure)

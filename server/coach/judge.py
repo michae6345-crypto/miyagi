@@ -113,6 +113,10 @@ def files_text(files: dict[str, str] | None) -> str:
 
 # ---------- the judge -----------------------------------------------------------------------------------
 
+# Why the last judge call got no answer ({kind: CoachLLMError.kind, message, at}), None after an answer. The Check
+# self-check (orchestrator/check_health.py) reads it: "Couldn't reach miyagi cloud", never a silent "Not yet".
+last_error: dict | None = None
+
 EXACT_FILES = ("VS Code's exact editor text, unsaved edits included: judge the code from these only, never from "
                "SCREEN NOW, whose OCR misreads code (e.g. numpy as numey)")
 
@@ -121,7 +125,10 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
                focused_app: str, lesson: dict | None, active_file: dict | None = None, exact_files: bool = False,
                memory: str = ""):
     """One Haiku judgment → (data, result, checks, status_by_id, steps), or None when unavailable. exact_files: the
-    files are the editor's own text (the VS Code companion's buffer), so OCR never decides whether code is right."""
+    files are the editor's own text (the VS Code companion's buffer), so OCR never decides whether code is right.
+    Sets `last_error` ({kind, message, at}) when the model was unavailable, None after an answer (the Check self-check
+    says why a check ran without the judge)."""
+    global last_error
     sid = step.get("id", "")
     scr, fil = screen_text(screen, focused_app), files_text(files)
     lesson = lesson if lesson is not None else get_lesson()
@@ -158,7 +165,9 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         )
     except llm.CoachLLMError as e:
         log.info("judge: unavailable (%s)", e)
+        last_error = {"kind": getattr(e, "kind", "api"), "message": str(e)[:200], "at": time.time()}
         return None
+    last_error = None
     log.info("judge %s %s %.2fs usage=%s", sid, res.model, res.latency_s, res.usage)
     return res.data, res, checks, status, steps
 

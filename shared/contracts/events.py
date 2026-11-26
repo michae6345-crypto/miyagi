@@ -228,6 +228,24 @@ class MissingLine(_Model):
     state: Literal["ok", "missing"]
 
 
+class SelfCheck(_Model):
+    """Nov 25: the engine's self-check on a manual Check (orchestrator/check_health.py); cloud = GET /healthz, free."""
+    screen: Literal["ok", "off", "error", "paused", "asleep", "stale", "none"] | None = None
+    ocr: Literal["ok", "empty", "unknown"] | None = None
+    vscode: Literal["connected", "not_connected", "unknown"] | None = None
+    cloud: Literal["ok", "unreachable", "unauthorized", "paused", "quota", "missing", "off", "not_used", "unknown"] | None = None
+
+
+class CheckIssue(_Model):
+    """Nov 25: card.checkIssue: what a manual Check couldn't see. blocking: "Couldn't check", never "Not yet"."""
+    kind: Literal["screen_off", "screen_error", "screen_stale", "check_failed", "cloud_unreachable", "cloud_auth", "vscode_ext"]
+    title: str
+    body: str
+    next: str
+    blocking: bool | None = None
+    selfCheck: SelfCheck | None = None
+
+
 class HintStep(_Model):
     n: int
     of: int
@@ -958,6 +976,8 @@ class Card(_Model):
     fixCaption: str | None = None  # Not yet: what to do about them
     waiting: str | None = None  # footer while the engine waits ("Watching for a kernel to start")
     result: LessonResult | None = None  # kind "complete"
+    checkIssue: CheckIssue | None = None  # Nov 25: what a manual Check couldn't see (blocking: "Couldn't check")
+    checkedAt: int | None = None  # Nov 25: epoch ms of the manual Check this card answers
 
 
 class NetworkDiagram(_Model):
