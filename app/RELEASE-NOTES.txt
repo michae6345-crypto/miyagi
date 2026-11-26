@@ -1,0 +1,3 @@
+# What's new in the next release, one plain line per change (the in-app update card shows the first 6).
+# Short, in the user's words, no markdown. Lines starting with "#" and blank lines are skipped.
+# Clear the lines after each release.

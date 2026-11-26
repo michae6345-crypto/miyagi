@@ -68,9 +68,10 @@ cd app && npm ci
 npm run ship:mac                 # Apple silicon → app/dist/Miyagi-Mac.dmg
 npm run ship:mac -- --zip        # also app/dist/Miyagi-Mac.zip (install.sh --app still downloads the zip)
 npm run ship:mac -- --universal  # Apple silicon + Intel (bigger)
+npm run ship:mac -- --x64        # Intel only → app/dist/Miyagi-Mac-x64.dmg
 ```
 
-`ship:mac` does four things. It puts the engine in (`scripts/bundle-engine.mjs`), builds the app (`--dir`) and signs it ad hoc. Then it packs that signed app into the dmg: electron-builder's `dmg` target with the art in `build/dmg/` (layout in `agents/dmg-art.md`), recompressed to lzma (ULMO). Set `MIYAGI_DMG_FORMAT=ULFO` for lzfse. A zip is made only with `--zip`. The engine comes from `origin/integration/live` (set `MIYAGI_ENGINE_REF` to use another branch). `install.sh` comes from the same branch, or from `origin/claude/distribution` until PR #66 is merged. The last lines print which engine commit went in.
+`ship:mac` does four things. It puts the engine in (`scripts/bundle-engine.mjs`), builds the app (`--dir`) and signs it ad hoc. Then it packs that signed app into the dmg: electron-builder's `dmg` target with the art in `build/dmg/` (layout in `agents/dmg-art.md`), recompressed to lzma (ULMO). Set `MIYAGI_DMG_FORMAT=ULFO` for lzfse. A zip is made only with `--zip`. The engine comes from the commit you build (set `MIYAGI_ENGINE_REF` to use another ref). `install.sh` comes from the same commit, or from `origin/claude/distribution` until PR #66 is merged. The last lines print which engine commit went in.
 
 ## Test before you publish (about 15 minutes)
 
@@ -94,7 +95,7 @@ Also worth checking in the built app, since it has never run on our side:
 npm run ship:mac -- --publish
 ```
 
-This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman/miyagi`. It needs `gh auth login` and write access there; otherwise send the dmg to Adrian, or set `MIYAGI_RELEASE_REPO`. miyagi.study's "Download for Mac" should link to `…/releases/download/mac/Miyagi-Mac.dmg`. Michael's `install.sh --app` still downloads `Miyagi-Mac.zip`, so add `--zip` (`npm run ship:mac -- --zip --publish`) to refresh that one too.
+This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman/miyagi` and sets that release's title (`miyagi <version> (unsigned)`) and notes from `RELEASE-NOTES.txt`. The in-app update card reads the version from that title, so bump `version` in `package.json` first: it offers a release only to apps with a lower version. The tagged workflow in `RELEASING.md` is the usual way to release; this is the by-hand path. It needs `gh auth login` and write access there; otherwise send the dmg to Adrian, or set `MIYAGI_RELEASE_REPO`. miyagi.study's "Download for Mac" should link to `…/releases/download/mac/Miyagi-Mac.dmg`. Michael's `install.sh --app` still downloads `Miyagi-Mac.zip`, so add `--zip` (`npm run ship:mac -- --zip --publish`) to refresh that one too.
 
 ## How it works (for debugging)
 
