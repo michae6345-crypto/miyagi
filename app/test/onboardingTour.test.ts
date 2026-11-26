@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import type { MainContext } from '../src/main/context'
 import onboarding from '../src/main/features/onboarding'
-import { AUTO_TOUR_DELAY_MS, onGateOpened, shouldAutoTour, startDecision, tourDueAtLaunch } from '../src/main/features/onboarding/tour'
+import { AUTO_TOUR_DELAY_MS, AUTO_TOUR_RETRY_MS, autoTourMoment, onGateOpened, shouldAutoTour, startDecision, tourDueAtLaunch } from '../src/main/features/onboarding/tour'
 import { resetGateForTests, setGatePart } from '../src/main/gate'
 import { resetPrefsForTests } from '../src/main/prefs'
 import { setupSettled } from '../src/renderer/src/features/tips/gate'
@@ -53,6 +53,16 @@ describe('when the tour is owed and starts (main/features/onboarding/tour.ts)', 
     assert.equal(shouldAutoTour({ ...ok, quiet: true }), false)
   })
 
+  test("the auto tour's moment: only over home (visible, focused) with no lesson; else wait; gone if it no longer applies", () => {
+    const ok = { gateOpen: true, seen: false, open: false, homeFront: true, lessonOn: false }
+    assert.equal(autoTourMoment(ok), 'start')
+    assert.equal(autoTourMoment({ ...ok, homeFront: false }), 'wait', 'full-screen VS Code in front: stay owed')
+    assert.equal(autoTourMoment({ ...ok, lessonOn: true }), 'wait', 'a lesson runs: stay owed')
+    assert.equal(autoTourMoment({ ...ok, gateOpen: false }), 'drop')
+    assert.equal(autoTourMoment({ ...ok, seen: true }), 'drop')
+    assert.equal(autoTourMoment({ ...ok, open: true }), 'drop')
+  })
+
   test('an explicit start runs now with the gate open, else waits for it', () => {
     assert.equal(startDecision({ gateOpen: true }), 'now')
     assert.equal(startDecision({ gateOpen: false }), 'hold')
@@ -63,14 +73,42 @@ describe('when the tour is owed and starts (main/features/onboarding/tour.ts)', 
 
 // ---- main ----------------------------------------------------------------------------------------------------------
 
-type Run = { invoke: (channel: string, ...a: unknown[]) => Promise<unknown>; tours: unknown[]; raised: number }
+type Run = {
+  invoke: (channel: string, ...a: unknown[]) => Promise<unknown>
+  tours: unknown[]
+  raised: number
+  /** The home window (route library): in front unless a test says otherwise. */
+  home: { visible: boolean; focused: boolean }
+  /** An engine event (lesson.ready, lesson.ended). */
+  engine: (type: string) => void
+  /** app 'browser-window-focus' for the home window. */
+  focusHome: () => void
+}
 
 function launch(dir: string): Run {
   const handlers = new Map<string, (...a: unknown[]) => unknown>()
-  const run: Run = { invoke: async () => undefined, tours: [], raised: 0 }
-  const win = { isDestroyed: () => false, setTitle: () => undefined, on: () => undefined, once: () => undefined, show: () => undefined, focus: () => undefined }
+  const appOn = new Map<string, ((...a: unknown[]) => void)[]>()
+  const engineFns: ((e: { type: string }) => void)[] = []
+  const home = { visible: true, focused: true }
+  const win = { isDestroyed: () => false, isVisible: () => home.visible, isFocused: () => home.focused, setTitle: () => undefined, on: () => undefined, once: () => undefined, show: () => undefined, focus: () => undefined }
+  const run: Run = {
+    invoke: async () => undefined,
+    tours: [],
+    raised: 0,
+    home,
+    engine: (type) => engineFns.forEach((fn) => fn({ type })),
+    focusHome: () => appOn.get('browser-window-focus')?.forEach((fn) => fn({}, win))
+  }
   const ctx = {
-    app: { isPackaged: false, getPath: () => dir, getLoginItemSettings: () => ({ wasOpenedAtLogin: false }), relaunch: () => undefined, quit: () => undefined },
+    app: {
+      isPackaged: false,
+      getPath: () => dir,
+      getLoginItemSettings: () => ({ wasOpenedAtLogin: false }),
+      relaunch: () => undefined,
+      quit: () => undefined,
+      on: (ev: string, fn: (...a: unknown[]) => void) => void appOn.set(ev, [...(appOn.get(ev) ?? []), fn])
+    },
+    engine: { onEvent: (fn: (e: { type: string }) => void) => void engineFns.push(fn) },
     overlay: { isDestroyed: () => false, webContents: { once: () => undefined }, showInactive: () => undefined, moveTop: () => undefined },
     raise: () => void (run.raised += 1),
     broadcast: (c: string, p: unknown) => {
@@ -78,7 +116,7 @@ function launch(dir: string): Run {
     },
     handle: (c: string, fn: (...a: unknown[]) => unknown) => handlers.set(c, fn),
     openWindow: () => win,
-    appWindow: () => undefined
+    appWindow: (route: string) => (route === 'library' ? win : undefined)
   } as unknown as MainContext
   onboarding.setup(ctx)
   run.invoke = async (c, ...a) => {
@@ -174,6 +212,39 @@ describe('main: the tour on a fresh install (main/features/onboarding.ts)', () =
     assert.equal(await run.invoke('onboarding:tour', 'auto'), false, 'once per launch')
   })
 
+  test('home not in front (full-screen VS Code): no tour; it stays owed and starts the next time home is focused', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const run = launch(dir)
+    openGate()
+    run.home.focused = false
+    assert.equal(await run.invoke('onboarding:tour', 'auto'), true)
+    mock.timers.tick(AUTO_TOUR_DELAY_MS * 5)
+    assert.equal(run.tours.length, 0, 'never drawn over another app, and no timer loop retries it')
+    assert.equal(((await run.invoke('onboarding:get')) as Got).tour.due, true)
+    assert.equal(await run.invoke('onboarding:tour', 'auto'), false, 'a second ask while it waits does nothing')
+    run.home.focused = true
+    run.focusHome()
+    mock.timers.tick(AUTO_TOUR_RETRY_MS)
+    assert.deepEqual(run.tours.at(-1), { open: true, seq: 1 })
+  })
+
+  test('a lesson running: no tour until it ends and home is focused again', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const run = launch(dir)
+    openGate()
+    run.engine('lesson.ready')
+    assert.equal(await run.invoke('onboarding:tour', 'auto'), true)
+    mock.timers.tick(AUTO_TOUR_DELAY_MS)
+    assert.equal(run.tours.length, 0)
+    run.focusHome()
+    mock.timers.tick(AUTO_TOUR_RETRY_MS)
+    assert.equal(run.tours.length, 0, 'still in the lesson')
+    run.engine('lesson.ended')
+    run.focusHome()
+    mock.timers.tick(AUTO_TOUR_RETRY_MS)
+    assert.deepEqual(run.tours.at(-1), { open: true, seq: 1 })
+  })
+
   test("'auto' before the gate opens (setup still ahead) does nothing", async () => {
     const run = launch(dir)
     setGatePart('login', true)
@@ -189,6 +260,37 @@ describe('main: the tour on a fresh install (main/features/onboarding.ts)', () =
     setGatePart('login', false)
     mock.timers.tick(AUTO_TOUR_DELAY_MS)
     assert.equal(run.tours.length, 0)
+  })
+
+  test('a held start runs when the gate opens; a sign-out (open → closed) closes the tour and leaves nothing to run at sign-in', async () => {
+    const run = launch(dir)
+    setGatePart('login', true)
+    await run.invoke('onboarding:tour', 'start') // held: consent and setup still ahead
+    setGatePart('consent', true) // another closed callback: must not drop it
+    setGatePart('setup', true)
+    assert.deepEqual(run.tours.at(-1), { open: true, seq: 1 }, 'the held start ran when the gate opened')
+    await run.invoke('onboarding:tour', 'end')
+    setGatePart('setup', false) // reopen setup so the gate is closed again
+    await run.invoke('onboarding:tour', 'start') // held again
+    setGatePart('setup', true)
+    assert.deepEqual(run.tours.at(-1), { open: true, seq: 2 })
+    // A sign-out while open: closes the tour and drops whatever was held.
+    setGatePart('login', false)
+    assert.deepEqual(run.tours.at(-1), { open: false, seq: 2 })
+    const n = run.tours.length
+    setGatePart('login', true)
+    assert.equal(run.tours.length, n, 'nothing held survived the sign-out')
+  })
+
+  test('closed → closed callbacks (another part reporting) keep a held start', async () => {
+    const run = launch(dir)
+    openGate()
+    setGatePart('setup', false) // open → closed (setup opened again)
+    await run.invoke('onboarding:tour', 'start') // held
+    setGatePart('login', false) // closed → closed: keeps it
+    setGatePart('setup', true)
+    setGatePart('login', true)
+    assert.deepEqual(run.tours.at(-1), { open: true, seq: 1 }, 'closed → closed callbacks keep the held start')
   })
 
   test('seen (done, skipped, or declined on You\'re ready) is kept: the next launch owes nothing', async () => {

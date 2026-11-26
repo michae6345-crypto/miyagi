@@ -53,3 +53,27 @@ export function onGateOpened(s: { held: boolean }): 'start' | 'none' {
 
 /** After the flow's hand-off (renderer shell/flow ARRIVE_MS 900 ms) and home's first paint: the auto tour waits this long. */
 export const AUTO_TOUR_DELAY_MS = 1400
+
+export type AutoMoment = {
+  gateOpen: boolean
+  seen: boolean
+  /** The tour is already on screen. */
+  open: boolean
+  /** The home window (route library) is visible and focused: the learner is looking at miyagi, not at VS Code. */
+  homeFront: boolean
+  /** A lesson is running (lesson.ready seen, no lesson.ended since). */
+  lessonOn: boolean
+}
+
+/**
+ * The auto tour's moment (its delay ran out, or home came back to the front while it waited): 'start' only over home
+ * with no lesson; 'wait' (still owed, retried the next time home is focused, never on a timer loop) when home isn't in
+ * front or a lesson runs; 'drop' when it no longer applies (gate closed, seen, already open).
+ */
+export function autoTourMoment(s: AutoMoment): 'start' | 'wait' | 'drop' {
+  if (!s.gateOpen || s.seen || s.open) return 'drop'
+  return s.homeFront && !s.lessonOn ? 'start' : 'wait'
+}
+
+/** Home came back to the front while the auto tour waited: try again this long after, once its paint settles. */
+export const AUTO_TOUR_RETRY_MS = 600

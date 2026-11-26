@@ -228,7 +228,7 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
   }, [waiting])
   useEffect(() => {
     if (plan?.kind === 'skip') goToMark(plan.to)
-    else if (plan?.kind === 'end') endTour()
+    else if (plan?.kind === 'end') endTour({ seen: false }) // nothing could be shown: still owed
   }, [plan?.kind, plan?.kind === 'skip' ? plan.to : -1]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {

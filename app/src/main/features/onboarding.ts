@@ -48,7 +48,9 @@
  *                                   opens it (broadcast feat:onboarding:tour {open, seq}; held until the launch gate
  *                                   opens, then run); 'end' closes it; 'seen' remembers it (onboarding.json tourSeen,
  *                                   clears tourDue); 'auto' (the first-run flow handed over to home) starts it once,
- *                                   AUTO_TOUR_DELAY_MS later, when a first run made it due (tourDue) and it is unseen.
+ *                                   AUTO_TOUR_DELAY_MS later, when a first run made it due (tourDue) and it is unseen,
+ *                                   only with home visible and focused and no lesson running; otherwise it stays owed
+ *                                   and is tried again the next time home is focused (browser-window-focus).
  *                                   onboarding:get carries tour {open, seq, due} so the overlay catches a start it missed.
  *   onboarding:relaunch            app.relaunch() + quit (macOS applies a Screen Recording grant after one)
  *   onboarding:install-companion    → { ok, reason? }; broadcasts feat:onboarding:companion {state}
@@ -73,7 +75,7 @@ import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate, setGatePart } from '../gate'
 import { getPrefs, onPrefsChange, patchPrefs } from '../prefs'
 import { needsLogin, onLoginDone } from './auth'
-import { AUTO_TOUR_DELAY_MS, onGateOpened, shouldAutoTour, startDecision, tourDueAtLaunch } from './onboarding/tour'
+import { AUTO_TOUR_DELAY_MS, AUTO_TOUR_RETRY_MS, autoTourMoment, onGateOpened, shouldAutoTour, startDecision, tourDueAtLaunch } from './onboarding/tour'
 import { cliEnvFor, cliInvocation, findCodeCli, stepLabel, type CodeCli } from './vscodeCli'
 
 /** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
@@ -229,6 +231,48 @@ export default defineMainFeature({
     let tourTried = false
     let tourSeq = 0
     let autoTimer: ReturnType<typeof setTimeout> | undefined
+    /** The auto tour's moment came while home wasn't in front or a lesson ran: still owed, retried on home's next focus. */
+    let autoWaiting = false
+    /** A lesson is running (engine lesson.ready … lesson.ended): the auto tour never starts over one. */
+    let lessonOn = false
+    try {
+      ctx.engine.onEvent((e) => {
+        if (e.type === 'lesson.ready') lessonOn = true
+        else if (e.type === 'lesson.ended') lessonOn = false
+      })
+    } catch {
+      /* a test context without an engine: no lesson ever runs */
+    }
+    /** The home window (route library) is visible and focused: the learner is looking at miyagi. */
+    const homeFront = (): boolean => {
+      try {
+        const w = ctx.appWindow('library')
+        return !!w && !w.isDestroyed() && w.isVisible() && w.isFocused()
+      } catch {
+        return false
+      }
+    }
+    const cancelAuto = (): void => {
+      if (autoTimer) clearTimeout(autoTimer)
+      autoTimer = undefined
+      autoWaiting = false
+    }
+    /** The auto tour's moment: start over home with no lesson, else stay owed until home is focused again. */
+    const tryAuto = (): void => {
+      autoTimer = undefined
+      const m = autoTourMoment({ gateOpen: gateIsOpen(), seen: flag.tourSeen === true, open: tourOpen, homeFront: homeFront(), lessonOn })
+      autoWaiting = m === 'wait'
+      if (m === 'start') startTourNow()
+    }
+    // Retry only when home comes to the front (never a timer loop): a short beat after, so its paint settles.
+    try {
+      ctx.app.on('browser-window-focus', (_e: unknown, win: unknown) => {
+        if (!autoWaiting || autoTimer || win !== ctx.appWindow('library')) return
+        autoTimer = setTimeout(tryAuto, AUTO_TOUR_RETRY_MS)
+      })
+    } catch {
+      /* a test context without app events */
+    }
     const startTourNow = (): void => {
       tourHeld = false
       tourTried = true
@@ -249,11 +293,15 @@ export default defineMainFeature({
     let gateWasOpen = gateIsOpen()
     onGate((open) => {
       const opened = open && !gateWasOpen
+      const closed = !open && gateWasOpen
       gateWasOpen = open
-      if (!open) {
-        // A sign-out: the overlay hides, so does the tour; an auto start not yet run is dropped.
-        if (autoTimer) clearTimeout(autoTimer)
-        autoTimer = undefined
+      if (closed) {
+        // A sign-out (open → closed): the overlay hides, so does the tour; a held start and an auto start not yet run
+        // are dropped (the tour stays owed: the next hand-off to home asks again). Other part changes while the gate
+        // is already closed (You're ready's held start as consent or setup report) leave the held start alone.
+        tourHeld = false
+        tourTried = false
+        cancelAuto()
         if (tourOpen) {
           tourOpen = false
           ctx.broadcast('onboarding:tour', { open: false, seq: tourSeq })
@@ -272,29 +320,25 @@ export default defineMainFeature({
         return true
       }
       if (what === 'start') {
-        if (autoTimer) clearTimeout(autoTimer)
-        autoTimer = undefined
+        cancelAuto()
         if (startDecision({ gateOpen: gateIsOpen() }) === 'now') startTourNow()
         else tourHeld = true
         return true
       }
       if (what === 'end') {
         tourHeld = false
-        if (autoTimer) clearTimeout(autoTimer)
-        autoTimer = undefined
+        cancelAuto()
         tourOpen = false
         ctx.broadcast('onboarding:tour', { open: false, seq: tourSeq })
         return true
       }
       if (what === 'auto') {
         // The home window's first-run flow handed over to home (renderer shell/flow): the tour's turn, once.
-        const go = shouldAutoTour({ due: flag.tourDue === true, seen: flag.tourSeen === true, gateOpen: gateIsOpen(), tried: tourTried || !!autoTimer, skip, quiet })
+        // It starts only over home with no lesson running (autoTourMoment); otherwise it waits for home's next focus.
+        const go = shouldAutoTour({ due: flag.tourDue === true, seen: flag.tourSeen === true, gateOpen: gateIsOpen(), tried: tourTried || !!autoTimer || autoWaiting, skip, quiet })
         if (!go) return false
         tourTried = true
-        autoTimer = setTimeout(() => {
-          autoTimer = undefined
-          if (gateIsOpen() && !flag.tourSeen && !tourOpen) startTourNow()
-        }, AUTO_TOUR_DELAY_MS)
+        autoTimer = setTimeout(tryAuto, AUTO_TOUR_DELAY_MS)
         return true
       }
       return false
