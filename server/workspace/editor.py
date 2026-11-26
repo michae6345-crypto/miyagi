@@ -1428,6 +1428,22 @@ def _lesson_window_alive(folder: str | Path) -> bool:
     return name in names
 
 
+def lesson_window_open(folder: str | Path) -> bool:
+    """Is a VS Code window showing this lesson folder open right now, for sure? The companion's windows first, then
+    the window titles. Unknown is NO (unlike _lesson_window_alive): an automatic jump is optional, a new window isn't."""
+    seen = _companion_has_folder(folder)
+    if seen is not None:
+        return seen
+    try:
+        from .active import vscode_windows
+
+        wins = vscode_windows()
+    except Exception:  # noqa: BLE001 - no window list: not sure
+        return False
+    name = Path(folder).expanduser().resolve().name
+    return any(isinstance(w, dict) and w.get("folder_name") == name for w in wins or [])
+
+
 def _titles_readable() -> bool:
     """Can this process read other apps' window titles (macOS Screen Recording)? Preflight only: never prompts."""
     if sys.platform != "darwin":
@@ -1476,15 +1492,22 @@ def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]]
 
 def jump(path: str | Path, line: int = 1, *, explicit: bool = False, runner: Runner | None = None,
          focus: Callable[[], tuple[str, str] | None] | None = None, window_up: Callable[[dict], bool] | None = None,
-         opening: Callable[[], bool] | None = None) -> bool:
-    """`code -r -g <file>:<line>`, but only when it can't steal focus or spawn a window:
+         opening: Callable[[], bool] | None = None,
+         folder_window: Callable[[Path], bool] | None = None) -> bool:
+    """goto_argv's jump, but only when it can't steal focus or spawn a window:
     automatic jumps (explicit=False) run only when the editor is ALREADY the active app, its window is up,
-    and no lesson folder is still waiting to open. explicit=True (a learner action: Do it for me) always jumps."""
+    no lesson folder is still waiting to open, and, for a file of a lesson folder, a window of THAT folder is open
+    (folder_window, default lesson_window_open: review of #296, `code <folder> -g` would otherwise open a new window
+    for it). explicit=True (a learner action: Do it for me) always jumps."""
     ed = preferred_editor()
     argv = goto_argv(path, line)
     if not ed or not argv:
         return False
     if not explicit:
+        home = lesson_folder_of(path)
+        if home is not None and not (folder_window or lesson_window_open)(home):
+            log.debug("jump skipped: no window of %s (won't open one)", home.name)
+            return False
         if opening() if opening else any(st["state"] != "open" for st in list(_opened.values())):
             log.debug("jump skipped: the editor is still opening")
             return False

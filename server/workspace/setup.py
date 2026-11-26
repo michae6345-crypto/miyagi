@@ -646,10 +646,34 @@ def vscode_extensions(ids: tuple[str, ...] = NOTEBOOK_EXTENSIONS) -> dict[str, b
     return {i: i.lower() in have for i in ids}
 
 
-def _vscode_cli() -> str | None:
-    """VS Code's own CLI (on PATH, else inside the app): never another editor's."""
+VSCODE_APP_DIR = "Visual Studio Code.app"
+
+
+def _inside_vscode_app(path: str | None) -> bool:
+    """Is `path` (links resolved) VS Code's own CLI, inside a "Visual Studio Code.app" bundle?"""
+    if not path:
+        return False
+    try:
+        real = Path(os.path.realpath(path))
+    except OSError:
+        return False
+    return VSCODE_APP_DIR in real.parts and real.name == "code"
+
+
+def _vscode_cli(which: Callable[[str], str | None] = shutil.which,
+                app_path: Callable[[], str | None] | None = None) -> str | None:
+    """VS Code's own CLI for its extensions, never another editor's: the one inside the app (/Applications, else where
+    Spotlight finds VS Code), else a `code` on PATH only when it really is VS Code's (review of #296: Cursor installs
+    its own `code` shim on PATH, so `code --install-extension` went into Cursor and the row looped on "Install
+    again")."""
     ed = _editor.EDITORS["vscode"]
-    return _editor._cli(ed, _editor._app_path(ed))
+    found = app_path() if app_path is not None else _editor._app_path(ed)
+    for cand in ([ed["bundled_cli"]]
+                 + ([str(Path(found) / "Contents" / "Resources" / "app" / "bin" / "code")] if found else [])):
+        if Path(cand).is_file() and _inside_vscode_app(cand):
+            return cand
+    on_path = which("code")
+    return on_path if _inside_vscode_app(on_path) else None
 
 
 def _lib_names(graph: dict) -> list[str]:
@@ -747,10 +771,42 @@ def work_app(graph: dict) -> str | None:
     return None
 
 
+# Notebooks that live in a hosted service, in the browser: never moved into VS Code.
+_HOSTED_NOTEBOOK = re.compile(r"\b(?:colab|kaggle|deepnote|databricks|sagemaker|jupyter\s*hub|hosted\s+(?:jupyter|notebook)"
+                              r"|binder)\b", re.IGNORECASE)
+
+
+def hosted_notebook_lesson(graph: dict) -> bool:
+    """A notebook lesson done in a hosted notebook service (Colab, Kaggle, Deepnote, Databricks, SageMaker, a
+    JupyterHub): by the lesson's title / goal, its sources and its steps' text."""
+    les = graph.get("lesson") or {}
+    blob = " ".join([str(les.get(k) or "") for k in ("title", "goal")]
+                    + [str(s.get("url") or "") for s in graph.get("sources") or [] if isinstance(s, dict)]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in paths.lesson_steps(graph)
+                       if isinstance(st, dict)])
+    return _colab_lesson(graph) or bool(_HOSTED_NOTEBOOK.search(blob))
+
+
+def _has_notebook_file_or_package(graph: dict) -> bool:
+    """An .ipynb step / target / check file, or a Jupyter-family package in lesson.libraries (never step text alone)."""
+    if {n.lower() for n in _lib_names(graph)} & _JUPYTER_FAMILY:
+        return True
+    for st in paths.lesson_steps(graph):
+        if not isinstance(st, dict):
+            continue
+        files = [st.get("file")] + [x.get("file") for x in (st.get("targets") or []) + (st.get("checks") or [])
+                                    + (st.get("precision_checks") or []) if isinstance(x, dict)]
+        if any(str(f or "").lower().endswith(".ipynb") for f in files):
+            return True
+    return False
+
+
 def vscode_notebook_lesson(graph: dict | None) -> bool:
-    """A notebook lesson done in VS Code (not Colab): Miyagi runs every Jupyter lesson in the lesson's VS Code window
-    (server/lesson/notebook_steps.py), whatever the video does in a browser."""
-    return graph is not None and notebook_lesson(graph) and not _colab_lesson(graph)
+    """A notebook lesson done in VS Code: an .ipynb step file or a Jupyter-family package (a step that only mentions
+    Jupyter doesn't count), and not a hosted notebook (Colab, Kaggle, Deepnote, Databricks, SageMaker, JupyterHub).
+    Miyagi runs those in the lesson's VS Code window (server/lesson/notebook_steps.py), whatever the video does in a
+    browser."""
+    return graph is not None and _has_notebook_file_or_package(graph) and not hosted_notebook_lesson(graph)
 
 
 def _items(raw: dict, graph: dict | None = None) -> list[dict]:
@@ -1314,6 +1370,36 @@ def kernel_check(workdir: Path | str | None, *, run: Runner = _run, timeout: flo
     last = _last_error(txt) or f"exit {code}"
     return {"ok": False, "errorCode": pyinstall.BROKEN_IMPORT, "log": txt[-4000:],
             "error": f"The notebook kernel can't start in the lesson's .venv: {last[:200]}. Press Retry."}
+
+
+KERNEL_REPAIR = ("ipykernel", "pyzmq")  # a kernel that fails to import (a broken zmq build): reinstalled together
+
+
+def repair_kernel(workdir: Path | str | None, *, on_line: Callable[[str], None] | None = None, popen=subprocess.Popen,
+                  timeout: float = 900.0, cancel: threading.Event | None = None,
+                  net: Callable[[str], bool] | None = None) -> dict:
+    """Retry on a "Notebook kernel" row that failed with a broken import: `<.venv python> -m pip install
+    --force-reinstall ipykernel pyzmq` (fixed names only), then nothing else; the caller checks the kernel again.
+    -> {ok, error?, errorCode?, log?}. Only after the learner pressed Retry."""
+    emit = on_line or (lambda _line: None)
+    py = venv_python(workdir)
+    if not py:
+        return {"ok": False, "errorCode": "no_python", "error": "The lesson's Python environment (.venv) isn't there."}
+    reachable = net or (online if popen is subprocess.Popen else (lambda _host: True))
+    if not reachable(_host_of({"method": "pip"})):
+        return {"ok": False, "offline": True, "errorCode": pyinstall.NETWORK, "error": OFFLINE}
+    env = _child_env()
+    for k in _ENGINE_PY_ENV:
+        env.pop(k, None)
+    argv = [py, "-m", "pip", "install", "--force-reinstall", *KERNEL_REPAIR]
+    emit("$ pip install --force-reinstall " + " ".join(KERNEL_REPAIR))
+    code, txt = _stream(argv, emit, env, timeout, popen, cancel)
+    if code == CANCELLED_EXIT:
+        return {"ok": False, "cancelled": True, "errorCode": pyinstall.CANCELLED, "error": "cancelled"}
+    if code != 0:
+        return {"ok": False, "errorCode": pyinstall.classify(txt, code), "log": txt[-4000:],
+                "error": f"Reinstalling the notebook kernel failed: {_last_error(txt) or f'exit {code}'}"}
+    return {"ok": True}
 
 
 def check_python_packages_in(item: dict, py: str) -> dict:

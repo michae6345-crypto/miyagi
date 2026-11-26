@@ -105,3 +105,36 @@ def test_the_lesson_notebook_carries_the_venv_kernelspec():
 
     ks = empty_notebook()["metadata"]["kernelspec"]
     assert ks == {"display_name": ".venv", "language": "python", "name": "python3"}
+
+
+def test_automatic_jumps_need_the_lesson_folders_own_window(tmp_path):
+    folder, _, py = _lesson(tmp_path)
+    calls = []
+    run = lambda a: calls.append(a) or True  # noqa: E731
+    code = ("com.microsoft.VSCode", "Code")
+    seen = []
+    kw = {"runner": run, "focus": lambda: code, "window_up": lambda ed: True, "opening": lambda: False}
+    # VS Code in front with another window: no jump (it would open a new window for the lesson folder)
+    assert not E.jump(py, 3, folder_window=lambda f: seen.append(f) or False, **kw) and calls == []
+    assert seen == [folder]
+    assert E.jump(py, 3, folder_window=lambda f: True, **kw)
+    assert calls == [[VSC["cli"], str(folder), "-g", f"{py}:3"]]
+    calls.clear()
+    assert E.jump(py, 4, explicit=True, folder_window=lambda f: False, **kw) and calls  # Do it for me: always
+    other = tmp_path / "proj.py"
+    other.write_text("x\n", encoding="utf-8")
+    calls.clear()
+    assert E.jump(other, 1, folder_window=lambda f: False, **kw) and calls == [[VSC["cli"], "-r", "-g", f"{other}:1"]]
+
+
+def test_lesson_window_open_is_sure_or_no(monkeypatch, tmp_path):
+    folder, _, _ = _lesson(tmp_path)
+    monkeypatch.setattr(E, "_companion_has_folder", lambda f: None)
+    import server.workspace.active as A
+
+    monkeypatch.setattr(A, "vscode_windows", lambda: [{"folder_name": folder.name}])
+    assert E.lesson_window_open(folder)
+    monkeypatch.setattr(A, "vscode_windows", lambda: [])
+    assert not E.lesson_window_open(folder)
+    monkeypatch.setattr(E, "_companion_has_folder", lambda f: True)
+    assert E.lesson_window_open(folder)

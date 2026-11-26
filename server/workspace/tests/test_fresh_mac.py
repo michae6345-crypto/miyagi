@@ -115,7 +115,7 @@ def test_ipykernel_only_for_a_vs_code_notebook_lesson():
 
 def test_notebook_lesson_rows_kernel_first_no_jupyter_server_and_vscode_extensions():
     nb = {"lesson": {"title": "TensorFlow MNIST", "libraries": {"tensorflow": "2"}},
-          "steps": [{"id": "s1", "title": "Create venv and start Jupyter", "instructions": "", "run_command": "jupyter notebook"}]}
+          "steps": [{"id": "s1", "title": "Open mnist.ipynb with the .venv kernel", "instructions": "", "file": "mnist.ipynb"}]}
     raw = {"editor": {"needed": False, "why": "the browser"},
            "tools": [{"tool": "python", "kind": "runtime"}, {"tool": "jupyter", "kind": "python_package"},
                      {"tool": "notebook", "kind": "python_package"}, {"tool": "tensorflow", "kind": "python_package"}]}
@@ -256,3 +256,55 @@ def test_lesson_venv_for_a_python_lesson_before_any_step_file(monkeypatch, tmp_p
     monkeypatch.setattr(S, "is_bundled", lambda py: False)  # the Mac has its own Python: never on open
     assert wsmod.ensure_lesson_venv(wd, True) is False
     assert wsmod.ensure_lesson_venv(tmp_path, True) is False  # the lessons root itself: never
+
+
+def _fake_cli(root, app):
+    cli = root / app / "Contents" / "Resources" / "app" / "bin" / "code"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("#!/bin/sh\n", encoding="utf-8")
+    return cli
+
+
+def test_extensions_go_to_vs_code_never_to_a_cursor_code_shim(tmp_path, monkeypatch):
+    # review of #296: Cursor puts its own `code` on PATH; `code --install-extension` then installed into Cursor
+    monkeypatch.setitem(S._editor.EDITORS["vscode"], "bundled_cli", str(tmp_path / "none" / "code"))
+    cursor = _fake_cli(tmp_path, "Cursor.app")
+    shim = tmp_path / "bin" / "code"
+    shim.parent.mkdir()
+    shim.symlink_to(cursor)
+    assert S._vscode_cli(which=lambda n: str(shim), app_path=lambda: None) is None
+    vsc = _fake_cli(tmp_path / "Applications", "Visual Studio Code.app")
+    app = str(tmp_path / "Applications" / "Visual Studio Code.app")
+    assert S._vscode_cli(which=lambda n: str(shim), app_path=lambda: app) == str(vsc)  # the app's own CLI first
+    shim.unlink()
+    shim.symlink_to(vsc)  # VS Code's own "Install 'code' command in PATH" link
+    assert S._vscode_cli(which=lambda n: str(shim), app_path=lambda: None) == str(shim)
+
+
+def test_only_an_ipynb_file_or_a_jupyter_package_makes_a_vs_code_notebook_lesson():
+    text_only = {"lesson": {"title": "pandas basics"},
+                 "steps": [{"id": "s1", "title": "t", "instructions": "You could also try this in Jupyter.", "file": "a.py"}]}
+    assert not S.vscode_notebook_lesson(text_only)
+    assert S.vscode_notebook_lesson({"lesson": {"libraries": {"jupyter": "1"}}, "steps": []})
+    nb = {"lesson": {"title": "t"}, "steps": [{"id": "s1", "title": "t", "instructions": "", "file": "a.ipynb"}]}
+    assert S.vscode_notebook_lesson(nb)
+    for where in ("Kaggle", "Deepnote", "Databricks", "Amazon SageMaker", "JupyterHub", "Google Colab"):
+        hosted = {**nb, "lesson": {"title": f"MNIST on {where}"}}
+        assert not S.vscode_notebook_lesson(hosted), where
+        assert S._items({"editor": {"needed": False, "why": "browser"}, "tools": []}, hosted)[0]["needed"] is False
+
+
+def test_repair_kernel_force_reinstalls_only_ipykernel_and_pyzmq(tmp_path):
+    wd = tmp_path / "lesson"
+    py = paths.venv_python(wd / ".venv")
+    py.parent.mkdir(parents=True)
+    py.write_text("", encoding="utf-8")
+    ran = []
+
+    def popen(argv, **kw):
+        ran.append(argv)
+        return subprocess.Popen(["true"], stdout=subprocess.PIPE, text=True)
+
+    assert S.repair_kernel(wd, popen=popen)["ok"]
+    assert ran == [[str(py), "-m", "pip", "install", "--force-reinstall", "ipykernel", "pyzmq"]]
+    assert S.repair_kernel(tmp_path / "nothing", popen=popen)["errorCode"] == "no_python"

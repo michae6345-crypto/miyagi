@@ -594,6 +594,17 @@ def is_colab_lesson(graph: dict) -> bool:
     return "colab" in blob
 
 
+def _hosted_nb(graph: dict) -> bool:
+    """A notebook in a hosted service (Kaggle, Deepnote, Databricks, SageMaker, a JupyterHub; Colab above): stays in the
+    browser (server.workspace.setup.hosted_notebook_lesson)."""
+    try:
+        from server.workspace.setup import hosted_notebook_lesson
+
+        return hosted_notebook_lesson(graph)
+    except Exception:  # noqa: BLE001 - no S2: Colab alone decides, as before
+        return False
+
+
 def _use_lesson_venv(graph: dict) -> None:
     """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
     lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
@@ -1110,7 +1121,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         from . import workspace as wsmod
 
         if self.notebook_lesson:  # Nov 26: no setup list (none could be made) still opens VS Code for its notebook
-            return (not items or wsmod.editor_needed(items)) and not is_colab_lesson(graph)
+            return (not items or wsmod.editor_needed(items)) and not is_colab_lesson(graph) and not _hosted_nb(graph)
         return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     def _opens_editor(self, graph: dict) -> bool:
@@ -1277,7 +1288,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 setup_gate.gate(self).finish(tool, res)
                 await setup_gate.publish(self)
                 if res.get("ok") and tool in setup_gate.KERNEL_TOOLS:  # Nov 26: a notebook kernel that can't start
-                    await setup_gate.check_kernel(self)  # is a failed gate row now, not VS Code's "No kernel" picker
+                    setup_gate.check_kernel_soon(self)  # is a failed gate row, not VS Code's "No kernel" (background)
             if res.get("ok"):
                 status = f"{label} installed ✓"
             else:

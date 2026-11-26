@@ -13,7 +13,8 @@ from typing import Any
 
 log = logging.getLogger("orchestrator.session")
 
-INSTALL_METHODS = ("pip", "brew", "brew_cask", "vscode_ext")  # vscode_ext: a notebook lesson's VS Code extensions  # what Install runs here (download / open / none have no Install)
+# What Install runs here (download / open / none have no Install). vscode_ext: a notebook lesson's VS Code extensions.
+INSTALL_METHODS = ("pip", "brew", "brew_cask", "vscode_ext")
 # needed: a free alternative's offered row (FreeCAD beside AutoCAD) hides once AutoCAD is found or "I have it"
 ROW_STATE = ("installed", "ok", "version", "unknown", "needed")
 APP_STATE = ("actions", "haveIt", "using")  # setup_apps: a row's buttons and what the learner chose
