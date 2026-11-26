@@ -185,7 +185,7 @@ const titleText = (t: string): string => ((t.match(/`/g)?.length ?? 0) % 2 ? `${
 /** The engine's Socratic nudge, under the body (off-track and engine cards alike). */
 function Question({ text }: { text: string }): ReactNode {
   return (
-    <div data-question className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+    <div data-question dir="auto" className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
       {text}
     </div>
   )
@@ -280,7 +280,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
 
       <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
-          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
+          <div dir="auto" className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
           {/* The body folds to 3 lines with a "More" (Clamp), never cut off for good (A22). */}
           {/* Test 6: the body is never hidden behind the question, and both open in place (Clamp's "More"). */}
           {o.guidingQuestion && <Question text={o.guidingQuestion} />}
@@ -1206,7 +1206,7 @@ function EngineCardBody({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
           <Clamp text={body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
         ) : (
           <>
-            <div className="line-clamp-2 text-[17px] font-semibold leading-[22px] tracking-[-0.01em]" title={c.title}><CodeText text={titleText(c.title)} /></div>
+            <div dir="auto" className="line-clamp-2 text-[17px] font-semibold leading-[22px] tracking-[-0.01em]" title={c.title}><CodeText text={titleText(c.title)} /></div>
             {body && <Clamp text={body} lines={bodyLines} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />}
           </>
         )}

@@ -142,6 +142,8 @@ type IdleItem =
 const EDITOR_CHROME = 92
 
 /** The field's row: v4's ask box (48) a size up, since the launcher is the place you type. */
+/** The most the ask box / topic field takes (a huge paste would otherwise go to the engine whole). */
+const MAX_INPUT_CHARS = 2000
 const FIELD_H = 56
 /** The footer's height under its hairline. */
 const FOOTER_H = 48
@@ -1245,6 +1247,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               </span>
               <input
                 ref={input}
+                dir="auto"
+                maxLength={MAX_INPUT_CHARS}
                 value={mode === 'ask' ? question : query}
                 onChange={(e) => {
                   disarmEnd() // typing hides End lesson; cleared again, it comes back unarmed
