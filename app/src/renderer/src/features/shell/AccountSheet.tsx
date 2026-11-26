@@ -52,8 +52,8 @@ const SHEET_TOP = 20
 /** The content area dims to about 45% black: the spotlight scrim at two thirds (opacity, so no new color). */
 const DIM = 0.66
 
-/** "across Macs" on a Mac, "across computers" elsewhere. */
-const acrossMachines = (): string => (bridge.platform.os === 'mac' ? 'across Macs' : 'across computers')
+/** What signing in keeps where (Nov 25): lesson history and skills live on this Mac; nothing syncs between computers. */
+const STAYS_HERE = (): string => `Your lesson history and skills stay on ${thisDevice()}.`
 
 // ---- the shared avatar ------------------------------------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ const MODES: Array<{ id: Mode; label: string }> = [
   { id: 'returning', label: 'Returning user' }
 ]
 const LEAD: Record<Mode, string> = {
-  new: 'Make an account. Your lessons and progress follow you.',
+  new: 'Make an account. Lessons work with or without one.',
   returning: 'Welcome back. Pick up where you left off.'
 }
 const PROVIDERS: Provider[] = ['google', 'apple', 'github']
@@ -312,7 +312,7 @@ function SignedInBody(): ReactNode {
   return (
     <>
       <motion.p variants={riseItem} className="m-0" style={caption}>
-        {`Your lessons and progress now sync ${acrossMachines()}.`}
+        {STAYS_HERE()}
       </motion.p>
       <motion.div variants={riseItem}>
         <span data-sheet-focus className="contents">
@@ -401,7 +401,7 @@ function useWho(): Who {
 
 function headerFor(kind: SheetKind, who: Who, signedInHere: boolean): { title: string; sub: string } {
   if (kind === 'signout') return { title: `Sign out of ${copy.name}?`, sub: `Your lessons and progress stay on ${thisDevice()}.` }
-  if (kind === 'signin' && !who.signedIn) return { title: 'Sign in to sync', sub: `Your lessons and progress, ${acrossMachines()}.` }
+  if (kind === 'signin' && !who.signedIn) return { title: `Sign in to ${copy.name}`, sub: STAYS_HERE() }
   if (kind === 'signin' && signedInHere) return { title: 'You’re signed in', sub: who.email ?? who.name ?? '' }
   // Round 3: the plan rides in the sub line ("sam@example.edu · Free plan"), not a pill beside the name.
   return { title: who.name ?? 'Signed in', sub: [who.email, who.plan ? `${who.plan} plan` : ''].filter(Boolean).join(' · ') || 'Signed in' }
