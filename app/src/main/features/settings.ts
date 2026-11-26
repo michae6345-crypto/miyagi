@@ -37,7 +37,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
-import { returnFocus } from '../platform'
+import { focusPanel, returnFocus } from '../platform'
 import { previousApp } from './front-app'
 import { removeFiles, SIGN_IN_FILES } from './settings/erase'
 
@@ -123,8 +123,8 @@ export default defineMainFeature({
       }
       clearTimeout(hideTimer)
       open = true
-      win.show()
-      win.focus()
+      // Key without activating miyagi: show() activated the app, which over a full-screen app switched Spaces.
+      focusPanel(win)
       ctx.raise(win)
       // The renderer starts the sheet on this exact shape, then yields the island once it has painted.
       ctx.broadcast('settings:open', { from: ctx.islandSize(), section })

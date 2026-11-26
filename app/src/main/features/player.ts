@@ -35,6 +35,7 @@ import { nativeTheme, screen, type BrowserWindow, type Rectangle, type WebFrameM
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
+import { panelType } from '../platform'
 import { frameAllowed, HOST_PAGE, playerHostOrigin } from '../playerHost'
 import { dockRect } from '../../renderer/src/features/player/dock'
 import { glassBg } from '../../renderer/src/core/theme'
@@ -101,6 +102,12 @@ export default defineMainFeature({
       skipTaskbar: true,
       focusable: false,
       hasShadow: true,
+      // A non-activating panel on macOS (platform.ts panelType), like the overlay. It was a plain window made focusable
+      // while hovered, so a click on it activated miyagi: over a full-screen VS Code that switched Spaces to miyagi's
+      // home window (user report, main 1d453ca0). As a panel it takes the click (and the keys while hovered) and VS Code
+      // stays the active app. acceptFirstMouse: the first click on the inactive panel counts (the overlay's fix, test 1).
+      ...panelType(),
+      acceptFirstMouse: true,
       backgroundColor: windowBg(),
       webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
     })

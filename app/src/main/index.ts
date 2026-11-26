@@ -31,6 +31,7 @@ import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
   fitPillTop,
+  focusPanel,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -353,17 +354,19 @@ function openLauncher(): void {
   launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
-  launcher.show()
-  launcher.focus()
+  // Key without activating miyagi (platform.ts focusPanel): show() and app.focus({steal: true}) activated the app, and
+  // over a full-screen VS Code macOS then switched Spaces to miyagi's home window (user report, main 1d453ca0).
+  focusPanel(launcher)
   raise(launcher)
-  // macOS: focus() doesn't activate an inactive app, so with Finder (or any other app) in front the panel showed
-  // but the keystrokes kept going there (Michael's test 10). If the launcher still isn't key a moment later, take it.
+  // Michael's test 10: with Finder in front the panel showed but the keystrokes kept going there. If the launcher still
+  // isn't key a moment later, ask again, still as a panel (never app.focus({steal}): that is the Space switch above).
   if (process.platform === 'darwin') {
-    setTimeout(() => {
-      if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
-      app.focus({ steal: true })
-      launcher.focus()
-    }, 60)
+    for (const ms of [60, 200]) {
+      setTimeout(() => {
+        if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
+        launcher.focus()
+      }, ms)
+    }
   }
   send(launcher, 'launcher:open', { from: islandSize })
   send(overlay, 'launcher:open') // the island hides: the launcher window has it now

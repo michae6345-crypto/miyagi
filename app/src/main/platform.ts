@@ -133,8 +133,43 @@ export function overlayWindowOptions(bounds: Rect): BrowserWindowConstructorOpti
     // The overlay never becomes the active window, so without this macOS swallows the first click on the bar and
     // cards (Michael's desktop test, item 1: Skip, Check and Diagram needed a second click).
     acceptFirstMouse: true,
-    ...(isMac() ? { type: 'panel' as const } : {})
+    ...panelType()
   }
+}
+
+/**
+ * macOS: a non-activating panel (Electron's ElectronNSPanel with NSWindowStyleMaskNonactivatingPanel). A click on it never
+ * activates miyagi, so the learner's app (VS Code, even in full screen) stays the active app and macOS never switches
+ * Spaces to wherever an app window of miyagi lives. Every surface that floats over the learner's app uses it: the
+ * overlay, the launcher, Settings and the player (features/player.ts). Windows: a plain window.
+ */
+export function panelType(): BrowserWindowConstructorOptions {
+  return isMac() ? { type: 'panel' } : {}
+}
+
+type PanelLike = Pick<BrowserWindow, 'isDestroyed' | 'isVisible' | 'show' | 'showInactive' | 'focus' | 'once'>
+
+/**
+ * Give a focusable panel (the launcher, Settings) the keyboard WITHOUT activating miyagi (user report, main 1d453ca0:
+ * with VS Code in full screen, the overlay's "ask miyagi" switched Spaces to miyagi).
+ *
+ * macOS: BrowserWindow.show() calls [NSApp activateIgnoringOtherApps:YES], and app.focus({steal: true}) does the same:
+ * miyagi becomes the active app and macOS moves to the Space of its home window. showInactive() only orders the panel
+ * front, and focus() on a panel makes it the key window without activating the app (Electron's "Spotlight-like"
+ * panel path). So: showInactive, then focus (once it is actually on screen: index.ts holds a show until first paint).
+ * Windows: show + focus, as before (a panel type doesn't exist there; the window must be activated to get keys).
+ */
+export function focusPanel(win: PanelLike): void {
+  if (win.isDestroyed()) return
+  if (!isMac()) {
+    win.show()
+    win.focus()
+    return
+  }
+  if (win.isVisible()) return win.focus()
+  win.showInactive()
+  if (win.isVisible()) win.focus()
+  else win.once('show', () => !win.isDestroyed() && win.focus())
 }
 
 export function launcherGlassOptions(): BrowserWindowConstructorOptions {
