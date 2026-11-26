@@ -23,9 +23,14 @@
  *
  * While shown it tells core/dock (setDock) where it is, so the island's cards step around it and the engine keeps VS
  * Code beside it (panel.state, when the engine lists it).
+ *
+ * Movable (user report on main 1d453ca0: "the step panel on the right can't be moved"): drag it by its header (not its
+ * buttons) anywhere in the work area; it stays where it is let go (saved, ./drag.ts), and a double-click on the header
+ * sends it back to the dock. The dock rect it reports is where it really is, so cards and the engine follow it.
  */
 import { AnimatePresence, motion, useIsPresent, useReducedMotion, type TargetAndTransition, type Variants } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { Layout } from '../../../../../preload/api'
 import { panelRect, setDock } from '../../../core/dock'
 import { islandBoxNow, useIslandBox } from '../../../core/Island'
@@ -47,6 +52,7 @@ import { CheckingCaption, HintBox, NotYetBox, PassedBody } from './states'
 import { Divider } from './ui'
 import { PageSource } from './Source'
 import { usePanelModel, type PanelModel } from './view'
+import { clampOffset, isDrag, HOME, movedRect, ownsPress, setPanelOffset, usePanelOffset, type Offset } from './drag'
 
 export type PanelVia = 'edge' | 'pill'
 
@@ -55,7 +61,11 @@ const BLOCKING = (mode?: string): boolean => !!mode && (mode.startsWith('err-') 
 
 export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
   const m = usePanelModel()
-  const rect = panelRect(layout)
+  const home = panelRect(layout)
+  const drag = usePanelDrag(home, layout)
+  const rect = movedRect(home, drag.off)
+  // What core/dock (and the engine's panel.state) hear: where the panel rests, never each frame of a drag.
+  const rest = movedRect(home, drag.settled)
   const box = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   // Only the winning mode, and only while a card is open: the panel never re-renders because the island moved.
@@ -79,15 +89,15 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
       // Collapsing: the panel is still on screen while it shrinks into the pill, but the dock is already free.
       if (!useDrawer.getState().open) return
       const settled = body && inner ? el.offsetHeight - body.offsetHeight + inner.offsetHeight : el.offsetHeight
-      const h = Math.round(Math.min(rect.h, settled))
-      setDock({ open: true, collapsed: false, rect: { x: rect.x + layout.origin.x, y: rect.y + layout.origin.y, w: rect.w, h } })
+      const h = Math.round(Math.min(rest.h, settled))
+      setDock({ open: true, collapsed: false, rect: { x: rest.x + layout.origin.x, y: rest.y + layout.origin.y, w: rest.w, h } })
     }
     report()
     const ro = new ResizeObserver(report)
     ro.observe(el)
     if (inner) ro.observe(inner)
     return () => ro.disconnect()
-  }, [rect.x, rect.y, rect.w, rect.h, layout.origin.x, layout.origin.y])
+  }, [rest.x, rest.y, rest.w, rest.h, layout.origin.x, layout.origin.y])
   useEffect(() => () => setDock({ open: false, rect: undefined }), [])
 
   // The pill's box, relative to the panel: where the panel grows from and shrinks back into. Read when the motion
@@ -126,7 +136,16 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
     >
       <GlassCard ref={box} hit surface="panel" width={rect.w} className="flex flex-col" style={{ maxHeight: rect.h }}>
         <aside aria-label="miyagi lesson" data-part="lesson-panel" data-view={m.view} data-via={via} className="flex min-h-0 flex-col">
-          <Header lessonTitle={m.lessonTitle} total={m.step.total} index={m.step.index} passed={m.passed} skipped={m.skipped} onCollapse={collapsePanel} />
+          <div
+            data-part="panel-drag"
+            title="Drag to move. Double-click to put it back."
+            style={{ cursor: drag.dragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+            onPointerDown={drag.onPointerDown}
+            onClickCapture={drag.onClickCapture}
+            onDoubleClick={drag.onDoubleClick}
+          >
+            <Header lessonTitle={m.lessonTitle} total={m.step.total} index={m.step.index} passed={m.passed} skipped={m.skipped} onCollapse={collapsePanel} />
+          </div>
           <Divider />
           <div className="min-h-0 flex-initial overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin' }}>
             <AutoHeight>
@@ -145,8 +164,86 @@ export function LessonPanel({ layout }: { layout: Layout }): ReactNode {
           </motion.div>
         </aside>
       </GlassCard>
+      {drag.catcher}
     </motion.div>
   )
+}
+
+/**
+ * The header drag. While a drag runs, a transparent full-window catcher (data-grab, core/Overlay.tsx) sits on top: the
+ * pointer can outrun the panel, and over plain overlay the window would go click-through (main's grab poll and the
+ * renderer's hover both follow data-hit / data-grab), dropping the moves and the release. Window coordinates: the
+ * browser stage scales the overlay with CSS, so pointer deltas are divided by that scale.
+ */
+function usePanelDrag(
+  home: { x: number; y: number; w: number; h: number },
+  layout: Layout
+): {
+  off: Offset
+  /** Where it rests (the saved spot, fitted to this display): `off` without a drag in progress. */
+  settled: Offset
+  dragging: boolean
+  catcher: ReactNode
+  onPointerDown: (e: ReactPointerEvent) => void
+  onClickCapture: (e: ReactMouseEvent) => void
+  onDoubleClick: (e: ReactMouseEvent) => void
+} {
+  const saved = usePanelOffset((s) => s.off)
+  const [live, setLive] = useState<Offset | undefined>(undefined)
+  const [dragging, setDragging] = useState(false)
+  const moved = useRef(false)
+  const area = layout.workArea
+  const fit = (o: Offset): Offset => clampOffset(home, o, { x: area.x, y: area.y, w: area.width, h: area.height })
+  // A saved spot from a bigger display (or an older layout) still lands on this one.
+  const settled = fit(saved)
+  const off = live ?? settled
+  return {
+    off,
+    settled,
+    dragging,
+    catcher: dragging && typeof document !== 'undefined' ? createPortal(<div data-grab className="fixed inset-0" style={{ zIndex: 2147483647, cursor: 'grabbing' }} />, document.body) : null,
+    onPointerDown: (e) => {
+      if (e.button !== 0 || ownsPress(e.target)) return
+      moved.current = false
+      const el = e.currentTarget as HTMLElement
+      const box = el.getBoundingClientRect()
+      const k = box.width && el.offsetWidth ? el.offsetWidth / box.width : 1
+      const x0 = e.clientX
+      const y0 = e.clientY
+      const start = off
+      const move = (m: PointerEvent): void => {
+        const dx = (m.clientX - x0) * k
+        const dy = (m.clientY - y0) * k
+        if (!moved.current && !isDrag(dx, dy)) return
+        if (!moved.current) {
+          moved.current = true
+          setDragging(true)
+        }
+        setLive(fit({ dx: start.dx + dx, dy: start.dy + dy }))
+      }
+      const up = (u: PointerEvent): void => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        if (moved.current) setPanelOffset(fit({ dx: start.dx + (u.clientX - x0) * k, dy: start.dy + (u.clientY - y0) * k }))
+        setLive(undefined)
+        setDragging(false)
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    onClickCapture: (e) => {
+      if (!moved.current) return
+      moved.current = false
+      e.stopPropagation()
+      e.preventDefault()
+    },
+    onDoubleClick: (e) => {
+      if (ownsPress(e.target)) return
+      setPanelOffset(HOME)
+    }
+  }
 }
 
 /** Its height springs to its content's (one spring for the whole body; with reduced motion it just follows). */
