@@ -44,8 +44,14 @@
  *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked); false, with
  *                                   nothing asked or captured, until consent is current
- *   onboarding:tour (what)          'start' | 'end' open or close the first-lesson walkthrough in the overlay (broadcast
- *                                   feat:onboarding:tour {open}); 'seen' remembers it (onboarding.json tourSeen) → true
+ *   onboarding:tour (what)          the first-lesson walkthrough in the overlay (rules: onboarding/tour.ts). 'start'
+ *                                   opens it (broadcast feat:onboarding:tour {open, seq}; held until the launch gate
+ *                                   opens, then run); 'end' closes it; 'seen' remembers it (onboarding.json tourSeen,
+ *                                   clears tourDue); 'auto' (the first-run flow handed over to home) starts it once,
+ *                                   AUTO_TOUR_DELAY_MS later, when a first run made it due (tourDue) and it is unseen,
+ *                                   only with home visible and focused and no lesson running; otherwise it stays owed
+ *                                   and is tried again the next time home is focused (browser-window-focus).
+ *                                   onboarding:get carries tour {open, seq, due} so the overlay catches a start it missed.
  *   onboarding:relaunch            app.relaunch() + quit (macOS applies a Screen Recording grant after one)
  *   onboarding:install-companion    → { ok, reason? }; broadcasts feat:onboarding:companion {state}
  *
@@ -69,6 +75,7 @@ import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate, setGatePart } from '../gate'
 import { getPrefs, onPrefsChange, patchPrefs } from '../prefs'
 import { needsLogin, onLoginDone } from './auth'
+import { AUTO_TOUR_DELAY_MS, AUTO_TOUR_RETRY_MS, autoTourMoment, onGateOpened, shouldAutoTour, startDecision, tourDueAtLaunch } from './onboarding/tour'
 import { cliEnvFor, cliInvocation, findCodeCli, stepLabel, type CodeCli } from './vscodeCli'
 
 /** The guided steps a relaunch may come back to (renderer onboarding/steps.ts STEP_ORDER). */
@@ -79,7 +86,7 @@ const INSTALL_TIMEOUT_MS = 180_000
 const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
-type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean; tourSeen?: boolean }
+type Flag = { done: boolean; at?: string; introSeen?: boolean; step?: Step; later?: boolean; tourSeen?: boolean; tourDue?: boolean }
 
 /** Started by macOS at login (launch.ts reads it the same way). */
 function startedAtLogin(app: App): boolean {
@@ -137,7 +144,7 @@ export default defineMainFeature({
     if (existsSync(file)) {
       try {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<Flag>
-        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true, tourSeen: raw.tourSeen === true }
+        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true, step: isStep(raw.step) ? raw.step : undefined, later: raw.later === true, tourSeen: raw.tourSeen === true, tourDue: raw.tourDue === true }
       } catch {
         console.warn('[onboarding] onboarding.json could not be read; showing setup again')
       }
@@ -208,21 +215,139 @@ export default defineMainFeature({
     // Whenever the gate is closed at launch (login or setup ahead), not only on a first run: launch = start from new.
     if (!skip && !quiet) ctx.overlay.webContents.once('did-finish-load', startFirstRun)
 
-    // The first-lesson walkthrough (renderer features/tips TourLayer.tsx, drawn in the overlay): 'start' and 'end' reach every
-    // window (feat:onboarding:tour), so a start from the home window opens it in the overlay; 'seen' is remembered.
+    // ---- the first-lesson walkthrough (renderer features/tips TourLayer.tsx, drawn in the overlay) --------------------
+    // Main owns whether it is open: every start goes through here, so a start from the home window (Settings, You're
+    // ready) reaches the overlay, and the overlay asks onboarding:get (tour.open) when its gate opens, so a start it
+    // missed (still loading, hidden behind the gate) is never lost. Rules: onboarding/tour.ts.
+    // A first run makes the tour due (kept in onboarding.json until it is seen or declined): an upgrade never pops one.
+    if (tourDueAtLaunch(flag) && !flag.tourDue) {
+      flag = { ...flag, tourDue: true }
+      save()
+    }
+    let tourOpen = false
+    /** An explicit start asked for while the gate was closed: it runs when the gate opens. */
+    let tourHeld = false
+    /** Started (by hand or by itself) or auto-asked in this run: the auto tour runs at most once per launch. */
+    let tourTried = false
+    let tourSeq = 0
+    let autoTimer: ReturnType<typeof setTimeout> | undefined
+    /** The auto tour's moment came while home wasn't in front or a lesson ran: still owed, retried on home's next focus. */
+    let autoWaiting = false
+    /** A lesson is running (engine lesson.ready … lesson.ended): the auto tour never starts over one. */
+    let lessonOn = false
+    try {
+      ctx.engine.onEvent((e) => {
+        if (e.type === 'lesson.ready') lessonOn = true
+        else if (e.type === 'lesson.ended') lessonOn = false
+      })
+    } catch {
+      /* a test context without an engine: no lesson ever runs */
+    }
+    /** The home window (route library) is visible and focused: the learner is looking at miyagi. */
+    const homeFront = (): boolean => {
+      try {
+        const w = ctx.appWindow('library')
+        return !!w && !w.isDestroyed() && w.isVisible() && w.isFocused()
+      } catch {
+        return false
+      }
+    }
+    const cancelAuto = (): void => {
+      if (autoTimer) clearTimeout(autoTimer)
+      autoTimer = undefined
+      autoWaiting = false
+    }
+    /** The auto tour's moment: start over home with no lesson, else stay owed until home is focused again. */
+    const tryAuto = (): void => {
+      autoTimer = undefined
+      const m = autoTourMoment({ gateOpen: gateIsOpen(), seen: flag.tourSeen === true, open: tourOpen, homeFront: homeFront(), lessonOn })
+      autoWaiting = m === 'wait'
+      if (m === 'start') startTourNow()
+    }
+    // Retry only when home comes to the front (never a timer loop): a short beat after, so its paint settles.
+    try {
+      ctx.app.on('browser-window-focus', (_e: unknown, win: unknown) => {
+        if (!autoWaiting || autoTimer || win !== ctx.appWindow('library')) return
+        autoTimer = setTimeout(tryAuto, AUTO_TOUR_RETRY_MS)
+      })
+    } catch {
+      /* a test context without app events */
+    }
+    const startTourNow = (): void => {
+      tourHeld = false
+      tourTried = true
+      tourOpen = true
+      tourSeq += 1
+      // The overlay is a click-through panel over the home window: make sure it is up and on top before it draws.
+      try {
+        if (!ctx.overlay.isDestroyed()) {
+          ctx.overlay.showInactive()
+          ctx.raise(ctx.overlay)
+          ctx.overlay.moveTop()
+        }
+      } catch {
+        /* a test context or an older main: the broadcast still opens it */
+      }
+      ctx.broadcast('onboarding:tour', { open: true, seq: tourSeq })
+    }
+    let gateWasOpen = gateIsOpen()
+    onGate((open) => {
+      const opened = open && !gateWasOpen
+      const closed = !open && gateWasOpen
+      gateWasOpen = open
+      if (closed) {
+        // A sign-out (open → closed): the overlay hides, so does the tour; a held start and an auto start not yet run
+        // are dropped (the tour stays owed: the next hand-off to home asks again). Other part changes while the gate
+        // is already closed (You're ready's held start as consent or setup report) leave the held start alone.
+        tourHeld = false
+        tourTried = false
+        cancelAuto()
+        if (tourOpen) {
+          tourOpen = false
+          ctx.broadcast('onboarding:tour', { open: false, seq: tourSeq })
+        }
+        return
+      }
+      if (opened && onGateOpened({ held: tourHeld }) === 'start') startTourNow()
+    })
     ctx.handle('onboarding:tour', (what: unknown) => {
       if (what === 'seen') {
-        if (!flag.tourSeen) {
-          flag = { ...flag, tourSeen: true }
+        // Done, skipped, or declined on You're ready: never owed again.
+        if (!flag.tourSeen || flag.tourDue) {
+          flag = { ...flag, tourSeen: true, tourDue: false }
           save()
         }
-      } else if (what === 'start' || what === 'end') ctx.broadcast('onboarding:tour', { open: what === 'start' })
-      return true
+        return true
+      }
+      if (what === 'start') {
+        cancelAuto()
+        if (startDecision({ gateOpen: gateIsOpen() }) === 'now') startTourNow()
+        else tourHeld = true
+        return true
+      }
+      if (what === 'end') {
+        tourHeld = false
+        cancelAuto()
+        tourOpen = false
+        ctx.broadcast('onboarding:tour', { open: false, seq: tourSeq })
+        return true
+      }
+      if (what === 'auto') {
+        // The home window's first-run flow handed over to home (renderer shell/flow): the tour's turn, once.
+        // It starts only over home with no lesson running (autoTourMoment); otherwise it waits for home's next focus.
+        const go = shouldAutoTour({ due: flag.tourDue === true, seen: flag.tourSeen === true, gateOpen: gateIsOpen(), tried: tourTried || !!autoTimer || autoWaiting, skip, quiet })
+        if (!go) return false
+        tourTried = true
+        autoTimer = setTimeout(tryAuto, AUTO_TOUR_DELAY_MS)
+        return true
+      }
+      return false
     })
     ctx.handle('onboarding:get', () => ({
       done: flag.done,
       introSeen: flag.introSeen === true,
       tourSeen: flag.tourSeen === true,
+      tour: { open: tourOpen, seq: tourSeq, due: flag.tourDue === true && flag.tourSeen !== true },
       flow: flowOn(),
       login: needsLogin(),
       consent: consented(),
