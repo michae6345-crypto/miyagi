@@ -61,15 +61,31 @@ export function openBuildCard(): void {
   set({ open: true, dismissed: false })
 }
 
-/** Stop building: the first tap arms it, a second one within STOP_ARM_MS sends end_lesson. */
-export function tapStop(): void {
+/** A confirm this soon after arming is the same double-click, not a second decision. */
+export const CONFIRM_MIN_MS = 350
+
+/**
+ * The second tap of a two-tap stop / end came from one double-click (or arrived too soon to be a second decision):
+ * ignore it. detail: the click's count (2 on a double-click's second click; 0 from the keyboard).
+ */
+export function isRushedConfirm(armedAt: number, now: number, detail?: number): boolean {
+  return now - armedAt < CONFIRM_MIN_MS || (detail ?? 0) > 1
+}
+
+let armedAt = 0
+
+/** Stop building: the first tap arms it, a second one within STOP_ARM_MS (not a double-click) sends end_lesson. */
+export function tapStop(e?: { detail?: number }, now = Date.now()): void {
   if (!get().open) return
   if (!get().armed) {
+    if ((e?.detail ?? 0) > 1) return // the second click of a double-click that armed nothing: never arms by itself
     set({ armed: true })
+    armedAt = now
     clearTimeout(armTimer)
     armTimer = setTimeout(disarm, STOP_ARM_MS)
     return
   }
+  if (isRushedConfirm(armedAt, now, e?.detail)) return
   disarm()
   bridge.send(cmd('end_lesson', {}))
   set({ open: false, dismissed: true })

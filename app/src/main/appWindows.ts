@@ -12,10 +12,10 @@
  *
  * Only the routes in APP_ROUTES open (allowlist). A renderer can't pick a URL, size, or window option.
  */
-import { ipcMain, screen, type App, type BrowserWindow, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, ipcMain, screen, type App, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
 import { windowSize } from '../renderer/src/core/theme'
 import { windowBackground } from './prefs'
-import { appWindowOptions, holdKeyboard, showInDock } from './platform'
+import { appWindowOptions, holdKeyboard, followsEverySpace, showInDock } from './platform'
 
 /** Route → size (points). The feature's FeatureWindow {kind:'app'} must use the same route. */
 export const APP_ROUTES = {
@@ -71,6 +71,8 @@ export function setupAppWindows(deps: {
   create: (route: string, options: BrowserWindowConstructorOptions) => BrowserWindow
   /** Sender check (W0-6): only our own windows' main frames may call these. */
   trusted: (e: IpcMainInvokeEvent) => boolean
+  /** The app in front (bundle id) when known: a keyboard retry stops once the learner went to another app. */
+  frontApp?: () => string | undefined
 }): AppWindows {
   const open = new Map<AppRoute, BrowserWindow>()
   const args = new Map<AppRoute, Record<string, string | number | boolean> | undefined>()
@@ -83,8 +85,13 @@ export function setupAppWindows(deps: {
    * typing in Library's fields went to it (a tester, Nov 25: "I can't even type coffee"). Still not key a moment later:
    * ask again, then activate (holdKeyboard; here activating is the point: it is this very window macOS switches to).
    */
-  const takeKeys = (win: BrowserWindow): void =>
-    void holdKeyboard(win, { app: deps.app, isOpen: () => !win.isDestroyed() && win.isVisible(), fieldFocused: () => true, appWindowOpen: () => false })
+  // It stops for good once the window was key, or the learner went to another app (holdKeyboard), so a late retry never
+  // pulls the keyboard back from where they went. A newer show of the same window replaces the older retries.
+  const holding = new WeakMap<BrowserWindow, () => void>()
+  const takeKeys = (win: BrowserWindow): void => {
+    holding.get(win)?.()
+    holding.set(win, holdKeyboard(win, { app: deps.app, isOpen: () => !win.isDestroyed() && win.isVisible(), fieldFocused: () => true, appWindowOpen: () => false, frontApp: deps.frontApp }))
+  }
 
   const routeOf = (sender: Electron.WebContents): AppRoute | undefined => {
     for (const [r, w] of open) if (!w.isDestroyed() && w.webContents === sender) return r
@@ -149,7 +156,9 @@ export function setupAppWindows(deps: {
     },
     anyVisible() {
       for (const w of open.values()) if (!w.isDestroyed() && w.isVisible()) return true
-      return false
+      // Any other normal (non-panel) window on screen counts too (the splash, a window opened outside this map): those
+      // are the ones macOS may switch Spaces to. Panels follow every Space (platform.ts panelType / followSpaces).
+      return BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isVisible() && !followsEverySpace(w))
     }
   }
 

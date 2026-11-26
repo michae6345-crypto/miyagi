@@ -121,7 +121,7 @@ export function BuildCard(): ReactNode {
             size="lg"
             label={armed ? 'Tap again to stop' : 'Stop building'}
             title={armed ? 'Click again to stop building this lesson' : 'Stop building this lesson'}
-            onClick={tapStop}
+            onClick={tapStop} // the button passes its click (detail: a double-click is not two taps)
           />
           <PrimaryButton size="lg" label="Keep working" onClick={keepWorking} />
         </div>

@@ -54,7 +54,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
@@ -1173,13 +1173,16 @@ class Engine:
         """plan.remove {id} (before the plan is deleted): the plan's lesson is no longer the plan's. One still on its way
         (its start was just cancelled, or it is building and has not reached lesson.ready) is stopped as End would stop
         it: removing a plan mid-build must not leave the build running and spending calls, nor let it come back. A plan
-        lesson already running stays (the learner is in it; End stops it), it is only unlinked."""
+        lesson already running stays (the learner is in it; End stops it), it is only unlinked. cancelled_start: the start
+        the worker was running was this plan's (only queued ones dropped: nothing ran, nothing to end)."""
         ref = self._plan_ref
         mine = ref is not None and ref[0] == key
         if mine:
             self._plan_ref = None
         s = self.session
-        on_its_way = mine and ref[2] is None and (s.building() or s.phase in ("building", "searching", "preflight"))
+        # not linked yet, no lesson loaded (a progressive build's step 1 is a running lesson), and still building
+        on_its_way = (mine and ref[2] is None and s.graph is None
+                      and (s.building() or s.phase in ("building", "searching", "preflight")))
         if cancelled_start or on_its_way:
             log.info("plan %s removed while its lesson was on its way: stopping it", key)
             await s.end_lesson("stopped")
@@ -1624,12 +1627,22 @@ def _start_of_plan(raw: Any, plan_id: str | None) -> bool:
     return isinstance(plan, dict) and plan.get("id") == plan_id
 
 
-def _stop_starts(queue: asyncio.Queue, running: dict, plan_id: str | None = None) -> int:
+class Stopped(NamedTuple):
+    """What _stop_starts stopped: starts dropped from the queue, and whether the start the worker ran was cancelled."""
+    queued: int
+    running: bool
+
+    @property
+    def total(self) -> int:
+        return self.queued + int(self.running)
+
+
+def _stop_starts(queue: asyncio.Queue, running: dict, plan_id: str | None = None) -> Stopped:
     """The learner stopped (end_lesson) or removed a plan (plan.remove, plan_id): a lesson start sent before it must not
     begin after it. Starts still waiting in the queue are dropped (the rest keep their order), and the one the worker is
     running is cancelled: a search, a preflight, or a build whose task does not exist yet (a stop that arrived while the
     start was still ending the old lesson used to find nothing to cancel, and the build then ran and spent its calls).
-    With plan_id, only that plan's lessons. Returns how many were stopped."""
+    With plan_id, only that plan's lessons."""
     kept: list[Any] = []
     n = 0
     while True:
@@ -1645,10 +1658,16 @@ def _stop_starts(queue: asyncio.Queue, running: dict, plan_id: str | None = None
     for raw in kept:
         queue.put_nowait(raw)
     job = running.get("job")
-    if job is not None and not job.done() and _start_of_plan(running.get("cmd"), plan_id):
+    cancelled = job is not None and not job.done() and _start_of_plan(running.get("cmd"), plan_id)
+    if cancelled:
         job.cancel()
-        n += 1
-    return n
+    return Stopped(n, cancelled)
+
+
+def _is_end_action(raw: Any) -> bool:
+    """The card action end_lesson (the resume card's "Start a new lesson", a card's End): a stop, as the end_lesson command."""
+    p = raw.get("payload") if isinstance(raw, dict) else None
+    return isinstance(raw, dict) and raw.get("type") == "action" and isinstance(p, dict) and p.get("kind") == "end_lesson"
 
 
 def _searching(running: dict, session: Any) -> bool:
@@ -1786,13 +1805,13 @@ async def ws_endpoint(ws: WebSocket) -> None:
             elif raw.get("type") in LESSON_STARTS and _searching(running, engine.session):
                 running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
                 # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
-            if raw.get("type") == "end_lesson":  # Stop building / End: no start sent before it may begin after it
-                _stop_starts(queue, running)
+            if raw.get("type") == "end_lesson" or _is_end_action(raw):  # Stop building / End / "Start a new lesson":
+                _stop_starts(queue, running)  # no start sent before it may begin after it
             elif raw.get("type") == "plan.remove":  # removing a plan mid-build stops its lesson's build too
                 pid = (raw.get("payload") or {}).get("id") if isinstance(raw.get("payload"), dict) else None
                 if isinstance(pid, str):
                     try:
-                        await engine.plan_removed(pid, cancelled_start=_stop_starts(queue, running, pid) > 0)
+                        await engine.plan_removed(pid, cancelled_start=_stop_starts(queue, running, pid).running)
                     except Exception:  # noqa: BLE001 - the plan is still removed below
                         log.exception("stopping the removed plan's lesson failed")
             if raw.get("type") == "action":  # fast circle to ask: the release, before any queue wait (fast_ask metrics)

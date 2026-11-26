@@ -286,6 +286,8 @@ function Building(): ReactNode {
       data-planning={planning || undefined}
       data-build-pill
       disabled={ready}
+      // Never takes focus from the app the learner types in (as the launcher's EndLink): the click alone opens the card.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={ready ? undefined : openBuildCard}
     >
       <span role="status" className="sr-only">

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
-import { focusPanel, holdKeyboard, KEY_RETRY_MS, keyStep, overlayWindowOptions, panelType } from '../src/main/platform'
+import { focusPanel, followsEverySpace, holdKeyboard, KEY_RETRY_MS, keyStep, overlayWindowOptions, panelType } from '../src/main/platform'
 
 const SRC = join(__dirname, '..', 'src')
 const read = (p: string): string => readFileSync(join(SRC, p), 'utf8')
@@ -233,6 +233,73 @@ describe('overlay focus', () => {
       const shows = wins.match(/\.show\(\)\s*\n\s*\w+\.focus\(\)\s*\n\s*takeKeys\(\w+\)/g) ?? []
       assert.equal(shows.length, 3)
       assert.equal((wins.match(/\.show\(\)/g) ?? []).length, 3)
+    })
+
+    test('followsEverySpace: panels yes, app windows no, a throwing window no', () => {
+      assert.equal(followsEverySpace({ isVisibleOnAllWorkspaces: () => true }), true)
+      assert.equal(followsEverySpace({ isVisibleOnAllWorkspaces: () => false }), false)
+      assert.equal(followsEverySpace({ isVisibleOnAllWorkspaces: () => { throw new Error('gone') } }), false)
+    })
+
+    test('keyStep: once it was key, or the front app changed, it stops for good', () => {
+      assert.equal(keyStep({ ...base, attempt: last, everFocused: true }), 'stop')
+      assert.equal(keyStep({ ...base, attempt: 0, frontChanged: true }), 'stop')
+    })
+
+    test('holdKeyboard: key once (its focus event) and then left: no later retry pulls the keys back or activates', () => {
+      asPlatform('darwin', () => {
+        const t = fakeTimers()
+        let focusFn: (() => void) | undefined
+        let removed = 0
+        let n = 0
+        const win = { isDestroyed: () => false, isFocused: () => false, focus: () => void n++, on: (_e: string, fn: () => void) => void (focusFn = fn), removeListener: () => void removed++ }
+        const steals: unknown[] = []
+        holdKeyboard(win as never, { app: { focus: (o?: unknown) => void steals.push(o) }, isOpen: () => true, fieldFocused: () => true, appWindowOpen: () => false, timers: t.timers })
+        focusFn!() // it became key, then the learner ⌘Tabbed away before the first retry
+        t.run()
+        assert.equal(n, 0)
+        assert.deepEqual(steals, [])
+        assert.equal(removed, 1)
+      })
+    })
+
+    test('holdKeyboard: the app in front changed since it asked: no retry, no activation', () => {
+      asPlatform('darwin', () => {
+        const t = fakeTimers()
+        const w = keyWin()
+        let front = 'com.apple.finder'
+        const steals: unknown[] = []
+        holdKeyboard(w.win, { app: { focus: (o?: unknown) => void steals.push(o) }, isOpen: () => true, fieldFocused: () => true, appWindowOpen: () => false, frontApp: () => front, timers: t.timers })
+        front = 'com.apple.Safari'
+        t.run()
+        assert.equal(w.focuses(), 0)
+        assert.deepEqual(steals, [])
+      })
+    })
+
+    test('holdKeyboard: an unknown front app (no reading yet) does not count as a change', () => {
+      asPlatform('darwin', () => {
+        const t = fakeTimers()
+        const w = keyWin()
+        const steals: unknown[] = []
+        holdKeyboard(w.win, { app: { focus: (o?: unknown) => void steals.push(o) }, isOpen: () => true, fieldFocused: () => true, appWindowOpen: () => false, frontApp: () => undefined, timers: t.timers })
+        t.run()
+        assert.deepEqual(steals, [{ steal: true }])
+      })
+    })
+
+    test('closeLauncher cancels the keyboard retries at once (launcherOpen stays true until launcher:hidden)', () => {
+      const index = code(read('main/index.ts'))
+      const close = index.slice(index.indexOf('function closeLauncher'), index.indexOf('let keptBlurs'))
+      assert.match(close, /stopHoldingKeys\?\.\(\)[\s\S]*send\(launcher, 'launcher:close'\)/)
+      const open = index.slice(index.indexOf('function openLauncher'), index.indexOf('function closeLauncher'))
+      assert.match(open, /frontApp: previousApp/)
+    })
+
+    test('anyVisible counts every visible window that is not on every Space, not only the app-window map', () => {
+      const wins = code(read('main/appWindows.ts'))
+      assert.match(wins, /BrowserWindow\.getAllWindows\(\)\.some\(\(w\) => !w\.isDestroyed\(\) && w\.isVisible\(\) && !followsEverySpace\(w\)\)/)
+      assert.match(wins, /frontApp: deps\.frontApp/)
     })
 
     test('the launcher hands the keyboard back on close (hideLauncher returns focus to the previous app)', () => {

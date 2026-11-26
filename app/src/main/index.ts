@@ -387,7 +387,8 @@ function openLauncher(): void {
     app,
     isOpen: () => launcherOpen,
     fieldFocused: () => true,
-    appWindowOpen: () => !!appWindows?.anyVisible()
+    appWindowOpen: () => !!appWindows?.anyVisible(),
+    frontApp: previousApp
   })
   send(launcher, 'launcher:open', { from: islandSize })
   send(overlay, 'launcher:open') // the island hides: the launcher window has it now
@@ -395,6 +396,10 @@ function openLauncher(): void {
 
 function closeLauncher(): void {
   if (!launcherOpen) return
+  // It is closing: launcherOpen stays true until launcher:hidden (up to the 2.5 s watchdog), and a keyboard retry in
+  // that time must not activate miyagi or pull the keys back from wherever the learner went.
+  stopHoldingKeys?.()
+  stopHoldingKeys = undefined
   send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
   // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
   // (Only if it is still the same open: a quick reopen has a newer generation.)
@@ -853,7 +858,8 @@ app.whenReady().then(async () => {
       holdUntilPainted(win) // the splash leaves onto a painted home window (a no-op once the splash is gone)
       return win
     },
-    trusted: trustedSender
+    trusted: trustedSender,
+    frontApp: previousApp
   })
   setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender, helperBin: helperPath })
   ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))

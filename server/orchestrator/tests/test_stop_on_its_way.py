@@ -35,7 +35,8 @@ def test_stop_starts_drops_queued_starts_and_keeps_the_rest_in_order():
                     {"type": "video.state", "payload": {}}, _start("learn_url")):
             q.put_nowait(raw)
         n = _stop_starts(q, {})
-        return n, [q.get_nowait() for _ in range(q.qsize())]
+        assert not n.running
+        return n.queued, [q.get_nowait() for _ in range(q.qsize())]
 
     n, left = asyncio.run(go())
     assert n == 3
@@ -48,10 +49,10 @@ def test_stop_starts_cancels_the_running_start_only():
     async def go() -> tuple[int, bool, int, bool]:
         q: asyncio.Queue = asyncio.Queue()
         job = asyncio.ensure_future(asyncio.sleep(30))
-        n = _stop_starts(q, {"cmd": _start(), "job": job})
+        n = _stop_starts(q, {"cmd": _start(), "job": job}).total
         await asyncio.sleep(0)
         other = asyncio.ensure_future(asyncio.sleep(30))
-        m = _stop_starts(q, {"cmd": {"type": "action", "payload": {"kind": "ask"}}, "job": other})
+        m = _stop_starts(q, {"cmd": {"type": "action", "payload": {"kind": "ask"}}, "job": other}).total
         await asyncio.sleep(0)
         alive = not other.done()
         other.cancel()
@@ -74,7 +75,8 @@ def test_stop_starts_for_a_plan_only_touches_that_plans_lessons():
         await asyncio.sleep(0)
         alive = not job.done()
         job.cancel()
-        return n, [q.get_nowait() for _ in range(q.qsize())], alive
+        assert not n.running  # only a queued start of plan a: nothing ran, so plan_removed ends nothing for it
+        return n.queued, [q.get_nowait() for _ in range(q.qsize())], alive
 
     n, left, alive = asyncio.run(go())
     assert n == 1 and alive
@@ -101,6 +103,16 @@ def test_removing_a_plan_whose_lesson_is_building_stops_the_build(quiet_env, mon
     eng._plan_ref = ("p", 3, None)
     asyncio.run(eng.plan_removed("p"))
     assert ended == ["stopped"] and eng._plan_ref is None
+
+
+def test_removing_a_plan_whose_progressive_lesson_loaded_keeps_it(quiet_env, monkeypatch):  # noqa: F811
+    """Step 1 is live (graph loaded) while the rest builds, even before the link: removal never ends that lesson."""
+    eng, ended = _ref_engine(monkeypatch)
+    monkeypatch.setattr(eng.session, "building", lambda: True)
+    eng.session.graph = {"lesson": {"id": "les-1"}, "steps": []}
+    eng._plan_ref = ("p", 3, None)
+    asyncio.run(eng.plan_removed("p"))
+    assert ended == [] and eng._plan_ref is None
 
 
 def test_removing_a_plan_whose_lesson_runs_keeps_the_lesson_and_unlinks_it(quiet_env, monkeypatch):  # noqa: F811
@@ -160,6 +172,32 @@ def test_end_drops_a_learn_still_waiting_in_the_queue(quiet_env, monkeypatch):  
         _until(ws, "lesson.ended")
         _queued_fence(ws)  # runs after the action, and after the learn had it stayed queued
     assert started == []
+
+
+def test_the_end_lesson_card_action_drops_a_queued_learn(quiet_env, monkeypatch):  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    main, eng, _, _ = _engine(monkeypatch)
+    started: list[str] = []
+    acted: list[str] = []
+
+    async def action(kind, text=None, **_k):
+        acted.append(kind)
+        if kind == "hint":
+            await asyncio.sleep(0.3)  # holds the queue
+
+    async def learn(query, mode=None):
+        started.append(query)
+
+    monkeypatch.setattr(eng.session, "action", action)
+    monkeypatch.setattr(eng.session, "learn", learn)
+    with TestClient(main.app) as client, client.websocket_connect("/") as ws:
+        assert ws.receive_json()["type"] == "engine.hello"
+        ws.send_json({"type": "action", "payload": {"kind": "hint"}})
+        ws.send_json({"type": "learn", "payload": {"query": "coffee", "mode": "lesson"}})
+        ws.send_json({"type": "action", "payload": {"kind": "end_lesson"}})
+        _queued_fence(ws)
+    assert started == [] and acted == ["hint", "end_lesson"]
 
 
 def test_end_cancels_a_learn_the_worker_is_running(quiet_env, monkeypatch):  # noqa: F811

@@ -127,6 +127,33 @@ describe('removing a plan midway', () => {
     assert.equal(sends.filter((m) => m.type === 'plan.remove').length, 0)
   })
 
+  test('a goal plan removed and added again in the same run is shown and started, whatever id the engine gives it', () => {
+    const proposal = { source: 'goal', title: 'Make coffee', lessons: [{ title: 'Grind', goal: 'grind beans' }, { title: 'Brew', goal: 'brew it' }] }
+    // The engine's id for a goal plan is goal-<hash>; the app's stand-in is goal-<slug>.
+    const engine = (): Record<string, unknown> => ({ id: 'goal-1a2b3c4d', source: 'goal', goal: 'make coffee', title: 'Make coffee', done: 0, total: 2, nextIndex: 0, lessons: [{ title: 'Grind', goal: 'grind beans', state: 'next' }, { title: 'Brew', goal: 'brew it', state: 'todo' }] })
+    plans.addGoalPlan('make coffee', proposal as never)
+    let start = sends.filter((m) => m.type === 'plan.start').pop()!
+    dispatch(ev('plans', { items: [engine()], reqId: start.payload.reqId }))
+    assert.ok(plans.myPlan('goal-1a2b3c4d'))
+    plans.removePlan('goal-1a2b3c4d')
+    dispatch(ev('plans', { items: [] }))
+    sends.length = 0
+    plans.addGoalPlan('make coffee', proposal as never)
+    start = sends.filter((m) => m.type === 'plan.start').pop()!
+    dispatch(ev('plans', { items: [engine()], reqId: start.payload.reqId }))
+    assert.ok(plans.myPlan('goal-1a2b3c4d'), 'shown again')
+    assert.equal(sends.filter((m) => m.type === 'plan.remove').length, 0, 'never removed again')
+    assert.deepEqual(starts(), ['learn'], 'its first lesson starts')
+  })
+
+  test('a removed goal plan stays hidden under the engine id from an answer still on its way', () => {
+    plans.usePlans.setState({ mine: [{ id: 'goal-make-coffee', source: 'goal', goal: 'make coffee', title: 'Make coffee', done: 0, total: 1, nextIndex: 0, lessons: [{ title: 'Grind', goal: 'g', state: 'next' }] } as never] })
+    plans.removePlan('goal-make-coffee')
+    dispatch(ev('plans', { items: [{ id: 'goal-1a2b3c4d', source: 'goal', goal: 'Make coffee ', title: 'Make coffee', done: 0, total: 1, nextIndex: 0, lessons: [{ title: 'Grind', goal: 'g', state: 'next' }] }] }))
+    assert.deepEqual(plans.usePlans.getState().mine, [])
+    assert.deepEqual(sends.filter((m) => m.type === 'plan.remove').map((m) => m.payload.id), ['goal-make-coffee', 'goal-1a2b3c4d'])
+  })
+
   test('another plan in the same answer is kept', () => {
     plans.usePlans.setState({ mine: [planStateFromCatalog(blender, 1)] })
     plans.removePlan('intro-blender')
@@ -167,15 +194,42 @@ describe('stopping a build midway', () => {
 
   test('Stop building takes two taps, then sends end_lesson and closes the card', () => {
     building.openBuildCard()
-    building.tapStop()
+    building.tapStop({ detail: 1 }, 1000)
     assert.equal(sends.length, 0)
     assert.equal(building.useBuildCard.getState().armed, true)
-    building.tapStop()
+    building.tapStop({ detail: 1 }, 1000 + building.CONFIRM_MIN_MS)
     assert.deepEqual(sends.map((m) => m.type), ['end_lesson'])
     assert.equal(building.useBuildCard.getState().open, false)
     dispatch(ev('lesson.ended', { reason: 'stopped' }))
     dispatch(ev('lesson.building', { message: 'Planning the lesson', progress: 0.1, stage: 'planning' }))
     assert.equal(building.useBuildCard.getState().open, true, 'the next build opens it again')
+  })
+
+  test('one double-click on Stop building is not two taps: it stays armed and sends nothing', () => {
+    building.openBuildCard()
+    building.tapStop({ detail: 1 }, 1000)
+    building.tapStop({ detail: 2 }, 1400) // the double-click's second click, even after CONFIRM_MIN_MS
+    building.tapStop({ detail: 1 }, 1100) // or any confirm sooner than CONFIRM_MIN_MS
+    assert.deepEqual(sends, [])
+    assert.equal(building.useBuildCard.getState().armed, true)
+    building.tapStop({ detail: 1 }, 2000)
+    assert.deepEqual(sends.map((m) => m.type), ['end_lesson'])
+  })
+
+  test('a lone second click of a double-click never arms by itself; the keyboard (detail 0) works', () => {
+    building.openBuildCard()
+    building.tapStop({ detail: 2 }, 1000)
+    assert.equal(building.useBuildCard.getState().armed, false)
+    building.tapStop({ detail: 0 }, 1000)
+    building.tapStop({ detail: 0 }, 1500)
+    assert.deepEqual(sends.map((m) => m.type), ['end_lesson'])
+  })
+
+  test('isRushedConfirm', () => {
+    assert.equal(building.isRushedConfirm(0, building.CONFIRM_MIN_MS - 1, 1), true)
+    assert.equal(building.isRushedConfirm(0, building.CONFIRM_MIN_MS, 1), false)
+    assert.equal(building.isRushedConfirm(0, 5000, 2), true)
+    assert.equal(building.isRushedConfirm(0, 5000, undefined), false)
   })
 
   test('"Planning your lesson…" ends with a learner stop, not with the old lesson ending as a new one starts', () => {

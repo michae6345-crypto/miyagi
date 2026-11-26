@@ -462,7 +462,7 @@ export function Action({
  * chrome even when armed: the white button stays the one primary (Continue).
  */
 /** building: the lesson has not reached step 1 yet (no lesson loaded): the same two clicks read "Stop building". */
-export function EndLink({ armed, onClick, building = false }: { armed: boolean; onClick: () => void; building?: boolean }): ReactNode {
+export function EndLink({ armed, onClick, building = false }: { armed: boolean; onClick: (e?: { detail?: number }) => void; building?: boolean }): ReactNode {
   return (
     <motion.button
       type="button"

@@ -81,6 +81,7 @@ import { color, copy, launcher as launcherTheme, layout as frame, pill, radius, 
 import { useCards } from '../cards/store'
 import { findPrimer, useStepDetail } from '../drawer/plan'
 import { loadPlans, startNext, usePlans } from '../plans/store'
+import { isRushedConfirm } from '../building/store'
 import { hole, isUsableRect, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { librarySections, libraryMatch, MAX_READY, refreshLibrary, startLibraryLesson, useLibrary, type LibraryItem } from './library'
@@ -816,14 +817,20 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }
 
   /** The footer's End lesson: the first click arms it ("Tap to end"), a second one within END_ARM_MS ends the lesson. */
-  const tapEnd = (): void => {
+  const endArmedAt = useRef(0)
+  const tapEnd = (e?: { detail?: number }): void => {
     if (phaseRef.current !== 'open') return
-    clearTimeout(endTimer.current)
     if (!endArmed) {
+      if ((e?.detail ?? 0) > 1) return // a double-click's second click never arms by itself
+      clearTimeout(endTimer.current)
       setEndArmed(true)
+      endArmedAt.current = Date.now()
       endTimer.current = setTimeout(() => setEndArmed(false), END_ARM_MS)
       return
     }
+    // One double-click is not two decisions (building/store isRushedConfirm): it stays armed for a real second click.
+    if (isRushedConfirm(endArmedAt.current, Date.now(), e?.detail)) return
+    clearTimeout(endTimer.current)
     setEndArmed(false)
     endLesson()
   }
