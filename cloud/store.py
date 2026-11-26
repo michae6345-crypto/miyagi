@@ -234,6 +234,11 @@ CREATE TABLE IF NOT EXISTS banned_identities (
     created_at REAL NOT NULL
 );
 -- Which identity a live Supabase user is (written on link, dropped with the account): lets admin ban by user id.
+CREATE TABLE IF NOT EXISTS banned_users (
+    user_id    TEXT PRIMARY KEY,
+    id_hash    TEXT,                       -- the identity it was banned with, when known
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS user_identity (
     user_id TEXT PRIMARY KEY,
     id_hash TEXT NOT NULL
@@ -283,33 +288,29 @@ def net_key_from_env() -> tuple[bytes, str]:
         return hmac.new(a.encode(), b"miyagi-cloud net hash v1", hashlib.sha256).digest(), "ADMIN_TOKEN"
     return secrets.token_bytes(32), "random"
 
-def identity_key_from_env() -> bytes:
-    """The secret identity hashes are keyed with. IDENTITY_HASH_KEY when set; else derived from ADMIN_TOKEN (so bans
-    and carry-overs survive restarts on every deploy); else a fixed dev value (hashes then only match within one
-    deployment with the same default, which is fine for local runs and tests)."""
+def identity_key_from_env() -> bytes | None:
+    """IDENTITY_HASH_KEY (trimmed) as the identity hash key, or None: the Store then generates a random key once and
+    keeps it in its settings table, so it survives restarts with the database."""
     k = os.environ.get("IDENTITY_HASH_KEY", "").strip()
-    if k:
-        return k.encode()
-    a = os.environ.get("ADMIN_TOKEN", "").strip()
-    if a:
-        return hmac.new(a.encode(), b"miyagi-cloud identity hash v1", hashlib.sha256).digest()
-    return hashlib.sha256(b"miyagi-cloud dev identity key").digest()
+    return k.encode() if k else None
 
 
 def normalize_email(email) -> str | None:
     """Lowercased, trimmed email; for gmail.com / googlemail.com also without dots and any +tag in the local part
-    (Google treats those as the same mailbox). None when it is not an address."""
+    (Google treats those as the same mailbox); any +tag in the local part is dropped on every domain. None when it is
+    not an address."""
     if not isinstance(email, str):
         return None
     e = email.strip().lower()
     local, sep, domain = e.rpartition("@")
     if not sep or not local or not domain or len(e) > 320:
         return None
+    local = local.split("+", 1)[0]
     if domain in ("gmail.com", "googlemail.com"):
-        local = local.split("+", 1)[0].replace(".", "")
+        local = local.replace(".", "")
         domain = "gmail.com"
-        if not local:
-            return None
+    if not local:
+        return None
     return f"{local}@{domain}"
 
 
@@ -351,7 +352,6 @@ class Store:
 
     def __init__(self, path: str, net_key: bytes | None = None, identity_key: bytes | None = None) -> None:
         self.path = path
-        self._identity_key = identity_key if identity_key is not None else identity_key_from_env()
         if net_key is None:
             net_key, source = net_key_from_env()
             if source == "random":
@@ -369,6 +369,7 @@ class Store:
         if "mint_net" not in cols:  # the network a token was minted from (NULL for older tokens: no network cap)
             self._db.execute("ALTER TABLE tokens ADD COLUMN mint_net TEXT")
         self._db.execute("CREATE INDEX IF NOT EXISTS tokens_mint_net ON tokens (mint_net)")
+        self._identity_key = identity_key or identity_key_from_env() or self._stored_identity_key()
         self._migrate_first_writer_lessons()
         self._minimise_stored_networks()
         self._pruned_hour = -1
@@ -383,6 +384,21 @@ class Store:
             return net
         return NET_HASH_PREFIX + hmac.new(self._net_key, net.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
 
+    def _stored_identity_key(self) -> bytes:
+        """No IDENTITY_HASH_KEY: a random key, generated once and kept in settings (never a constant, never derived
+        from another secret). Lose the database and every ban and carry-over goes with it, so set the env var."""
+        row = self._db.execute("SELECT value FROM settings WHERE key = 'identity_key'").fetchone()
+        if row:
+            return bytes.fromhex(row[0])
+        k = secrets.token_bytes(32)
+        self._db.execute("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('identity_key', ?, ?)",
+                         (k.hex(), time.time()))
+        row = self._db.execute("SELECT value FROM settings WHERE key = 'identity_key'").fetchone()
+        if "RENDER" in os.environ:
+            log.warning("IDENTITY_HASH_KEY is not set: using a random key kept in the database. Set it in the dashboard "
+                        "so bans and carry-overs survive a database loss.")
+        return bytes.fromhex(row[0])
+
     def identity_hash(self, email) -> str | None:
         """The durable identity key for a provider email: HMAC-SHA256 (hex) of the normalized address; None when the
         token carried no usable email. The email itself is never stored."""
@@ -395,25 +411,27 @@ class Store:
         return bool(id_hash) and bool(self._q("SELECT 1 FROM banned_identities WHERE id_hash = ?", (id_hash,)))
 
     def user_banned(self, user_id: str) -> bool:
-        """The live user's identity is banned."""
-        return bool(self._q("SELECT 1 FROM user_identity u JOIN banned_identities b ON b.id_hash = u.id_hash "
-                            "WHERE u.user_id = ?", (user_id,)))
+        """The user id is banned (banned_users), or its identity is. Covers a banned person who changes email: the
+        Supabase user id stays the same."""
+        return bool(self._q("SELECT 1 FROM banned_users WHERE user_id = ? UNION ALL "
+                            "SELECT 1 FROM user_identity u JOIN banned_identities b ON b.id_hash = u.id_hash "
+                            "WHERE u.user_id = ?", (user_id, user_id)))
 
     def identity_of(self, user_id: str) -> str | None:
         rows = self._q("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,))
         return rows[0]["id_hash"] if rows else None
 
     def ban_identity(self, id_hash: str, reason: str = "") -> int:
-        """Ban the identity and disable every install token linked to a user with it. Returns how many tokens."""
+        """Ban the identity and every user mapped to it (banned_users), and disable every install token linked to them.
+        An identity nobody is mapped to yet is still recorded: that person's next link is refused. Returns the tokens."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 self._db.execute("INSERT INTO banned_identities (id_hash, reason, created_at) VALUES (?, ?, ?) "
                                  "ON CONFLICT (id_hash) DO UPDATE SET reason = excluded.reason",
                                  (id_hash, reason[:200], time.time()))
-                n = self._db.execute("UPDATE tokens SET disabled = 1 WHERE token_hash IN (SELECT token_hash FROM links "
-                                     "WHERE user_id IN (SELECT user_id FROM user_identity WHERE id_hash = ?))",
-                                     (id_hash,)).rowcount
+                users = [r[0] for r in self._db.execute("SELECT user_id FROM user_identity WHERE id_hash = ?", (id_hash,))]
+                n = self._ban_users_locked(users, id_hash)
                 self._db.execute("COMMIT")
                 return n
             except BaseException:
@@ -421,9 +439,44 @@ class Store:
                     self._db.execute("ROLLBACK")
                 raise
 
+    def ban_user(self, user_id: str, reason: str = "") -> int:
+        """Ban a Supabase user id directly (works for a user linked before identities were recorded), its identity too
+        when known, and disable every install linked to it. Returns the tokens disabled."""
+        ih = self.identity_of(user_id)
+        if ih:
+            return self.ban_identity(ih, reason)
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                n = self._ban_users_locked([user_id], None)
+                self._db.execute("COMMIT")
+                return n
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+
+    def _ban_users_locked(self, users: list[str], id_hash: str | None) -> int:
+        n = 0
+        for u in users:
+            self._db.execute("INSERT INTO banned_users (user_id, id_hash, created_at) VALUES (?, ?, ?) "
+                             "ON CONFLICT (user_id) DO UPDATE SET id_hash = COALESCE(excluded.id_hash, id_hash)",
+                             (u, id_hash, time.time()))
+            n += self._db.execute("UPDATE tokens SET disabled = 1 WHERE token_hash IN "
+                                  "(SELECT token_hash FROM links WHERE user_id = ?)", (u,)).rowcount
+        return n
+
     def unban_identity(self, id_hash: str) -> bool:
         with self._lock:
+            self._db.execute("DELETE FROM banned_users WHERE id_hash = ?", (id_hash,))
             return self._db.execute("DELETE FROM banned_identities WHERE id_hash = ?", (id_hash,)).rowcount > 0
+
+    def unban_user(self, user_id: str) -> bool:
+        """Lift a user-id ban and, when it is mapped, its identity's ban."""
+        ih = self.identity_of(user_id)
+        with self._lock:
+            gone = self._db.execute("DELETE FROM banned_users WHERE user_id = ?", (user_id,)).rowcount > 0
+        return (self.unban_identity(ih) if ih else False) or gone
 
     def banned_identities(self) -> list[dict]:
         return [{"id": r["id_hash"][:PREFIX_LEN], "reason": r["reason"], "created_at": r["created_at"]}
@@ -1151,7 +1204,9 @@ class Store:
                         self._db.execute("ROLLBACK")
                         return False
                 self._keep_usage_behind(token_hash, user_id)
-                if id_hash:
+                cur = self._db.execute("SELECT id_hash FROM user_identity WHERE user_id = ?", (user_id,)).fetchone()
+                banned = cur and self._db.execute("SELECT 1 FROM banned_identities WHERE id_hash = ?", (cur[0],)).fetchone()
+                if id_hash and not banned:  # never move a banned user to a fresh, unbanned identity
                     self._db.execute("INSERT INTO user_identity (user_id, id_hash) VALUES (?, ?) "
                                      "ON CONFLICT (user_id) DO UPDATE SET id_hash = excluded.id_hash", (user_id, id_hash))
                 self._db.execute("INSERT INTO links (token_hash, user_id, linked_at) VALUES (?, ?, ?) "

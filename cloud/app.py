@@ -931,10 +931,10 @@ def authenticate(request: Request) -> tuple[str | None, JSONResponse | None]:
     if row is None:
         return None, error(401, "authentication_error", "Unknown install token. Get a new one at /v1/install.")
     request.state.tok = h[:PREFIX_LEN]
-    request.state.linked = 1 if store.get_link(h) else None  # linked or not, for the log line: never the account id
+    link = store.get_link(h)
+    request.state.linked = 1 if link else None  # linked or not, for the log line: never the account id
     if row["disabled"]:
         return None, error(403, "permission_error", "This install has been disabled.")
-    link = store.get_link(h)
     if link and store.user_banned(link["user_id"]):
         return None, error(403, "permission_error", ACCOUNT_BANNED_MESSAGE)
     return h, None
@@ -2353,6 +2353,15 @@ verifier = supabase_auth.SupabaseVerifier.from_env()  # SUPABASE_URL, SUPABASE_A
 LINK_MAX_BODY = 16 * 1024  # {"access_token": "<JWT>"}: a Supabase JWT is 1-2 KB
 
 
+def claims_identity(claims: dict) -> str | None:
+    """The durable identity hash of a verified token's email, or None: no email, or one Supabase marks unverified
+    (then it is no identity: no ban mapping, no carry-over; the link itself still works)."""
+    meta = claims.get("user_metadata")
+    if claims.get("email_verified") is False or (isinstance(meta, dict) and meta.get("email_verified") is False):
+        return None
+    return store.identity_hash(claims.get("email"))
+
+
 def link_error(status: int, kind: str) -> JSONResponse:
     return JSONResponse({"error": kind}, status_code=status)
 
@@ -2383,8 +2392,8 @@ async def link_from_request(request: Request) -> tuple[str, dict, dict] | JSONRe
         return link_error(503, "link_unavailable")
     except supabase_auth.BadAccessToken:
         return link_error(403, "bad_access_token")
-    id_hash = store.identity_hash(claims.get("email"))
-    if store.is_banned(id_hash):  # the same person after deleting the account: the ban is on the identity, not the install
+    id_hash = claims_identity(claims)
+    if store.is_banned(id_hash) or store.user_banned(claims["sub"]):  # the same person after deleting the account: the ban is on the identity, not the install
         log.warning("link refused: banned identity")
         return link_error(403, "account_banned")
     if not store.link_user_capped(h, claims["sub"], LINK_MAX_INSTALLS_PER_USER, id_hash):
@@ -2514,7 +2523,9 @@ async def account_delete(request: Request):
         user_id = claims["sub"]
     if not live and user_id is None:
         return link_error(401, "bad_install_token")
-    id_hash = store.identity_hash(claims.get("email")) if user_id else None
+    id_hash = claims_identity(claims) if user_id else None
+    if user_id and id_hash and store.user_banned(user_id):
+        store.ban_identity(id_hash, "banned user deleted their account")  # the ban follows the email too
     n = await run_in_threadpool(store.delete_account, h if live else None, user_id, id_hash)
     log.info("account delete: %d install(s), signed %s, install token %s", n["installs"], "in" if user_id else "out",
              "live" if live else "gone")
@@ -3286,10 +3297,7 @@ def _identity_from_body(body: IdentityBody) -> tuple[str | None, JSONResponse | 
     if body.email:
         ih = store.identity_hash(body.email)
         return (ih, None) if ih else (None, error(400, "invalid_request_error", "email is not an address."))
-    ih = store.identity_of(body.user_id)
-    if not ih:
-        return None, error(404, "not_found_error", "No identity is known for that user id.")
-    return ih, None
+    return None, None
 
 
 @app.post("/admin/identities/ban")
@@ -3306,7 +3314,14 @@ async def admin_identity_ban(request: Request):
     ih, bad = _identity_from_body(body)
     if bad:
         return bad
-    if request.url.path.endswith("/unban"):
+    unban = request.url.path.endswith("/unban")
+    if ih is None:  # by user id: works for users linked before identities were recorded
+        if unban:
+            return {"banned": False, "was_banned": store.unban_user(body.user_id)}
+        n = store.ban_user(body.user_id, body.reason)
+        log.info("admin: user banned, %d token(s) disabled", n)
+        return {"banned": True, "tokens_disabled": n}
+    if unban:
         removed = store.unban_identity(ih)
         log.info("admin: identity %s unbanned", ih[:PREFIX_LEN])
         return {"id": ih[:PREFIX_LEN], "banned": False, "was_banned": removed}
