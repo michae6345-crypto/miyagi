@@ -43,7 +43,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, rea
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PY, libPath, pickPlatform, prune, pruneDirNames, pruneLists, pruneSrc, pythonPath, resolveTarget, runnableHere, sitePath } from './bundle-target.mjs'
+import { BUNDLE_EXCLUDE, PY, bundleRequirements, libPath, pickPlatform, prune, pruneDirNames, pruneLists, pruneSrc, pythonPath, resolveTarget, runnableHere, sitePath } from './bundle-target.mjs'
 
 const args = new Set(process.argv.slice(2))
 for (const a of args) {
@@ -298,9 +298,13 @@ async function bundlePython() {
   if (!DRY && !existsSync(python)) die(`no python/${T.pythonRel.join('/')} in ${PY_FILE}`)
   const canRun = runnable(python)
 
-  // Only the engine's dependencies (`-r pyproject.toml` installs them, not the server package itself: the source runs
+  // Only the engine's dependencies (`-r` installs them, not the server package itself: the source runs
   // from ~/miyagi/engine/src, the cwd of `python3 -m`). Wheels only, for the target platform, so an x64 build works on arm64.
-  const req = join(out, 'src', 'server', 'pyproject.toml')
+  // A requirements file from pyproject's dependencies minus BUNDLE_EXCLUDE (google-genai: Gemini is opt-in only).
+  const req = join(out, 'requirements.bundle.txt')
+  const reqs = bundleRequirements(git('show', `${REF}:server/pyproject.toml`))
+  if (DRY) say(`would install: ${reqs.join(' ')} (left out: ${BUNDLE_EXCLUDE.join(', ')})`)
+  else writeFileSync(req, reqs.join('\n') + '\n')
   const uvArgs = ['pip', 'install', '--quiet', '--target', site, '--python-version', PY_MINOR, '--python-platform', TRIPLE, '--only-binary', ':all:', '-r', req]
   // Resolve against the bundled interpreter itself when this machine can run it (uv finds another one otherwise).
   if (canRun) uvArgs.push('--python', python)
@@ -310,6 +314,7 @@ async function bundlePython() {
   // bundled interpreter to read its tags: it must not leave timestamp .pycs behind either.
   const uvEnv = { ...process.env, VIRTUAL_ENV: '', UV_NO_CONFIG: '1', PYTHONDONTWRITEBYTECODE: '1' }
   run(uv, uvArgs, { cwd: tmpdir(), env: uvEnv })
+  if (!DRY) rmSync(req, { force: true })
 
   if (DRY) {
     say(`would prune: site-packages/**/{${pruneDirNames().join(',')}}, psycopg_binary, pip, site-packages/${T.win ? 'Scripts' : 'bin'}, stubs and C/Cython sources, dist-info RECORD; stdlib ${pruneLists(T).stdlib.join(', ')}; python/{${pruneLists(T).python.join(',')}}, Tcl/Tk; src/**/tests`)

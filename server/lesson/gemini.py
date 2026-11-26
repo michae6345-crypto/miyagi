@@ -73,6 +73,17 @@ def set_api_key(key: str | None) -> None:
     _override_key = key or None
 
 
+def sdk_available() -> bool:
+    """Is google-genai installed? The bundled Mac app leaves it out (app/scripts/bundle-target.mjs BUNDLE_EXCLUDE),
+    so there Gemini is simply off, whatever LESSON_ENGINE or a key says."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("google.genai") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def has_key() -> bool:
     """Is any Gemini key configured (app Settings, the miyagi cloud's install token, .env)? Never logged."""
     _load_env()

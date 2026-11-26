@@ -394,6 +394,18 @@ def test_skim_switches(monkeypatch, skims, top, expected):
     assert env.skim_top() == expected
 
 
+def test_skim_and_fallback_are_off_without_the_sdk(monkeypatch):
+    """The bundled Mac app leaves google-genai out: FINDER_SKIM_TOP and FINDER_GEMINI_FALLBACK can't turn Gemini on."""
+    import importlib.util
+
+    monkeypatch.setattr(env, "_loaded", True)
+    monkeypatch.setenv("FINDER_SKIM_TOP", "3")
+    monkeypatch.setenv("FINDER_GEMINI_FALLBACK", "1")
+    assert env.skim_top() == 3 and env.gemini_fallback() is True
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: None)
+    assert env.sdk_available() is False and env.skim_top() == 0 and env.gemini_fallback() is False
+
+
 
 # --------------------------------------------------------------------------- videos only + relevance floor
 

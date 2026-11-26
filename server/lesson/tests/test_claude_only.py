@@ -52,6 +52,24 @@ def test_gemini_needs_explicit_engine_and_a_key(monkeypatch, off_reset, mode, wi
     assert builder.engines() == want
 
 
+def test_gemini_is_off_without_the_sdk(monkeypatch, off_reset):
+    """The bundled Mac app leaves google-genai out: an explicit engine and a key still give Claude only."""
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "placeholder")
+    monkeypatch.setattr(gemini, "sdk_available", lambda: False)
+    assert not builder.gemini_enabled() and builder.engines() == ["claude"]
+
+
+def test_sdk_available_handles_a_missing_google_package(monkeypatch):
+    import importlib.util
+
+    def missing(name, *a, **k):
+        raise ModuleNotFoundError(f"No module named {name.split('.')[0]!r}")
+
+    monkeypatch.setattr(importlib.util, "find_spec", missing)
+    assert gemini.sdk_available() is False
+
+
 def test_default_build_never_touches_gemini(fake, monkeypatch, off_reset):
     """No LESSON_ENGINE (the default), a Gemini key present: the Claude transcript path builds the lesson, with the
     tutorial's linked code in its input, starts pinned to the chapter marks, and Gemini is never called."""

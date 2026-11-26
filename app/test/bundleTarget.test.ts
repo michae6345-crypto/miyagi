@@ -16,6 +16,39 @@ const touch = (p: string) => {
   writeFileSync(p, 'x')
 }
 
+describe('bundleRequirements', () => {
+  const PYPROJECT = `[project]
+name = "x"
+dependencies = [
+  "fastapi>=0.115", "uvicorn[standard]>=0.30",
+  "anthropic>=2.8", "google-genai>=1.0",
+  "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'", "pillow>=10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+`
+  test('drops google-genai, keeps everything else in order with markers and extras', () => {
+    assert.deepEqual(bt.bundleRequirements(PYPROJECT), [
+      'fastapi>=0.115', 'uvicorn[standard]>=0.30', 'anthropic>=2.8', "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'", 'pillow>=10',
+    ])
+  })
+  test('matches names case- and separator-insensitively, never the dev extras', () => {
+    assert.deepEqual(bt.bundleRequirements(PYPROJECT, ['Google_Genai', 'PILLOW']).slice(-1), ["pyobjc-framework-Quartz>=10; sys_platform == 'darwin'"])
+    assert.ok(!bt.bundleRequirements(PYPROJECT, []).includes('pytest>=8'))
+  })
+  test("the real server/pyproject.toml still lists google-genai for dev, and the bundle leaves it out", () => {
+    const real = readFileSync(join(APP, '..', 'server', 'pyproject.toml'), 'utf8')
+    assert.ok(bt.bundleRequirements(real, []).some((d: string) => d.startsWith('google-genai')))
+    const reqs = bt.bundleRequirements(real)
+    assert.ok(!reqs.some((d: string) => /^google/i.test(d)))
+    assert.ok(reqs.some((d: string) => d.startsWith('anthropic')))
+  })
+  test('a pyproject without dependencies throws', () => {
+    assert.throws(() => bt.bundleRequirements('[project]\nname = "x"\n'), /no dependencies/)
+  })
+})
+
 describe('pickPlatform', () => {
   test('defaults: Windows host builds Windows, anything else builds macOS', () => {
     assert.equal(bt.pickPlatform({ env: {}, hostPlatform: 'win32' }), 'win32')
@@ -62,7 +95,8 @@ describe('resolveTarget', () => {
   test('smoke import skips the macOS-only modules on Windows, keeps the rest', () => {
     const w = bt.resolveTarget({ platform: 'win32' })
     for (const m of ['Quartz', 'Vision', 'ScreenCaptureKit', 'ApplicationServices', 'HIServices', 'AppKit', 'objc']) assert.doesNotMatch(w.smoke, new RegExp(`\\b${m}\\b`))
-    for (const m of ['fastapi', 'uvicorn', 'websockets', 'pydantic', 'anthropic', 'google.genai', 'PIL']) assert.match(w.smoke, new RegExp(m.replace('.', '\\.')))
+    for (const m of ['fastapi', 'uvicorn', 'websockets', 'pydantic', 'anthropic', 'PIL']) assert.match(w.smoke, new RegExp(m))
+    assert.doesNotMatch(w.smoke, /google/) // BUNDLE_EXCLUDE
   })
   test('bad arch or platform gives an error, not a throw', () => {
     assert.match(bt.resolveTarget({ platform: 'win32', arch: 'universal2' }).error, /use x64 or arm64/)

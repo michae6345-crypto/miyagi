@@ -97,11 +97,21 @@ def skim_models() -> list[str]:
     return _chain("FINDER_SKIM_MODEL", "gemini-3.1-flash-lite,gemini-3.5-flash-lite")
 
 
+def sdk_available() -> bool:
+    """Is google-genai installed? The bundled Mac app leaves it out, so there the Gemini skim and fallback are off."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("google.genai") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def skim_top() -> int:
     """How many top videos Gemini skims. Default 0 (off): Gemini is reserved for the lesson builder.
     FINDER_SKIM_TOP=3 turns it back on; FINDER_SKIMS=0/1 is an on/off alias (0 always wins)."""
     load_env()
-    if os.environ.get("FINDER_SKIMS", "").strip() == "0":
+    if os.environ.get("FINDER_SKIMS", "").strip() == "0" or not sdk_available():
         return 0
     try:
         n = int(os.environ.get("FINDER_SKIM_TOP", "") or 0)
@@ -125,7 +135,7 @@ def video_reads() -> int:
 def gemini_fallback() -> bool:
     """Gemini scores rows only if Claude fails AND FINDER_GEMINI_FALLBACK=1 (default off, same reason)."""
     load_env()
-    return os.environ.get("FINDER_GEMINI_FALLBACK", "0") == "1"
+    return os.environ.get("FINDER_GEMINI_FALLBACK", "0") == "1" and sdk_available()
 
 
 ALL_KINDS = ("video", "blog", "notebook", "repo", "paper")
