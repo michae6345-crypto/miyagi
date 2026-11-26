@@ -1482,6 +1482,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap={navKey('flip')} enabled onClick={switchMode} />}
               {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. No shortcut reaches it; Tab does, still two presses (Q15). */}
               {lesson.hasLesson && resumeRows && <EndLink armed={endArmed} onClick={tapEnd} />}
+              {/* A lesson still building (no step 1 yet): the same quiet two clicks stop it (a tester, Nov 25, had no way to). */}
+              {!lesson.hasLesson && lesson.building && mode === 'search' && !typed && <EndLink building armed={endArmed} onClick={tapEnd} />}
               <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[12.5px]" style={{ color: note ? color.text : color.label }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note ? (

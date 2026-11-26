@@ -50,6 +50,17 @@ export function keepWorking(): void {
   if (get().open) set({ open: false, dismissed: true })
 }
 
+/**
+ * The building pill was clicked: the card again, so Stop building is always one click away (a tester, Nov 25, could not
+ * stop a lesson mid-build: after Keep working, or for a build that never opened the card, the pill had no click at all).
+ * It opens before the engine's first lesson.building too (the pill's "Planning your lesson…"): the card shows its frame
+ * and the two actions, and Stop then ends the start the engine has queued or is running (main.py _stop_starts).
+ */
+export function openBuildCard(): void {
+  disarm()
+  set({ open: true, dismissed: false })
+}
+
 /** Stop building: the first tap arms it, a second one within STOP_ARM_MS sends end_lesson. */
 export function tapStop(): void {
   if (!get().open) return

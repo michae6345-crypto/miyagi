@@ -152,6 +152,12 @@ for (const t of ['lesson.building', 'lesson.ready'] as const)
     stopPlanning()
   })
 onMessage('error', stopPlanning)
+// The learner stopped it (Stop building, End, a removed plan: reason "stopped"): nothing is planned any more, so the pill
+// must not read "Planning your lesson…" for up to PLANNING_MAX_MS after the stop. The old lesson's end as a new one
+// starts (reason "new lesson") is not it: that build is still on its way.
+onMessage('lesson.ended', (p) => {
+  if (p.reason !== 'new lesson' && p.reason !== 'interrupted') stopPlanning()
+})
 
 onMessage('step.passed', (p) => {
   const { steps } = useLesson.getState()

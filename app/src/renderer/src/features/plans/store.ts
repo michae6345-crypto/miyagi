@@ -83,8 +83,29 @@ const WAIT_MS = 2500
 
 const isPlan = (p: unknown): p is PlanState => !!p && typeof p === 'object' && typeof (p as PlanState).id === 'string' && typeof (p as PlanState).title === 'string' && Array.isArray((p as PlanState).lessons)
 
+/**
+ * Plans the learner removed in this app run. A `plans` answer already on its way (a plan.start or plans.list sent before
+ * the remove, a push as the plan's lesson started) still carries the plan: it must not come back on screen, nor start
+ * its lesson (a tester, Nov 25: "I want to just remove the plan ... it still doesn't do that"). One that comes back
+ * anyway (a plan.start the engine finished after the remove) is removed again, once. Adding it again clears its mark.
+ */
+const removed = new Map<string, { resent: boolean }>()
+
+/** Drop the removed plans from an engine answer; re-send plan.remove for one the engine still has. Pure but for the send. */
+export function withoutRemoved(items: PlanState[]): PlanState[] {
+  return items.filter((p) => {
+    const r = removed.get(p.id) ?? (p.catalogId ? removed.get(p.catalogId) : undefined)
+    if (!r) return true
+    if (!r.resent) {
+      r.resent = true
+      bridge.send(cmd('plan.remove', { id: p.id }))
+    }
+    return false
+  })
+}
+
 onMessage('plans', (payload) => {
-  const items = Array.isArray(payload?.items) ? payload.items.filter(isPlan) : []
+  const items = withoutRemoved(Array.isArray(payload?.items) ? payload.items.filter(isPlan) : [])
   set({ mine: items, fromEngine: true })
   const p = pending
   if (!p) return
@@ -131,6 +152,8 @@ export function startNext(p: PlanState): void {
 function begin(local: PlanState, match: (p: PlanState) => boolean, payload: { catalogId?: string; playlistId?: string; url?: string; goal?: string; proposal?: PlanProposal }, start: boolean, index?: number): void {
   const s = get()
   const id = reqId('plan')
+  removed.delete(local.id) // added again on purpose: its answers count again
+  if (payload.catalogId) removed.delete(payload.catalogId)
   if (pending) clearTimeout(pending.timer)
   const before = new Set(s.mine.map((m) => m.id))
   // Shown at once (the engine's answer replaces it); started at once only when nothing answers.
@@ -185,10 +208,29 @@ export function openBrowsePlans(): void {
   showPlans()
 }
 
-/** Remove a plan (the lessons it started stay in the library). */
+/**
+ * Remove a plan, at any point (the lessons it started stay in the library). A start still waiting for its plan.start
+ * answer is dropped (it would start the plan's lesson after the remove), and the engine stops the plan's lesson if it is
+ * still on its way (main.py plan_removed: queued, or building before lesson.ready).
+ */
 export function removePlan(id: string): void {
-  set((s) => ({ mine: s.mine.filter((m) => m.id !== id), view: s.view.kind !== 'library' && 'id' in s.view && s.view.id === id ? { kind: 'library' } : s.view }))
-  bridge.send(cmd('plan.remove', { id }))
+  const plan = get().mine.find((m) => m.id === id || m.catalogId === id)
+  removed.set(id, { resent: false })
+  if (plan) removed.set(plan.id, { resent: false })
+  if (plan?.catalogId) removed.set(plan.catalogId, { resent: false })
+  if (pending && (pending.local.id === id || pending.local.id === plan?.id || pending.local.catalogId === id)) {
+    clearTimeout(pending.timer)
+    pending = undefined
+  }
+  const gone = (m: MyPlan): boolean => m.id === id || (!!plan && m.id === plan.id)
+  const viewed = (v: View): boolean => v.kind !== 'library' && 'id' in v && (v.id === id || (!!plan && (v.id === plan.id || v.id === plan.catalogId)))
+  set((s) => ({ mine: s.mine.filter((m) => !gone(m)), view: viewed(s.view) ? { kind: 'library' } : s.view }))
+  bridge.send(cmd('plan.remove', { id: plan?.id ?? id }))
+}
+
+/** Tests only: forget the removed marks. */
+export function _resetRemoved(): void {
+  removed.clear()
 }
 
 // ---- the sidebar's Plans ----------------------------------------------------------------------------------------
