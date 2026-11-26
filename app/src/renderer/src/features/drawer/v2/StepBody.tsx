@@ -6,7 +6,7 @@
  * The code is never clipped (persona QA, blocker): long lines soft-wrap with a hanging indent, so a continuation sits
  * two columns in from the line's own indent and reads as the same line. The box is keyboard-focusable (it is
  * something to read) and has a Copy chip. A code step whose code hasn't arrived yet shows a quiet skeleton of the box,
- * never an empty gap. `where` / `then` come from step.started (v2). Without `where` a code step says "Type this", a run
+ * never an empty gap, for SKELETON_MAX_MS; then the block goes (no code is coming). `where` / `then` come from step.started (v2). Without `where` a code step says "Type this", a run
  * step "Run this".
  */
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -121,7 +121,7 @@ function CopyChip({ text }: { text: string }): ReactNode {
       data-copy={result}
       aria-label={result === 'idle' ? 'Copy the code' : label}
       aria-live="polite"
-      className="absolute right-[6px] top-[6px] flex h-[24px] cursor-pointer items-center gap-[4px] whitespace-nowrap px-[8px]"
+      className="absolute right-[6px] top-[6px] flex h-[26px] cursor-pointer items-center gap-[4px] whitespace-nowrap px-[8px]"
       // "Could not copy" is wider than CHIP_ROOM: for its 2.4 s it sits on an opaque sheet so the code never shows through.
       style={{ borderRadius: radius2.control, background: result === 'no' ? surface.sheet : fill.button, color: result === 'idle' ? tone.label : tone.text, fontSize: type2.micro, fontWeight: 500 }}
       whileHover={{ backgroundColor: fill.chipHover, color: tone.text }}
@@ -138,10 +138,24 @@ function CopyChip({ text }: { text: string }): ReactNode {
 /** Room on the right of the first row for the Copy chip, sized for "Copied" (so it never sits on the code). */
 const CHIP_ROOM = 80
 
+/**
+ * How long a code step waits for its code before the skeleton gives up and the block goes (QA R3-09: a code step the
+ * engine sent with no code at all kept "Type this" and three breathing bars forever, and the panel looked stuck).
+ * Code that arrives later still shows.
+ */
+export const SKELETON_MAX_MS = 6000
+
 export function CodeBlock({ code, where, kind, then, waiting }: { code?: string; where?: string; kind?: StepKind; then?: string; waiting?: boolean }): ReactNode {
   const label = where ?? (kind ? DEFAULT_WHERE[kind] : undefined)
   const reduced = useReducedMotion()
-  const skeleton = !code && waiting && kind === 'code'
+  const wantSkeleton = !code && !!waiting && kind === 'code'
+  const [gaveUp, setGaveUp] = useState(false)
+  useEffect(() => {
+    if (!wantSkeleton) return
+    const id = setTimeout(() => setGaveUp(true), SKELETON_MAX_MS)
+    return () => clearTimeout(id)
+  }, [wantSkeleton])
+  const skeleton = wantSkeleton && !gaveUp
   if (!code && !then && !skeleton) return null
   const lines = code ? code.split('\n') : []
   return (

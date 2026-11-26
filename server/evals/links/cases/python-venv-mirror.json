@@ -1,0 +1,31 @@
+{
+  "id": "python-venv-mirror",
+  "url": "https://www.docs.python.org/3/tutorial/venv.html/?utm_source=newsletter&ref=hn#creating-virtual-environments",
+  "page": "python-venv-mirror.html",
+  "notes": "The same page with other chrome (cookie banner, announcement, newsletter box, copy buttons, a new date, plain <pre> instead of highlighted spans) and another spelling of its link: same readable text, same content hash, same cache key.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Virtual Environments and Packages",
+    "site": "docs.python.org",
+    "same_hash_as": "python-venv",
+    "code": [
+      "python3 -m venv tutorial-env",
+      "source tutorial-env/bin/activate",
+      "python -m pip install requests",
+      "python -m pip list",
+      "python -m pip install -r requirements.txt"
+    ],
+    "absent": [
+      "Accept all cookies",
+      "Sign up for our newsletter",
+      "Python 3.14 is out",
+      "Was this page helpful",
+      "Quick search",
+      "Last updated on"
+    ]
+  }
+}

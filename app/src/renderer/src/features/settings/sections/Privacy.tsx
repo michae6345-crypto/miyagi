@@ -34,6 +34,7 @@ import '../privacy/deleteWeb'
 import { Sees } from '../privacy/Sees'
 import { here } from '../here'
 import { Group, OnWord, PageHeader, Row, TextButton } from '../ui'
+import { takeDeleteAsk } from '../v4/facts'
 
 /** offline: the server couldn't be reached, nothing was deleted. done / pending: deleted; a restart follows. */
 type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | 'refused'
@@ -41,15 +42,67 @@ type Step = 'idle' | 'confirm' | 'deleting' | 'done' | 'pending' | 'offline' | '
 const RESTART_MS = 2600
 
 export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v: KeysView) => void }): ReactNode {
-  const [step, setStep] = useState<Step>(stage.confirm === 'delete' ? 'confirm' : 'idle')
+  const share = usePrefs((s) => s.shareTelemetry)
+  return (
+    <>
+      <PageHeader title="Privacy" caption="What miyagi sees, and where it goes." />
+
+      <Sees secure={secure} />
+
+      <Group label="Help improve miyagi">
+        <Row
+          minH={64}
+          icon={Activity}
+          label="Share crash reports and usage"
+          caption="Errors and lesson counts. Never your code or screen."
+          right={<Toggle label="Share crash reports and usage" on={share === true} onChange={(v) => setPrefs({ shareTelemetry: v })} />}
+        />
+      </Group>
+
+      <Group label="Your data">
+        <Row minH={64} label="Privacy policy" caption={POLICY_LINE} right={<TextButton label="Open" onClick={() => openLegal('privacy')} />} />
+        <DeleteAccount onDeleted={onDeleted} />
+      </Group>
+    </>
+  )
+}
+
+/**
+ * The Delete account row and its in-place two-step confirm (header above). Privacy and the v4 Your data panel both
+ * draw it inside their own group, so Delete account opens its confirm right where it was clicked. `label`, `row` and
+ * `button` name the idle row the way the panel around it does.
+ */
+export function DeleteAccount({
+  onDeleted,
+  onBusy,
+  label = DELETE.label,
+  row = DELETE.row,
+  button = 'Delete'
+}: {
+  onDeleted?: (v: KeysView) => void
+  /**
+   * true when the delete starts, false again when nothing was deleted (offline, refused). The sign-out step clears the
+   * signed-in user mid-delete, so a page that draws this row only while signed in (the Account page) holds its
+   * signed-in layout while this is true: the deleted line shows and the restart timer runs.
+   */
+  onBusy?: (busy: boolean) => void
+  label?: string
+  row?: string
+  button?: string
+}): ReactNode {
+  // The stage's ?confirm=delete opens straight on the confirm.
+  const [step, setStep] = useState<Step>(() => (takeDeleteAsk() || stage.confirm === 'delete' ? 'confirm' : 'idle'))
   // Unchecked by default, and again every time the confirm opens: lesson folders are the learner's own work.
   const [lessons, setLessons] = useState(false)
   const [leftovers, setLeftovers] = useState(false)
   const cancelBox = useRef<HTMLSpanElement>(null)
-  const share = usePrefs((s) => s.shareTelemetry)
-  // The confirm opens with focus on Cancel (the safe default): Enter or Space backs out, Esc too.
+  const box = useRef<HTMLDivElement>(null)
+  // The confirm opens with focus on Cancel (the safe default): Enter or Space backs out, Esc too. It is scrolled into
+  // view, so the click visibly did something wherever the row sat.
   useEffect(() => {
-    if (step === 'confirm') cancelBox.current?.querySelector('button')?.focus({ preventScroll: true })
+    if (step !== 'confirm') return
+    cancelBox.current?.querySelector('button')?.focus({ preventScroll: true })
+    box.current?.scrollIntoView?.({ block: 'nearest' })
   }, [step])
 
   const open = (): void => {
@@ -61,14 +114,16 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
   const erase = async (): Promise<void> => {
     if (step !== 'confirm' && step !== 'offline' && step !== 'refused') return
     setStep('deleting')
+    onBusy?.(true)
     const r = await deleteAccount((channel, payload) => bridge.invoke<unknown>(channel, payload), { lessons })
     if (r.deleted) {
-      onDeleted(r.deleted.keys)
+      onDeleted?.(r.deleted.keys)
       setPrefs({ ...DEFAULT_PREFS })
     }
     if (r.signedOut) useAuth.setState({ user: null })
     setLeftovers(!r.local)
     setStep(r.step)
+    if (r.step === 'offline' || r.step === 'refused') onBusy?.(false)
   }
 
   // Deleted: the line shows for a moment, then a built app starts again from the first-run screen.
@@ -98,24 +153,8 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
 
   return (
     <>
-      <PageHeader title="Privacy" caption="What miyagi sees, and where it goes." />
-
-      <Sees secure={secure} />
-
-      <Group label="Help improve miyagi">
-        <Row
-          minH={64}
-          icon={Activity}
-          label="Share crash reports and usage"
-          caption="Errors and lesson counts. Never your code or screen."
-          right={<Toggle label="Share crash reports and usage" on={share === true} onChange={(v) => setPrefs({ shareTelemetry: v })} />}
-        />
-      </Group>
-
-      <Group label="Your data">
-        <Row minH={64} label="Privacy policy" caption={POLICY_LINE} right={<TextButton label="Open" onClick={() => openLegal('privacy')} />} />
         {step === 'confirm' || step === 'deleting' ? (
-          <div data-delete-step={step}>
+          <div ref={box} data-delete-step={step}>
             <Row
               minH={64}
               label={DELETE.confirmLabel}
@@ -155,7 +194,7 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
           <div data-delete-step={step}>
             <Row
               minH={64}
-              label={DELETE.label}
+              label={label}
               caption={
                 step === 'offline' || step === 'refused' ? (
                   <span role="alert" style={{ color: color.text }}>
@@ -166,26 +205,28 @@ export function Privacy({ secure, onDeleted }: { secure?: boolean; onDeleted: (v
                     {here(deletedLine)} {DELETE.restart}
                   </span>
                 ) : (
-                  DELETE.row
+                  row
                 )
               }
               right={
                 step === 'done' || step === 'pending' ? (
                   <OnWord>Deleted</OnWord>
                 ) : (
-                  <OutlineButton label={retry ? 'Try again' : 'Delete'} aria={retry ? 'Try deleting again' : DELETE.label} onClick={retry ? () => void erase() : open} />
+                  <OutlineButton label={retry ? 'Try again' : button} aria={retry ? 'Try deleting again' : label} onClick={retry ? () => void erase() : open} />
                 )
               }
             />
           </div>
         )}
-      </Group>
     </>
   )
 }
 
-/** Delete is always an outline, never the white primary: the first one only asks, the second one is not the default. */
-function OutlineButton({ label, onClick, aria = DELETE.label }: { label: string; onClick: () => void; aria?: string }): ReactNode {
+/**
+ * Delete is always an outline, never the white primary: the first one only asks, the second one is not the default.
+ * The Account page's Sign out uses it too, so its two rows match.
+ */
+export function OutlineButton({ label, onClick, aria = DELETE.label }: { label: string; onClick: () => void; aria?: string }): ReactNode {
   return (
     <motion.button
       type="button"

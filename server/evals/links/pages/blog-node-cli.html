@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Build a notes CLI with Node.js, step by step – Terminal Tuesday</title>
+<meta property="og:title" content="Build a notes CLI with Node.js, step by step">
+<meta name="author" content="Jun Watanabe">
+</head>
+<body>
+<div class="site-wrap">
+<header id="masthead" class="site-header"><a href="/">Terminal Tuesday</a><nav class="main-navigation"><a href="/">Home</a> <a href="/series">Series</a></nav></header>
+<div id="primary" class="content-area">
+<main id="main" class="site-main">
+<article class="post type-post">
+<h1 class="entry-title">Build a notes CLI with Node.js, step by step</h1>
+<div class="entry-meta">By Jun Watanabe · <time>May 19, 2026</time></div>
+<div class="entry-content">
+<p>This is a long one: we build <code>notes</code>, a command-line notebook, from an empty folder to a tool with
+add, list, search and delete. Each section adds one command and runs it. Everything goes in <code>notes.js</code>.</p>
+<h2 id="setup">Setup</h2>
+<p>Start a package so Node knows the project, with the default answers:</p>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">npm init -y</code></pre>
+<h2 id="storage">Storage</h2>
+<p>Notes live in a JSON file next to the script. Two helpers read and write it:</p>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">const fs = require("fs");
+const FILE = "notes.json";
+
+function load() {
+  return fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : [];
+}
+
+function save(notes) {
+  fs.writeFileSync(FILE, JSON.stringify(notes, null, 2));
+}</code></pre>
+<p>Check that the file at least parses:</p>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">node --check notes.js</code></pre>
+<h2 id="add">Adding notes</h2>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">function add(text) {
+  const notes = load();
+  notes.push({ id: Date.now(), text });
+  save(notes);
+  console.log(`Saved note ${notes.length}`);
+}</code></pre>
+<p>We'll wire up the command line at the end; for now, read on.</p>
+<h2 id="list">Listing notes</h2>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">function list() {
+  load().forEach((note, i) =&gt; console.log(`${i + 1}. ${note.text}`));
+}</code></pre>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">node notes.js list</code></pre>
+<h2 id="search">Searching</h2>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">function search(word) {
+  const hits = load().filter((n) =&gt; n.text.toLowerCase().includes(word.toLowerCase()));
+  hits.forEach((note) =&gt; console.log(`- ${note.text}`));
+}</code></pre>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">node notes.js search milk</code></pre>
+<h2 id="delete">Deleting</h2>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">function remove(n) {
+  const notes = load();
+  notes.splice(n - 1, 1);
+  save(notes);
+}</code></pre>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">node notes.js delete 1</code></pre>
+<h2 id="cli">The command line</h2>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">const [cmd, ...rest] = process.argv.slice(2);
+const commands = { add: () =&gt; add(rest.join(" ")), list, search: () =&gt; search(rest[0]), delete: () =&gt; remove(Number(rest[0])) };
+(commands[cmd] || list)();</code></pre>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">node notes.js add "buy milk"</code></pre>
+<h2 id="colors">Bonus: colours</h2>
+<pre class="wp-block-code"><code lang="bash" class="language-bash">npm install chalk@4</code></pre>
+<pre class="wp-block-code"><code lang="javascript" class="language-javascript">const chalk = require("chalk");
+console.log(chalk.green("notes is ready"));</code></pre>
+</div>
+</article>
+<nav class="post-navigation"><a href="/prev">Previous: Reading files in Node</a></nav>
+<div id="comments" class="comments-area"><h2>3 thoughts</h2><p>Thanks Jun, this series is gold.</p></div>
+</main>
+</div>
+<aside id="secondary" class="widget-area"><section class="widget"><h2>Subscribe</h2><p>Get Terminal Tuesday in your inbox.</p></section></aside>
+<footer class="site-footer">Proudly powered by WordPress</footer>
+</div>
+</body>
+</html>

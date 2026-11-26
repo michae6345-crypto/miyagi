@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "np.round(out, 1) rounds them to one decimal, so a good network prints -1.0, 0.0 and 1.0."
+}

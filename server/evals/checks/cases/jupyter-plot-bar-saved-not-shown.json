@@ -1,0 +1,77 @@
+{
+ "id": "jupyter-plot-bar-saved-not-shown",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan, 'Install a package and draw a chart' (passes when a cell calls plt.bar on the seven days and its output holds an image): the learner ended the cell with plt.savefig('steps.png') and plt.close(), so the cell ran with no output at all. The title text is only in the source on screen.",
+ "heldOut": true,
+ "step": {
+  "id": "jup6s5",
+  "title": "Draw the week as a bar chart",
+  "instructions": "In steps.ipynb, call plt.bar(days, steps), title it 'Steps per day' and run the cell so the chart shows under it.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "plt.bar(days, steps)",
+    "caption": "Draw the bar chart"
+   }
+  ],
+  "code": "import matplotlib.pyplot as plt\n\ndays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.show()",
+  "checks": [
+   {
+    "id": "jup6s5c1",
+    "type": "screen_contains",
+    "label": "plt.bar called on the seven days",
+    "app": "Code",
+    "pattern": "plt\\.bar\\(\\s*days"
+   },
+   {
+    "id": "jup6s5c2",
+    "type": "screen_contains",
+    "label": "Bar chart shown under the cell",
+    "app": "Code",
+    "pattern": "Steps\\s+per\\s+day"
+   },
+   {
+    "id": "jup6s5c3",
+    "type": "screen_absent",
+    "label": "No cell error",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true
+      },
+      {
+       "source": "import matplotlib.pyplot as plt\n\ndays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.savefig('steps.png')\nplt.close()",
+       "run": true
+      }
+     ]
+    }
+   },
+   "steps.png": "PNG placeholder"
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "import matplotlib.pyplot as plt",
+    "days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']",
+    "plt.bar(days, steps)",
+    "plt.title('Steps per day')",
+    "plt.savefig('steps.png')",
+    "plt.close()"
+   ]
+  }
+ }
+}

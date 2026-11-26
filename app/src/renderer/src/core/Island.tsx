@@ -21,7 +21,7 @@ import { getIslandModes, type IslandMode } from './registry'
 import { perf } from './perf'
 import { NotchContext } from './notchContext'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
-import { color, hud, pill, shadows } from './theme'
+import { color, pill, shadows } from './theme'
 import {
   EAR_W,
   HOVER,
@@ -31,7 +31,6 @@ import {
   notchSize,
   radiiFor,
   restSize,
-  SHORT_OPEN_H,
   viewWith,
   type NotchView
 } from './notchGeometry'
@@ -296,13 +295,14 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // The pill slides beside what the engine says must stay visible (VS Code's quick-pick, test 9, A4).
   const peek = !!mode && !isPill && !held[at]
   const pillOffset = usePillOffset(mode && isPill ? { w: size.w, h: size.h } : undefined, peek, top, layout, pointerIn || pressHold)
-  // A step card that opens on its own (a peek) clears the docked video panel and VS Code's toolbar too (test 11: it
-  // clipped "Bu|ild…" under the panel).
+  // A hover card (a peek) clears the docked video panel sideways (test 11: it clipped "Bu|ild…" under the panel), but is
+  // never pushed down under VS Code's toolbar rows: the pointer is on the pill, and a card that opened 112 px lower lost
+  // the pointer, closed, and opened again in a loop (MIC-83). Held cards keep the toolbar rule (useIslandOffset).
   const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   const peekAt = { x: (layout.width - size.w) / 2, y: top, w: size.w, h: size.h }
   // In the notch the island never steps aside: it is attached to the notch, and a card grows down from it.
   const cx = nm ? nm.x + nm.width / 2 - layout.width / 2 : 0
-  const offset = nm ? { x: cx, y: 0 } : card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout) : pillOffset
+  const offset = nm ? { x: cx, y: 0 } : card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout, false) : pillOffset
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
@@ -555,7 +555,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         onPointerDownCapture={press}
       >
         {nm ? (
-          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} glow={open && shown.h >= SHORT_OPEN_H} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={stretch !== 1 ? stretch : hi.light && !open ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
+          <NotchShape w={shown.w} h={shown.h} rt={radii.top} rb={radii.bottom} tp={radii.taper} open={open} nm={nm} coexist={coexist} shadow={plan!.shadow} scale={open ? 1 : stretch !== 1 ? stretch : hi.light ? HOVER_SCALE : 1} snap={landing || !sized} reduced={!!reduced} lift={justLanded} hit={!yielded && !muted}>
             {layers}
           </NotchShape>
         ) : (
@@ -590,8 +590,11 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
  * layer (filter and will-change on the wrapper) before the hover lean scales it from the top. Open or hovered it
  * gets a soft shadow; at rest there is none, so it fuses with the hardware notch. When another notch app shares the
  * notch, the core band is masked out: nothing of ours is drawn there. A 1 px seam sits inside the top of the shape.
+ * It is plain notch black at every size: the green glow an open, tall shape had (Nov 22) and the mint gradient that
+ * replaced it for a day (Nov 25) are gone (Adrian, MIC-83: a gradient, and it sat behind "Not yet" and the error
+ * cards, where green should mean passed).
  */
-function NotchShape({ w, h, rt, rb, tp, glow, open, nm, coexist, shadow, scale, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; tp: number; glow: boolean; open: boolean; nm: NotchLayout; coexist: boolean; shadow: string; scale: number; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
+function NotchShape({ w, h, rt, rb, tp, open, nm, coexist, shadow, scale, snap, reduced, lift, hit, children }: { w: number; h: number; rt: number; rb: number; tp: number; open: boolean; nm: NotchLayout; coexist: boolean; shadow: string; scale: number; snap: boolean; reduced: boolean; lift: boolean; hit: boolean; children: ReactNode }): ReactNode {
   const W = useMotionValue(w)
   const H = useMotionValue(h)
   const RT = useMotionValue(rt)
@@ -617,8 +620,6 @@ function NotchShape({ w, h, rt, rb, tp, glow, open, nm, coexist, shadow, scale, 
     >
       <motion.div data-hit={hit ? true : undefined} className="relative overflow-hidden text-white" style={{ width: W, height: H, background: color.island, clipPath: clip, mask, WebkitMask: mask }}>
         <motion.span aria-hidden className="pointer-events-none absolute" style={{ top: 0, height: 1, left: seamLeft, width: seamWidth, background: color.island }} />
-        {/* Open and tall: black at the notch fading into green at the bottom (Michael, Nov 22, after Clicky's blue). */}
-        <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: hud.notchGlow }} initial={false} animate={{ opacity: glow ? 1 : 0 }} transition={reduced ? instant : { duration: 0.35, ease: 'easeOut', delay: glow ? 0.08 : 0 }} />
         {children}
       </motion.div>
     </motion.div>

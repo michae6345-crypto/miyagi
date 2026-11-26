@@ -1,52 +1,64 @@
 /**
- * Feature: shell. The Settings page: the settings sheet's five sections (features/settings sections/*) inline, so
- * nobody hunts for a separate window. General, Permissions, Privacy, Your key, Shortcuts, picked with a segmented
- * control. The sheet that grows from the pill (openSettings, the tray, the pill's gear) is unchanged.
+ * Feature: shell. The Settings page, v4 (Adrian's ui-next mock, screens settings, settings-apps and settings-data,
+ * Nov 23-24): "Settings swaps the app sidebar for its own list". While this page is on show it hands the shell its
+ * list (Account; App; Learning; Privacy; About at the foot) through `setSidebarList`, and the top bar reads
+ * "Settings / General" through `setCrumbs`. The panel sits in the shell's v4 PageFrame (the 1040 column, so the two
+ * columns are 492 each), which also hides the shell's own page title: the panel's 32 px title is the only one.
  *
  * `live` is true only while this page is on show: permissions poll, health asks, Save and Test run then and never
  * while the page sits hidden. The key flow (drafts, Save, Test) is the sheet's own hook; drafts live while the window
- * does and are never stored.
+ * does and are never stored. `useShell.settings` (openPage('settings', section)) picks the panel when it changes.
  */
-import { motion } from 'motion/react'
-import { useEffect, useState, type ReactNode } from 'react'
-import type { SettingsSection } from '../../../core/surfaces'
-import { Segmented } from '../../../core/ui/controls'
-import { riseIn } from '../../../core/ui/motion'
+import { useEffect, type ReactNode } from 'react'
 import { useKeyFlow } from '../../settings/account'
-import { Account } from '../../settings/sections/Account'
-import { General } from '../../settings/sections/General'
-import { Permissions } from '../../settings/sections/Permissions'
-import { Privacy } from '../../settings/sections/Privacy'
-import { Shortcuts } from '../../settings/sections/Shortcuts'
-import { NAV } from '../../settings/Sidebar'
-import { InlineSettings } from '../../settings/ui'
-import { setSettingsSection, useShell } from '../store'
+import { Content } from '../../settings/Content'
+import { setPagePanel, setQuery, useNav } from '../../settings/nav'
+import type { PanelId } from '../../settings/panels'
+import { FOOT4, NAV4, navLabel, navRowOf } from '../../settings/v4/PageNav'
+import { SEES_TITLE } from '../../settings/v4/Panels'
+import { openPage, setPage, useShell } from '../store'
+import { PageFrame, setCrumbs, setSidebarList, type SidebarList } from '../ui'
 
-const OPTIONS = NAV.map((n) => ({ value: n.id, label: n.label }))
+const pick = (id: string): void => {
+  if (id === 'account-page') return void openPage('account')
+  setPagePanel(id as PanelId)
+}
 
 export function SettingsPage({ active }: { active: boolean }): ReactNode {
-  const section = useShell((s) => s.settings)
+  const shellSection = useShell((s) => s.settings)
+  const panel = useNav((s) => s.page)
   const flow = useKeyFlow(active)
-  // The section the page opened on doesn't rise (the page's own entrance covers it); a later one does.
-  const [first] = useState<SettingsSection>(section)
-  const [moved, setMoved] = useState(false)
+  const on = navRowOf(panel)
   useEffect(() => {
-    if (section !== first) setMoved(true)
-  }, [section, first])
+    setPagePanel(shellSection)
+  }, [shellSection])
+  useEffect(() => {
+    if (!active) setQuery('')
+  }, [active])
+  // One sidebar on screen: the app's list gives way to Settings' own while this page shows.
+  useEffect(() => {
+    if (!active) return
+    const list: SidebarList = {
+      back: { label: 'Settings', onClick: () => setPage('home') },
+      groups: NAV4.map((g) => ({ label: g.label, items: g.items.map((i) => ({ id: i.id, label: i.label, icon: i.icon })) })),
+      foot: [{ id: FOOT4.id, label: FOOT4.label, icon: FOOT4.icon }],
+      active: on,
+      onPick: pick
+    }
+    setSidebarList(list)
+    return () => setSidebarList(null)
+  }, [active, on])
+  useEffect(() => {
+    if (!active) return
+    // Your data's "See the list" (the privacy panel) sits one level under Your data, and its title says so.
+    setCrumbs('settings', panel === 'privacy' ? [navLabel(on), SEES_TITLE] : [navLabel(on)])
+    return () => setCrumbs('settings', null)
+  }, [active, on, panel])
   return (
-    <InlineSettings.Provider value>
-    <div data-shell-settings={section} className="flex flex-col gap-[24px]" style={{ padding: '8px 40px 40px', maxWidth: 820 }}>
-      <div className="flex shrink-0">
-        <Segmented<SettingsSection> label="Settings sections" options={OPTIONS} value={section} onChange={setSettingsSection} />
+    <PageFrame data={{ 'data-shell-settings': panel }}>
+      <div id="settings-panel" role="region" aria-label={navLabel(on)} className="min-w-0">
+        <Content panel={panel} onPick={(p) => setPagePanel(p)} flow={flow} live={active} big />
       </div>
-      <motion.div key={section} initial={moved ? riseIn.initial : false} animate={riseIn.animate} transition={riseIn.transition} className="flex flex-col gap-[24px]">
-        {section === 'general' && <General live={active} />}
-        {section === 'permissions' && <Permissions live={active} />}
-        {section === 'privacy' && <Privacy secure={flow.view?.secure} onDeleted={flow.replaceView} />}
-        {section === 'account' && <Account flow={flow} live={active} />}
-        {section === 'shortcuts' && <Shortcuts />}
-      </motion.div>
-    </div>
-    </InlineSettings.Provider>
+    </PageFrame>
   )
 }

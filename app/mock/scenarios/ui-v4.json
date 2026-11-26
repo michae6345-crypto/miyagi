@@ -1,0 +1,4572 @@
+{
+  "name": "ui-v4",
+  "on": {
+    "connect": "step_uiv4",
+    "activity.get": "uiv4_activity",
+    "bon.get": "uiv4_bon",
+    "bon.import": "uiv4_bon",
+    "plans.list": "uiv4_plans",
+    "plan.start": "uiv4_plan_started",
+    "plan.remove": "uiv4_plans",
+    "playlist.get": "uiv4_playlist",
+    "plan.propose": "uiv4_proposal",
+    "link.get": "uiv4_link",
+    "proof.get": "uiv4_proof",
+    "data.get": "uiv4_data",
+    "data.delete": "uiv4_data_deleted",
+    "library.list": "uiv4_library",
+    "progress.get@step_uiv4": "uiv4_progress",
+    "action:check_step@step_uiv4": "uiv4_pass"
+  },
+  "segments": {
+    "step_uiv4": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": [
+            "health.get",
+            "permission.open",
+            "library.list",
+            "library.get",
+            "library.start",
+            "progress.get",
+            "panel.state",
+            "set_goal",
+            "skills.ack",
+            "review.start",
+            "data.delete",
+            "ask.warm",
+            "activity.get",
+            "bon.get",
+            "bon.import",
+            "plans.list",
+            "plan.start",
+            "plan.remove",
+            "playlist.get",
+            "plan.propose",
+            "link.get",
+            "proof.get",
+            "data.get"
+          ]
+        }
+      },
+      {
+        "wait": 100,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "lesson-5c7e2b90",
+            "title": "Subdivision and smooth shading",
+            "sources": [],
+            "complete": true,
+            "mode": "lesson"
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 1,
+              "title": "Open your mug",
+              "kind": "read",
+              "skillIds": [
+                "bl.modifiers"
+              ]
+            },
+            {
+              "id": "s2",
+              "index": 2,
+              "title": "Add a Subdivision Surface modifier",
+              "kind": "code",
+              "skillIds": [
+                "bl.modifiers"
+              ]
+            },
+            {
+              "id": "s3",
+              "index": 3,
+              "title": "Set the viewport level to 2",
+              "kind": "code",
+              "skillIds": [
+                "bl.modifiers"
+              ]
+            },
+            {
+              "id": "s4",
+              "index": 4,
+              "title": "Shade smooth",
+              "kind": "code",
+              "skillIds": [
+                "bl.modifiers"
+              ]
+            },
+            {
+              "id": "s5",
+              "index": 5,
+              "title": "Save the file",
+              "kind": "code",
+              "skillIds": [
+                "bl.modifiers"
+              ]
+            }
+          ],
+          "replay": true
+        }
+      },
+      {
+        "wait": 50,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s3",
+          "index": 3,
+          "title": "Set the viewport level to 2",
+          "instructions": "In the modifier panel, set Levels Viewport to 2.",
+          "kind": "code",
+          "estMinutes": 3,
+          "replay": true
+        }
+      },
+      {
+        "wait": 50,
+        "goto": "uiv4_bon"
+      }
+    ],
+    "uiv4_activity": [
+      {
+        "wait": 120,
+        "type": "activity",
+        "payload": {
+          "asOf": "2026-11-22T19:40:00-08:00",
+          "tz": "America/Los_Angeles",
+          "minutesTracked": true,
+          "days": [
+            {
+              "date": "2026-08-31",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-01",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-02",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-03",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-05",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-06",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-07",
+              "minutes": 7,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-08",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-09",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-11",
+              "minutes": 9,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-12",
+              "minutes": 7,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-13",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-14",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-15",
+              "minutes": 24,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-17",
+              "minutes": 19,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-18",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-19",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-20",
+              "minutes": 19,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-21",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-22",
+              "minutes": 14,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-23",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-24",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-25",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-26",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-27",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-28",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-29",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-30",
+              "minutes": 32,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-01",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-02",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-03",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-05",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-06",
+              "minutes": 31,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-07",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-08",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-09",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-11",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-12",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-13",
+              "minutes": 33,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-14",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-15",
+              "minutes": 49,
+              "steps": 3
+            },
+            {
+              "date": "2026-10-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-17",
+              "minutes": 28,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-18",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-19",
+              "minutes": 17,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-20",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-21",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-22",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-23",
+              "minutes": 21,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-24",
+              "minutes": 17,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-25",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-26",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-27",
+              "minutes": 38,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-28",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-29",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-30",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-31",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-01",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-02",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-03",
+              "minutes": 39,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-05",
+              "minutes": 59,
+              "steps": 4
+            },
+            {
+              "date": "2026-11-06",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-07",
+              "minutes": 32,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-08",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-09",
+              "minutes": 24,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-11",
+              "minutes": 43,
+              "steps": 3
+            },
+            {
+              "date": "2026-11-12",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-13",
+              "minutes": 30,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-14",
+              "minutes": 24,
+              "steps": 7
+            },
+            {
+              "date": "2026-11-15",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-17",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-18",
+              "minutes": 41,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-19",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-20",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-21",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-22",
+              "minutes": 15,
+              "steps": 1
+            }
+          ],
+          "week": {
+            "minutes": 108,
+            "stepsPassed": 6,
+            "skillsMastered": 2
+          },
+          "totals": {
+            "lessonsFinished": 4,
+            "stepsPassed": 58,
+            "minutes": 959,
+            "skillsMastered": 11
+          },
+          "recent": [
+            {
+              "key": "lesson-3f9a21c0:s4",
+              "lessonId": "lesson-3f9a21c0",
+              "lessonTitle": "The forward pass",
+              "stepId": "s4",
+              "stepTitle": "Add one row to every row",
+              "at": "2026-11-22T16:12:00-08:00",
+              "skillIds": [
+                "nn.forward"
+              ],
+              "skills": [
+                "Forward pass"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-3f9a21c0:s3",
+              "lessonId": "lesson-3f9a21c0",
+              "lessonTitle": "The forward pass",
+              "stepId": "s3",
+              "stepTitle": "Shapes and axes",
+              "at": "2026-11-22T16:03:00-08:00",
+              "skillIds": [
+                "nn.forward"
+              ],
+              "skills": [
+                "Forward pass"
+              ],
+              "planId": "neural-networks",
+              "assisted": true
+            },
+            {
+              "key": "lesson-8b2d4e17:s6",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s6",
+              "stepTitle": "With numpy",
+              "at": "2026-11-21T20:41:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-c41e9a02:s5",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s5",
+              "stepTitle": "Slice rows and columns",
+              "at": "2026-11-19T18:15:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ],
+              "proofId": "pf-c41e9a02-s5"
+            },
+            {
+              "key": "lesson-77ab0d3e:s4",
+              "lessonId": "lesson-77ab0d3e",
+              "lessonTitle": "Move, rotate and scale",
+              "stepId": "s4",
+              "stepTitle": "Scale the mug on one axis",
+              "at": "2026-11-17T21:02:00-08:00",
+              "skillIds": [
+                "bl.transform"
+              ],
+              "skills": [
+                "Transforms"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-77ab0d3e:s3",
+              "lessonId": "lesson-77ab0d3e",
+              "lessonTitle": "Move, rotate and scale",
+              "stepId": "s3",
+              "stepTitle": "Move the mug with G",
+              "at": "2026-11-17T20:51:00-08:00",
+              "skillIds": [
+                "bl.transform"
+              ],
+              "skills": [
+                "Transforms"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-8b2d4e17:s5",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s5",
+              "stepTitle": "Multiply a matrix by a vector",
+              "at": "2026-11-16T19:30:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-8b2d4e17:s4",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s4",
+              "stepTitle": "Shape and transpose",
+              "at": "2026-11-16T19:18:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-8b2d4e17:s3",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s3",
+              "stepTitle": "Rows and columns",
+              "at": "2026-11-16T19:06:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-c41e9a02:s4",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s4",
+              "stepTitle": "Slice a range",
+              "at": "2026-11-14T17:44:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ]
+            },
+            {
+              "key": "lesson-c41e9a02:s3",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s3",
+              "stepTitle": "Pick one item",
+              "at": "2026-11-14T17:31:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ]
+            },
+            {
+              "key": "lesson-1d0c55aa:s5",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s5",
+              "stepTitle": "Plot sigmoid and ReLU",
+              "at": "2026-11-13T18:20:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-1d0c55aa:s4",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s4",
+              "stepTitle": "Write relu",
+              "at": "2026-11-13T18:08:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-1d0c55aa:s3",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s3",
+              "stepTitle": "Write sigmoid",
+              "at": "2026-11-13T17:57:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s5",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s5",
+              "stepTitle": "Run the neuron on three inputs",
+              "at": "2026-11-11T20:12:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s4",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s4",
+              "stepTitle": "Add the bias",
+              "at": "2026-11-11T20:01:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s3",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s3",
+              "stepTitle": "Weighted sum",
+              "at": "2026-11-11T19:50:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-2a6e8f19:s5",
+              "lessonId": "lesson-2a6e8f19",
+              "lessonTitle": "Move around the 3D viewport",
+              "stepId": "s5",
+              "stepTitle": "Frame the selected object",
+              "at": "2026-11-09T16:40:00-08:00",
+              "skillIds": [
+                "bl.navigate"
+              ],
+              "skills": [
+                "Viewport"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-2a6e8f19:s4",
+              "lessonId": "lesson-2a6e8f19",
+              "lessonTitle": "Move around the 3D viewport",
+              "stepId": "s4",
+              "stepTitle": "Switch to the top view",
+              "at": "2026-11-09T16:31:00-08:00",
+              "skillIds": [
+                "bl.navigate"
+              ],
+              "skills": [
+                "Viewport"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-2a6e8f19:s3",
+              "lessonId": "lesson-2a6e8f19",
+              "lessonTitle": "Move around the 3D viewport",
+              "stepId": "s3",
+              "stepTitle": "Orbit, pan and zoom",
+              "at": "2026-11-09T16:22:00-08:00",
+              "skillIds": [
+                "bl.navigate"
+              ],
+              "skills": [
+                "Viewport"
+              ],
+              "planId": "intro-blender"
+            }
+          ],
+          "milestones": [
+            {
+              "id": "m-first-step",
+              "kind": "first_step",
+              "title": "First step passed",
+              "at": "2026-09-08T18:02:00-08:00"
+            },
+            {
+              "id": "m-first-lesson",
+              "kind": "first_lesson",
+              "title": "First lesson finished",
+              "at": "2026-09-10T19:31:00-08:00"
+            },
+            {
+              "id": "m-steps-50",
+              "kind": "steps",
+              "title": "50 steps passed",
+              "at": "2026-11-16T19:30:00-08:00",
+              "count": 50
+            },
+            {
+              "id": "m-skill-indexing",
+              "kind": "skill_mastered",
+              "title": "Indexing, slicing mastered",
+              "at": "2026-11-14T17:44:00-08:00",
+              "skillId": "np.indexing"
+            }
+          ]
+        }
+      }
+    ],
+    "uiv4_bon": [
+      {
+        "wait": 60,
+        "type": "bon",
+        "payload": {
+          "steps": 24,
+          "level": 4,
+          "name": "Sapling",
+          "next": {
+            "level": 5,
+            "name": "Budding",
+            "at": 25,
+            "left": 1
+          },
+          "fraction": 0.8889
+        }
+      }
+    ],
+    "uiv4_plans": [
+      {
+        "wait": 120,
+        "type": "plans",
+        "payload": {
+          "items": [
+            {
+              "id": "neural-networks",
+              "title": "Neural networks from scratch",
+              "source": "preset",
+              "catalogId": "neural-networks",
+              "track": "neural networks",
+              "tool": {
+                "id": "jupyter",
+                "label": "Jupyter"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "A single neuron",
+                  "goal": "Teach what one neuron computes using only NumPy in Jupyter. Write neuron(x, w, b) that returns the dot product of inputs and weights plus a bias, and try it on three inputs.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "neuron gives 0.5 for inputs 1, 2, 3 with weights 0.5, -1, 0.5 and bias 0.5.",
+                  "skillIds": [
+                    "nn.neuron"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur00aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Activation functions",
+                  "goal": "Teach sigmoid, tanh and ReLU as NumPy functions that work on whole arrays, then add a sigmoid to the neuron so its output stays between 0 and 1.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "sigmoid(0) is 0.5, relu(-2) is 0 and the neuron's output lies between 0 and 1.",
+                  "skillIds": [
+                    "nn.activation"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur01aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "A layer is a matrix",
+                  "goal": "Teach a dense layer in NumPy as a weight matrix and a bias vector. Build a layer of 4 neurons that takes 3 inputs and send a batch of 5 samples through it with the @ operator.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The weights have shape (3, 4) and the layer's output has shape (5, 4).",
+                  "skillIds": [
+                    "nn.layer"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur02aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "The forward pass",
+                  "goal": "Teach the forward pass of a two-layer network in NumPy. Write forward(X) for a 2-4-1 network that chains a hidden layer with tanh and an output layer with sigmoid.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "forward returns shape (4, 1) for four samples, with every value between 0 and 1.",
+                  "skillIds": [
+                    "nn.forward"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-3f9a21c0",
+                  "steps": {
+                    "done": 4,
+                    "total": 6
+                  },
+                  "openedAt": "2026-11-22T15:58:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Measure the error with a loss",
+                  "goal": "Teach mean squared error and binary cross-entropy in NumPy by writing both as functions and scoring the untrained network's guesses against the right answers.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "mse gives 0.25 for predictions 0.5, 0.5 against targets 1, 0.",
+                  "skillIds": [
+                    "nn.loss"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Gradients by hand",
+                  "goal": "Teach the chain rule for one sigmoid neuron with squared error. Work out the gradient for the weights and the bias on paper, code it in NumPy and check it against a numerical gradient.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The hand-coded gradient matches the numerical gradient to within 1e-6.",
+                  "skillIds": [
+                    "nn.gradients"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Gradient descent",
+                  "goal": "Teach gradient descent in NumPy by training the single neuron to act as an AND gate, nudging the weights and bias against the gradient with a learning rate for 2000 steps.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The loss ends lower than it began and all four AND cases round to the right answer.",
+                  "skillIds": [
+                    "nn.descent"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Backpropagation through two layers",
+                  "goal": "Teach backpropagation in NumPy for the 2-4-1 network. Write backward so it returns a gradient for each weight matrix and bias, and check one of them against a numerical gradient.",
+                  "minutes": 30,
+                  "stepCount": 7,
+                  "check": "run",
+                  "passes": "Each gradient has the shape of its parameter and one passes a numerical check.",
+                  "skillIds": [
+                    "nn.backprop"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Train a tiny network on XOR",
+                  "goal": "Teach a full training loop in NumPy. Train the 2-4-1 network on the four XOR points with forward, loss, backward and update, starting from seeded random weights, and print the loss as it falls.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "After training, the network's outputs round to 0, 1, 1, 0 for the XOR inputs.",
+                  "skillIds": [
+                    "nn.training"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A network that finds a circle",
+                "brief": "Train a network on your own, with only NumPy, to tell whether a 2D point lies inside a circle. Make 200 random points, train a 2-8-1 network and print its accuracy.",
+                "checks": [
+                  "The notebook imports numpy and no machine learning library",
+                  "The loss printed at the end is lower than the loss at the start",
+                  "Accuracy on the 200 points is at least 90 percent"
+                ],
+                "state": "locked"
+              },
+              "done": 3,
+              "total": 9,
+              "nextIndex": 3,
+              "minutesLeft": 180,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "intro-blender",
+              "title": "Intro to Blender",
+              "source": "preset",
+              "catalogId": "intro-blender",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Move around the 3D viewport",
+                  "goal": "Teach a complete beginner the Blender viewport. Orbit, pan, zoom, the front, side and top views, and frame the selected object.",
+                  "minutes": 10,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The cube is framed in the front view.",
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr00aa",
+                  "doneAt": "2026-11-04T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Move, rotate and scale",
+                  "goal": "Teach G, R and S in Blender with axis keys and typed numbers by placing a cube, a cone and a sphere at set spots.",
+                  "minutes": 15,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cube is at X 2, the cone is turned 90 degrees and the sphere is half size.",
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr01aa",
+                  "doneAt": "2026-11-07T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Edit mode: vertices, edges, faces",
+                  "goal": "Teach Blender Edit mode and the three select modes by pulling one edge of a cube up to make a wedge.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "One edge of the cube sits 1 m higher than the others.",
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr02aa",
+                  "doneAt": "2026-11-10T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "Extrude and inset: the cup",
+                  "goal": "Teach Blender inset and extrude by hollowing a cylinder into the cup of a mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cylinder has a hollow with a wall and a floor.",
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr03aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Loop cuts and bevels",
+                  "goal": "Teach Blender loop cuts and bevel by adding two loops for the handle and beveling the rim of the mug.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has two new edge loops and a beveled rim.",
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr04aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 5,
+                  "title": "Build the handle",
+                  "goal": "Teach extruding faces and bridging edge loops in Blender by growing a handle out of the side of the mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The handle joins the mug in two places and the mesh is one piece.",
+                  "skillIds": [
+                    "bl.extrude",
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr05aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 6,
+                  "title": "Subdivision and smooth shading",
+                  "goal": "Teach Blender modifiers by adding Subdivision Surface at level 2 to the mug and turning on smooth shading.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a Subdivision modifier at level 2 and smooth shading.",
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-5c7e2b90",
+                  "steps": {
+                    "done": 2,
+                    "total": 5
+                  },
+                  "openedAt": "2026-11-22T19:31:00-08:00"
+                },
+                {
+                  "index": 7,
+                  "title": "Give it a material",
+                  "goal": "Teach Blender materials with the Principled BSDF by giving the mug a glossy ceramic color.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a material with roughness under 0.3.",
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Light it and aim the camera",
+                  "goal": "Teach Blender lights and the camera by adding an area light and framing the whole mug in the camera view.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The scene has an area light and the camera sees the whole mug.",
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Render and save an image",
+                  "goal": "Teach rendering in Blender. Pick a render engine, set the size, render and save a PNG.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "file",
+                  "passes": "A PNG render is saved next to the .blend file.",
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked"
+              },
+              "done": 6,
+              "total": 10,
+              "nextIndex": 6,
+              "minutesLeft": 105,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "pl-PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "title": "Learn Blender 5",
+              "source": "playlist",
+              "playlistId": "PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "url": "https://www.youtube.com/playlist?list=PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 1 - The Interface",
+                  "videoId": "kVcY7K-JA1Y",
+                  "seconds": 762,
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl00e41b",
+                  "doneAt": "2026-11-18T17:30:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 2 Materials",
+                  "videoId": "J2OpaKlChI8",
+                  "seconds": 669,
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl01e41b",
+                  "doneAt": "2026-11-19T17:30:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 3 - The Old Man",
+                  "videoId": "ut9_RRf1-hM",
+                  "seconds": 673,
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "next"
+                },
+                {
+                  "index": 3,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 4 - Old Man Details",
+                  "videoId": "GB6xDutIOx0",
+                  "seconds": 845,
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 4,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 5 - Monsters body",
+                  "videoId": "YaWGsX1IyTk",
+                  "seconds": 851,
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 6 - Monsters Arms",
+                  "videoId": "jZvSIupp53E",
+                  "seconds": 748,
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Blender 5 Complete Beginners Guide   FREE COURSE   Part 7   the street",
+                  "videoId": "ctBx6OQ4Ljg",
+                  "seconds": 854,
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 8 - Lights & Composit",
+                  "videoId": "7moxMNaRlk8",
+                  "seconds": 835,
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "How to - Orbit & Rotate Your Camera Around an Object : Blender 4.5",
+                  "videoId": "A62Exb4Hheg",
+                  "seconds": 230,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Make a Cute Easter Chick in Blender 5 - Beginner Tutorial",
+                  "videoId": "SsFXh8KEBy4",
+                  "seconds": 972,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked",
+                "on": true
+              },
+              "done": 2,
+              "total": 10,
+              "nextIndex": 2,
+              "minutesLeft": 145,
+              "startedAt": "2026-11-17T17:00:00-08:00",
+              "updatedAt": "2026-11-19T17:30:00-08:00",
+              "finishedAt": null
+            }
+          ]
+        }
+      }
+    ],
+    "uiv4_plan_started": [
+      {
+        "wait": 200,
+        "type": "plans",
+        "payload": {
+          "items": [
+            {
+              "id": "intro-python",
+              "title": "Intro to Python",
+              "source": "preset",
+              "catalogId": "intro-python",
+              "track": "python",
+              "tool": {
+                "id": "vscode",
+                "label": "VS Code"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Run your first Python file",
+                  "goal": "Teach a complete beginner to create hello.py in VS Code, print two lines and run it from the terminal with python3.",
+                  "minutes": 10,
+                  "stepCount": 4,
+                  "check": "run",
+                  "passes": "hello.py runs and prints both lines.",
+                  "skillIds": [
+                    "py.run"
+                  ],
+                  "state": "next"
+                },
+                {
+                  "index": 1,
+                  "title": "Variables and numbers",
+                  "goal": "Teach Python variables and arithmetic by building a tip calculator in tip.py with a bill, a tip percent and a total.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "tip.py prints the right total for a 40 dollar bill at 20 percent.",
+                  "skillIds": [
+                    "py.variables"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 2,
+                  "title": "Strings and f-strings",
+                  "goal": "Teach Python strings, indexing, upper and lower, and f-strings by printing a name badge from two variables.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "The badge prints the name in capitals inside an f-string.",
+                  "skillIds": [
+                    "py.strings"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 3,
+                  "title": "If, elif and else",
+                  "goal": "Teach Python comparisons and if, elif, else by writing a ticket price picker for child, adult and senior ages.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "Ages 8, 30 and 70 each print the right price.",
+                  "skillIds": [
+                    "py.conditions"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 4,
+                  "title": "For and while loops",
+                  "goal": "Teach Python for loops with range and while loops by printing a times table and a countdown that stops at zero.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The times table has ten rows and the countdown ends at zero.",
+                  "skillIds": [
+                    "py.loops"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Lists",
+                  "goal": "Teach Python lists by building a shopping list. Append, remove, sort, slice and loop over it.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The list prints sorted with the removed item gone.",
+                  "skillIds": [
+                    "py.lists"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Functions",
+                  "goal": "Teach Python functions with parameters and return values by turning the tip calculator into a function and calling it three times.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "code",
+                  "passes": "A function with two parameters returns the total and is called three times.",
+                  "skillIds": [
+                    "py.functions"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Dictionaries",
+                  "goal": "Teach Python dictionaries by counting how often each word appears in a sentence and printing the top three.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The word counts match the sentence.",
+                  "skillIds": [
+                    "py.dicts"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Read and write a file",
+                  "goal": "Teach reading and writing text files in Python with open and with, by saving a list of scores to scores.txt and reading it back.",
+                  "minutes": 20,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "scores.txt exists and the script prints what it holds.",
+                  "skillIds": [
+                    "py.files"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Read an error message",
+                  "goal": "Teach a beginner to read Python tracebacks by fixing three small broken scripts, a NameError, a TypeError and an IndexError.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "All three scripts run with no error.",
+                  "skillIds": [
+                    "py.errors"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A number guessing game",
+                "brief": "Write guess.py on your own. Pick a random number, loop until the guess is right, say higher or lower, and save the best score to a file.",
+                "checks": [
+                  "guess.py runs with no error",
+                  "The right number ends the game with the number of tries",
+                  "The best score is written to scores.txt"
+                ],
+                "state": "locked"
+              },
+              "done": 0,
+              "total": 10,
+              "nextIndex": 0,
+              "minutesLeft": 215,
+              "startedAt": "2026-11-22T19:40:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "neural-networks",
+              "title": "Neural networks from scratch",
+              "source": "preset",
+              "catalogId": "neural-networks",
+              "track": "neural networks",
+              "tool": {
+                "id": "jupyter",
+                "label": "Jupyter"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "A single neuron",
+                  "goal": "Teach what one neuron computes using only NumPy in Jupyter. Write neuron(x, w, b) that returns the dot product of inputs and weights plus a bias, and try it on three inputs.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "neuron gives 0.5 for inputs 1, 2, 3 with weights 0.5, -1, 0.5 and bias 0.5.",
+                  "skillIds": [
+                    "nn.neuron"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur00aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Activation functions",
+                  "goal": "Teach sigmoid, tanh and ReLU as NumPy functions that work on whole arrays, then add a sigmoid to the neuron so its output stays between 0 and 1.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "sigmoid(0) is 0.5, relu(-2) is 0 and the neuron's output lies between 0 and 1.",
+                  "skillIds": [
+                    "nn.activation"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur01aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "A layer is a matrix",
+                  "goal": "Teach a dense layer in NumPy as a weight matrix and a bias vector. Build a layer of 4 neurons that takes 3 inputs and send a batch of 5 samples through it with the @ operator.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The weights have shape (3, 4) and the layer's output has shape (5, 4).",
+                  "skillIds": [
+                    "nn.layer"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur02aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "The forward pass",
+                  "goal": "Teach the forward pass of a two-layer network in NumPy. Write forward(X) for a 2-4-1 network that chains a hidden layer with tanh and an output layer with sigmoid.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "forward returns shape (4, 1) for four samples, with every value between 0 and 1.",
+                  "skillIds": [
+                    "nn.forward"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-3f9a21c0",
+                  "steps": {
+                    "done": 4,
+                    "total": 6
+                  },
+                  "openedAt": "2026-11-22T15:58:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Measure the error with a loss",
+                  "goal": "Teach mean squared error and binary cross-entropy in NumPy by writing both as functions and scoring the untrained network's guesses against the right answers.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "mse gives 0.25 for predictions 0.5, 0.5 against targets 1, 0.",
+                  "skillIds": [
+                    "nn.loss"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Gradients by hand",
+                  "goal": "Teach the chain rule for one sigmoid neuron with squared error. Work out the gradient for the weights and the bias on paper, code it in NumPy and check it against a numerical gradient.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The hand-coded gradient matches the numerical gradient to within 1e-6.",
+                  "skillIds": [
+                    "nn.gradients"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Gradient descent",
+                  "goal": "Teach gradient descent in NumPy by training the single neuron to act as an AND gate, nudging the weights and bias against the gradient with a learning rate for 2000 steps.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The loss ends lower than it began and all four AND cases round to the right answer.",
+                  "skillIds": [
+                    "nn.descent"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Backpropagation through two layers",
+                  "goal": "Teach backpropagation in NumPy for the 2-4-1 network. Write backward so it returns a gradient for each weight matrix and bias, and check one of them against a numerical gradient.",
+                  "minutes": 30,
+                  "stepCount": 7,
+                  "check": "run",
+                  "passes": "Each gradient has the shape of its parameter and one passes a numerical check.",
+                  "skillIds": [
+                    "nn.backprop"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Train a tiny network on XOR",
+                  "goal": "Teach a full training loop in NumPy. Train the 2-4-1 network on the four XOR points with forward, loss, backward and update, starting from seeded random weights, and print the loss as it falls.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "After training, the network's outputs round to 0, 1, 1, 0 for the XOR inputs.",
+                  "skillIds": [
+                    "nn.training"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A network that finds a circle",
+                "brief": "Train a network on your own, with only NumPy, to tell whether a 2D point lies inside a circle. Make 200 random points, train a 2-8-1 network and print its accuracy.",
+                "checks": [
+                  "The notebook imports numpy and no machine learning library",
+                  "The loss printed at the end is lower than the loss at the start",
+                  "Accuracy on the 200 points is at least 90 percent"
+                ],
+                "state": "locked"
+              },
+              "done": 3,
+              "total": 9,
+              "nextIndex": 3,
+              "minutesLeft": 180,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "intro-blender",
+              "title": "Intro to Blender",
+              "source": "preset",
+              "catalogId": "intro-blender",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Move around the 3D viewport",
+                  "goal": "Teach a complete beginner the Blender viewport. Orbit, pan, zoom, the front, side and top views, and frame the selected object.",
+                  "minutes": 10,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The cube is framed in the front view.",
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr00aa",
+                  "doneAt": "2026-11-04T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Move, rotate and scale",
+                  "goal": "Teach G, R and S in Blender with axis keys and typed numbers by placing a cube, a cone and a sphere at set spots.",
+                  "minutes": 15,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cube is at X 2, the cone is turned 90 degrees and the sphere is half size.",
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr01aa",
+                  "doneAt": "2026-11-07T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Edit mode: vertices, edges, faces",
+                  "goal": "Teach Blender Edit mode and the three select modes by pulling one edge of a cube up to make a wedge.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "One edge of the cube sits 1 m higher than the others.",
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr02aa",
+                  "doneAt": "2026-11-10T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "Extrude and inset: the cup",
+                  "goal": "Teach Blender inset and extrude by hollowing a cylinder into the cup of a mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cylinder has a hollow with a wall and a floor.",
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr03aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Loop cuts and bevels",
+                  "goal": "Teach Blender loop cuts and bevel by adding two loops for the handle and beveling the rim of the mug.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has two new edge loops and a beveled rim.",
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr04aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 5,
+                  "title": "Build the handle",
+                  "goal": "Teach extruding faces and bridging edge loops in Blender by growing a handle out of the side of the mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The handle joins the mug in two places and the mesh is one piece.",
+                  "skillIds": [
+                    "bl.extrude",
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr05aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 6,
+                  "title": "Subdivision and smooth shading",
+                  "goal": "Teach Blender modifiers by adding Subdivision Surface at level 2 to the mug and turning on smooth shading.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a Subdivision modifier at level 2 and smooth shading.",
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-5c7e2b90",
+                  "steps": {
+                    "done": 2,
+                    "total": 5
+                  },
+                  "openedAt": "2026-11-22T19:31:00-08:00"
+                },
+                {
+                  "index": 7,
+                  "title": "Give it a material",
+                  "goal": "Teach Blender materials with the Principled BSDF by giving the mug a glossy ceramic color.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a material with roughness under 0.3.",
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Light it and aim the camera",
+                  "goal": "Teach Blender lights and the camera by adding an area light and framing the whole mug in the camera view.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The scene has an area light and the camera sees the whole mug.",
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Render and save an image",
+                  "goal": "Teach rendering in Blender. Pick a render engine, set the size, render and save a PNG.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "file",
+                  "passes": "A PNG render is saved next to the .blend file.",
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked"
+              },
+              "done": 6,
+              "total": 10,
+              "nextIndex": 6,
+              "minutesLeft": 105,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "pl-PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "title": "Learn Blender 5",
+              "source": "playlist",
+              "playlistId": "PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "url": "https://www.youtube.com/playlist?list=PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 1 - The Interface",
+                  "videoId": "kVcY7K-JA1Y",
+                  "seconds": 762,
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl00e41b",
+                  "doneAt": "2026-11-18T17:30:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 2 Materials",
+                  "videoId": "J2OpaKlChI8",
+                  "seconds": 669,
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl01e41b",
+                  "doneAt": "2026-11-19T17:30:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 3 - The Old Man",
+                  "videoId": "ut9_RRf1-hM",
+                  "seconds": 673,
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "next"
+                },
+                {
+                  "index": 3,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 4 - Old Man Details",
+                  "videoId": "GB6xDutIOx0",
+                  "seconds": 845,
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 4,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 5 - Monsters body",
+                  "videoId": "YaWGsX1IyTk",
+                  "seconds": 851,
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 6 - Monsters Arms",
+                  "videoId": "jZvSIupp53E",
+                  "seconds": 748,
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Blender 5 Complete Beginners Guide   FREE COURSE   Part 7   the street",
+                  "videoId": "ctBx6OQ4Ljg",
+                  "seconds": 854,
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 8 - Lights & Composit",
+                  "videoId": "7moxMNaRlk8",
+                  "seconds": 835,
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "How to - Orbit & Rotate Your Camera Around an Object : Blender 4.5",
+                  "videoId": "A62Exb4Hheg",
+                  "seconds": 230,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Make a Cute Easter Chick in Blender 5 - Beginner Tutorial",
+                  "videoId": "SsFXh8KEBy4",
+                  "seconds": 972,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked",
+                "on": true
+              },
+              "done": 2,
+              "total": 10,
+              "nextIndex": 2,
+              "minutesLeft": 145,
+              "startedAt": "2026-11-17T17:00:00-08:00",
+              "updatedAt": "2026-11-19T17:30:00-08:00",
+              "finishedAt": null
+            }
+          ],
+          "reqId": "r-plan-1"
+        }
+      }
+    ],
+    "uiv4_playlist": [
+      {
+        "wait": 600,
+        "type": "playlist",
+        "payload": {
+          "url": "https://www.youtube.com/playlist?list=PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+          "reqId": "r-pl-1",
+          "playlistId": "PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+          "title": "Blender Donut Tutorial (2025)",
+          "channel": "Blender Guru",
+          "videoCount": 8,
+          "totalSeconds": 15578,
+          "videos": [
+            {
+              "id": "-tbSCMbJA6o",
+              "title": "Blender Donut Tutorial Part 1 (2026)",
+              "seconds": 1710
+            },
+            {
+              "id": "K1UyEdmSttQ",
+              "title": "Blender Basic Modelling Tutorial (Donut Part 2)",
+              "seconds": 1851
+            },
+            {
+              "id": "9OA2asQdi_U",
+              "title": "Blender Basic Organic Modelling Tutorial (Donut Part 3)",
+              "seconds": 1883
+            },
+            {
+              "id": "5Xlu2zwbJd0",
+              "title": "Blender Basic Materials Tutorial (Donut Part 4)",
+              "seconds": 2013
+            },
+            {
+              "id": "h30ZJQrb4s8",
+              "title": "Blender Basic Texturing Tutorial (Donut Part 5)",
+              "seconds": 1914
+            },
+            {
+              "id": "yxAqN8TzFbo",
+              "title": "Blender Basic UV Unwrapping Tutorial (Donut Part 6)",
+              "seconds": 2026
+            },
+            {
+              "id": "_-QsGTL7pS0",
+              "title": "How to Scatter in Blender 5.0 (Donut Part 7)",
+              "seconds": 2204
+            },
+            {
+              "id": "WobATxh3i-g",
+              "title": "The Basics of Lighting and Rendering in Blender (Donut Finale)",
+              "seconds": 1977
+            }
+          ],
+          "proposing": true
+        }
+      },
+      {
+        "wait": 2400,
+        "type": "playlist",
+        "payload": {
+          "url": "https://www.youtube.com/playlist?list=PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+          "reqId": "r-pl-1",
+          "playlistId": "PLjEaoINr3zgGUwGwXlj9kBe7TrVWNjkyv",
+          "title": "Blender Donut Tutorial (2025)",
+          "channel": "Blender Guru",
+          "videoCount": 8,
+          "totalSeconds": 15578,
+          "videos": [
+            {
+              "id": "-tbSCMbJA6o",
+              "title": "Blender Donut Tutorial Part 1 (2026)",
+              "seconds": 1710
+            },
+            {
+              "id": "K1UyEdmSttQ",
+              "title": "Blender Basic Modelling Tutorial (Donut Part 2)",
+              "seconds": 1851
+            },
+            {
+              "id": "9OA2asQdi_U",
+              "title": "Blender Basic Organic Modelling Tutorial (Donut Part 3)",
+              "seconds": 1883
+            },
+            {
+              "id": "5Xlu2zwbJd0",
+              "title": "Blender Basic Materials Tutorial (Donut Part 4)",
+              "seconds": 2013
+            },
+            {
+              "id": "h30ZJQrb4s8",
+              "title": "Blender Basic Texturing Tutorial (Donut Part 5)",
+              "seconds": 1914
+            },
+            {
+              "id": "yxAqN8TzFbo",
+              "title": "Blender Basic UV Unwrapping Tutorial (Donut Part 6)",
+              "seconds": 2026
+            },
+            {
+              "id": "_-QsGTL7pS0",
+              "title": "How to Scatter in Blender 5.0 (Donut Part 7)",
+              "seconds": 2204
+            },
+            {
+              "id": "WobATxh3i-g",
+              "title": "The Basics of Lighting and Rendering in Blender (Donut Finale)",
+              "seconds": 1977
+            }
+          ],
+          "proposing": false,
+          "proposal": {
+            "title": "Blender Donut Tutorial (2025)",
+            "source": "playlist",
+            "tool": {
+              "id": "blender",
+              "label": "Blender"
+            },
+            "lessons": [
+              {
+                "title": "Blender Donut Tutorial Part 1 (2026)",
+                "videoId": "-tbSCMbJA6o",
+                "seconds": 1710,
+                "minutes": 43,
+                "grows": [
+                  "bl.navigate"
+                ],
+                "skills": [
+                  "Viewport"
+                ]
+              },
+              {
+                "title": "Blender Basic Modelling Tutorial (Donut Part 2)",
+                "videoId": "K1UyEdmSttQ",
+                "seconds": 1851,
+                "minutes": 46,
+                "grows": [
+                  "bl.edit"
+                ],
+                "skills": [
+                  "Edit mode"
+                ]
+              },
+              {
+                "title": "Blender Basic Organic Modelling Tutorial (Donut Part 3)",
+                "videoId": "9OA2asQdi_U",
+                "seconds": 1883,
+                "minutes": 47,
+                "grows": [
+                  "bl.modifiers"
+                ],
+                "skills": [
+                  "Modifiers"
+                ]
+              },
+              {
+                "title": "Blender Basic Materials Tutorial (Donut Part 4)",
+                "videoId": "5Xlu2zwbJd0",
+                "seconds": 2013,
+                "minutes": 50,
+                "grows": [
+                  "bl.materials"
+                ],
+                "skills": [
+                  "Materials"
+                ]
+              },
+              {
+                "title": "Blender Basic Texturing Tutorial (Donut Part 5)",
+                "videoId": "h30ZJQrb4s8",
+                "seconds": 1914,
+                "minutes": 48,
+                "grows": [
+                  "bl.materials"
+                ],
+                "skills": [
+                  "Materials"
+                ]
+              },
+              {
+                "title": "Blender Basic UV Unwrapping Tutorial (Donut Part 6)",
+                "videoId": "yxAqN8TzFbo",
+                "seconds": 2026,
+                "minutes": 51,
+                "grows": [
+                  "bl.lighting"
+                ],
+                "skills": [
+                  "Light and camera"
+                ]
+              },
+              {
+                "title": "How to Scatter in Blender 5.0 (Donut Part 7)",
+                "videoId": "_-QsGTL7pS0",
+                "seconds": 2204,
+                "minutes": 55,
+                "grows": [
+                  "bl.render"
+                ],
+                "skills": [
+                  "Rendering"
+                ]
+              },
+              {
+                "title": "The Basics of Lighting and Rendering in Blender (Donut Finale)",
+                "videoId": "WobATxh3i-g",
+                "seconds": 1977,
+                "minutes": 49,
+                "grows": [
+                  "bl.render"
+                ],
+                "skills": [
+                  "Rendering"
+                ]
+              }
+            ],
+            "skills": [
+              {
+                "id": "bl.navigate",
+                "label": "Viewport",
+                "needs": []
+              },
+              {
+                "id": "bl.edit",
+                "label": "Edit mode",
+                "needs": [
+                  "bl.transform"
+                ]
+              },
+              {
+                "id": "bl.modifiers",
+                "label": "Modifiers",
+                "needs": [
+                  "bl.extrude",
+                  "bl.loops"
+                ]
+              },
+              {
+                "id": "bl.materials",
+                "label": "Materials",
+                "needs": [
+                  "bl.transform"
+                ]
+              },
+              {
+                "id": "bl.lighting",
+                "label": "Light and camera",
+                "needs": [
+                  "bl.transform"
+                ]
+              },
+              {
+                "id": "bl.render",
+                "label": "Rendering",
+                "needs": [
+                  "bl.materials",
+                  "bl.lighting"
+                ]
+              }
+            ],
+            "project": {
+              "title": "A desk lamp, modeled and rendered",
+              "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+              "checks": [
+                "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                "Two different materials are assigned",
+                "A render is saved as an image"
+              ]
+            },
+            "have": {
+              "done": 2,
+              "of": 6
+            },
+            "note": "miyagi pauses each video until your scene passes the step.",
+            "minutes": 434
+          }
+        }
+      }
+    ],
+    "uiv4_proposal": [
+      {
+        "wait": 300,
+        "type": "plan.proposal",
+        "payload": {
+          "goal": "I want to 3D print a stand for my phone",
+          "reqId": "r-goal-1",
+          "proposing": true
+        }
+      },
+      {
+        "wait": 3200,
+        "type": "plan.proposal",
+        "payload": {
+          "goal": "I want to 3D print a stand for my phone",
+          "reqId": "r-goal-1",
+          "proposing": false,
+          "proposal": {
+            "title": "3D print a phone stand",
+            "source": "goal",
+            "tool": {
+              "id": "freecad",
+              "label": "FreeCAD"
+            },
+            "tools": [
+              {
+                "id": "freecad",
+                "label": "FreeCAD"
+              },
+              {
+                "id": "fusion",
+                "label": "Fusion"
+              },
+              {
+                "id": "onshape",
+                "label": "Onshape"
+              }
+            ],
+            "lessons": [
+              {
+                "title": "Find your way around FreeCAD",
+                "goal": "Teach a complete beginner FreeCAD. Make a new document, switch to the Part Design workbench, create a body and move the view.",
+                "minutes": 10,
+                "grows": [
+                  "cad.navigate"
+                ],
+                "skills": [
+                  "Workspace"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 0
+                },
+                "skip": false
+              },
+              {
+                "title": "Your first sketch",
+                "goal": "Teach FreeCAD sketching by drawing a closed rectangle on the XY plane of a Part Design body.",
+                "minutes": 15,
+                "grows": [
+                  "cad.sketch"
+                ],
+                "skills": [
+                  "Sketching"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 1
+                }
+              },
+              {
+                "title": "Constrain it fully",
+                "goal": "Teach FreeCAD sketch constraints. Add length, width and position until the rectangle is fully constrained at 60 by 40 mm.",
+                "minutes": 20,
+                "grows": [
+                  "cad.constrain"
+                ],
+                "skills": [
+                  "Constraints"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 2
+                }
+              },
+              {
+                "title": "Pad it into a plate",
+                "goal": "Teach the Pad tool in FreeCAD Part Design by turning the 60 by 40 mm sketch into a plate 5 mm thick.",
+                "minutes": 10,
+                "grows": [
+                  "cad.pad"
+                ],
+                "skills": [
+                  "Pad"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 3
+                }
+              },
+              {
+                "title": "Sketch on a face and cut holes",
+                "goal": "Teach sketching on a face and the Pocket tool in FreeCAD by cutting two 4 mm screw holes through the plate.",
+                "minutes": 20,
+                "grows": [
+                  "cad.pocket"
+                ],
+                "skills": [
+                  "Pockets"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 4
+                }
+              },
+              {
+                "title": "Fillets and chamfers",
+                "goal": "Teach the Fillet and Chamfer tools in FreeCAD by rounding the outer edges of the hook by 2 mm.",
+                "minutes": 15,
+                "grows": [
+                  "cad.fillet"
+                ],
+                "skills": [
+                  "Fillets"
+                ],
+                "from": {
+                  "planId": "intro-cad",
+                  "index": 6
+                }
+              },
+              {
+                "title": "Clearance with a peg and three holes",
+                "goal": "Teach clearance for 3D printing in FreeCAD Part Design by modelling a 10 mm peg and a test plate with holes of 10.0, 10.2 and 10.4 mm to find the fit your printer gives.",
+                "minutes": 20,
+                "grows": [
+                  "cadp.clearance"
+                ],
+                "skills": [
+                  "Clearances"
+                ],
+                "from": {
+                  "planId": "cad-3d-printing",
+                  "index": 0
+                }
+              },
+              {
+                "title": "Wall thickness",
+                "goal": "Teach wall thickness for 3D printing in FreeCAD by hollowing a 40 mm cube into an open tray with the Part Design Thickness tool, with 1.6 mm walls to suit a 0.4 mm nozzle.",
+                "minutes": 15,
+                "grows": [
+                  "cadp.walls"
+                ],
+                "skills": [
+                  "Wall thickness"
+                ],
+                "from": {
+                  "planId": "cad-3d-printing",
+                  "index": 1
+                }
+              }
+            ],
+            "skills": [
+              {
+                "id": "cad.navigate",
+                "label": "Workspace",
+                "needs": []
+              },
+              {
+                "id": "cad.sketch",
+                "label": "Sketching",
+                "needs": [
+                  "cad.navigate"
+                ]
+              },
+              {
+                "id": "cad.constrain",
+                "label": "Constraints",
+                "needs": [
+                  "cad.sketch"
+                ]
+              },
+              {
+                "id": "cad.pad",
+                "label": "Pad",
+                "needs": [
+                  "cad.constrain"
+                ]
+              },
+              {
+                "id": "cad.pocket",
+                "label": "Pockets",
+                "needs": [
+                  "cad.pad"
+                ]
+              },
+              {
+                "id": "cad.fillet",
+                "label": "Fillets",
+                "needs": [
+                  "cad.pad"
+                ]
+              },
+              {
+                "id": "cadp.clearance",
+                "label": "Clearances",
+                "needs": [
+                  "cad.pocket"
+                ]
+              },
+              {
+                "id": "cadp.walls",
+                "label": "Wall thickness",
+                "needs": [
+                  "cad.pad"
+                ]
+              }
+            ],
+            "project": {
+              "title": "A phone stand you could print",
+              "brief": "Design a stand that holds a phone 75 mm wide at a reading angle and save it as an STL.",
+              "checks": [
+                "One solid body and every sketch fully constrained",
+                "The slot fits a phone 75 mm wide with a lip of at least 8 mm",
+                "A watertight STL is saved"
+              ]
+            },
+            "fromPlans": [
+              "intro-cad",
+              "cad-3d-printing"
+            ],
+            "have": {
+              "done": 0,
+              "of": 8
+            },
+            "note": "Built from two plans. Lessons you would not need are left out.",
+            "minutes": 170
+          }
+        }
+      }
+    ],
+    "uiv4_link": [
+      {
+        "wait": 400,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+          "reqId": "r-link-1",
+          "kind": "playlist",
+          "pending": true,
+          "title": "Neural networks",
+          "channel": "3Blue1Brown",
+          "playlistId": "PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+          "videoCount": 10,
+          "totalSeconds": 13054,
+          "thumbnail": "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg"
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "link.preview",
+        "payload": {
+          "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+          "reqId": "r-link-1",
+          "kind": "playlist",
+          "pending": false,
+          "title": "Neural networks",
+          "channel": "3Blue1Brown",
+          "playlistId": "PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi",
+          "videoCount": 10,
+          "totalSeconds": 13054,
+          "thumbnail": "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg",
+          "grows": [
+            {
+              "id": "nn.forward",
+              "label": "Forward pass"
+            },
+            {
+              "id": "nn.loss",
+              "label": "Loss"
+            },
+            {
+              "id": "nn.descent",
+              "label": "Gradient descent"
+            },
+            {
+              "id": "nn.backprop",
+              "label": "Backpropagation"
+            },
+            {
+              "id": "nn.training",
+              "label": "Training a network"
+            }
+          ],
+          "have": {
+            "done": 8,
+            "of": 13
+          },
+          "finishesGoal": true,
+          "catalogId": "neural-networks"
+        }
+      }
+    ],
+    "uiv4_proof": [
+      {
+        "wait": 150,
+        "type": "proof",
+        "payload": {
+          "items": [
+            {
+              "id": "pf-c41e9a02-s5",
+              "kind": "cell",
+              "key": "lesson-c41e9a02:s5",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s5",
+              "stepTitle": "Slice rows and columns",
+              "at": "2026-11-19T18:15:00-08:00",
+              "check": {
+                "label": "corner equals [[1 2] [5 6]]"
+              },
+              "text": "# rows 0 to 1, columns 1 to 2\nimg = np.arange(12).reshape(3, 4)\ncorner = img[:2, 1:3]\ncorner",
+              "output": "array([[1, 2],\n       [5, 6]])",
+              "lang": "python",
+              "file": "indexing.ipynb"
+            },
+            {
+              "id": "pf-c41e9a02-s4",
+              "kind": "cell",
+              "key": "lesson-c41e9a02:s4",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s4",
+              "stepTitle": "Slice a range",
+              "at": "2026-11-14T17:44:00-08:00",
+              "check": {
+                "label": "temps[2:5] is [18, 21, 19]"
+              },
+              "text": "temps = np.array([12, 15, 18, 21, 19, 16])\ntemps[2:5]",
+              "output": "array([18, 21, 19])",
+              "lang": "python",
+              "file": "indexing.ipynb"
+            }
+          ],
+          "skillId": "np.indexing",
+          "reqId": "r-proof-1"
+        }
+      }
+    ],
+    "uiv4_library": [
+      {
+        "wait": 120,
+        "type": "library",
+        "payload": {
+          "items": [
+            { "id": "lesson-3f9a21c0", "title": "The forward pass", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "progress": { "stepIndex": 2, "stepTitle": "Shapes and axes", "total": 6 }, "teaches": ["nn.forward"], "updatedAt": "2026-11-22T15:58:00-08:00" },
+            { "id": "lesson-5c7e2b90", "title": "Subdivision and smooth shading", "steps": 5, "estMinutes": 15, "tools": [], "ready": true, "progress": { "stepIndex": 2, "stepTitle": "Add a Subdivision modifier", "total": 5 }, "teaches": ["bl.modifiers"], "updatedAt": "2026-11-22T19:31:00-08:00" },
+            { "id": "uiv4_pandas_csv", "title": "Clean a CSV with pandas", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "progress": { "stepIndex": 3, "stepTitle": "Drop the empty rows", "total": 6 }, "teaches": ["pd.missing"], "updatedAt": "2026-11-21T18:10:00-08:00" },
+            { "id": "uiv4_plot", "title": "Plot your data with matplotlib", "steps": 6, "estMinutes": 15, "tools": ["jupyter"], "ready": true, "teaches": ["plt.line"] },
+            { "id": "uiv4_groupby", "title": "Summarize sales with pandas", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "teaches": ["pd.groupby"] },
+            { "id": "uiv4_venv", "title": "Set up a Python environment", "steps": 5, "estMinutes": 10, "tools": ["terminal"], "ready": true, "teaches": ["py.run"] },
+            { "id": "lesson-neur02aa", "title": "A layer is a matrix", "steps": 6, "estMinutes": 20, "tools": ["jupyter"], "ready": true, "teaches": ["nn.layer"], "updatedAt": "2026-11-19T20:00:00-08:00" },
+            { "id": "lesson-neur01aa", "title": "Activation functions", "steps": 5, "estMinutes": 15, "tools": ["jupyter"], "ready": true, "teaches": ["nn.activation"], "updatedAt": "2026-11-16T20:00:00-08:00" },
+            { "id": "lesson-intr01aa", "title": "Move, rotate and scale", "steps": 6, "estMinutes": 15, "tools": [], "ready": true, "teaches": ["bl.transform"], "updatedAt": "2026-11-07T20:00:00-08:00" }
+          ]
+        }
+      }
+    ],
+    "uiv4_data": [
+      {
+        "wait": 250,
+        "type": "data",
+        "payload": {
+          "items": [
+            {
+              "id": "lesson_folder",
+              "label": "Lesson folder",
+              "where": "this_mac",
+              "path": "~/miyagi/lessons",
+              "bytes": 48211968,
+              "count": 14,
+              "detail": "Your own files from each lesson.",
+              "delete": null
+            },
+            {
+              "id": "lesson_cache",
+              "label": "Lesson cache",
+              "where": "this_mac",
+              "path": "~/miyagi/cache/lessons",
+              "bytes": 212336640,
+              "count": 31,
+              "detail": "Built lessons kept so they open fast.",
+              "delete": "lesson_cache"
+            },
+            {
+              "id": "progress",
+              "label": "Lesson history and skills",
+              "where": "this_mac",
+              "path": "~/miyagi/state",
+              "bytes": 1843200,
+              "count": 58,
+              "detail": "14 lessons, 11 skills, 58 passed steps.",
+              "delete": "progress"
+            },
+            {
+              "id": "proofs",
+              "label": "Your passing work",
+              "where": "this_mac",
+              "path": "~/miyagi/state/proofs.json",
+              "bytes": 96256,
+              "count": 41,
+              "detail": "The code and output behind each pass, for the skill tree.",
+              "delete": "proofs"
+            },
+            {
+              "id": "notes",
+              "label": "Lesson notes",
+              "where": "this_mac",
+              "path": "~/miyagi/state/context",
+              "bytes": 3407872,
+              "count": 14,
+              "detail": "Short notes of what each lesson saw, for better hints.",
+              "delete": "notes"
+            },
+            {
+              "id": "screenshots",
+              "label": "Screenshots",
+              "where": "not_kept",
+              "detail": "Used to check a step, then dropped.",
+              "delete": null
+            }
+          ],
+          "totalBytes": 265895936,
+          "canDelete": [
+            "notes"
+          ]
+        }
+      }
+    ],
+    "uiv4_data_deleted": [
+      {
+        "wait": 400,
+        "type": "data",
+        "payload": {
+          "items": [
+            {
+              "id": "lesson_folder",
+              "label": "Lesson folder",
+              "where": "this_mac",
+              "path": "~/miyagi/lessons",
+              "bytes": 48211968,
+              "count": 14,
+              "detail": "Your own files from each lesson.",
+              "delete": null
+            },
+            {
+              "id": "lesson_cache",
+              "label": "Lesson cache",
+              "where": "this_mac",
+              "path": "~/miyagi/cache/lessons",
+              "bytes": 212336640,
+              "count": 31,
+              "detail": "Built lessons kept so they open fast.",
+              "delete": "lesson_cache"
+            },
+            {
+              "id": "progress",
+              "label": "Lesson history and skills",
+              "where": "this_mac",
+              "path": "~/miyagi/state",
+              "bytes": 1843200,
+              "count": 58,
+              "detail": "14 lessons, 11 skills, 58 passed steps.",
+              "delete": "progress"
+            },
+            {
+              "id": "proofs",
+              "label": "Your passing work",
+              "where": "this_mac",
+              "path": "~/miyagi/state/proofs.json",
+              "bytes": 96256,
+              "count": 41,
+              "detail": "The code and output behind each pass, for the skill tree.",
+              "delete": "proofs"
+            },
+            {
+              "id": "notes",
+              "label": "Lesson notes",
+              "where": "this_mac",
+              "path": "~/miyagi/state/context",
+              "bytes": 0,
+              "count": 0,
+              "detail": "Short notes of what each lesson saw, for better hints.",
+              "delete": "notes"
+            },
+            {
+              "id": "screenshots",
+              "label": "Screenshots",
+              "where": "not_kept",
+              "detail": "Used to check a step, then dropped.",
+              "delete": null
+            }
+          ],
+          "totalBytes": 262488064,
+          "canDelete": [
+            "notes"
+          ],
+          "deleted": [
+            "notes"
+          ]
+        }
+      }
+    ],
+    "uiv4_progress": [
+      {
+        "wait": 200,
+        "type": "progress",
+        "payload": {
+          "skills": [
+            {
+              "track": "numpy",
+              "mastered": 1,
+              "total": 2,
+              "items": [
+                {
+                  "label": "Indexing, slicing",
+                  "state": "mastered"
+                },
+                {
+                  "label": "Broadcasting",
+                  "state": "practicing"
+                }
+              ]
+            },
+            {
+              "track": "neural networks",
+              "mastered": 0,
+              "total": 3,
+              "items": [
+                {
+                  "label": "Layers as matrices",
+                  "state": "practicing"
+                },
+                {
+                  "label": "Forward pass",
+                  "state": "not_started"
+                },
+                {
+                  "label": "Loss",
+                  "state": "not_started"
+                }
+              ]
+            },
+            {
+              "track": "blender",
+              "mastered": 1,
+              "total": 2,
+              "items": [
+                {
+                  "label": "Transforms",
+                  "state": "mastered"
+                },
+                {
+                  "label": "Modifiers",
+                  "state": "practicing"
+                }
+              ]
+            }
+          ],
+          "completed": [
+            {
+              "lessonId": "lesson-c41e9a02",
+              "title": "Indexing and slicing",
+              "at": "2026-11-19"
+            }
+          ],
+          "graph": {
+            "skills": [
+              {
+                "id": "np.indexing",
+                "label": "Indexing, slicing",
+                "track": "numpy",
+                "catalogId": "np.indexing",
+                "state": "mastered",
+                "evidence": {
+                  "done": 3,
+                  "total": 3
+                },
+                "masteredAt": "2026-11-19T18:15:00-08:00",
+                "lastPracticedAt": "2026-11-19T18:15:00-08:00",
+                "review": {
+                  "dueAt": "2026-11-26T00:00:00-08:00"
+                },
+                "schedule": {
+                  "dueAt": "2026-11-26T00:00:00-08:00",
+                  "round": 1,
+                  "interval": 7,
+                  "lastAt": "2026-11-19T18:15:00-08:00",
+                  "lastResult": "pass"
+                },
+                "mastery": {
+                  "need": 2,
+                  "days": [
+                    "2026-11-14",
+                    "2026-11-19"
+                  ]
+                },
+                "steps": [
+                  {
+                    "lessonId": "lesson-c41e9a02",
+                    "lessonTitle": "Indexing and slicing",
+                    "stepId": "s3",
+                    "title": "Pick one item",
+                    "passed": true,
+                    "key": "lesson-c41e9a02:s3",
+                    "at": "2026-11-14T17:31:00-08:00"
+                  },
+                  {
+                    "lessonId": "lesson-c41e9a02",
+                    "lessonTitle": "Indexing and slicing",
+                    "stepId": "s4",
+                    "title": "Slice a range",
+                    "passed": true,
+                    "key": "lesson-c41e9a02:s4",
+                    "at": "2026-11-14T17:44:00-08:00"
+                  },
+                  {
+                    "lessonId": "lesson-c41e9a02",
+                    "lessonTitle": "Indexing and slicing",
+                    "stepId": "s5",
+                    "title": "Slice rows and columns",
+                    "passed": true,
+                    "key": "lesson-c41e9a02:s5",
+                    "at": "2026-11-19T18:15:00-08:00"
+                  }
+                ],
+                "proofIds": [
+                  "pf-c41e9a02-s5",
+                  "pf-c41e9a02-s4"
+                ],
+                "planIds": []
+              },
+              {
+                "id": "np.broadcast",
+                "label": "Broadcasting",
+                "track": "numpy",
+                "catalogId": "np.broadcast",
+                "state": "practicing",
+                "evidence": {
+                  "done": 2,
+                  "total": 4
+                },
+                "lastPracticedAt": "2026-11-22T16:12:00-08:00",
+                "mastery": {
+                  "need": 2,
+                  "days": [
+                    "2026-11-22"
+                  ],
+                  "assisted": 1
+                },
+                "steps": [
+                  {
+                    "lessonId": "lesson-3f9a21c0",
+                    "lessonTitle": "The forward pass",
+                    "stepId": "s3",
+                    "title": "Shapes and axes",
+                    "passed": true,
+                    "key": "lesson-3f9a21c0:s3",
+                    "at": "2026-11-22T16:03:00-08:00",
+                    "assisted": true
+                  },
+                  {
+                    "lessonId": "lesson-3f9a21c0",
+                    "lessonTitle": "The forward pass",
+                    "stepId": "s4",
+                    "title": "Add one row to every row",
+                    "passed": true,
+                    "key": "lesson-3f9a21c0:s4",
+                    "at": "2026-11-22T16:12:00-08:00"
+                  },
+                  {
+                    "lessonId": "lesson-3f9a21c0",
+                    "lessonTitle": "The forward pass",
+                    "stepId": "s5",
+                    "title": "Stretch a column to fit",
+                    "passed": false
+                  },
+                  {
+                    "lessonId": "lesson-3f9a21c0",
+                    "lessonTitle": "The forward pass",
+                    "stepId": "s6",
+                    "title": "Normalize a whole image",
+                    "passed": false
+                  }
+                ],
+                "planIds": [
+                  "neural-networks"
+                ]
+              },
+              {
+                "id": "nn.layer",
+                "label": "Layers as matrices",
+                "track": "neural networks",
+                "catalogId": "nn.layer",
+                "state": "practicing",
+                "evidence": {
+                  "done": 3,
+                  "total": 5
+                },
+                "lastPracticedAt": "2026-11-21T20:41:00-08:00",
+                "mastery": {
+                  "need": 2,
+                  "days": [
+                    "2026-11-16"
+                  ]
+                },
+                "planIds": [
+                  "neural-networks"
+                ]
+              },
+              {
+                "id": "nn.forward",
+                "label": "Forward pass",
+                "track": "neural networks",
+                "catalogId": "nn.forward",
+                "state": "ready",
+                "evidence": {
+                  "done": 0,
+                  "total": 6
+                },
+                "planIds": [
+                  "neural-networks"
+                ]
+              },
+              {
+                "id": "nn.loss",
+                "label": "Loss",
+                "track": "neural networks",
+                "catalogId": "nn.loss",
+                "state": "locked",
+                "evidence": {
+                  "done": 0,
+                  "total": 5
+                },
+                "planIds": [
+                  "neural-networks"
+                ]
+              },
+              {
+                "id": "bl.transform",
+                "label": "Transforms",
+                "track": "blender",
+                "catalogId": "bl.transform",
+                "state": "mastered",
+                "evidence": {
+                  "done": 6,
+                  "total": 6
+                },
+                "masteredAt": "2026-11-17T21:02:00-08:00",
+                "review": {
+                  "dueAt": "2026-11-20T00:00:00-08:00"
+                },
+                "schedule": {
+                  "dueAt": "2026-11-20T00:00:00-08:00",
+                  "round": 0,
+                  "interval": 3,
+                  "lastAt": "2026-11-17T21:02:00-08:00"
+                },
+                "mastery": {
+                  "need": 2,
+                  "days": [
+                    "2026-11-09",
+                    "2026-11-17"
+                  ]
+                },
+                "planIds": [
+                  "intro-blender"
+                ]
+              },
+              {
+                "id": "bl.modifiers",
+                "label": "Modifiers",
+                "track": "blender",
+                "catalogId": "bl.modifiers",
+                "state": "practicing",
+                "evidence": {
+                  "done": 2,
+                  "total": 5
+                },
+                "lastPracticedAt": "2026-11-22T19:36:00-08:00",
+                "mastery": {
+                  "need": 2,
+                  "days": [
+                    "2026-11-22"
+                  ]
+                },
+                "steps": [
+                  {
+                    "lessonId": "lesson-5c7e2b90",
+                    "lessonTitle": "Subdivision and smooth shading",
+                    "stepId": "s3",
+                    "title": "Open your mug",
+                    "passed": true,
+                    "key": "lesson-5c7e2b90:s3",
+                    "at": "2026-11-22T19:33:00-08:00"
+                  },
+                  {
+                    "lessonId": "lesson-5c7e2b90",
+                    "lessonTitle": "Subdivision and smooth shading",
+                    "stepId": "s4",
+                    "title": "Add a Subdivision Surface modifier",
+                    "passed": true,
+                    "key": "lesson-5c7e2b90:s4",
+                    "at": "2026-11-22T19:36:00-08:00"
+                  },
+                  {
+                    "lessonId": "lesson-5c7e2b90",
+                    "lessonTitle": "Subdivision and smooth shading",
+                    "stepId": "s5",
+                    "title": "Set the viewport level to 2",
+                    "passed": false
+                  },
+                  {
+                    "lessonId": "lesson-5c7e2b90",
+                    "lessonTitle": "Subdivision and smooth shading",
+                    "stepId": "s6",
+                    "title": "Shade smooth",
+                    "passed": false
+                  },
+                  {
+                    "lessonId": "lesson-5c7e2b90",
+                    "lessonTitle": "Subdivision and smooth shading",
+                    "stepId": "s7",
+                    "title": "Save the file",
+                    "passed": false
+                  }
+                ],
+                "planIds": [
+                  "intro-blender"
+                ]
+              }
+            ],
+            "edges": [
+              {
+                "from": "np.indexing",
+                "to": "np.broadcast"
+              },
+              {
+                "from": "np.broadcast",
+                "to": "nn.forward"
+              },
+              {
+                "from": "nn.layer",
+                "to": "nn.forward"
+              },
+              {
+                "from": "nn.forward",
+                "to": "nn.loss"
+              },
+              {
+                "from": "bl.transform",
+                "to": "bl.modifiers"
+              }
+            ],
+            "goal": null,
+            "next": {
+              "skillId": "np.broadcast",
+              "lessonId": "lesson-3f9a21c0",
+              "lessonTitle": "The forward pass",
+              "stepIndex": 4,
+              "stepCount": 6,
+              "estMinutes": 12,
+              "why": "gets you closer to Forward pass"
+            },
+            "keepFresh": [
+              "bl.transform"
+            ],
+            "tracks": [
+              {
+                "id": "numpy",
+                "label": "numpy",
+                "mastered": 1,
+                "total": 2,
+                "next": "np.broadcast",
+                "lastPracticedAt": "2026-11-22T16:12:00-08:00"
+              },
+              {
+                "id": "neural networks",
+                "label": "neural networks",
+                "mastered": 0,
+                "total": 3,
+                "next": "nn.layer",
+                "lastPracticedAt": "2026-11-21T20:41:00-08:00",
+                "planIds": [
+                  "neural-networks"
+                ]
+              },
+              {
+                "id": "blender",
+                "label": "blender",
+                "mastered": 1,
+                "total": 2,
+                "next": "bl.modifiers",
+                "lastPracticedAt": "2026-11-22T19:36:00-08:00",
+                "planIds": [
+                  "intro-blender",
+                  "pl-PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8"
+                ]
+              }
+            ],
+            "masteryDays": 2,
+            "reviewDays": [
+              3,
+              7,
+              21,
+              60
+            ]
+          }
+        }
+      }
+    ],
+    "uiv4_pass": [
+      {
+        "wait": 900,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s3",
+          "checkId": "s3c1",
+          "label": "Levels Viewport is 2",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "s3",
+          "nextStepId": "s4",
+          "summary": "Set the mug's subdivision to level 2",
+          "key": "lesson-5c7e2b90:s3",
+          "counted": true,
+          "skillIds": [
+            "bl.modifiers"
+          ],
+          "proofId": "pf-5c7e2b90-s3"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "bon",
+        "payload": {
+          "steps": 25,
+          "level": 5,
+          "name": "Budding",
+          "next": {
+            "level": 6,
+            "name": "In bloom",
+            "at": 40,
+            "left": 15
+          },
+          "fraction": 0.0,
+          "grew": true,
+          "lastKey": "lesson-5c7e2b90:s3"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "activity",
+        "payload": {
+          "asOf": "2026-11-22T19:43:10-08:00",
+          "tz": "America/Los_Angeles",
+          "minutesTracked": true,
+          "days": [
+            {
+              "date": "2026-08-31",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-01",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-02",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-03",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-05",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-06",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-07",
+              "minutes": 7,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-08",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-09",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-11",
+              "minutes": 9,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-12",
+              "minutes": 7,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-13",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-14",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-15",
+              "minutes": 24,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-17",
+              "minutes": 19,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-18",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-19",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-20",
+              "minutes": 19,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-21",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-22",
+              "minutes": 14,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-23",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-24",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-25",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-26",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-27",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-28",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-09-29",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-09-30",
+              "minutes": 32,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-01",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-02",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-03",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-05",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-06",
+              "minutes": 31,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-07",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-08",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-09",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-11",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-12",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-13",
+              "minutes": 33,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-14",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-15",
+              "minutes": 49,
+              "steps": 3
+            },
+            {
+              "date": "2026-10-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-17",
+              "minutes": 28,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-18",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-19",
+              "minutes": 17,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-20",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-21",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-22",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-23",
+              "minutes": 21,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-24",
+              "minutes": 17,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-25",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-26",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-27",
+              "minutes": 38,
+              "steps": 2
+            },
+            {
+              "date": "2026-10-28",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-29",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-10-30",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-10-31",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-01",
+              "minutes": 29,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-02",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-03",
+              "minutes": 39,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-04",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-05",
+              "minutes": 59,
+              "steps": 4
+            },
+            {
+              "date": "2026-11-06",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-07",
+              "minutes": 32,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-08",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-09",
+              "minutes": 24,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-10",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-11",
+              "minutes": 43,
+              "steps": 3
+            },
+            {
+              "date": "2026-11-12",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-13",
+              "minutes": 30,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-14",
+              "minutes": 24,
+              "steps": 7
+            },
+            {
+              "date": "2026-11-15",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-16",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-17",
+              "minutes": 22,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-18",
+              "minutes": 41,
+              "steps": 2
+            },
+            {
+              "date": "2026-11-19",
+              "minutes": 0,
+              "steps": 0
+            },
+            {
+              "date": "2026-11-20",
+              "minutes": 18,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-21",
+              "minutes": 12,
+              "steps": 1
+            },
+            {
+              "date": "2026-11-22",
+              "minutes": 18,
+              "steps": 2
+            }
+          ],
+          "week": {
+            "minutes": 111,
+            "stepsPassed": 7,
+            "skillsMastered": 2
+          },
+          "totals": {
+            "lessonsFinished": 4,
+            "stepsPassed": 59,
+            "minutes": 962,
+            "skillsMastered": 11
+          },
+          "recent": [
+            {
+              "key": "lesson-5c7e2b90:s3",
+              "lessonId": "lesson-5c7e2b90",
+              "lessonTitle": "Subdivision and smooth shading",
+              "stepId": "s3",
+              "stepTitle": "Set the viewport level to 2",
+              "at": "2026-11-22T19:43:05-08:00",
+              "skillIds": [
+                "bl.modifiers"
+              ],
+              "skills": [
+                "Modifiers"
+              ],
+              "planId": "intro-blender",
+              "proofId": "pf-5c7e2b90-s3"
+            },
+            {
+              "key": "lesson-3f9a21c0:s4",
+              "lessonId": "lesson-3f9a21c0",
+              "lessonTitle": "The forward pass",
+              "stepId": "s4",
+              "stepTitle": "Add one row to every row",
+              "at": "2026-11-22T16:12:00-08:00",
+              "skillIds": [
+                "nn.forward"
+              ],
+              "skills": [
+                "Forward pass"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-3f9a21c0:s3",
+              "lessonId": "lesson-3f9a21c0",
+              "lessonTitle": "The forward pass",
+              "stepId": "s3",
+              "stepTitle": "Shapes and axes",
+              "at": "2026-11-22T16:03:00-08:00",
+              "skillIds": [
+                "nn.forward"
+              ],
+              "skills": [
+                "Forward pass"
+              ],
+              "planId": "neural-networks",
+              "assisted": true
+            },
+            {
+              "key": "lesson-8b2d4e17:s6",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s6",
+              "stepTitle": "With numpy",
+              "at": "2026-11-21T20:41:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-c41e9a02:s5",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s5",
+              "stepTitle": "Slice rows and columns",
+              "at": "2026-11-19T18:15:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ],
+              "proofId": "pf-c41e9a02-s5"
+            },
+            {
+              "key": "lesson-77ab0d3e:s4",
+              "lessonId": "lesson-77ab0d3e",
+              "lessonTitle": "Move, rotate and scale",
+              "stepId": "s4",
+              "stepTitle": "Scale the mug on one axis",
+              "at": "2026-11-17T21:02:00-08:00",
+              "skillIds": [
+                "bl.transform"
+              ],
+              "skills": [
+                "Transforms"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-77ab0d3e:s3",
+              "lessonId": "lesson-77ab0d3e",
+              "lessonTitle": "Move, rotate and scale",
+              "stepId": "s3",
+              "stepTitle": "Move the mug with G",
+              "at": "2026-11-17T20:51:00-08:00",
+              "skillIds": [
+                "bl.transform"
+              ],
+              "skills": [
+                "Transforms"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-8b2d4e17:s5",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s5",
+              "stepTitle": "Multiply a matrix by a vector",
+              "at": "2026-11-16T19:30:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-8b2d4e17:s4",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s4",
+              "stepTitle": "Shape and transpose",
+              "at": "2026-11-16T19:18:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-8b2d4e17:s3",
+              "lessonId": "lesson-8b2d4e17",
+              "lessonTitle": "A layer is a matrix",
+              "stepId": "s3",
+              "stepTitle": "Rows and columns",
+              "at": "2026-11-16T19:06:00-08:00",
+              "skillIds": [
+                "nn.layer"
+              ],
+              "skills": [
+                "Layers as matrices"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-c41e9a02:s4",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s4",
+              "stepTitle": "Slice a range",
+              "at": "2026-11-14T17:44:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ]
+            },
+            {
+              "key": "lesson-c41e9a02:s3",
+              "lessonId": "lesson-c41e9a02",
+              "lessonTitle": "Indexing and slicing",
+              "stepId": "s3",
+              "stepTitle": "Pick one item",
+              "at": "2026-11-14T17:31:00-08:00",
+              "skillIds": [
+                "np.indexing"
+              ],
+              "skills": [
+                "Indexing, slicing"
+              ]
+            },
+            {
+              "key": "lesson-1d0c55aa:s5",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s5",
+              "stepTitle": "Plot sigmoid and ReLU",
+              "at": "2026-11-13T18:20:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-1d0c55aa:s4",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s4",
+              "stepTitle": "Write relu",
+              "at": "2026-11-13T18:08:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-1d0c55aa:s3",
+              "lessonId": "lesson-1d0c55aa",
+              "lessonTitle": "Activation functions",
+              "stepId": "s3",
+              "stepTitle": "Write sigmoid",
+              "at": "2026-11-13T17:57:00-08:00",
+              "skillIds": [
+                "nn.activation"
+              ],
+              "skills": [
+                "Activations"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s5",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s5",
+              "stepTitle": "Run the neuron on three inputs",
+              "at": "2026-11-11T20:12:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s4",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s4",
+              "stepTitle": "Add the bias",
+              "at": "2026-11-11T20:01:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-90fe3b61:s3",
+              "lessonId": "lesson-90fe3b61",
+              "lessonTitle": "A single neuron",
+              "stepId": "s3",
+              "stepTitle": "Weighted sum",
+              "at": "2026-11-11T19:50:00-08:00",
+              "skillIds": [
+                "nn.neuron"
+              ],
+              "skills": [
+                "A single neuron"
+              ],
+              "planId": "neural-networks"
+            },
+            {
+              "key": "lesson-2a6e8f19:s5",
+              "lessonId": "lesson-2a6e8f19",
+              "lessonTitle": "Move around the 3D viewport",
+              "stepId": "s5",
+              "stepTitle": "Frame the selected object",
+              "at": "2026-11-09T16:40:00-08:00",
+              "skillIds": [
+                "bl.navigate"
+              ],
+              "skills": [
+                "Viewport"
+              ],
+              "planId": "intro-blender"
+            },
+            {
+              "key": "lesson-2a6e8f19:s4",
+              "lessonId": "lesson-2a6e8f19",
+              "lessonTitle": "Move around the 3D viewport",
+              "stepId": "s4",
+              "stepTitle": "Switch to the top view",
+              "at": "2026-11-09T16:31:00-08:00",
+              "skillIds": [
+                "bl.navigate"
+              ],
+              "skills": [
+                "Viewport"
+              ],
+              "planId": "intro-blender"
+            }
+          ],
+          "milestones": [
+            {
+              "id": "m-first-step",
+              "kind": "first_step",
+              "title": "First step passed",
+              "at": "2026-09-08T18:02:00-08:00"
+            },
+            {
+              "id": "m-first-lesson",
+              "kind": "first_lesson",
+              "title": "First lesson finished",
+              "at": "2026-09-10T19:31:00-08:00"
+            },
+            {
+              "id": "m-steps-50",
+              "kind": "steps",
+              "title": "50 steps passed",
+              "at": "2026-11-16T19:30:00-08:00",
+              "count": 50
+            },
+            {
+              "id": "m-skill-indexing",
+              "kind": "skill_mastered",
+              "title": "Indexing, slicing mastered",
+              "at": "2026-11-14T17:44:00-08:00",
+              "skillId": "np.indexing"
+            }
+          ]
+        }
+      },
+      {
+        "wait": 50,
+        "type": "plans",
+        "payload": {
+          "items": [
+            {
+              "id": "neural-networks",
+              "title": "Neural networks from scratch",
+              "source": "preset",
+              "catalogId": "neural-networks",
+              "track": "neural networks",
+              "tool": {
+                "id": "jupyter",
+                "label": "Jupyter"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "A single neuron",
+                  "goal": "Teach what one neuron computes using only NumPy in Jupyter. Write neuron(x, w, b) that returns the dot product of inputs and weights plus a bias, and try it on three inputs.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "neuron gives 0.5 for inputs 1, 2, 3 with weights 0.5, -1, 0.5 and bias 0.5.",
+                  "skillIds": [
+                    "nn.neuron"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur00aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Activation functions",
+                  "goal": "Teach sigmoid, tanh and ReLU as NumPy functions that work on whole arrays, then add a sigmoid to the neuron so its output stays between 0 and 1.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "sigmoid(0) is 0.5, relu(-2) is 0 and the neuron's output lies between 0 and 1.",
+                  "skillIds": [
+                    "nn.activation"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur01aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "A layer is a matrix",
+                  "goal": "Teach a dense layer in NumPy as a weight matrix and a bias vector. Build a layer of 4 neurons that takes 3 inputs and send a batch of 5 samples through it with the @ operator.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The weights have shape (3, 4) and the layer's output has shape (5, 4).",
+                  "skillIds": [
+                    "nn.layer"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-neur02aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "The forward pass",
+                  "goal": "Teach the forward pass of a two-layer network in NumPy. Write forward(X) for a 2-4-1 network that chains a hidden layer with tanh and an output layer with sigmoid.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "forward returns shape (4, 1) for four samples, with every value between 0 and 1.",
+                  "skillIds": [
+                    "nn.forward"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-3f9a21c0",
+                  "steps": {
+                    "done": 4,
+                    "total": 6
+                  },
+                  "openedAt": "2026-11-22T15:58:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Measure the error with a loss",
+                  "goal": "Teach mean squared error and binary cross-entropy in NumPy by writing both as functions and scoring the untrained network's guesses against the right answers.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "run",
+                  "passes": "mse gives 0.25 for predictions 0.5, 0.5 against targets 1, 0.",
+                  "skillIds": [
+                    "nn.loss"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Gradients by hand",
+                  "goal": "Teach the chain rule for one sigmoid neuron with squared error. Work out the gradient for the weights and the bias on paper, code it in NumPy and check it against a numerical gradient.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The hand-coded gradient matches the numerical gradient to within 1e-6.",
+                  "skillIds": [
+                    "nn.gradients"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Gradient descent",
+                  "goal": "Teach gradient descent in NumPy by training the single neuron to act as an AND gate, nudging the weights and bias against the gradient with a learning rate for 2000 steps.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "The loss ends lower than it began and all four AND cases round to the right answer.",
+                  "skillIds": [
+                    "nn.descent"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Backpropagation through two layers",
+                  "goal": "Teach backpropagation in NumPy for the 2-4-1 network. Write backward so it returns a gradient for each weight matrix and bias, and check one of them against a numerical gradient.",
+                  "minutes": 30,
+                  "stepCount": 7,
+                  "check": "run",
+                  "passes": "Each gradient has the shape of its parameter and one passes a numerical check.",
+                  "skillIds": [
+                    "nn.backprop"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Train a tiny network on XOR",
+                  "goal": "Teach a full training loop in NumPy. Train the 2-4-1 network on the four XOR points with forward, loss, backward and update, starting from seeded random weights, and print the loss as it falls.",
+                  "minutes": 25,
+                  "stepCount": 6,
+                  "check": "run",
+                  "passes": "After training, the network's outputs round to 0, 1, 1, 0 for the XOR inputs.",
+                  "skillIds": [
+                    "nn.training"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A network that finds a circle",
+                "brief": "Train a network on your own, with only NumPy, to tell whether a 2D point lies inside a circle. Make 200 random points, train a 2-8-1 network and print its accuracy.",
+                "checks": [
+                  "The notebook imports numpy and no machine learning library",
+                  "The loss printed at the end is lower than the loss at the start",
+                  "Accuracy on the 200 points is at least 90 percent"
+                ],
+                "state": "locked"
+              },
+              "done": 3,
+              "total": 9,
+              "nextIndex": 3,
+              "minutesLeft": 180,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:40:00-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "intro-blender",
+              "title": "Intro to Blender",
+              "source": "preset",
+              "catalogId": "intro-blender",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Move around the 3D viewport",
+                  "goal": "Teach a complete beginner the Blender viewport. Orbit, pan, zoom, the front, side and top views, and frame the selected object.",
+                  "minutes": 10,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The cube is framed in the front view.",
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr00aa",
+                  "doneAt": "2026-11-04T20:00:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Move, rotate and scale",
+                  "goal": "Teach G, R and S in Blender with axis keys and typed numbers by placing a cube, a cone and a sphere at set spots.",
+                  "minutes": 15,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cube is at X 2, the cone is turned 90 degrees and the sphere is half size.",
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr01aa",
+                  "doneAt": "2026-11-07T20:00:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Edit mode: vertices, edges, faces",
+                  "goal": "Teach Blender Edit mode and the three select modes by pulling one edge of a cube up to make a wedge.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "One edge of the cube sits 1 m higher than the others.",
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr02aa",
+                  "doneAt": "2026-11-10T20:00:00-08:00"
+                },
+                {
+                  "index": 3,
+                  "title": "Extrude and inset: the cup",
+                  "goal": "Teach Blender inset and extrude by hollowing a cylinder into the cup of a mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The cylinder has a hollow with a wall and a floor.",
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr03aa",
+                  "doneAt": "2026-11-13T20:00:00-08:00"
+                },
+                {
+                  "index": 4,
+                  "title": "Loop cuts and bevels",
+                  "goal": "Teach Blender loop cuts and bevel by adding two loops for the handle and beveling the rim of the mug.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has two new edge loops and a beveled rim.",
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr04aa",
+                  "doneAt": "2026-11-16T20:00:00-08:00"
+                },
+                {
+                  "index": 5,
+                  "title": "Build the handle",
+                  "goal": "Teach extruding faces and bridging edge loops in Blender by growing a handle out of the side of the mug.",
+                  "minutes": 20,
+                  "stepCount": 6,
+                  "check": "scene",
+                  "passes": "The handle joins the mug in two places and the mesh is one piece.",
+                  "skillIds": [
+                    "bl.extrude",
+                    "bl.loops"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-intr05aa",
+                  "doneAt": "2026-11-19T20:00:00-08:00"
+                },
+                {
+                  "index": 6,
+                  "title": "Subdivision and smooth shading",
+                  "goal": "Teach Blender modifiers by adding Subdivision Surface at level 2 to the mug and turning on smooth shading.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a Subdivision modifier at level 2 and smooth shading.",
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "in_progress",
+                  "lessonId": "lesson-5c7e2b90",
+                  "steps": {
+                    "done": 3,
+                    "total": 5
+                  },
+                  "openedAt": "2026-11-22T19:31:00-08:00"
+                },
+                {
+                  "index": 7,
+                  "title": "Give it a material",
+                  "goal": "Teach Blender materials with the Principled BSDF by giving the mug a glossy ceramic color.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The mug has a material with roughness under 0.3.",
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "Light it and aim the camera",
+                  "goal": "Teach Blender lights and the camera by adding an area light and framing the whole mug in the camera view.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "scene",
+                  "passes": "The scene has an area light and the camera sees the whole mug.",
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Render and save an image",
+                  "goal": "Teach rendering in Blender. Pick a render engine, set the size, render and save a PNG.",
+                  "minutes": 15,
+                  "stepCount": 5,
+                  "check": "file",
+                  "passes": "A PNG render is saved next to the .blend file.",
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked"
+              },
+              "done": 6,
+              "total": 10,
+              "nextIndex": 6,
+              "minutesLeft": 105,
+              "startedAt": "2026-10-30T18:00:00-08:00",
+              "updatedAt": "2026-11-22T19:43:05-08:00",
+              "finishedAt": null
+            },
+            {
+              "id": "pl-PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "title": "Learn Blender 5",
+              "source": "playlist",
+              "playlistId": "PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "url": "https://www.youtube.com/playlist?list=PLn3ukorJv4vv9_e-htADGsPX9TMaQpHV8",
+              "track": "blender",
+              "tool": {
+                "id": "blender",
+                "label": "Blender"
+              },
+              "lessons": [
+                {
+                  "index": 0,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 1 - The Interface",
+                  "videoId": "kVcY7K-JA1Y",
+                  "seconds": 762,
+                  "skillIds": [
+                    "bl.navigate"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl00e41b",
+                  "doneAt": "2026-11-18T17:30:00-08:00"
+                },
+                {
+                  "index": 1,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 2 Materials",
+                  "videoId": "J2OpaKlChI8",
+                  "seconds": 669,
+                  "skillIds": [
+                    "bl.transform"
+                  ],
+                  "state": "done",
+                  "lessonId": "lesson-pl01e41b",
+                  "doneAt": "2026-11-19T17:30:00-08:00"
+                },
+                {
+                  "index": 2,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 3 - The Old Man",
+                  "videoId": "ut9_RRf1-hM",
+                  "seconds": 673,
+                  "skillIds": [
+                    "bl.edit"
+                  ],
+                  "state": "next"
+                },
+                {
+                  "index": 3,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 4 - Old Man Details",
+                  "videoId": "GB6xDutIOx0",
+                  "seconds": 845,
+                  "skillIds": [
+                    "bl.extrude"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 4,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE  - Part 5 - Monsters body",
+                  "videoId": "YaWGsX1IyTk",
+                  "seconds": 851,
+                  "skillIds": [
+                    "bl.loops"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 5,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 6 - Monsters Arms",
+                  "videoId": "jZvSIupp53E",
+                  "seconds": 748,
+                  "skillIds": [
+                    "bl.modifiers"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 6,
+                  "title": "Blender 5 Complete Beginners Guide   FREE COURSE   Part 7   the street",
+                  "videoId": "ctBx6OQ4Ljg",
+                  "seconds": 854,
+                  "skillIds": [
+                    "bl.materials"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 7,
+                  "title": "Blender 5 Complete Beginners Guide - FREE COURSE - Part 8 - Lights & Composit",
+                  "videoId": "7moxMNaRlk8",
+                  "seconds": 835,
+                  "skillIds": [
+                    "bl.lighting"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 8,
+                  "title": "How to - Orbit & Rotate Your Camera Around an Object : Blender 4.5",
+                  "videoId": "A62Exb4Hheg",
+                  "seconds": 230,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                },
+                {
+                  "index": 9,
+                  "title": "Make a Cute Easter Chick in Blender 5 - Beginner Tutorial",
+                  "videoId": "SsFXh8KEBy4",
+                  "seconds": 972,
+                  "skillIds": [
+                    "bl.render"
+                  ],
+                  "state": "todo"
+                }
+              ],
+              "project": {
+                "title": "A desk lamp, modeled and rendered",
+                "brief": "Model a simple desk lamp on your own from a cylinder and a cone. Give it two materials, light it and save a render.",
+                "checks": [
+                  "At least two mesh objects, one with a Subdivision or Bevel modifier",
+                  "Two different materials are assigned",
+                  "A render is saved as an image"
+                ],
+                "state": "locked",
+                "on": true
+              },
+              "done": 2,
+              "total": 10,
+              "nextIndex": 2,
+              "minutesLeft": 145,
+              "startedAt": "2026-11-17T17:00:00-08:00",
+              "updatedAt": "2026-11-19T17:30:00-08:00",
+              "finishedAt": null
+            }
+          ]
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s4",
+          "index": 4,
+          "title": "Shade smooth",
+          "instructions": "Right-click the mug and pick Shade Smooth.",
+          "kind": "code",
+          "estMinutes": 2
+        }
+      }
+    ]
+  }
+}

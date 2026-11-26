@@ -1,0 +1,75 @@
+{
+ "id": "jupyter-restart-run-all-out-of-order",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan, 'Restart and run all' (passes when every code cell ran with no error and the run counts go up in order from 1): the learner never restarted. The counts read [1], [5], [4]: they edited the goal cell and re-ran the cells bottom-up. A [1] is on screen and there is no error, but the run order is the thing this step teaches, and it is wrong.",
+ "step": {
+  "id": "jup7s3",
+  "title": "Restart the kernel and run every cell",
+  "instructions": "In steps.ipynb, click Restart, then Run All. Every cell should run top to bottom, numbered from [1], with no error.",
+  "file": "steps.ipynb",
+  "run_command": "Restart the kernel, then run all cells",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "Restart, then Run All"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup7s3c1",
+    "type": "screen_contains",
+    "label": "Cells numbered from [1]",
+    "app": "Code",
+    "pattern": "\\[\\s*1\\s*\\]"
+   },
+   {
+    "id": "jup7s3c2",
+    "type": "screen_absent",
+    "label": "No cell error after Run All",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000\ndays_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 5
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[5]",
+    "goal = 8000",
+    "days_met = sum(s >= goal for s in steps)",
+    "[4]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000"
+   ]
+  }
+ }
+}

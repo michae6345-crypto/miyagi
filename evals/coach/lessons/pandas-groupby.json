@@ -1,0 +1,814 @@
+{
+  "lesson": {
+    "id": "lesson-d6dc0b36",
+    "title": "Mastering Pandas groupby() in Python",
+    "goal": "pandas groupby",
+    "libraries": {
+      "pandas": "2.x",
+      "numpy": "1.x"
+    },
+    "builtBy": "gemini",
+    "workdir": "/Users/tripi/miyagi/lessons/_new"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Mastering Pandas groupby() in Python",
+      "url": "https://www.youtube.com/watch?v=_zsKKcnX-qE",
+      "videoId": "_zsKKcnX-qE"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Import libraries and create DataFrame",
+      "instructions": "Create groupby.ipynb, import pandas and numpy, and build the 50-row employee dictionary data. Convert it into df with pd.DataFrame(data) and run df.head() (Shift+Enter).",
+      "video": {
+        "sourceId": "src1",
+        "start": 12.0,
+        "end": 96.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "Imports pandas as pd",
+          "app": "Code",
+          "pattern": "import\\s+pandas\\s+as\\s+pd"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "Creates DataFrame",
+          "app": "Code",
+          "pattern": "pd\\.DataFrame\\("
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_contains",
+          "label": "Head output shows columns",
+          "app": "Code",
+          "pattern": "Department\\s*Employee\\s*Salary|Experience_Years"
+        },
+        {
+          "id": "s1c4",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|NameError|SyntaxError"
+        },
+        {
+          "type": "screen_contains",
+          "label": "table printed",
+          "app": "Code",
+          "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns|dtype:\\s*\\w+|RangeIndex:\\s*\\d+",
+          "id": "s1c5"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "Notebook file exists",
+          "file": "groupby.ipynb"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "Notebook builds DataFrame",
+          "file": "groupby.ipynb",
+          "pattern": "pd\\.DataFrame\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "df = pd.DataFrame(data)",
+          "caption": "Convert the synthetic employee dictionary into a Pandas DataFrame"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How groupby split-apply-combine works",
+          "t": 40.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Start by importing pandas as pd and numpy as np in your first notebook cell.",
+        "Use np.random.choice and np.random.randint to generate 50 records in a dictionary named data.",
+        "Pass data to pd.DataFrame(data), assign it to df, and call df.head() in a new cell."
+      ],
+      "common_mistakes": [
+        "Forgetting to run the import cell before creating the dictionary with np.random.",
+        "Generating arrays of mismatched lengths instead of 50 items per column."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "import pandas as pd; import numpy as np; data = {'Department': np.random.choice(['Sales', 'Engineering', 'HR', 'Marketing'], 50), 'Employee': [f'Employee_{i}' for i in range(1, 51)], 'Salary': np.random.randint(40000, 120000, size=50), 'Experience_Years': np.random.randint(1, 15, size=50)}; df = pd.DataFrame(data); df.head()"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Compute average salary by department",
+      "instructions": "Group df by Department, select the Salary column, and compute the mean into avg_salary. Inspect it with head(2), sort_values(), and reset_index(), running each cell.",
+      "video": {
+        "sourceId": "src1",
+        "start": 97.0,
+        "end": 186.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Uses groupby then mean",
+          "app": "Code",
+          "pattern": "groupby\\(.*\\).*\\.mean\\(\\)"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "Resets index",
+          "app": "Code",
+          "pattern": "reset_index\\("
+        },
+        {
+          "id": "s2c3",
+          "type": "screen_contains",
+          "label": "Output shows Salary by dept",
+          "app": "Code",
+          "pattern": "Engineering\\s*\\d+\\.\\d+|Marketing\\s*\\d+\\.\\d+|Name:\\s*Salary"
+        },
+        {
+          "id": "s2c4",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|KeyError|AttributeError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "Notebook has groupby mean",
+          "file": "groupby.ipynb",
+          "pattern": "groupby\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "df.groupby(\"Department\")[\"Salary\"].mean()",
+          "caption": "Group by Department and compute the mean Salary"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Groupby single column returns a Series",
+          "t": 147.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Call df.groupby() with the grouping column name first.",
+        "Select [\"Salary\"] after groupby(\"Department\") and chain .mean().",
+        "Call avg_salary.reset_index() to convert the Series result back into a DataFrame."
+      ],
+      "common_mistakes": [
+        "Forgetting to select the numeric column Salary before calling .mean(), which fails on string columns in Pandas 2.x.",
+        "Confusing a grouped Series index with a regular DataFrame column before calling reset_index()."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "avg_salary = df.groupby(\"Department\")[\"Salary\"].mean(); avg_salary.reset_index()"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Group by multiple columns",
+      "instructions": "Pass a list of Department and Experience_Years to df.groupby() and calculate the mean Salary into grouped. Display the first 10 rows with grouped.head(10).",
+      "video": {
+        "sourceId": "src1",
+        "start": 187.0,
+        "end": 234.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Passes column list to groupby",
+          "app": "Code",
+          "pattern": "groupby\\(\\s*\\["
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Outputs float64 Series",
+          "app": "Code",
+          "pattern": "dtype:\\s*float64"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_absent",
+          "label": "No notebook execution errors",
+          "app": "Code",
+          "pattern": "Traceback|KeyError|ValueError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "Groups by two columns",
+          "file": "groupby.ipynb",
+          "pattern": "groupby\\(\\s*\\[.*Experience_Years"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "groupby([",
+          "caption": "Group by multiple columns using a list of column names"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "MultiIndex results from grouping multiple columns",
+          "t": 220.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "When grouping by more than one column, what container type does groupby() expect?",
+        "Pass [\"Department\", \"Experience_Years\"] as a Python list inside df.groupby().",
+        "Chain [\"Salary\"].mean() and inspect the output using grouped.head(10)."
+      ],
+      "common_mistakes": [
+        "Passing multiple column names as separate arguments like groupby(\"Department\", \"Experience_Years\") instead of a list.",
+        "Omitting the underscore in Experience_Years."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "grouped = df.groupby([\"Department\", \"Experience_Years\"])[\"Salary\"].mean(); grouped.head(10)"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Compute multiple aggregations with agg",
+      "instructions": "Group df by Department and call .agg() with a dictionary mapping Salary to mean, max, min and Experience_Years to mean, count. Assign to agg_result and display it.",
+      "video": {
+        "sourceId": "src1",
+        "start": 234.0,
+        "end": 283.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Calls groupby agg",
+          "app": "Code",
+          "pattern": "groupby\\(.*\\)\\.agg\\("
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Shows aggregation table",
+          "app": "Code",
+          "pattern": "mean\\s*max\\s*min"
+        },
+        {
+          "id": "s4c3",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|AttributeError|KeyError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "Notebook uses agg",
+          "file": "groupby.ipynb",
+          "pattern": "\\.agg\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": ".agg(",
+          "caption": "Apply multiple aggregation functions per column with .agg()"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Mapping columns to aggregation lists in .agg()",
+          "t": 248.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use the .agg() method directly on df.groupby(\"Department\").",
+        "Pass a dictionary where keys are column names and values are lists of aggregation strings.",
+        "Use {\"Salary\": [\"mean\", \"max\", \"min\"], \"Experience_Years\": [\"mean\", \"count\"]}."
+      ],
+      "common_mistakes": [
+        "Selecting a single column before .agg() when trying to aggregate multiple different columns.",
+        "Passing function names without quotes as undefined variables instead of string names."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [\"mean\", \"max\", \"min\"], \"Experience_Years\": [\"mean\", \"count\"]}); agg_result"
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Apply custom lambda percentile",
+      "instructions": "In groupby.ipynb, group df by Department, select Salary, and .apply() a lambda calling np.percentile(x, 75). Store it in custom_agg and display it.",
+      "video": {
+        "sourceId": "src1",
+        "start": 284.0,
+        "end": 321.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Uses apply with percentile",
+          "app": "Code",
+          "pattern": "\\.apply\\(\\s*lambda"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "Calls np.percentile",
+          "app": "Code",
+          "pattern": "percentile\\("
+        },
+        {
+          "id": "s5c3",
+          "type": "screen_contains",
+          "label": "Outputs float64 Series",
+          "app": "Code",
+          "pattern": "dtype:\\s*float64"
+        },
+        {
+          "id": "s5c4",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|TypeError|NameError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "file_contains",
+          "label": "Notebook uses percentile",
+          "file": "groupby.ipynb",
+          "pattern": "percentile"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "np.percentile(x, 75)",
+          "caption": "Compute the 75th percentile salary per department using apply and lambda"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Custom group functions with apply and lambda",
+          "t": 284.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Which GroupBy method lets you run an arbitrary Python or NumPy function on each group?",
+        "Chain .apply() onto df.groupby(\"Department\")[\"Salary\"].",
+        "Pass lambda x: np.percentile(x, 75) inside .apply()."
+      ],
+      "common_mistakes": [
+        "Forgetting to pass 75 as the second argument to np.percentile(x, 75).",
+        "Calling .apply() on the whole DataFrame without selecting [\"Salary\"], causing percentile to fail on string columns."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "custom_agg = df.groupby(\"Department\")[\"Salary\"].apply(lambda x: np.percentile(x, 75)); custom_agg"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Chain groupby with sort_values",
+      "instructions": "In groupby.ipynb, chain .sort_values(ascending=True) onto df.groupby(\"Department\")[\"Salary\"].mean(). Store it in sorted_avg_salary and display it.",
+      "video": {
+        "sourceId": "src1",
+        "start": 322.0,
+        "end": 363.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "Chains mean and sort_values",
+          "app": "Code",
+          "pattern": "\\.mean\\(\\)\\s*\\.sort_values\\("
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "Outputs float64 Series",
+          "app": "Code",
+          "pattern": "dtype:\\s*float64"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|TypeError|AttributeError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "Notebook uses sort_values",
+          "file": "groupby.ipynb",
+          "pattern": "sort_values\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": ".sort_values(",
+          "caption": "Chain sort_values directly after the groupby aggregation"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Chaining sort_values in the same groupby line",
+          "t": 342.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "You can chain Series methods directly after .mean().",
+        "Add .sort_values(ascending=True) right after .mean()."
+      ],
+      "common_mistakes": [
+        "Calling .sort_values() before .mean() on the GroupBy object instead of the aggregated Series.",
+        "Writing lowercase true instead of True in Python."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "sorted_avg_salary = df.groupby(\"Department\")[\"Salary\"].mean().sort_values(ascending=True); sorted_avg_salary"
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Compare group size and count",
+      "instructions": "In groupby.ipynb, compute group_size with df.groupby(\"Department\").size() and group_count with df.groupby(\"Department\").count(). Display both to compare row counts vs. column-wise non-missing counts.",
+      "video": {
+        "sourceId": "src1",
+        "start": 363.0,
+        "end": 409.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "Calls groupby size()",
+          "app": "Code",
+          "pattern": "groupby\\(.{0,40}\\)\\.size\\(\\)"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_contains",
+          "label": "Calls groupby count()",
+          "app": "Code",
+          "pattern": "groupby\\(.{0,40}\\)\\.count\\(\\)"
+        },
+        {
+          "id": "s7c3",
+          "type": "screen_contains",
+          "label": "Shows int64 size output",
+          "app": "Code",
+          "pattern": "dtype:\\s*int64"
+        },
+        {
+          "id": "s7c4",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|KeyError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_contains",
+          "label": "Notebook uses size()",
+          "file": "groupby.ipynb",
+          "pattern": "\\.size\\(\\)"
+        },
+        {
+          "id": "s7p2",
+          "type": "file_contains",
+          "label": "Notebook uses count()",
+          "file": "groupby.ipynb",
+          "pattern": "groupby\\(.{0,40}\\)\\.count\\(\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": ".count()",
+          "caption": "Compare .size() Series output against .count() DataFrame output"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Difference between size and count with missing values",
+          "t": 396.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use .size() on df.groupby(\"Department\") to count total rows per group.",
+        "Use .count() on df.groupby(\"Department\") to count non-NA values column-wise."
+      ],
+      "common_mistakes": [
+        "Assuming .size() ignores NaN values when only .count() excludes missing values.",
+        "Forgetting parentheses on .size() or .count()."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "group_size = df.groupby(\"Department\").size(); group_size; group_count = df.groupby(\"Department\").count(); group_count"
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Build sales DataFrame and sum totals",
+      "instructions": "In groupby.ipynb, build a 100-row sales_data dict, convert it with pd.DataFrame into sales_df, then sum Revenue per Store and Quantity per Product using groupby() and .sum().",
+      "video": {
+        "sourceId": "src1",
+        "start": 409.0,
+        "end": 499.0
+      },
+      "checks": [
+        {
+          "id": "s8c1",
+          "type": "screen_contains",
+          "label": "Creates DataFrame",
+          "app": "Code",
+          "pattern": "pd\\.DataFrame\\("
+        },
+        {
+          "id": "s8c2",
+          "type": "screen_contains",
+          "label": "Groupby column sum",
+          "app": "Code",
+          "pattern": "groupby\\(.{0,40}\\)\\[.{0,30}\\]\\.sum\\(\\)"
+        },
+        {
+          "id": "s8c3",
+          "type": "screen_contains",
+          "label": "Shows summed Series",
+          "app": "Code",
+          "pattern": "Name:\\s*\\w+,\\s*dtype:\\s*(int|float)64"
+        },
+        {
+          "id": "s8c4",
+          "type": "screen_absent",
+          "label": "No notebook errors",
+          "app": "Code",
+          "pattern": "Traceback|KeyError|ValueError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s8p1",
+          "type": "file_contains",
+          "label": "Creates sales_df",
+          "file": "groupby.ipynb",
+          "pattern": "sales_df\\s*=\\s*pd\\.DataFrame"
+        },
+        {
+          "id": "s8p2",
+          "type": "file_contains",
+          "label": "Sums Revenue per Store",
+          "file": "groupby.ipynb",
+          "pattern": "Revenue.{0,10}\\]\\.sum\\(\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": ".sum()",
+          "caption": "Compute total revenue per store using groupby and sum"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Generate the 100-period Date column using pd.date_range(start='2024-01-01', periods=100, freq='D').",
+        "Group sales_df by \"Store\" for \"Revenue\" and by \"Product\" for \"Quantity\", calling .sum() on each."
+      ],
+      "common_mistakes": [
+        "Using periods=50 instead of 100 in pd.date_range, which causes a length mismatch error.",
+        "Calling groupby on the old employee df instead of sales_df."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "sales_data = {'Store': np.random.choice(['Store_A', 'Store_B', 'Store_C'], 100), 'Product': np.random.choice(['Apples', 'Bananas', 'Cherries'], 100), 'Revenue': np.random.uniform(10.0, 500.0, 100).round(2), 'Quantity': np.random.randint(1, 50, 100), 'Date': pd.date_range(start='2024-01-01', periods=100, freq='D')}; sales_df = pd.DataFrame(sales_data); total_revenue = sales_df.groupby(\"Store\")[\"Revenue\"].sum(); quantity_sold_per_product = sales_df.groupby(\"Product\")[\"Quantity\"].sum()"
+    },
+    {
+      "id": "s9",
+      "index": 9,
+      "title": "Group sales by store and month",
+      "instructions": "In groupby.ipynb, group sales_df by \"Store\" and sales_df[\"Date\"].dt.month, then compute the mean Revenue into avg_daily_revenue. Display avg_daily_revenue to inspect monthly averages per store.",
+      "video": {
+        "sourceId": "src1",
+        "start": 500.0,
+        "end": 552.0
+      },
+      "checks": [
+        {
+          "id": "s9c1",
+          "type": "screen_contains",
+          "label": "Extracts month with dt.month",
+          "app": "Code",
+          "pattern": "\\.dt\\.month"
+        },
+        {
+          "id": "s9c2",
+          "type": "screen_contains",
+          "label": "Uses groupby call",
+          "app": "Code",
+          "pattern": "groupby\\("
+        },
+        {
+          "id": "s9c3",
+          "type": "screen_contains",
+          "label": "Outputs float64 Series",
+          "app": "Code",
+          "pattern": "dtype:\\s*float64"
+        },
+        {
+          "id": "s9c4",
+          "type": "screen_absent",
+          "label": "No notebook execution errors",
+          "app": "Code",
+          "pattern": "Traceback|AttributeError|KeyError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s9p1",
+          "type": "file_exists",
+          "label": "Notebook exists",
+          "file": "groupby.ipynb"
+        },
+        {
+          "id": "s9p2",
+          "type": "file_contains",
+          "label": "Groups by store and month",
+          "file": "groupby.ipynb",
+          "pattern": "groupby\\(\\[.{0,20}Store.{0,40}dt\\.month"
+        },
+        {
+          "id": "s9p3",
+          "type": "file_contains",
+          "label": "Mean revenue computed",
+          "file": "groupby.ipynb",
+          "pattern": "Revenue.{0,10}\\.mean\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": ".dt.month",
+          "caption": "Group directly by a datetime Series month component"
+        },
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "dtype: float64",
+          "caption": "Mean revenue per store and month"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Passing a derived Series like dt.month into groupby",
+          "t": 529.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "You can pass a Series directly inside the list passed to groupby().",
+        "Extract the month number from sales_df[\"Date\"] using the .dt.month accessor.",
+        "Write sales_df.groupby([\"Store\", sales_df[\"Date\"].dt.month])[\"Revenue\"].mean()."
+      ],
+      "common_mistakes": [
+        "Putting \"Date.dt.month\" inside quotes as a string column name instead of evaluating sales_df[\"Date\"].dt.month.",
+        "Writing .dt.month() with parentheses instead of accessing it as a property."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "avg_daily_revenue = sales_df.groupby([\"Store\", sales_df[\"Date\"].dt.month])[\"Revenue\"].mean(); avg_daily_revenue"
+    },
+    {
+      "id": "s10",
+      "index": 10,
+      "title": "Count high sales per store",
+      "instructions": "In groupby.ipynb, add a boolean column sales_df[\"High_Sale\"] = sales_df[\"Revenue\"] > 250, then group by Store and sum High_Sale into high_sales_count. Display high_sales_count.",
+      "video": {
+        "sourceId": "src1",
+        "start": 553.0,
+        "end": 603.0
+      },
+      "checks": [
+        {
+          "id": "s10c1",
+          "type": "screen_contains",
+          "label": "Creates boolean threshold column",
+          "app": "Code",
+          "pattern": "High_Sale.{0,40}>\\s*250"
+        },
+        {
+          "id": "s10c2",
+          "type": "screen_contains",
+          "label": "Sums boolean column per group",
+          "app": "Code",
+          "pattern": "groupby\\(.{0,40}\\]\\s*\\.sum\\(\\)"
+        },
+        {
+          "id": "s10c3",
+          "type": "screen_contains",
+          "label": "Displays int64 count Series",
+          "app": "Code",
+          "pattern": "dtype:\\s*int64"
+        },
+        {
+          "id": "s10c4",
+          "type": "screen_absent",
+          "label": "Cell runs without errors",
+          "app": "Code",
+          "pattern": "Traceback|KeyError|NameError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s10p1",
+          "type": "file_contains",
+          "label": "Notebook has High_Sale sum",
+          "file": "groupby.ipynb",
+          "pattern": "High_Sale.{0,10}\\]\\s*\\.sum\\(\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "groupby.ipynb",
+          "match": "[\"High_Sale\"].sum()",
+          "caption": "Sum the boolean High_Sale column to count rows exceeding 250"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using boolean columns and sum to count conditional rows",
+          "t": 564.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Create a True/False column by comparing sales_df[\"Revenue\"] > 250.",
+        "In Pandas, summing a boolean column counts how many True values exist.",
+        "Run sales_df.groupby(\"Store\")[\"High_Sale\"].sum()."
+      ],
+      "common_mistakes": [
+        "Using .count() instead of .sum() on the boolean High_Sale column, which counts both True and False rows.",
+        "Forgetting to assign the comparison back to sales_df[\"High_Sale\"]."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "sales_df[\"High_Sale\"] = sales_df[\"Revenue\"] > 250; sales_df.head(2); high_sales_count = sales_df.groupby(\"Store\")[\"High_Sale\"].sum(); high_sales_count"
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "claude-opus-5-5"
+    },
+    "seconds": 60.6,
+    "workdir_metrics": [],
+    "workdir_fp": "ce81718481d5",
+    "community_signals": 0,
+    "warnings": [
+      "s9: runs `Run the cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)"
+    ]
+  }
+}

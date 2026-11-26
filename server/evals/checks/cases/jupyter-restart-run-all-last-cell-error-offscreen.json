@@ -1,0 +1,83 @@
+{
+ "id": "jupyter-restart-run-all-last-cell-error-offscreen",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Intro to Jupyter, 'Restart and run all' (every code cell ran with no error, counts going up from 1). The learner had imported matplotlib in a cell they later deleted; the old kernel still held plt, so the chart cell worked until now. After Restart + Run All the counts read [1] [2] [3] [4] in order, but the last cell, the bar chart, stopped with \"NameError: name 'plt' is not defined\". The editor is scrolled to the top, where [1]-[3] and '4 of 7 days reached the goal of 8000' look clean; the error is below the fold. Finding exactly this is what the step is for: not done.",
+ "step": {
+  "id": "jup7s3",
+  "title": "Restart the kernel and run every cell",
+  "instructions": "In steps.ipynb, click Restart, then Run All. Every cell should run top to bottom, numbered from [1], with no error.",
+  "file": "steps.ipynb",
+  "run_command": "Restart the kernel, then run all cells",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "caption": "Restart, then Run All"
+   }
+  ],
+  "checks": [
+   {
+    "id": "jup7s3c1",
+    "type": "screen_contains",
+    "label": "Cells numbered from [1]",
+    "app": "Code",
+    "pattern": "\\[\\s*1\\s*\\]"
+   },
+   {
+    "id": "jup7s3c2",
+    "type": "screen_absent",
+    "label": "No cell error after Run All",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "goal = 8000\ndays_met = sum(s >= goal for s in steps)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "print(f'{days_met} of 7 days reached the goal of {goal}')",
+       "stdout": "4 of 7 days reached the goal of 8000\n",
+       "count": 3
+      },
+      {
+       "source": "days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\nplt.bar(days, steps)\nplt.title('Steps per day')\nplt.show()",
+       "error": "NameError: name 'plt' is not defined",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "Restart",
+    "Run All",
+    "[1]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+    "[2]",
+    "goal = 8000",
+    "days_met = sum(s >= goal for s in steps)",
+    "[3]",
+    "print(f'{days_met} of 7 days reached the goal of {goal}')",
+    "4 of 7 days reached the goal of 8000"
+   ]
+  }
+ }
+}

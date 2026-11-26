@@ -3,6 +3,9 @@
  * the respawn budget and the hung-engine restart, and fresh start across every reconnect (RunGuard keeps an old
  * lesson out after a dropped socket, a wake and a respawned engine, and keeps this run's own lesson).
  * A real `ws` server on 127.0.0.1 stands in for the engine: no Electron, no engine, no network, no paid calls.
+ * The links retry every RETRY_MS instead of the app's FAST_RETRY_MS (1 s), and the tests wait on what happened (the
+ * attempts, the drops, the reconnects) rather than on fixed sleeps, so the file runs in seconds and the same on a busy
+ * CI runner. One test keeps the app's real 1 s retry and checks it.
  *
  *   cd app && node --import tsx --import ./test/setup.mjs --test --test-force-exit test/reconnect.test.ts
  */
@@ -11,7 +14,7 @@ import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { after, describe, test } from 'node:test'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { Incoming } from '../src/common/wire'
-import { EngineLink, type LinkInfo } from '../src/main/engine'
+import { EngineLink, FAST_RETRY_MS, NOT_REPLAYED, type LinkInfo, type LinkTimings } from '../src/main/engine'
 import { Heartbeat } from '../src/main/heartbeat'
 import { MAX_RESPAWNS, RespawnBudget, superviseEngine } from '../src/main/respawn'
 
@@ -62,7 +65,16 @@ async function crash(e: Engine): Promise<void> {
   await new Promise<void>((r) => e.wss.close(() => r()))
 }
 
-const link = (url: string, timings = { heartbeatMs: 100, deadMs: 350, probeMs: 150 }): EngineLink => track(new EngineLink(url, undefined, undefined, timings))
+/** The fast retry these links use (the app's is FAST_RETRY_MS, 1 s). */
+const RETRY_MS = 150
+const QUICK: LinkTimings = { heartbeatMs: 100, deadMs: 350, probeMs: 150, retryMs: RETRY_MS }
+const link = (url: string, timings: LinkTimings = QUICK): EngineLink => track(new EngineLink(url, undefined, undefined, timings))
+/** Connection attempts the link has started (each one reports attempting: true once). */
+const attempts = (l: EngineLink): (() => number) => {
+  let n = 0
+  l.onLink((i) => void (i.attempting && n++))
+  return () => n
+}
 
 // ---- the respawn budget and the supervisor ----------------------------------------------------------------------------
 
@@ -227,12 +239,12 @@ test('hung: a real link to an engine that accepts but never answers is restarted
     for (const s of sockets) s.destroy()
     tcp.close()
   })
-  const l = track(new EngineLink(`ws://127.0.0.1:${(tcp.address() as AddressInfo).port}`, undefined, undefined, { handshakeMs: 150 }))
+  const l = track(new EngineLink(`ws://127.0.0.1:${(tcp.address() as AddressInfo).port}`, undefined, undefined, { handshakeMs: 150, retryMs: RETRY_MS }))
   let downs = 0
   l.onStatus((up) => void (up || downs++))
   let restarts = 0
   let alive = true
-  const hungMs = 1500
+  const hungMs = 700
   const start = Date.now()
   let restartedAt = 0
   superviseEngine(
@@ -292,7 +304,7 @@ test('heartbeat: a socket that stops answering is dropped and reconnected', asyn
   l.onStatus((c) => states.push(c))
   await until(() => l.connected, 2000, 'first connect')
   silent = false
-  // No pong for deadMs: dropped, then the fast retry (1 s) opens a fresh socket.
+  // No pong for deadMs: dropped, then the fast retry opens a fresh socket.
   await until(() => states.includes(false), 2000, 'the heartbeat to drop the silent socket')
   await until(() => l.connected && conns.length === 2, 3000, 'the reconnect')
 })
@@ -310,7 +322,7 @@ test('wake: an open socket that does not answer is dropped at once (Mac slept)',
   let silent = true
   const { url, conns } = await server({ silent: () => silent })
   // A long heartbeat, so only the wake probe can catch it.
-  const l = link(url, { heartbeatMs: 60_000, deadMs: 120_000, probeMs: 150 })
+  const l = link(url, { heartbeatMs: 60_000, deadMs: 120_000, probeMs: 150, retryMs: RETRY_MS })
   await until(() => l.connected, 2000, 'connect')
   silent = false
   const t = Date.now()
@@ -322,7 +334,7 @@ test('wake: an open socket that does not answer is dropped at once (Mac slept)',
 
 test('wake: an answering socket stays open', async () => {
   const { url, conns } = await server()
-  const l = link(url, { heartbeatMs: 60_000, deadMs: 120_000, probeMs: 150 })
+  const l = link(url, { heartbeatMs: 60_000, deadMs: 120_000, probeMs: 150, retryMs: RETRY_MS })
   await until(() => l.connected, 2000, 'connect')
   l.wake()
   await wait(400)
@@ -330,13 +342,17 @@ test('wake: an answering socket stays open', async () => {
   assert.equal(conns.length, 1)
 })
 
-test('a closed connection reconnects within about a second', async () => {
+test('a closed connection reconnects within about a second (the app\'s real fast retry)', async () => {
   const { url, conns } = await server()
-  const l = link(url)
+  // No retryMs: FAST_RETRY_MS, what the app uses.
+  const l = link(url, { heartbeatMs: 100, deadMs: 350, probeMs: 150 })
   await until(() => l.connected, 2000, 'connect')
   conns[0].close()
   await until(() => !l.connected, 1000, 'the drop')
+  const t = Date.now()
   await until(() => l.connected && conns.length === 2, 3000, 'the reconnect')
+  const took = Date.now() - t
+  assert.ok(took >= FAST_RETRY_MS - 50 && took < FAST_RETRY_MS + 1000, `reconnected ${took} ms after the drop (FAST_RETRY_MS ${FAST_RETRY_MS})`)
 })
 
 test('held failures: refused attempts while main starts the engine are not counted', async () => {
@@ -347,11 +363,11 @@ test('held failures: refused attempts while main starts the engine are not count
   const seen: LinkInfo[] = []
   l.onLink((i) => seen.push(i))
   l.holdFailures(true)
-  await wait(2500)
+  const tried = attempts(l)
+  await until(() => tried() >= 3, 3000, 'three refused attempts while held')
   assert.equal(l.link().failures, 0, 'held: the pill stays on its calm line')
   l.holdFailures(false)
-  await wait(1300)
-  assert.ok(l.link().failures >= 1, 'released: a refused attempt counts again')
+  await until(() => l.link().failures >= 1, 2000, 'a refused attempt to count again once released')
   assert.ok(seen.every((i) => !i.open))
 })
 
@@ -363,12 +379,13 @@ test('respawn: the engine dies, main holds failures, the new engine on the same 
   // What localEngine does on a crash mid-run with budget left: state 'starting' (held), start again after 0.5 s.
   l.holdFailures(true)
   await until(() => !l.connected, 1000, 'the drop')
-  await wait(1500)
+  const tried = attempts(l)
+  await until(() => tried() >= 3, 3000, 'refused attempts while it restarts')
   assert.equal(l.link().failures, 0, 'refused attempts while it restarts are not failures')
   const second = await server({ port: first.port })
   const t = Date.now()
   await until(() => l.connected, 2500, 'the respawned engine')
-  assert.ok(Date.now() - t < 2000, `picked up ${Date.now() - t} ms after it listened`)
+  assert.ok(Date.now() - t < RETRY_MS + 1000, `picked up ${Date.now() - t} ms after it listened (one fast retry, RETRY_MS ${RETRY_MS})`)
   assert.equal(second.conns.length, 1)
   l.holdFailures(false)
 })
@@ -401,7 +418,7 @@ const oldLeaks = (seen: Incoming[]): Incoming[] =>
 test('fresh start: an old lesson stays out across a heartbeat drop, a wake drop, a close and a respawn', async () => {
   let silent = false
   const first = await server({ silent: () => silent, snapshot: () => snapshotOf('old') })
-  const l = link(first.url, { heartbeatMs: 100, deadMs: 350, probeMs: 150 })
+  const l = link(first.url)
   const seen: Incoming[] = []
   l.onEvent((e) => seen.push(e))
   const hellos = (): number => seen.filter((e) => e.type === 'library').length
@@ -462,4 +479,22 @@ test("fresh start: this run's lesson comes back after a drop, a respawned engine
   await until(() => seen.some((e) => e.type === 'library'), 4000, 'the respawned engine')
   assert.ok(!seen.some((e) => lessonOf(e) === 'old'), "the respawned engine's old lesson never reaches the windows")
   assert.ok(!seen.some((e) => e.type === 'card' && (e.payload as { kind: string }).kind === 'resume'), 'nor its resume card')
+})
+
+test('ambient help reaches the windows but never the replay log (a reloaded overlay must not bring back a closed card)', async () => {
+  const AMBIENT: Incoming[] = [
+    ev('error.seen', { id: 'err-1', app: 'Terminal', kind: 'python_traceback', title: 'x', lines: [], at: 't' }),
+    ev('error.explanation', { id: 'err-1', title: 't' }),
+    ev('setup.report', { reqId: 'amb-fix-1', files: [], items: [], ready: 0, total: 0 }),
+    ev('help.steps', { reqId: 'amb-help-1', app: 'Blender', goal: 'g', steps: [], current: 0 }),
+    ev('search.done', { query: 'q' })
+  ]
+  const e = await server({ snapshot: () => AMBIENT })
+  const l = link(e.url)
+  const seen: Incoming[] = []
+  l.onEvent((x) => seen.push(x))
+  await until(() => seen.some((x) => x.type === 'search.done'), 2000, 'the ambient events')
+  for (const t of NOT_REPLAYED) assert.ok(seen.some((x) => x.type === t), `${t} reached the windows`)
+  assert.deepEqual(l.log.filter((x) => NOT_REPLAYED.has(x.type)), [], 'none of them is in the replay log')
+  assert.ok(l.log.some((x) => x.type === 'search.done'), 'other events still are')
 })

@@ -1,0 +1,104 @@
+{
+ "id": "terminal-react-jsx-vite-internal-server-error",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "App.jsx is saved with the card's closing </div> missing. Vite's dev server is up ('ready in' above), but on save it printed '[vite] Internal server error: ... Unterminated JSX contents' and the browser shows the red error overlay, not the card. Vite words its errors as 'Internal server error' / 'Pre-transform error', not npm's ERR! or CRA's 'Failed to compile', so the terminal is not clean.",
+ "step": {
+  "id": "re2s4",
+  "title": "Show the fact card in the browser",
+  "kind": "run",
+  "instructions": "Save src/App.jsx with the animal card (a div with className=\"card\", the name in an h2 and the weight in a p). With npm run dev still running, check the browser shows the card and the terminal shows no errors.",
+  "file": "src/App.jsx",
+  "code": "function App() {\n  const name = 'Red panda'\n  const weightKg = 5\n  return (\n    <div className=\"card\">\n      <h2>{name}</h2>\n      <p>{weightKg} kg</p>\n    </div>\n  )\n}\n\nexport default App",
+  "run_command": "npm run dev",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/App.jsx",
+    "match": "className=\"card\"",
+    "caption": "The card's root"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re2s4c1",
+    "type": "screen_contains",
+    "label": "Vite dev server is running",
+    "app": "Terminal",
+    "pattern": "ready\\s+in|hmr\\s+update"
+   },
+   {
+    "id": "re2s4c2",
+    "type": "screen_absent",
+    "label": "No compile errors in the terminal",
+    "app": "Terminal",
+    "pattern": "ERR!|Failed\\s+to\\s+compile"
+   },
+   {
+    "id": "re2s4c3",
+    "type": "screen_contains",
+    "label": "App uses className",
+    "app": "Code",
+    "pattern": "className=[\"']card[\"']"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re2s4p1",
+    "type": "file_contains",
+    "label": "The card is in App.jsx",
+    "file": "animal-card/src/App.jsx",
+    "pattern": "className=[\"']card[\"']"
+   }
+  ],
+  "hints": [
+   "JSX uses className, not class."
+  ],
+  "common_mistakes": [
+   "Two root elements side by side; wrap them in one div."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "animal-card/package.json": "{\n  \"name\": \"animal-card\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "animal-card/src/App.jsx": "function App() {\n  const name = 'Red panda'\n  const weightKg = 5\n  return (\n    <div className=\"card\">\n      <h2>{name}</h2>\n      <p>{weightKg} kg</p>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "function App() {",
+    "const name = 'Red panda'",
+    "const weightKg = 5",
+    "return (",
+    "<div className=\"card\">",
+    "<h2>{name}</h2>",
+    "<p>{weightKg} kg</p>",
+    ")",
+    "}",
+    "export default App"
+   ],
+   "Terminal": [
+    "tripi@mac animal-card % npm run dev",
+    "VITE v5.4.10  ready in 296 ms",
+    "➜  Local:   http://localhost:5173/",
+    "4:31:52 PM [vite] Internal server error: /Users/tripi/animal-card/src/App.jsx: Unterminated JSX contents. (8:4)",
+    "Plugin: vite:react-babel",
+    "File: /Users/tripi/animal-card/src/App.jsx:8:4",
+    "6 |        <h2>{name}</h2>",
+    "7 |        <p>{weightKg} kg</p>",
+    "> 8 |    )",
+    "|      ^"
+   ]
+  },
+  "run": {
+   "command": "npm run dev",
+   "exit_code": null,
+   "running": true,
+   "output_tail": [
+    "4:31:52 PM [vite] Internal server error: /Users/tripi/animal-card/src/App.jsx: Unterminated JSX contents. (8:4)"
+   ]
+  }
+ }
+}

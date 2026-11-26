@@ -1,0 +1,109 @@
+{
+ "id": "jupyter-pytorch-xor-loss-spike-recovered",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "PyTorch plan, 'Write the training loop' (the printed loss falls and the model gets all four XOR points right). With SGD at lr=0.5 the loss jumps once, 0.2203 -> 0.4917 at epoch 600 (an overshoot on the Tanh layer), then falls every print to 0.0061 at epoch 1800, and the rounded predictions are [0.0, 1.0, 1.0, 0.0]. One spike in the middle of a run that ends 40x lower than it started is a falling loss. Done.",
+ "step": {
+  "id": "pt5s4",
+  "title": "Train on XOR and print the loss",
+  "instructions": "In xor.ipynb, loop 2000 epochs: zero the gradients, compute the loss, call loss.backward() and optimizer.step(). Print the loss every 200 epochs, then print the rounded predictions.",
+  "file": "xor.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "xor.ipynb",
+    "match": "loss.backward()",
+    "caption": "Backpropagate, then step the optimizer"
+   }
+  ],
+  "code": "for epoch in range(2000):\n    optimizer.zero_grad()\n    loss = loss_fn(model(X), y)\n    loss.backward()\n    optimizer.step()\n    if epoch % 200 == 0:\n        print(f'epoch {epoch} loss {loss.item():.4f}')\n\nprint(model(X).round().squeeze().tolist())",
+  "checks": [
+   {
+    "id": "pt5s4c1",
+    "type": "screen_contains",
+    "label": "loss.backward() called",
+    "app": "Code",
+    "pattern": "loss\\.backward\\(\\)"
+   },
+   {
+    "id": "pt5s4c2",
+    "type": "screen_contains",
+    "label": "Optimizer steps every epoch",
+    "app": "Code",
+    "pattern": "optimizer\\.step\\(\\)"
+   },
+   {
+    "id": "pt5s4c3",
+    "type": "metric_trend",
+    "label": "The printed loss falls",
+    "metric": "loss",
+    "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
+    "trend": "decreasing",
+    "window": 2000
+   },
+   {
+    "id": "pt5s4c4",
+    "type": "screen_contains",
+    "label": "Predictions printed as 0, 1, 1, 0",
+    "app": "Code",
+    "pattern": "\\[\\s*0\\.0,\\s*1\\.0,\\s*1\\.0,\\s*0\\.0\\s*\\]"
+   },
+   {
+    "id": "pt5s4c5",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "xor.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import torch\nfrom torch import nn\n\nX = torch.tensor([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])\ny = torch.tensor([[0.], [1.], [1.], [0.]])",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "torch.manual_seed(0)\nmodel = nn.Sequential(nn.Linear(2, 8), nn.Tanh(), nn.Linear(8, 1), nn.Sigmoid())\nloss_fn = nn.MSELoss()\noptimizer = torch.optim.SGD(model.parameters(), lr=0.5)",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "for epoch in range(2000):\n    optimizer.zero_grad()\n    loss = loss_fn(model(X), y)\n    loss.backward()\n    optimizer.step()\n    if epoch % 200 == 0:\n        print(f'epoch {epoch} loss {loss.item():.4f}')\n\nprint(model(X).round().squeeze().tolist())",
+       "stdout": "epoch 0 loss 0.2614\nepoch 200 loss 0.2481\nepoch 400 loss 0.2203\nepoch 600 loss 0.4917\nepoch 800 loss 0.2389\nepoch 1000 loss 0.1204\nepoch 1200 loss 0.0453\nepoch 1400 loss 0.0187\nepoch 1600 loss 0.0098\nepoch 1800 loss 0.0061\n[0.0, 1.0, 1.0, 0.0]\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "xor.ipynb",
+    "[3]",
+    "for epoch in range(2000):",
+    "optimizer.zero_grad()",
+    "loss = loss_fn(model(X), y)",
+    "loss.backward()",
+    "optimizer.step()",
+    "if epoch % 200 == 0:",
+    "epoch 400 loss 0.2203",
+    "epoch 600 loss 0.4917",
+    "epoch 800 loss 0.2389",
+    "epoch 1000 loss 0.1204",
+    "epoch 1200 loss 0.0453",
+    "epoch 1400 loss 0.0187",
+    "epoch 1600 loss 0.0098",
+    "epoch 1800 loss 0.0061",
+    "[0.0, 1.0, 1.0, 0.0]"
+   ]
+  }
+ }
+}

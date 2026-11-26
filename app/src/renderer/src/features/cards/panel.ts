@@ -29,18 +29,23 @@ export type RoutedKind = 'offtrack' | 'success' | Payload<'card'>['kind'] | 'com
 type AnyFn = (...args: unknown[]) => unknown
 
 /**
- * features/drawer/store.ts as a plain record, read by name at call time, never while modules load (once A1 lands the
- * drawer store and this module import each other through cards/store). A name A1 doesn't export yet is just undefined.
+ * features/drawer/store.ts as a plain record, read by name at call time, never while modules load (the drawer store and
+ * this module import each other through cards/store). A name A1 doesn't export yet is just undefined.
+ *
+ * A function, not a constant: in a production bundle the drawer store's namespace object is built when that module runs,
+ * which is after this one, so `const drawer = drawerStore` captured undefined for good and the first read threw
+ * ("Cannot read properties of undefined (reading 'usePanel')": the island crashed and hid as soon as a lesson with the
+ * panel started). The dev server's native modules hid it, because there the namespace exists before any module runs.
  */
-const drawer: Record<string, unknown> = drawerStore
+const drawer = (): Record<string, unknown> => (drawerStore as Record<string, unknown> | undefined) ?? {}
 type DrawerName = 'isPanelRouted' | 'openPanel'
 
 /** A1's export by name (`isPanelRouted`, `openPanel`, or `useDrawer.getState().openPanel`), or undefined while A1 isn't there. */
 export function drawerExport(name: DrawerName): AnyFn | undefined {
-  const direct = drawer[name]
+  const direct = drawer()[name]
   if (typeof direct === 'function') return direct as AnyFn
   // `useDrawer.openPanel` (the plan's wording): a method on the drawer store's state.
-  const store = drawer.useDrawer as { getState?: () => Record<string, unknown> } | undefined
+  const store = drawer().useDrawer as { getState?: () => Record<string, unknown> } | undefined
   const viaStore = typeof store?.getState === 'function' ? store.getState()[name] : undefined
   return typeof viaStore === 'function' ? (...a: unknown[]) => (store!.getState!()[name] as AnyFn)(...a) : undefined
 }
@@ -61,7 +66,8 @@ const isStore = (x: unknown): x is HeldPassStore =>
 
 /** A1's panel store (`usePanel`): drawer/store.ts's re-export when there is one, else its own module; undefined before A1. */
 export function panelStore(): HeldPassStore | undefined {
-  if (isStore(drawer.usePanel)) return drawer.usePanel
+  const viaDrawer = drawer().usePanel
+  if (isStore(viaDrawer)) return viaDrawer
   const own = panelStoreModule?.usePanel
   return isStore(own) ? own : undefined
 }

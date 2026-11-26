@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "hint",
+ "title": "Hint 1 of 2",
+ "body": "Start at the output: d_out is how wrong it was. The output has no tanh, so there is no slope to multiply."
+}

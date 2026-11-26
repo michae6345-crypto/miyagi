@@ -1,0 +1,40 @@
+{
+ "id": "blender-donut-s1-shift-a-mesh-menu",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss on the donut lesson's s1 (\"add a torus with Shift+A > Mesh > Torus\"): the cube is deleted and the Shift+A > Mesh menu is open with Torus in the list, but it hasn't been clicked: the outliner shows only Collection, Camera and Light.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/blender_donut.json",
+  "id": "s1",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "Blender": [
+    "Object Mode View Select Add Object",
+    "Add",
+    "Mesh",
+    "Curve",
+    "Surface",
+    "Metaball",
+    "Text",
+    "Plane",
+    "Cube",
+    "Circle",
+    "UV Sphere",
+    "Ico Sphere",
+    "Cylinder",
+    "Cone",
+    "Torus",
+    "Grid",
+    "Monkey",
+    "Scene Collection",
+    "Collection",
+    "Camera",
+    "Light"
+   ]
+  }
+ }
+}

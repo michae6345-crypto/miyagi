@@ -3,7 +3,8 @@
  *
  * Inputs, never prompting (BUILD-PLAN Section 6: polling never prompts):
  *   - permissions   main/permissions.ts: permissions:get once, then feat:permissions while this window watches
- *                   (permissions:watch only while the onboarding window is focused or a recovery card is open)
+ *                   (permissions:watch while the setup screen is on show, also while the learner is over in System
+ *                   Settings, or while a recovery card is open)
  *   - health        the engine's health (health.get, only when engine.hello lists it): VS Code and the companion
  *   - engine        core/lesson: connected, localEngine (main/localEngine.ts), keyStatus.cloud (config.status)
  *   - cloud         main/features/cloud.ts: cloud:get / feat:cloud (the install token's phase, never the token)
@@ -32,10 +33,21 @@ import { closeWindow, openLibrary } from '../../core/surfaces'
 import { setPrefs } from '../../core/prefs'
 import { sendAction } from '../../core/shortcuts'
 
-export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown'
-export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number }
+export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
+/**
+ * main/permissions.ts. `relaunch`: switched on in System Settings, seen only after miyagi restarts. `place`: where miyagi
+ * runs from ('dmg' | 'translocated': grants don't stick). `hint`: 'move' (to Applications), 'reset' (switch it off and on,
+ * or remove and re-add: an earlier build's row), 'managed' (a device profile decides).
+ */
+export type Permissions = Record<PermissionKind, PermissionState> & {
+  external: boolean
+  at: number
+  relaunch?: Array<'screen' | 'accessibility'>
+  place?: 'applications' | 'translocated' | 'dmg' | 'other'
+  hint?: Partial<Record<'screen' | 'accessibility', 'move' | 'reset' | 'managed'>>
+}
 /** main/features/cloud.ts CloudView: what a renderer may see (never the token). */
-export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean }
+export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean; region?: boolean }
 /**
  * What the window was opened for (window args `view`):
  *   intro      the first launch: the branded intro, then guided setup (main/features/onboarding.ts)
@@ -47,7 +59,7 @@ export type OnbView = 'intro' | 'setup' | 'welcome' | 'checklist'
 /** The guided steps (steps.ts STEP_ORDER). */
 export type GuidedStepId = 'screen' | 'accessibility' | 'companion' | 'engine'
 /** What a row's button does. The component maps each to a handler below. */
-export type RowAction = 'allow-screen' | 'open-accessibility' | 'relaunch' | 'install-companion' | 'get-vscode' | 'retry-engine' | 'copy-engine-details' | 'retry-cloud'
+export type RowAction = 'allow-screen' | 'open-accessibility' | 'open-screen-pane' | 'open-accessibility-pane' | 'reset-screen' | 'reset-accessibility' | 'relaunch' | 'install-companion' | 'get-vscode' | 'retry-engine' | 'copy-engine-details' | 'retry-cloud'
 export type Asked = Partial<Record<'screen' | 'accessibility' | 'companion', number>>
 export type RecoveryKind = Extract<PermissionKind, 'screen' | 'accessibility'>
 export type Recovery = { kind: RecoveryKind; why: 'paused' | 'dropped'; title?: string; body?: string; at: number }
@@ -259,7 +271,12 @@ async function installCompanion(item?: HealthItem): Promise<void> {
 export async function runAction(a: RowAction, item?: HealthItem): Promise<void> {
   // No macOS prompt and no System Settings pane before the learner agreed (R05). Main refuses the prompt too; the
   // consent screen covers these buttons until then, so this only stops a stray call.
-  if ((a === 'allow-screen' || a === 'open-accessibility') && !get().consent) return
+  if ((a === 'allow-screen' || a === 'open-accessibility' || a === 'open-screen-pane' || a === 'open-accessibility-pane' || a === 'reset-screen' || a === 'reset-accessibility') && !get().consent) return
+  // Never ask macOS again for a grant that is already on (here, or in System Settings waiting for a restart): only the
+  // pane opens then. A capture to make macOS ask, for a grant it already gave, is the nag the learner saw.
+  const on = (k: 'screen' | 'accessibility'): boolean => get().perms?.[k] === 'granted' || !!get().perms?.relaunch?.includes(k)
+  if (a === 'allow-screen' && on('screen')) a = 'open-screen-pane'
+  if (a === 'open-accessibility' && on('accessibility')) a = 'open-accessibility-pane'
   switch (a) {
     case 'allow-screen':
       noteAsked('screen')
@@ -272,8 +289,23 @@ export async function runAction(a: RowAction, item?: HealthItem): Promise<void> 
       await bridge.invoke('onboarding:prompt', 'accessibility').catch(() => false)
       await openPane('accessibility')
       return
+    case 'open-screen-pane':
+      await openPane('screen')
+      return
+    case 'open-accessibility-pane':
+      await openPane('accessibility')
+      return
+    case 'reset-screen':
+    case 'reset-accessibility': {
+      // Only on this click: tccutil reset for miyagi's row (main), then the pane, where they switch it on again.
+      const kind = a === 'reset-screen' ? 'screen' : 'accessibility'
+      await bridge.invoke('permissions:reset', kind).catch(() => false)
+      await openPane(kind)
+      return
+    }
     case 'relaunch':
-      await bridge.invoke('onboarding:relaunch').catch(() => false)
+      // main notes which grants this restart is for (the restart-loop guard), then quits and reopens miyagi.
+      await bridge.invoke('permissions:relaunch').catch(() => false)
       return
     case 'install-companion':
       return installCompanion(item)

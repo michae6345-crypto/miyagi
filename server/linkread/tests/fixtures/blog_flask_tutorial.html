@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Build your first Flask app in 15 minutes &#8211; Byte Garden</title>
+<meta property="og:title" content="Build your first Flask app in 15 minutes">
+<meta property="og:site_name" content="Byte Garden">
+<meta property="og:type" content="article">
+<meta property="article:author" content="https://bytegarden.example/author/dana">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","name":"Byte Garden"},{"@type":"BlogPosting","headline":"Build your first Flask app in 15 minutes","author":{"@type":"Person","name":"Dana Reyes"},"isAccessibleForFree":true}]}</script>
+<script src="/wp-includes/js/jquery.min.js"></script>
+<script>var _paq = window._paq || []; _paq.push(['trackPageView']);</script>
+</head>
+<body class="post-template-default single single-post">
+<div id="cookie-notice" class="cookie-consent-banner"><p>This site uses cookies to improve your experience. By continuing you agree to our cookie policy.</p><a href="#" class="button">OK</a></div>
+<div id="page" class="site">
+<header id="masthead" class="site-header"><div class="site-branding"><p class="site-title"><a href="/">Byte Garden</a></p><p class="site-description">Small lessons for curious programmers</p></div>
+<nav id="site-navigation" class="main-navigation"><ul id="primary-menu" class="menu"><li><a href="/">Home</a></li><li><a href="/python/">Python</a></li><li><a href="/javascript/">JavaScript</a></li><li><a href="/about/">About</a></li></ul></nav></header>
+<div id="content" class="site-content">
+<div id="primary" class="content-area"><main id="main" class="site-main">
+<article id="post-412" class="post-412 post type-post status-publish">
+<header class="entry-header"><h1 class="entry-title">Build your first Flask app in 15 minutes</h1>
+<div class="entry-meta"><span class="byline">By <span class="author vcard"><a class="url fn n" href="/author/dana/">Dana Reyes</a></span></span> <span class="posted-on">March 3, 2026</span></div></header>
+<div class="post-thumbnail"><img src="/wp-content/uploads/flask-hero.jpg" alt="A laptop with code" width="1200" height="600"></div>
+<div class="entry-content">
+<p>Flask is a small Python web framework. In this tutorial you will set up a project, write a route, and run a development server on your own machine. You only need Python 3.10 or newer and a terminal.</p>
+<h2 id="step-1-create-a-project-folder">Step 1: Create a project folder and a virtual environment</h2>
+<p>Keep every project in its own folder, with its own virtual environment, so packages from one project never clash with another:</p>
+<pre class="wp-block-code"><code class="language-bash">mkdir hello-flask
+cd hello-flask
+python3 -m venv .venv
+source .venv/bin/activate</code></pre>
+<h2 id="step-2-install-flask">Step 2: Install Flask</h2>
+<p>With the environment active, install Flask with pip:</p>
+<pre class="wp-block-code"><code class="language-bash">pip install flask</code></pre>
+<h2 id="step-3-write-the-app">Step 3: Write the app</h2>
+<p>Create a file called <code>app.py</code> and put this in it:</p>
+<pre class="wp-block-code"><code class="language-python">from flask import Flask
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def home():
+    return "&lt;h1&gt;Hello, Flask!&lt;/h1&gt;"
+
+
+if __name__ == "__main__":
+    app.run(debug=True)</code></pre>
+<p>Notice the indentation: the <code>return</code> line sits four spaces inside the function.</p>
+<h2 id="step-4-run-it">Step 4: Run it</h2>
+<ol>
+<li>Save <code>app.py</code>.</li>
+<li>In the terminal, run <code>python app.py</code>.</li>
+<li>Open <code>http://127.0.0.1:5000</code> in your browser.
+<pre><code class="language-text">* Running on http://127.0.0.1:5000</code></pre></li>
+</ol>
+<figure class="wp-block-image"><img src="/wp-content/uploads/flask-browser.png" alt="The page in a browser"><figcaption>The page in a browser.</figcaption></figure>
+<h2 id="whats-next">What's next</h2>
+<p>Try adding a second route, <code>/about</code>, that returns a different message. Then read about templates, which keep your HTML out of your Python code.</p>
+<div class="newsletter-box"><h3>Like this post?</h3><p>Subscribe to our newsletter to get one short lesson every week.</p><form><input type="email" placeholder="you@example.com"><button>Subscribe</button></form></div>
+<div class="sharedaddy sd-sharing-enabled"><div class="sharing-buttons"><h3 class="sd-title">Share this:</h3><ul><li><a href="#">Twitter</a></li><li><a href="#">Facebook</a></li></ul></div></div>
+</div>
+<footer class="entry-footer"><span class="cat-links">Posted in <a href="/python/">Python</a></span></footer>
+</article>
+<div class="author-bio"><h3>About Dana</h3><p>Dana writes about Python and teaches evening classes at the community college.</p></div>
+<nav class="navigation post-navigation"><a href="#">Previous: Python lists explained</a><a href="#">Next: Jinja templates</a></nav>
+<div id="comments" class="comments-area"><h2 class="comments-title">3 thoughts on &ldquo;Build your first Flask app&rdquo;</h2><ol class="comment-list"><li class="comment"><p>Great walkthrough, worked first time!</p></li><li class="comment"><p>How do I deploy this?</p></li></ol></div>
+<section class="related-posts"><h2>You might also like</h2><ul><li><a href="#">Django vs Flask</a></li><li><a href="#">FastAPI in 10 minutes</a></li></ul></section>
+</main></div>
+<aside id="secondary" class="widget-area"><section class="widget"><h2 class="widget-title">Popular</h2><ul><li><a href="#">Git basics</a></li></ul></section></aside>
+</div>
+<footer id="colophon" class="site-footer"><div class="site-info">&copy; 2026 Byte Garden. All rights reserved.</div></footer>
+</div>
+</body>
+</html>

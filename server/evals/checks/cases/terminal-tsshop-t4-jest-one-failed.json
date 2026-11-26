@@ -1,0 +1,40 @@
+{
+ "id": "terminal-tsshop-t4-jest-one-failed",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Jest: 'Tests: 1 failed, 2 passed, 3 total' (FAIL src/utils.test.ts, ✕ rounds to cents). Passing tests are on screen, but one test fails, so the step (every test passes) is not done.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "FAIL  src/utils.test.ts",
+    "formatPrice",
+    "✓ adds a dollar sign (3 ms)",
+    "✕ rounds to cents (4 ms)",
+    "✓ formats zero (1 ms)",
+    "● formatPrice › rounds to cents",
+    "expect(received).toBe(expected) // Object.is equality",
+    "Expected: \"$4.99\"",
+    "Received: \"$4.989\"",
+    "Test Suites: 1 failed, 1 total",
+    "Tests:       1 failed, 2 passed, 3 total",
+    "Snapshots:   0 total",
+    "Time:        0.612 s",
+    "Ran all test suites.",
+    "tripi@mac shop %"
+   ]
+  }
+ }
+}

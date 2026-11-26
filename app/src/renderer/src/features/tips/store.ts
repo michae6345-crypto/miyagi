@@ -133,6 +133,12 @@ export function turnTipsOff(): void {
   persist()
 }
 
+/** "Show tips" back on (Settings > Lessons): what was seen stays seen. */
+export function turnTipsOn(): void {
+  useTips.setState({ off: false })
+  persist()
+}
+
 /** Show every tip again (for Settings: Core request 3). */
 export function resetTips(): void {
   useTips.setState({ off: false, seen: [], active: undefined, menu: false })

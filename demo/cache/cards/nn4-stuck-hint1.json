@@ -1,0 +1,6 @@
+{
+ "stepId": "nn4",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "Start them random, like the lesson: W1 = np.random.randn(1, 4), W2 = np.random.randn(4, 4), W3 = np.random.randn(4, 1) * 0.1. Save, then run again."
+}

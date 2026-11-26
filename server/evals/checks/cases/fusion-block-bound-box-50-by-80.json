@@ -1,0 +1,99 @@
+{
+ "id": "fusion-block-bound-box-50-by-80",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done but odd: Intro to Fusion lesson 4 (\"One solid body measures 80 by 50 by 30 mm\"). The learner drew the rectangle with its long side along Y, so the body's bound box reads 50 (X) by 80 (Y) by 30 (Z). It is one solid body 80 by 50 by 30 mm; which way the long side points is not part of the lesson.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Extrude it into a block",
+  "file": "box.design.json",
+  "instructions": "Press E (Extrude), click inside the rectangle and set the distance to 30 mm, operation New Body, then OK.",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Extrude feature",
+    "file": "box.design.json",
+    "pattern": "\\\"type\\\":\\s*\\\"Extrude\\\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "80 x 50 x 30 mm body",
+    "file": "box.design.json",
+    "pattern": "\\\"bound_box\\\":\\s*\\[\\s*80(?:\\.0+)?\\b,\\s*50(?:\\.0+)?\\b,\\s*30(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Box",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          50.0,
+          80.0,
+          30.0
+         ],
+         "volume": 120000.0,
+         "solid": true
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 2,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch1",
+       "type": "Sketch",
+       "plane": "XY",
+       "profiles": 1,
+       "fully_constrained": true,
+       "dimensions": [
+        50.0,
+        80.0
+       ]
+      },
+      {
+       "name": "Extrude1",
+       "type": "Extrude",
+       "operation": "NewBody",
+       "extent": "one_side",
+       "distance": 30.0,
+       "direction": [
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

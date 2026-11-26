@@ -1,0 +1,745 @@
+"""Open the learner's project in VS Code and jump to each step's target.
+
+On lesson.ready: `open -a "Visual Studio Code" <workdir>` (fallback: `code <workdir>`).
+On step.started: `code -r -g <file>:<line>` for the step's first target whose file exists
+(line = first line matching target.match, else 1).
+
+Off unless ORCH_OPEN_WORKSPACE=1 (scripts/miyagi-engine.sh turns it on). Commands run
+detached; failures are logged, never raised.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+from pathlib import Path
+
+from .config import env_flag
+
+log = logging.getLogger("orchestrator.workspace")
+
+VSCODE_APP = "Visual Studio Code"
+BUNDLED_CLI = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+# L5: a "Just teach me" lesson's automatic open waits at most this long while Miyagi is the active app (the learner
+# stays in Miyagi's drawer, so "until they leave Miyagi" never came); after it only typing / clicking holds it.
+LESSON_MIYAGI_WAIT_S = float(os.environ.get("ORCH_LESSON_OPEN_GRACE_S", "3"))
+# A video / generated lesson's automatic open (Session._auto_open_editor): the player and overlay stay in front, so
+# "until the learner leaves Miyagi" held VS Code ~30 s (Michael, Nov 15 7:19). Same idea, a shorter grace; typing
+# still holds it (busy()).
+VIDEO_MIYAGI_WAIT_S = float(os.environ.get("ORCH_VIDEO_OPEN_GRACE_S", "1.5"))
+
+
+def code_cli() -> str | None:
+    """The editor CLI for `-g file:line` jumps: S2's choice when available (VS Code's `code`), so the
+    jumps go to the same editor open_editor opened; else VS Code's `code`."""
+    ws = _s2()
+    editor = getattr(ws, "editor", None) if ws is not None else None
+    fn = getattr(editor, "code_cli", None) if editor is not None else None
+    if fn is not None:
+        try:
+            cli = fn()
+            if cli:
+                return cli
+        except Exception:  # noqa: BLE001
+            pass
+    found = shutil.which("code")
+    if found:
+        return found
+    return BUNDLED_CLI if Path(BUNDLED_CLI).exists() else None
+
+
+SKIP_SEARCH = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+
+
+def resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = None) -> Path | None:
+    """The real path of a lesson file: workdir/<rel>; git's rebase todo under .git/rebase-merge/; the same
+    file nested one level down (create-react-app's demo-app/src/...); a file the editor has open (its window
+    title) with the same name. None if nothing matches."""
+    found = _resolve_file(workdir, rel, open_titles)
+    if found is None:
+        return None
+    from server.safety.paths import lesson_rel, safe_lesson_path
+
+    try:  # every hit is checked again (resolved): a symlink out of the lesson folder is never read
+        inside = Path(found).relative_to(Path(workdir)).as_posix()
+    except ValueError:
+        inside = lesson_rel(workdir, found)
+    return found if inside and safe_lesson_path(workdir, inside) is not None else None
+
+
+def _resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = None) -> Path | None:
+    from server.safety.paths import lesson_rel, rel_problem
+
+    wd = Path(workdir)
+    rel = (rel or "").strip()
+    if not rel:
+        return None
+    if Path(rel).is_absolute():  # VS Code / the coach may name a lesson file by its absolute path: inside only
+        rel = lesson_rel(workdir, rel) or ""
+    if not rel or rel_problem(rel) is not None:  # `..`, `~`, NUL, an absolute path elsewhere: never
+        return None
+    p = wd / rel
+    if p.is_file():
+        return p
+    name = Path(rel).name
+    if name == "git-rebase-todo":
+        for cand in (wd / ".git" / "rebase-merge" / name, wd / ".git" / "rebase-apply" / name):
+            if cand.is_file():
+                return cand
+    if wd.is_dir():
+        try:
+            for child in sorted(wd.iterdir()):
+                if child.is_dir() and child.name not in SKIP_SEARCH and not child.name.startswith("."):
+                    cand = child / rel
+                    if cand.is_file():
+                        return cand
+            hits = [h for h in wd.rglob(name) if not (set(h.relative_to(wd).parts) & SKIP_SEARCH)][:2]
+            if len(hits) == 1:
+                return hits[0]
+        except OSError:
+            pass
+    for title in open_titles or []:  # "● App.js — demo-app" -> App.js
+        t = title.lstrip("● ").split(" — ")[0].split(" - ")[0].strip()
+        if t == name and wd.is_dir():
+            hits = [h for h in wd.rglob(t) if not (set(h.relative_to(wd).parts) & SKIP_SEARCH)][:1]
+            if hits:
+                return hits[0]
+    if name.lower().endswith(".ipynb"):  # t10 R2: the video's Untitled.ipynb is the learner's notebook (mnist.ipynb),
+        try:  # found as the checks find it (the newest .ipynb in the folder), so the coach / judge read the real cells
+            from server.checks.notebook import find_notebook
+
+            return find_notebook(wd, [rel])
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _accepts_kw(fn, name: str) -> bool:
+    import inspect
+
+    try:
+        return name in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def line_rect(path: str | Path, line: int) -> dict | None:
+    """S2: where `line` of `path` is on screen in the open editor ({x, y, w, h, ...}, spotlight space), via
+    Accessibility, else E6's locate_line. None when it can't tell. Blocking (a few AX reads): use a thread."""
+    ws = _s2()
+    fn = getattr(ws, "editor_line_rect", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        return fn(str(path), int(line))
+    except Exception:  # noqa: BLE001
+        log.exception("editor_line_rect failed")
+        return None
+
+
+def line_location(path: str | Path, line: int) -> dict:
+    """S2's editor_line_location: {rect | None, source, reason, direction?, ...} (Accessibility, else E6's
+    locate_line). {} when unavailable. Blocking: use a thread."""
+    ws = _s2()
+    fn = getattr(ws, "editor_line_location", None) if ws is not None else None
+    if fn is None:
+        r = line_rect(path, line)
+        return {"rect": r} if r else {}
+    try:
+        return dict(fn(str(path), int(line)) or {})
+    except Exception:  # noqa: BLE001
+        log.exception("editor_line_location failed")
+        return {}
+
+
+def anchor_line(text: str, match: str) -> int | None:
+    """1-based line of `match` in `text`: the literal text first ("return a + b" has a regex '+'), then as a regex.
+    None when it isn't there. The regex is ONE search of the whole text (MULTILINE: ^ and $ at each line), never one
+    per line: callers run on the event loop, and a lesson pattern that costs just under the regex worker's deadline
+    per search would otherwise cost that once per line of the file (60 lines: 5 s with the loop blocked)."""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines, start=1):
+        if match in ln:
+            return i
+    from server.safety.patterns import safe_compile
+
+    try:
+        rx = safe_compile(match, re.MULTILINE)  # a lesson's catastrophic regex ((x+)+, (a|aa)+) runs in the worker
+    except re.error:
+        return None
+    joined = "\n".join(lines)  # splitlines' breaks (\r, \x0b ...) as \n: the same line numbers as above
+    m = rx.search(joined)
+    return joined.count("\n", 0, m.start()) + 1 if m else None
+
+
+def target_location(workdir: str | Path, step: dict, missing: str = "first") -> tuple[Path, int] | None:
+    """(absolute file, 1-based line) of the step's first target whose file exists. missing: where to point when
+    the anchor isn't in the file: "first" (line 1) or "end" (where new code goes: the line after the last).
+    t10: never a notebook (a .ipynb's file lines are JSON, not the cells VS Code shows; `-g nb.ipynb:N` would jump
+    into that JSON): the notebook stays open in its own editor."""
+    for t in step.get("targets") or []:
+        f = t.get("file")
+        if not f or str(f).lower().endswith(".ipynb"):
+            continue
+        path = resolve_file(workdir, f)
+        if path is None:
+            continue
+        match = t.get("match")
+        if not match:
+            return path, 1
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return path, 1
+        line = anchor_line(text, match)
+        if line is None:
+            line = (len(text.rstrip("\n").splitlines()) + 1) if missing == "end" else 1
+        return path, line
+    return None
+
+
+def _s2():
+    """S2's server.workspace (per-lesson folders + starter files), or None if it isn't installed."""
+    try:
+        import server.workspace as ws
+
+        return ws
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _starter_pick(ws, workdir: str | Path) -> str | None:
+    """S2's starter file to show first (its open_file), never README.md: our README is never an editor tab."""
+    try:
+        return ws.open_file_for(Path(workdir), readme=False)
+    except TypeError:  # an older S2 (or a test's stand-in) without readme=: its pick, minus a README
+        f = ws.open_file_for(Path(workdir))
+        return None if f and Path(f).name.lower() == "readme.md" else f
+
+
+def notebook_autosave(workdir: str | Path) -> bool:
+    """t9 V3: a notebook lesson's folder under the lessons root autosaves (server.workspace.core.ensure_notebook_autosave),
+    so the checks read the cells' outputs from the .ipynb. Never the repo's own folders. Never raises."""
+    try:
+        from server.workspace import core, paths
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents or not folder.is_dir():
+            return False
+        return core.ensure_notebook_autosave(folder)
+    except Exception:  # noqa: BLE001 - OCR still grades the output
+        log.exception("notebook autosave settings failed")
+        return False
+
+
+def python_terminal_settings(workdir: str | Path) -> bool:
+    """A Python lesson folder under the lessons root (a lesson built before t5's fix, opened again): its VS Code
+    terminals use the .venv without auto-activation typing into them (server.workspace.core.ensure_python_terminal).
+    Never the repo's own folders. True when .vscode/settings.json changed. Never raises."""
+    try:
+        from server.workspace import core, paths
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents:
+            return False
+        return core.ensure_python_terminal(folder)
+    except Exception:  # noqa: BLE001 - a refinement: Run it for me retries a swallowed command anyway
+        log.exception("python terminal settings failed")
+        return False
+
+
+def ensure_lesson_venv(workdir: str | Path, python_lesson: bool = False) -> bool:
+    """A fresh Mac whose only Python is the one inside miyagi.app: a Python lesson folder gets its .venv before VS Code
+    opens (venv + ensurepip, no network, ~2 s), so `python3` in VS Code's terminal (.venv/bin first on PATH, see
+    python_terminal_settings) is a real Python, never the Command Line Tools' "install developer tools" dialog. Only
+    under the lessons root, only for a folder with .py / .ipynb files and no .venv, only when the bundled Python is the
+    one a .venv would be made from. python_lesson: the setup check says it's a Python lesson (a video lesson's VS Code
+    opens before any step file exists). Blocking. True when one was made. Never raises."""
+    try:
+        from server.workspace import paths
+        from server.workspace import setup as ws_setup
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents or ws_setup.venv_python(folder):
+            return False
+        if not ws_setup.is_bundled(ws_setup.best_python()):
+            return False  # the Mac has its own Python 3: as before (the setup card's Install makes the .venv)
+        if not python_lesson and not any(p.suffix in (".py", ".ipynb") for p in list(folder.glob("*")) + list(folder.glob("*/*"))):
+            return False
+        py, err = ws_setup.ensure_venv(folder, timeout=120.0)
+        log.info("lesson .venv from the bundled Python for %s: %s", folder.name, "made" if py else err)
+        if py:
+            python_terminal_settings(folder)  # VS Code's terminals: .venv/bin first (written only once a .venv exists)
+        return bool(py)
+    except Exception:
+        log.exception("lesson .venv failed")
+        return False
+
+
+def fit_beside_drawer(workdir: str | Path) -> str:
+    """A run step: the lesson's VS Code window leaves room for Miyagi's drawer
+    (server.workspace.editor.fit_beside_drawer; full screen / maximized under it: logged and left). Blocking (AX):
+    call it in a thread. Never raises."""
+    try:
+        from server.workspace import editor
+
+        return editor.fit_beside_drawer(str(workdir))
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("fit beside drawer failed")
+        return "failed"
+
+
+def build_workdir(url: str, goal: str) -> str:
+    """The workdir to hand build_lesson. TUT_WORKDIR pins one folder (dev); otherwise S2 decides
+    (the hero video -> demo/pinn-lab, anything else -> a not-yet-existing path), falling back to
+    config.lesson_workdir."""
+    from . import config
+
+    if os.environ.get("TUT_WORKDIR"):
+        return str(config.default_workdir())
+    ws = _s2()
+    if ws is not None:
+        return ws.build_workdir(url)
+    return str(config.lesson_workdir(url, goal))
+
+
+def lesson_folder(graph: dict) -> str | None:
+    """The folder a build of `graph` works in (what prepare() returns, else the pinned TUT_WORKDIR), found without creating
+    or writing anything; None when S2 isn't available. Desktop test 10: the preflight card checks this folder's .venv,
+    the one the setup card checks after Build."""
+    from . import config
+
+    if os.environ.get("TUT_WORKDIR"):
+        return str(config.default_workdir())
+    ws = _s2()
+    if ws is None:
+        return None
+    try:
+        if config.demo_mode():  # prepare()'s demo folder: the hero's, else <lessons root>/<folder name>
+            hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+            return str(hero if hero is not None else ws.lessons_root() / ws.folder_name(graph))
+        fn = getattr(ws, "lesson_folder", None)
+        return str(fn(graph)) if fn is not None else None
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.lesson_folder failed")
+        return None
+
+
+def prepare(graph: dict, goal: str) -> str | None:
+    """Create/fill the lesson's folder (S2; may call Claude for starter files, 2-25 s, never raises).
+    None when TUT_WORKDIR pins the folder or S2 isn't available."""
+    if os.environ.get("TUT_WORKDIR"):
+        return None
+    ws = _s2()
+    if ws is None:
+        return None
+    from . import config
+
+    if config.demo_mode():  # DEMO costs nothing: the folder, but no Claude-written starter files
+        try:
+            hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+            if hero is not None:
+                return str(hero)
+            folder = ws.lessons_root() / ws.folder_name(graph)
+            folder.mkdir(parents=True, exist_ok=True)
+            return str(folder)
+        except Exception:  # noqa: BLE001
+            log.exception("demo folder failed")
+            return None
+    try:
+        return str(ws.prepare(graph, goal))
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.prepare failed")
+        return None
+
+
+def set_aside_previous(folder: str | None, graph: dict) -> str | None:
+    """A fresh build in a reused lesson folder: the last run's learner files go to <folder>/.miyagi-previous/<time>/
+    (S2's set_aside_previous) so no step passes on them. Only Miyagi's own folder for this lesson: never the hero
+    folder, a TUT_WORKDIR one, or a folder of the learner's that the lesson was redirected to (adopt_folder). Blocking."""
+    if not folder or os.environ.get("TUT_WORKDIR"):
+        return None
+    ws = _s2()
+    fn = getattr(ws, "set_aside_previous", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+        own = (ws.lessons_root() / ws.folder_name(graph)).expanduser().resolve()
+        if (hero is not None and Path(hero).resolve() == Path(folder).resolve()) or own != Path(folder).resolve():
+            return None
+        moved = fn(folder)
+        return str(moved) if moved else None
+    except Exception:  # noqa: BLE001 - the lesson still starts, with the files as they were
+        log.exception("setting the last run's files aside failed")
+        return None
+
+
+CODE_APPS = {"code", "vs code", "vscode", "visual studio code", "cursor", "terminal", "iterm", "iterm2"}
+
+
+def needs_editor(graph: dict) -> bool:
+    """Does this lesson happen in a code editor? True if its targets/checks name a code app or a file;
+    False for, e.g., a Blender or Figma tutorial (their targets name those apps and no files)."""
+    apps: set[str] = set()
+    files = False
+    for st in graph.get("steps", []):
+        for t in st.get("targets") or []:
+            apps.add((t.get("app") or "").strip().lower())
+            files = files or bool(t.get("file"))
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
+            apps.add((c.get("app") or "").strip().lower())
+            files = files or c.get("type", "").startswith(("file_", "command_")) or bool(c.get("file"))
+    apps.discard("")
+    if apps & CODE_APPS:
+        return True
+    if apps:  # only non-code apps named (Blender, Figma, ...)
+        return False
+    return files
+
+
+def requirements(graph: dict, folder: str) -> list[dict] | None:
+    """S2's setup check: the lesson's tools, each checked on this Mac (read-only; Claude haiku, cached per
+    lesson). None when S2's module isn't available; [] when it couldn't tell (no key / error). Blocking: run
+    it in a thread."""
+    from . import config
+
+    if config.demo_mode():
+        return None  # DEMO costs nothing (S2's check asks Claude haiku)
+    ws = _s2()
+    fn = getattr(ws, "requirements", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        return list(fn(graph, workdir=folder) or [])
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.requirements failed")
+        return []
+
+
+def setup_card(items: list[dict], resources: list[dict] | None = None, hold_for: list[str] | None = None) -> dict | None:
+    """S2's setup card. hold_for: the tools the current step truly needs now (its `requires`): only then may the card
+    hold the video (setup.holdVideo); otherwise setup is a companion and the video plays."""
+    ws = _s2()
+    fn = getattr(ws, "setup_card", None) if ws is not None else None
+    if fn is None:
+        return None
+    kw: dict = {}
+    if resources:
+        kw["resources"] = resources
+    if hold_for:
+        kw["hold_for"] = hold_for
+    return fn(items, **kw)
+
+
+def missing(items: list[dict]) -> list[dict]:
+    """S2's missing(): needed, not ok, not unknown, and not a licensed app the learner has ("I have it") or replaced
+    with its free alternative (haveIt / using), nor that alternative's offered row (altFor) before it is chosen."""
+    ws = _s2()
+    fn = getattr(ws, "missing", None) if ws is not None else None
+    if fn is not None:
+        try:
+            return fn(items)
+        except Exception:  # noqa: BLE001 - an odd row (a stage lesson's): the same rule below
+            log.debug("workspace.missing failed; using the plain filter", exc_info=True)
+    return [it for it in items if it.get("needed") and not it.get("ok") and not it.get("unknown")
+            and not it.get("haveIt") and not it.get("using") and not it.get("altFor")]
+
+
+def lesson_mode_rows(items: list[dict]) -> list[dict]:
+    """Lesson mode's setup card (VS Code already open): the tools really missing, never an installed editor, plus the
+    free alternative offered beside a missing licensed app (its own Install row)."""
+    miss = [it for it in missing(items) if it.get("kind") != "editor" or not it.get("installed")]
+    tools = {it.get("tool") for it in miss}
+    return miss + [it for it in items if it.get("altFor") and it["altFor"] in tools and it not in miss]
+
+
+def editor_opens(card: dict, items: list[dict]) -> dict:
+    """t9 V8: VS Code opens on the lesson folder by itself, so the setup card never asks to open it (no Open button, no
+    "Open the lesson folder in Visual Studio Code?" in its body). In place; returns the card."""
+    card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
+    ed = next((it for it in items if it.get("kind") == "editor"), None)
+    if ed and isinstance(card.get("body"), str):
+        card["body"] = card["body"].replace(f" Open the lesson folder in {ed.get('label')}?", "")
+    return card
+
+
+def find_resources(graph: dict) -> list[dict]:
+    """S2: code / notebooks / data the video links (one watch-page fetch per video, cached). Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "find_resources", None) if ws is not None else None
+    try:
+        return list(fn(graph) or []) if fn else []
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.find_resources failed")
+        return []
+
+
+def download_resources(graph: dict, folder: str) -> tuple[list[dict], str]:
+    """S2: download them into <lesson folder>/tutorial/ (never run). -> (results, one-line summary). Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "download_resources", None) if ws is not None else None
+    if fn is None:
+        return [], "Downloads aren't available."
+    res = list(fn(graph, folder=folder) or [])
+    summ = getattr(ws, "download_summary", None)
+    return res, (summ(res) if summ else f"Downloaded {len(res)} files.")
+
+
+def editor_needed(items: list[dict]) -> bool:
+    ws = _s2()
+    fn = getattr(ws, "editor_needed", None) if ws is not None else None
+    return bool(fn(items)) if fn else any(it.get("kind") == "editor" and it.get("needed") for it in items)
+
+
+def editor_missing() -> tuple[dict, dict] | None:
+    """S2: (the "VS Code not found" setup card, its editor row) when this Mac has no VS Code, else None. Blocking (a
+    Spotlight lookup): run it in a thread. Never raises (unknown: None, the open goes ahead as before)."""
+    ws = _s2()
+    fn = getattr(ws, "editor_missing_card", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        log.exception("workspace.editor_missing_card failed")
+        return None
+
+
+def install(item: dict, folder: str, on_line) -> dict:
+    """S2: brew / brew --cask / pip into <folder>/.venv. ONLY after the learner said yes. Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "install", None) if ws is not None else None
+    if fn is None:
+        return {"ok": False, "tool": item.get("tool"), "error": "installer not available"}
+    return dict(fn(item, workdir=folder, on_line=on_line))
+
+
+def refresh_python(folder: str) -> dict | None:
+    """E20: after a pip install into <folder>/.venv, the lesson's VS Code window selects that .venv and restarts its
+    Python language server (companion extension), so `import requests` loses Pylance's warning. Blocking (retries for
+    up to ~20 s while the window starts): run it in a thread. Never raises; None when no window answered."""
+    try:
+        from server.workspace import vscode_ext
+
+        return vscode_ext.refresh_python(folder)
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("refresh_python failed")
+        return None
+
+
+def goto_argv(path: str, line: int) -> list[str] | None:
+    """S2: the jump command for the learner's editor (VS Code), so jumps never launch a
+    second editor; else VS Code's `code -r -g`."""
+    ws = _s2()
+    fn = getattr(ws, "goto_argv", None) if ws is not None else None
+    if fn is not None:
+        try:
+            return fn(path, line)
+        except Exception:  # noqa: BLE001
+            log.exception("workspace.goto_argv failed")
+    cli = code_cli()
+    return [cli, "-r", "-g", f"{path}:{line}"] if cli else None
+
+
+def reveal_line(path: str | Path, line: int) -> bool:
+    """t8 (desktop test 8, 05:51:05 / 05:53:38): the step start's `code -r -g` activated VS Code, its Dock icon bounced
+    and the CLI's own icon flashed by it. The companion extension reveals the line instead (POST /open: file + line,
+    preserveFocus) in the window whose folders hold the file, never another window. Blocking (<= ~0.6 s).
+    -> True when that window answered ok; False: no such window (the caller uses the CLI)."""
+    try:
+        from server.workspace import vscode_ext as vx
+    except Exception:  # noqa: BLE001 - no companion module: the CLI
+        return False
+    p = Path(path).expanduser()
+    wins = [w for w in vx.windows() if any(vx._inside(p, f) for f in w.get("folders") or [])]
+    if not wins:
+        return False
+    res = vx.open_file(str(p), int(line), preserve_focus=True, port=int(wins[0]["port"]))
+    ok = isinstance(res, dict) and bool(res.get("ok", True))
+    if ok:
+        log.info("revealed %s:%s through the companion (no code CLI)", p.name, line)
+    return ok
+
+
+def _editor_in_front() -> bool:
+    """Is the learner's editor the active app (S2's editor.jump gate for an automatic jump)? Unknown: True."""
+    ws = _s2()
+    ed_mod = getattr(ws, "editor", None) if ws is not None else None
+    if ed_mod is None or not hasattr(ed_mod, "editor_focused"):
+        return True
+    try:
+        ed = ed_mod.preferred_editor()
+        return ed is None or bool(ed_mod.editor_focused(ed))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def editor_label() -> str:
+    ws = _s2()
+    fn = getattr(ws, "editor_label", None) if ws is not None else None
+    try:
+        return fn() if fn else "VS Code"
+    except Exception:  # noqa: BLE001
+        return "VS Code"
+
+
+class Workspace:
+    def __init__(self, enabled: bool | None = None, runner=None):
+        self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
+        # ORCH_OPEN_WORKSPACE=0 said out loud (QA, rehearsal and stage engines): nothing opens VS Code on its own, not even
+        # "Just teach me". Only the learner pressing "Open VS Code" (explicit) still does. Unset keeps the default.
+        self.blocked = enabled is None and os.environ.get("ORCH_OPEN_WORKSPACE", "").strip().lower() in {"0", "false", "no", "off"}
+        self.run = runner or self._spawn  # injectable for tests
+        self.opened: str | None = None
+        self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
+        self.reveal = None  # (path, line) -> revealed? t8: the companion's /open; None = reveal_line on real windows
+        self.front = None  # () -> is the editor the active app? None = _editor_in_front (tests inject both)
+        # (folder, file, line) -> shown in the lesson's own open window? None = where_row.reveal on real windows only
+        self.show = None
+        # () -> (card, item) when this Mac has no VS Code, else None: real windows only (tests inject a runner, and may
+        # inject this too)
+        self.editor_check = editor_missing if runner is None else None
+
+    def show_in_lesson_window(self, workdir: str, file: str | None, line: int | None = None) -> bool:
+        """Start with the lesson's window already up: the step's file in THAT window through the companion (no `code`
+        CLI, so VS Code never adds a window or brings back older ones; Nov 24, the 1517 demo). False when no window
+        with the companion has the folder: the caller opens it. Blocking (<= 0.3 s HTTP): call it in a thread."""
+        show = self.show
+        if show is None:
+            if self.run != self._spawn:  # tests inject a runner: never the real companion
+                return False
+            from .where_row import reveal as show
+        try:
+            return bool(file and show(workdir, file, line))
+        except Exception:  # noqa: BLE001 - the CLI open is the fallback
+            log.exception("showing %s in the lesson's window failed", file)
+            return False
+
+    @staticmethod
+    def _spawn(argv: list[str]) -> bool:
+        try:
+            from server.safety import child_env
+
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             env=child_env())  # VS Code / open never inherit a provider key or the engine token
+            return True
+        except OSError as e:
+            log.warning("could not run %s: %s", argv[0], e)
+            return False
+
+    def _key(self) -> str:
+        return f"{id(self)}:{self.lesson_key}"
+
+    def _guarded(self, ws) -> bool:
+        return hasattr(ws, "editor") and hasattr(ws.editor, "open_lesson_editor")
+
+    def open(self, workdir: str, force: bool = False, full: bool = False, explicit: bool = False,
+             file: str | None = None, busy=None, cancelled=None, miyagi_wait_s: float | None = None) -> None:
+        """force: open even though auto-open (ORCH_OPEN_WORKSPACE) is off. full: "Just teach me" (the editor fills the
+        screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
+        S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
+        automatic open waits until the learner isn't in Miyagi's launcher/cards or typing.
+        file (L2): the file to show, the step's own; None = S2's starter pick (open_file_for), never README.md: a
+        lesson with no step file opens the folder alone (Nov 24: README.md came up as an extra tab).
+        busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson).
+        miyagi_wait_s: how long Miyagi in front holds an automatic open (then only busy() does); None = the default
+        (LESSON_MIYAGI_WAIT_S when full, else until the learner leaves Miyagi)."""
+        if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
+            return
+        if self.run == self._spawn:  # real windows only: tests inject a runner
+            ensure_lesson_venv(workdir)
+            python_terminal_settings(workdir)
+        ws = _s2()
+        if ws is not None and self._guarded(ws):
+            real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus
+            wait = miyagi_wait_s if miyagi_wait_s is not None else (LESSON_MIYAGI_WAIT_S if full else None)
+            holds = {"busy": busy, "cancelled": cancelled, "miyagi_wait_s": wait}
+            ws.editor.open_lesson_editor(
+                workdir, file or _starter_pick(ws, workdir), lesson_id=self._key(), fullscreen=full and real,
+                explicit=explicit, runner=None if (real and not full) else self.run, **(holds if real else {}),
+                **({} if real else {"focus": lambda: None, "background": False, "arrange_windows": False,
+                                     "trusted": lambda: False, "previous": None, "windows": lambda: []}))
+            self.opened = workdir
+            return
+        if self.opened == workdir:  # older S2: at most once per folder
+            return
+        self.opened = workdir
+        if ws is not None:
+            runner = None if self.run == self._spawn else self.run
+            ok = ws.open_editor(workdir, file or _starter_pick(ws, workdir), runner=runner)
+            log.info("opened workspace %s in VS Code: %s", workdir, ok)
+            return
+        ok = False
+        if sys.platform == "darwin":
+            ok = self.run(["open", "-a", VSCODE_APP, workdir])
+        if not ok and (cli := code_cli()):
+            ok = self.run([cli, workdir])
+        log.info("opened workspace %s in VS Code: %s", workdir, ok)
+
+    def goto(self, path: str, line: int, explicit: bool = False) -> None:
+        """Jump to file:line. Automatic jumps (step start, spotlight retries) only run when VS Code is already the
+        active app with its window up, so they never steal focus from Miyagi or spawn a window while VS Code is
+        still starting. explicit=True: a learner action (Do it for me).
+        t8: an automatic jump goes through the companion extension first (POST /open, preserveFocus, in a thread: no
+        `code` CLI, so VS Code's Dock icon never bounces); the CLI only when no lesson window of it answers."""
+        reveal = self.reveal if self.reveal is not None else (reveal_line if self.run == self._spawn else None)
+        if not explicit and reveal is not None:
+            front = self.front if self.front is not None else _editor_in_front
+
+            def go() -> None:
+                try:
+                    if not front():  # as the CLI jump: only with VS Code in front (else reveal_step_line has its say)
+                        return
+                    if reveal(path, line):
+                        return
+                except Exception:  # noqa: BLE001 - the CLI jump below
+                    log.exception("companion reveal of %s:%s failed", path, line)
+                self._cli_goto(path, line, explicit)
+
+            if self.reveal is not None:  # tests: in line, so they see what ran
+                go()
+            else:
+                threading.Thread(target=go, daemon=True, name="miyagi-goto").start()
+            return
+        self._cli_goto(path, line, explicit)
+
+    def _cli_goto(self, path: str, line: int, explicit: bool = False) -> None:
+        ws = _s2()
+        if ws is not None and hasattr(getattr(ws, "editor", None), "jump"):
+            real = self.run == self._spawn
+            mine = self._key()
+            ws.editor.jump(path, line, explicit=explicit, runner=self.run,
+                           **({} if real else {"focus": lambda: ("com.microsoft.VSCode", "Code"),
+                                               "window_up": lambda ed: True,
+                                               "opening": lambda: any(k[0] == mine and st["state"] != "open"
+                                                                      for k, st in ws.editor._opened.items())}))
+            return
+        argv = goto_argv(path, line)
+        if argv:
+            self.run(argv)
+
+    def restore_layout(self) -> bool:
+        """t12 (test 12: VS Code stayed narrowed after End lesson): the lesson ended or stopped, so the windows Miyagi
+        arranged for it go back to their frames from before (server.workspace.editor.restore_frames). Real windows
+        only (tests inject a runner); AX blocks, so a thread. -> whether a restore was started."""
+        if self.run != self._spawn:
+            return False
+        ws = _s2()
+        restore = getattr(getattr(ws, "editor", None), "restore_frames", None)
+        if restore is None:
+            return False
+        threading.Thread(target=restore, daemon=True, name="miyagi-restore-windows").start()
+        return True
+
+    def goto_target(self, workdir: str, step: dict, explicit: bool = False, missing: str = "first") -> None:
+        loc = target_location(workdir, step, missing=missing)
+        if loc is None:
+            return
+        path, line = loc
+        self.goto(str(path), line, explicit=explicit)

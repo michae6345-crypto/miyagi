@@ -2,6 +2,7 @@
  * Feature: cards. Which coach card is showing, plus the live metric series behind the curve.
  * The off-track payload itself lives in core/lesson; core doesn't keep metrics, so they live here.
  */
+import { guardSkip } from '../settings/guard'
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -11,6 +12,7 @@ import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type Ch
 import { reserveRect, useDock } from '../../core/dock'
 import type { CardKindV2 } from '../../../../../../shared/contracts/events'
 import { isRouted, panelShown } from './panel'
+import { circleOwnsCard } from '../circle/store'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -62,6 +64,12 @@ type CardsState = {
    * engine's own install_all runs them and the app only follows its setup.progress.
    */
   queue?: { tools: string[]; started: string[]; engine: boolean }
+  /**
+   * The calm setup card (Michael, Nov 22): its ✕ folds it to a pill-sized chip ("Needs AutoCAD") instead of losing it,
+   * while a row still waits. `key` = the folded card (setupKey); `open` = the learner tapped the chip open again. The
+   * chip's own ✕ closes it for good.
+   */
+  setupFold?: { key: string; open: boolean }
 }
 
 export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | 'chapters' | 'durationS'>
@@ -69,7 +77,7 @@ export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | '
 /** One setup item's install: running (Install button disabled, spinner + latest line) until done; ok once it succeeded. */
 export type Install = { running: boolean; line?: string; error?: string; ok?: boolean; version?: string }
 
-const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {}, queue: undefined }
+const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {}, queue: undefined, setupFold: undefined }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 
 /**
@@ -134,8 +142,9 @@ let pendingTimer: ReturnType<typeof setTimeout> | undefined
  * Buttons with no answer to wait for: open_editor brings the editor forward and the engine says nothing back (no
  * "thinking", no card), so the button spun until PENDING_MS (Michael's desktop test 5). They spin SETTLE_MS, then the
  * card settles: it closes when that button was its only job (the where card's Open), else it stays for its other buttons.
+ * open_in_app (Nov 24) is the same for an app lesson: it opens the lesson's scene in its desktop app.
  */
-const SETTLE = new Set<CardAction>(['open_editor'])
+const SETTLE = new Set<CardAction>(['open_editor', 'open_in_app'])
 const SETTLE_MS = 900
 function settle(kind: CardAction): void {
   const card = get().card
@@ -156,6 +165,8 @@ function settle(kind: CardAction): void {
  * pressed button spinning, until the engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
  */
 export function cardAct(kind: CardAction, text?: string): void {
+  // Settings > Lessons > Confirm before skipping a step: the first press only arms the button.
+  if (kind === 'skip_step' && !guardSkip()) return
   if (kind === 'install' && text !== undefined) {
     // One install per tool: a double click can't start a second one.
     if (get().installs[text]?.running) return
@@ -343,9 +354,23 @@ export function jumpTo(t: number): void {
   closeTop()
 }
 
+/** A setup card across re-sends (the engine re-sends it with its install status): the same card while its title holds. */
+export const setupKey = (c: Payload<'card'>): string => `setup:${c.stepId ?? ''}:${c.title}`
+/** Needed rows still waiting on the learner (not ok, not settled, not just installed). */
+const setupWaits = (c: Payload<'card'> | undefined, installs: Record<string, Install>): boolean =>
+  c?.kind === 'setup' && (c.setup?.items ?? []).some((x) => x.needed && !x.ok && !x.haveIt && !x.using && !installs[x.tool]?.ok)
+/** The setup card shows as its chip: folded by its ✕ and not tapped open since. */
+export const setupFolded = (s: Pick<CardsState, 'card' | 'setupFold'>): boolean =>
+  s.card?.kind === 'setup' && !!s.setupFold && !s.setupFold.open && s.setupFold.key === setupKey(s.card)
+
 /** Close the card on top; if it opened over the off-track card, that card comes back. */
 function closeTop(): void {
   const s = get()
+  // ✕ on a setup card that still waits on something: fold it to its chip (it grows back on a tap). ✕ on the chip closes.
+  if (s.card?.kind === 'setup' && !setupFolded(s) && setupWaits(s.card, s.installs) && !s.resume) {
+    cancelClose()
+    return set({ setupFold: { key: setupKey(s.card), open: false } })
+  }
   const offtrack = useLesson.getState().offtrack
   // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
   const closingOfftrack = !s.card && !s.success && !!offtrack
@@ -548,6 +573,8 @@ function autoClose(c: Payload<'card'>, after: number | undefined): void {
 onMessage('card', (raw) => {
   // v2 card kind "complete" (Prog-Completion) is the complete feature's (A8): never an island card here.
   if ((raw.kind as CardKindV2) === 'complete') return
+  // Circle to ask: the answer to a circle on screen sits beside that circle (features/circle), not in the island.
+  if (circleOwnsCard(raw)) return
   const after = dismissAfter(raw)
   const cur = get().card
   // An identical card updates in place: the object on screen stays, so nothing re-renders or re-animates.

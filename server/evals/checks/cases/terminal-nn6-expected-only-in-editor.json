@@ -1,0 +1,27 @@
+{
+ "id": "terminal-nn6-expected-only-in-editor",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The expected answer is only in a comment in the editor; the run printed [-0.8, 0.0, 0.8].",
+ "step": {
+  "lesson": "demo/cache/lessons/text-nn-from-scratch.json",
+  "id": "nn6"
+ },
+ "workspace": {
+  "files": {
+   "nn.py": "import numpy as np\n\n# The network\nX = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = np.tanh(h1 @ W2 + b2)\n    return h1, h2, h2 @ W3 + b3\n"
+  },
+  "screen": {
+   "Code": [
+    "nn.py",
+    "# expect [-1.0, 0.0, 1.0]",
+    "print(np.round(out, 1))"
+   ],
+   "Terminal": [
+    "tripi@mac nn % python3 nn.py",
+    "[-0.8, 0.0, 0.8]"
+   ]
+  }
+ }
+}

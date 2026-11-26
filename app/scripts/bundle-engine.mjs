@@ -3,7 +3,8 @@
  * Put the engine inside the Mac app, ready to run offline (DISTRIBUTION-PLAN.md section 2, "The bundle"):
  *
  *   app/build/engine/
- *     src/            engine source from git (server, shared, cli, scripts, demo), .pyc precompiled (checked-hash)
+ *     src/            engine source from git (server, shared, cli, scripts, demo, blender-addon), .pyc precompiled
+ *                     (checked-hash; server, shared and cli only: blender-addon runs in Blender's own Python)
  *     python/         standalone CPython 3.12 (python-build-standalone, pinned version + sha256) with the engine's
  *                     packages already in python/lib/python3.12/site-packages, all precompiled (unchecked-hash)
  *     vscode/         the VS Code companion: <publisher>.<name>-<version>.vsix + companion.json
@@ -18,7 +19,7 @@
  * and the engine runs with -B). A build that couldn't precompile and import-check the Python stops, unless
  * --allow-unchecked (then PYTHON.json says precompiled: false and the app never uses that Python).
  *
- *   node scripts/bundle-engine.mjs                     # engine from origin/integration/live (fetched first)
+ *   node scripts/bundle-engine.mjs                     # engine from this commit (HEAD): one trunk, so the app and engine ship together
  *   node scripts/bundle-engine.mjs --windows           # the Windows bundle (python.exe, Lib\\site-packages, PYTHON.json os: win32);
  *                                                      #   also MIYAGI_BUNDLE_PLATFORM=win32; arch x64 (MIYAGI_PY_ARCH=arm64 for Arm).
  *                                                      #   Default platform: Windows on a Windows PC, else macOS. See bundle-target.mjs.
@@ -59,10 +60,12 @@ const ALLOW_UNCHECKED = args.has('--allow-unchecked')
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repo = resolve(app, '..')
 const out = join(app, 'build', 'engine')
-const REF = process.env.MIYAGI_ENGINE_REF || 'origin/integration/live'
+const REF = process.env.MIYAGI_ENGINE_REF || 'HEAD' // one trunk (Nov 25): the engine from this same commit, so each build pins its engine
 const INSTALL_REFS = [process.env.MIYAGI_INSTALL_REF, REF, 'origin/claude/distribution'].filter(Boolean)
-/** What the engine needs at runtime (docs/DISTRIBUTION.md: server imports shared/contracts; demo/cache ships lessons). */
-const PATHS = ['server', 'shared', 'cli', 'scripts', 'demo']
+/** What the engine needs at runtime (docs/DISTRIBUTION.md: server imports shared/contracts; demo/cache ships lessons;
+ * blender-addon: the Blender bridge (start_bridge.py) and the headless scene dump (dump_scene.py), which
+ * server/workspace/blender_ext.py and blender.py find at <src>/blender-addon). */
+const PATHS = ['server', 'shared', 'cli', 'scripts', 'demo', 'blender-addon']
 
 const PLATFORM = args.has('--windows') ? 'win32' : pickPlatform({ env: process.env, hostPlatform: process.platform })
 if (!PLATFORM) {

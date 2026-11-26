@@ -1,0 +1,21 @@
+{
+ "id": "terminal-git-s7-switched",
+ "kind": "terminal",
+ "trap": "none",
+ "expected": "pass",
+ "why": "git checkout -b update-name ran: Switched to a new branch 'update-name'.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git checkout -b update-name",
+    "Switched to a new branch 'update-name'",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

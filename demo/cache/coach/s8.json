@@ -1,0 +1,15 @@
+{
+  "stepId": "s8",
+  "severity": "warn",
+  "title": "Learning rate is too high",
+  "body": "Each update overshoots the minimum, so the loss bounces or grows instead of settling. Lower the learning rate about 10x; for Adam, 1e-3 is a safe start.",
+  "citation": {
+    "label": "Smith, Cyclical Learning Rates (LR range test), WACV 2017",
+    "url": "https://arxiv.org/abs/1506.01186"
+  },
+  "guidingQuestion": "What happens to Adam's steps when the learning rate is large compared with the curvature of the loss?",
+  "actions": [
+    "explain",
+    "hint"
+  ]
+}

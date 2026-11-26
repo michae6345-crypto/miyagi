@@ -1,0 +1,540 @@
+{
+ "meta": {
+  "id": "git-rebase",
+  "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+  "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src3",
+  "engine_env": "auto",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for DkWDHzmMvyg: scraping-service watch page: empty body; scraping-service captions: empty body; timedtext: Cl",
+  "wall_s": 28.8,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "claude",
+  "fallback_notes": [],
+  "length_s": 584
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-e609f1f9",
+   "title": "Rebase a feature branch onto main and resolve conflicts",
+   "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+   "libraries": {
+    "git": "2.x",
+    "vim": "9.x"
+   },
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-git-rebase-nwuistkg"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Rebase a feature branch onto main and resolve conflicts",
+    "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+    "videoId": "DkWDHzmMvyg"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Recreate the example repository",
+    "instructions": "In the empty folder run `git init -b main`, commit a `login.txt` with one line, then `git checkout -b feature/login` and make three commits (1st and 3rd change that line, 2nd only adds `notes.txt`). Switch to main, make two commits changing the same line of `login.txt` differently, then `git checkout feature/login`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 328.0,
+     "end": 358.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Repository initialized",
+      "app": "Terminal",
+      "pattern": "Initialized\\s*empty\\s*Git\\s*repository"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "Commits created",
+      "app": "Terminal",
+      "pattern": "\\d+\\s*files?\\s*changed"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "Switched branches",
+      "app": "Terminal",
+      "pattern": "Switched\\s*to\\s*(a\\s*new\\s*)?branch"
+     },
+     {
+      "id": "s1c4",
+      "type": "screen_absent",
+      "label": "No git errors",
+      "app": "Terminal",
+      "pattern": "fatal:"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "file_exists",
+      "label": "login.txt exists",
+      "file": "login.txt"
+     },
+     {
+      "id": "s1p2",
+      "type": "command_exit_ok",
+      "label": "On feature/login branch",
+      "command": "test \"$(git rev-parse --abbrev-ref HEAD)\" = feature/login"
+     },
+     {
+      "id": "s1p3",
+      "type": "command_exit_ok",
+      "label": "Feature has three commits",
+      "command": "test \"$(git rev-list --count main..feature/login)\" -ge 3"
+     },
+     {
+      "id": "s1p4",
+      "type": "command_exit_ok",
+      "label": "Main has two new commits",
+      "command": "test \"$(git rev-list --count feature/login..main)\" -ge 2"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "Switched to branch",
+      "caption": "Finish on the feature branch, ready to rebase"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Rebase sets your feature commits aside and reapplies them one by one, so each can conflict",
+      "t": 315.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Feature branch's three commits originate from a commit on main that has since gained two commits",
+      "t": 333.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Making main's latest commit the new base of the feature branch",
+      "t": 341.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Repo is set up so two feature commits conflict and the notes.txt commit does not",
+      "t": 346.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Create the feature branch from main's first commit, before main gets its extra commits.",
+     "Feature commits 1 and 3 must edit the same line of login.txt; commit 2 only adds notes.txt.",
+     "On main, make two commits that edit that same line of login.txt in a different way.",
+     "Check with `git log --oneline --graph --all` that both branches diverge from the first commit, then `git checkout feature/login`."
+    ],
+    "common_mistakes": [
+     "Adding main's two commits before creating feature/login, so there is nothing to rebase.",
+     "Editing a different line, so the rebase produces no conflicts.",
+     "Forgetting `git add` before committing, leaving changes uncommitted.",
+     "Staying on main at the end instead of switching back to feature/login.",
+     "Using an older git without `-b` support for `git init`; use `git init` then `git checkout -b main`."
+    ],
+    "run_command": "git checkout feature/login",
+    "code": "git init -b main\necho \"login v1\" > login.txt\ngit add login.txt && git commit -m \"Add login\"\ngit checkout -b feature/login\n# commit 1: change the line in login.txt\n# commit 2: add notes.txt only\n# commit 3: change the same line in login.txt again\ngit checkout main\n# two commits each changing the same line of login.txt differently\ngit checkout feature/login"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Start the rebase onto main",
+    "instructions": "On feature/login run `git rebase main` and watch it stop on the first conflict in login.txt. Run `git status` to confirm the rebase is in progress and how many commits remain.",
+    "video": {
+     "sourceId": "src1",
+     "start": 358.0,
+     "end": 380.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "Rebase hit a conflict",
+      "app": "Terminal",
+      "pattern": "CONFLICT|could\\s*not\\s*apply"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_contains",
+      "label": "Status shows rebase",
+      "app": "Terminal",
+      "pattern": "rebase\\s*in\\s*progress|currently\\s*rebasing"
+     },
+     {
+      "id": "s2c3",
+      "type": "screen_contains",
+      "label": "Unmerged file listed",
+      "app": "Terminal",
+      "pattern": "both\\s*modified"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "command_exit_ok",
+      "label": "Rebase directory exists",
+      "command": "test -d \"$(git rev-parse --git-path rebase-merge)\" -o -d \"$(git rev-parse --git-path rebase-apply)\""
+     },
+     {
+      "id": "s2p2",
+      "type": "command_exit_ok",
+      "label": "login.txt is unmerged",
+      "command": "git diff --name-only --diff-filter=U | grep -q login.txt"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "CONFLICT",
+      "caption": "Git pauses the rebase at the first conflicting commit"
+     },
+     {
+      "app": "Terminal",
+      "match": "rebase in progress",
+      "caption": "git status confirms the rebase is paused, not finished"
+     },
+     {
+      "app": "Terminal",
+      "match": "remaining",
+      "caption": "How many commits are still left to replay"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "A conflict pauses the rebase, it doesn't abort it",
+      "t": 367.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "git status shows which commit failed and how many remain",
+      "t": 372.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Resolving rebase conflicts works like merge conflicts: Git puts conflict markers in the conflicted files",
+      "t": 378.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Make sure you're on your feature branch first (git branch shows the current one), then rebase onto main.",
+     "Run `git rebase main` from the feature branch, then `git status`.",
+     "Look at the 'Last command done' and 'Next commands to do' sections of git status to find the failing commit and the remaining count."
+    ],
+    "common_mistakes": [
+     "Running `git rebase main` while on main instead of the feature branch, which gives 'Current branch main is up to date'.",
+     "Thinking the rebase failed and running `git rebase --abort` instead of resolving the conflict.",
+     "Using `git merge main` instead of rebase, so no rebase is in progress.",
+     "Main lacking the conflicting commits from step 1, so the rebase succeeds with no conflict."
+    ],
+    "run_command": "git status",
+    "code": "git rebase main\ngit status"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Resolve the first conflict",
+    "instructions": "Open login.txt, remove the `<<<<<<<`, `=======` and `>>>>>>>` markers and keep the line that should stay. Stage it with `git add login.txt` and run `git status`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 380.0,
+     "end": 409.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_absent",
+      "label": "No conflict markers in editor",
+      "app": "Code",
+      "pattern": "<{7}|>{7}"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Conflict staged",
+      "app": "Terminal",
+      "pattern": "all\\s*conflicts\\s*fixed|Changes\\s*to\\s*be\\s*committed"
+     },
+     {
+      "id": "s3c3",
+      "type": "screen_absent",
+      "label": "No git errors",
+      "app": "Terminal",
+      "pattern": "fatal:"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "command_exit_ok",
+      "label": "No markers in login.txt",
+      "command": "! grep -qE '^(<<<<<<<|=======|>>>>>>>)' login.txt"
+     },
+     {
+      "id": "s3p2",
+      "type": "command_exit_ok",
+      "label": "No unmerged files",
+      "command": "test -z \"$(git diff --name-only --diff-filter=U)\""
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "login.txt",
+      "match": "login.txt",
+      "caption": "Delete the <<<<<<<, ======= and >>>>>>> lines, keeping the code that should stay"
+     },
+     {
+      "app": "Terminal",
+      "match": "git add",
+      "caption": "Stage the resolved file, then run git status to confirm"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Remove the markers, pick the code that should stay, then git add every conflicted file",
+      "t": 389.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Unlike a merge, you don't commit; you run git rebase --continue next",
+      "t": 407.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "During a rebase you run git rebase --continue instead of committing",
+      "t": 409.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Run git status to see which files are listed under 'both modified' or 'Unmerged paths'.",
+     "Open login.txt in your editor. The lines between <<<<<<< and ======= are one side and the lines between ======= and >>>>>>> are the other. Decide which code should stay.",
+     "Delete all three marker lines (<<<<<<<, =======, >>>>>>>) and any unwanted code, then save the file.",
+     "Run git add login.txt, then git status. It should say all conflicts are fixed and suggest git rebase --continue."
+    ],
+    "common_mistakes": [
+     "Leaving one of the marker lines (often =======) in the file.",
+     "Forgetting to save the file before running git add.",
+     "Running git commit instead of staging and moving on to git rebase --continue.",
+     "Running git rebase --abort by accident, which throws away the rebase in progress.",
+     "Staging only some of the conflicted files when there are several."
+    ],
+    "run_command": "git add login.txt"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Continue the rebase in vim",
+    "instructions": "Run `git rebase --continue`; when vim opens press Escape, type `:wq` and Enter. Git applies the notes.txt commit automatically and pauses again on the third commit.",
+    "video": {
+     "sourceId": "src1",
+     "start": 409.0,
+     "end": 472.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Paused on third commit",
+      "app": "Terminal",
+      "pattern": "CONFLICT|could\\s*not\\s*apply"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_absent",
+      "label": "No fatal git errors",
+      "app": "Terminal",
+      "pattern": "fatal:|needs\\s*merge"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "file_exists",
+      "label": "notes.txt applied",
+      "file": "notes.txt"
+     },
+     {
+      "id": "s4p2",
+      "type": "command_exit_ok",
+      "label": "login.txt unmerged again",
+      "command": "git diff --name-only --diff-filter=U | grep -q login.txt"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "rebase --continue",
+      "caption": "Continue the rebase instead of committing"
+     },
+     {
+      "app": "Terminal",
+      "match": ":wq",
+      "caption": "Save and quit vim to keep the commit message"
+     },
+     {
+      "app": "Terminal",
+      "match": "CONFLICT",
+      "caption": "Git pauses again on the third commit"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Git opens vim to edit the commit message; Escape then :wq saves and quits",
+      "t": 416.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Changing git's default editor",
+      "t": 444.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Git auto-applies the non-conflicting second commit and stops on the third",
+      "t": 453.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Git pauses again because the third and last commit conflicts",
+      "t": 470.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "After staging the resolved file, run git rebase --continue rather than git commit.",
+     "When vim opens, you don't need to change the message: press Escape first so you're in normal mode.",
+     "Then type :wq and press Enter to save and close. Git will apply the next commits on its own.",
+     "Seeing a new CONFLICT afterwards is expected here: the third commit conflicts again, and that is fixed in the next step."
+    ],
+    "common_mistakes": [
+     "Running git commit instead of git rebase --continue during the rebase.",
+     "Forgetting to git add the resolved file first, so git says 'you must edit all merge conflicts'.",
+     "Typing :wq while still in insert mode (without pressing Escape), which inserts the text into the message.",
+     "Getting stuck in vim and closing the terminal, leaving the rebase half-finished.",
+     "Thinking the new CONFLICT means something went wrong, then running git rebase --abort."
+    ],
+    "run_command": "git rebase --continue",
+    "code": "git rebase --continue\n# in vim: <Esc> :wq <Enter>"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Fix last conflict and finish",
+    "instructions": "Resolve the markers in login.txt again, `git add login.txt` and run `git rebase --continue`, saving with `:wq`. Run `git status` and `git log --oneline --graph` to verify the feature commits sit on top of main.",
+    "video": {
+     "sourceId": "src1",
+     "start": 472.0,
+     "end": 492.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "Rebase completed",
+      "app": "Terminal",
+      "pattern": "Successfully\\s*rebased"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Status shows branch",
+      "app": "Terminal",
+      "pattern": "On\\s*branch\\s*\\S+"
+     },
+     {
+      "id": "s5c3",
+      "type": "screen_absent",
+      "label": "No longer rebasing",
+      "app": "Terminal",
+      "pattern": "You\\s*are\\s*currently\\s*rebasing"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "command_exit_ok",
+      "label": "No rebase directory remains",
+      "command": "test ! -d \"$(git rev-parse --git-path rebase-merge)\" && test ! -d \"$(git rev-parse --git-path rebase-apply)\""
+     },
+     {
+      "id": "s5p2",
+      "type": "command_exit_ok",
+      "label": "No conflict markers left",
+      "command": "! grep -qE '^(<<<<<<<|=======|>>>>>>>)' login.txt"
+     },
+     {
+      "id": "s5p3",
+      "type": "command_exit_ok",
+      "label": "Feature based on main",
+      "command": "git merge-base --is-ancestor main feature/login"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "Successfully rebased",
+      "caption": "Git finishes replaying the last feature commit"
+     },
+     {
+      "app": "Terminal",
+      "match": "On branch",
+      "caption": "git status confirms you're out of the rebasing state"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "With no commits left, rebase --continue concludes the rebase",
+      "t": 479.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Using git status to confirm you're no longer rebasing",
+      "t": 485.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Fix this conflict exactly as you did the first one: open the file and look for the conflict markers.",
+     "Remove every <<<<<<<, ======= and >>>>>>> line, keeping the content you want, then save the file.",
+     "Stage it with git add <file>, run git rebase --continue, and in vim type :wq to accept the message.",
+     "Run git status: it should say 'On branch ...' with no mention of a rebase in progress; git log --oneline --graph should show feature commits on top of main."
+    ],
+    "common_mistakes": [
+     "Leaving a stray conflict marker (e.g. =======) in the file before git add.",
+     "Running git rebase --continue without first git add-ing the resolved file.",
+     "Running git commit instead of git rebase --continue, leaving the rebase unfinished.",
+     "Getting stuck in vim: press Esc before typing :wq.",
+     "Running git rebase --abort by mistake, which throws away the whole rebase."
+    ],
+    "run_command": "git add <conflicted-file> && git rebase --continue  # save the commit message in vim with :wq, then: git status"
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 28.8,
+   "workdir_metrics": [],
+   "workdir_fp": "77e5cc266de4",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}

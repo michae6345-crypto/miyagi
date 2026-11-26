@@ -1,0 +1,48 @@
+{
+ "id": "jupyter-mnist-s5-metrics-acc-alias",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "MNIST s5. Following an older tutorial, the learner compiled with metrics=['acc'] instead of ['accuracy']. Keras names the metric after the string it was given, so every epoch line reads 'acc: 0.9858 - loss: 0.0462' instead of 'accuracy: ...'. Same metric, same model, trained to 0.9858 >= 0.95 in 5 epochs with no error. Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['acc'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.8794 - loss: 0.4258\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9643 - loss: 0.1193\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9756 - loss: 0.0802\nEpoch 4/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9822 - loss: 0.0588\nEpoch 5/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9858 - loss: 0.0462\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[4]",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['acc'])",
+    "history = model.fit(",
+    "Epoch 4/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9822 - loss: 0.0588",
+    "Epoch 5/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - acc: 0.9858 - loss: 0.0462"
+   ]
+  }
+ }
+}

@@ -19,6 +19,7 @@ import { devReset } from '../../../common/wire'
 import desktop from './desktop.png'
 import { VOICE_ENABLED } from '../../../common/flags'
 import { bridge, engineMode, STAGE } from '../bridge'
+import { useKeys } from '../core/keys'
 import { emitUi } from '../core/bus'
 import { useLesson } from '../core/lesson'
 import { brand, color, fill, radius2, surface, windowSize } from '../core/theme'
@@ -161,7 +162,7 @@ function DevHud(): ReactNode {
   const connected = useLesson((s) => s.connected)
   const seen = useLesson((s) => s.seen)
   const mode = engineMode()
-  const keys = bridge.platform.keys
+  const keys = useKeys()
   const label = mode === 'inline' ? `inline mock · ${new URLSearchParams(location.search).get('scenario') ?? 'full'}` : mode === 'socket' ? 'engine socket' : 'electron'
   return (
     <div className="fixed bottom-3 left-3 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-3 pr-1 text-[12px] text-white/70 backdrop-blur">

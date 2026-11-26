@@ -1,0 +1,132 @@
+{
+ "t": 0.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "weather-app \u2014 -zsh \u2014 120\u00d734",
+   "rect": {
+    "x": 160.0,
+    "y": 110.0,
+    "w": 1180.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 68.7,
+ "frame": 1,
+ "source": "fixture:clean_run.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "weather-app - -zsh - 120x34",
+   "rect": {
+    "x": 675.6,
+    "y": 118.0,
+    "w": 160.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "samdmac weather-app % pvthon3 app.pv",
+   "rect": {
+    "x": 173.3,
+    "y": 153.0,
+    "w": 288.8,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "loaded 365 rows trom weather_csv",
+   "rect": {
+    "x": 173.3,
+    "y": 173.0,
+    "w": 256.2,
+    "h": 7.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "Mean temperature: 14.2 C",
+   "rect": {
+    "x": 170.8,
+    "y": 190.8,
+    "w": 195.9,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "samdmac weather-app o git status",
+   "rect": {
+    "x": 173.3,
+    "y": 210.8,
+    "w": 256.2,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "un oranch ma\u0131n",
+   "rect": {
+    "x": 173.3,
+    "y": 230.9,
+    "w": 113.0,
+    "h": 7.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "nothing to commit, working tree clean",
+   "rect": {
+    "x": 170.8,
+    "y": 248.5,
+    "w": 298.9,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  },
+  {
+   "text": "samdmac weather-app o",
+   "rect": {
+    "x": 173.3,
+    "y": 268.5,
+    "w": 168.3,
+    "h": 10.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "weather-app \u2014 -zsh \u2014 120\u00d734"
+  }
+ ]
+}

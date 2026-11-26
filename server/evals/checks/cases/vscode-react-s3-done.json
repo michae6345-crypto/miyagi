@@ -1,0 +1,27 @@
+{
+ "id": "vscode-react-s3-done",
+ "kind": "vscode",
+ "trap": "none",
+ "expected": "pass",
+ "why": "App.jsx imports Header and renders <Header/>.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\n\nfunction App() {\n  return (<Header/>)\n}\nexport default App\n"
+  },
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import Header from './Header.jsx'",
+    "function App() {",
+    "return (<Header/>)",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

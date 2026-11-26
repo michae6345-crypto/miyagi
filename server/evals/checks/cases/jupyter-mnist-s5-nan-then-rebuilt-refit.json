@@ -1,0 +1,56 @@
+{
+ "id": "jupyter-mnist-s5-nan-then-rebuilt-refit",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "MNIST s5 (Compile and train; training accuracy reaches 0.95). The learner first compiled with Adam(learning_rate=1.0): that cell ([4]) blew up, loss 1854 then 'loss: nan', accuracy 0.0987, and its output is still in the notebook. Recompiling alone would keep the NaN weights, so in a NEW cell below ([5]) they rebuilt the Sequential model, compiled with plain 'adam' and fit again: 0.8794 -> 0.9858 over 5 epochs, loss 0.0462. The model in the kernel is the fresh one, trained well past 0.95; the old cell's NaN is history, not the current model. Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1.0),\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.1062 - loss: 1854.3021\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0987 - loss: nan\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0987 - loss: nan\nEpoch 4/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0987 - loss: nan\nEpoch 5/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0987 - loss: nan\n",
+       "count": 4
+      },
+      {
+       "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10, activation='softmax')\n])\nmodel.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.8794 - loss: 0.4258\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9643 - loss: 0.1193\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9756 - loss: 0.0802\nEpoch 4/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9822 - loss: 0.0588\nEpoch 5/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9858 - loss: 0.0462\n",
+       "count": 5
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 571us/step - accuracy: 0.0987 - loss: nan",
+    "[5]",
+    "model = models.Sequential([",
+    "layers.Flatten(input_shape=(28, 28, 1)),",
+    "layers.Dense(128, activation='relu'),",
+    "layers.Dense(10, activation='softmax')",
+    "model.compile(optimizer='adam',",
+    "history = model.fit(",
+    "Epoch 4/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9822 - loss: 0.0588",
+    "Epoch 5/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 560us/step - accuracy: 0.9858 - loss: 0.0462"
+   ]
+  }
+ }
+}

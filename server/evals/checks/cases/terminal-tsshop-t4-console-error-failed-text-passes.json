@@ -1,0 +1,53 @@
+{
+ "id": "terminal-tsshop-t4-console-error-failed-text-passes",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "npm test: 'Tests: 4 passed, 4 total', exit 0. One of the four tests checks that formatPrice logs and returns $0.00 for NaN, so Jest prints the console.error it captured ('formatPrice failed: not a number NaN') above the PASS line. That word is the app's own log message from a passing test, not a failed test.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\",\n    \"test\": \"jest\"\n  }\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  if (Number.isNaN(cents)) {\n    console.error('formatPrice failed: not a number', cents)\n    return '$0.00'\n  }\n  return `$${(cents / 100).toFixed(2)}`\n}\n",
+   "shop/src/utils.test.ts": "import { formatPrice } from './utils'\n\ntest('formats cents', () => {\n  expect(formatPrice(1999)).toBe('$19.99')\n})\n\ntest('formats zero', () => {\n  expect(formatPrice(0)).toBe('$0.00')\n})\n\ntest('rounds', () => {\n  expect(formatPrice(5)).toBe('$0.05')\n})\n\ntest('NaN logs and returns $0.00', () => {\n  expect(formatPrice(NaN)).toBe('$0.00')\n})\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "console.error",
+    "formatPrice failed: not a number NaN",
+    "2 | if (Number.isNaN(cents)) {",
+    "> 3 |     console.error('formatPrice failed: not a number', cents)",
+    "at formatPrice (src/utils.ts:3:13)",
+    "PASS  src/utils.test.ts",
+    "✓ formats cents (2 ms)",
+    "✓ formats zero",
+    "✓ rounds",
+    "✓ NaN logs and returns $0.00 (11 ms)",
+    "Test Suites: 1 passed, 1 total",
+    "Tests:       4 passed, 4 total",
+    "Snapshots:   0 total",
+    "Time:        0.912 s",
+    "Ran all test suites.",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "exit_code": 0,
+   "output_tail": [
+    "Tests:       4 passed, 4 total",
+    "Snapshots:   0 total",
+    "Time:        0.912 s",
+    "Ran all test suites."
+   ],
+   "running": false
+  }
+ }
+}

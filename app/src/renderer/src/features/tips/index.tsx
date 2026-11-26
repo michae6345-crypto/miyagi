@@ -8,6 +8,7 @@
  *   pill      the step pill on its own       "Point at it to see your step." (no panel, no video player)
  *   launcher  the idle pill                  "Press [⌥Space] in any app to start a lesson."
  *   menubar   the menu bar item              "Open it from the menu bar, even with every window closed."
+ *   circle    the step or idle pill          "Hold [the push-to-talk keys] and circle anything to ask." (features/circle)
  * Got it or Esc closes it for good, and so does doing what it says (checking, a Hint, opening the panel, pointing at
  * the pill, opening the launcher: each Tip's done, or a press on the element it points at), however briefly it was up.
  * "..." > Don't show tips turns them all off (store.ts keeps both).
@@ -36,10 +37,11 @@ import { defineFeature } from '../../core/registry'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { CoachMark, MARK_W } from './CoachMark'
-import { floorFree, tipsRunning } from './gate'
+import { floorFree, setupSettled, tipsRunning } from './gate'
 import { place, sameRect, type Rect } from './place'
 import { stageTray, TRAY_CHANNEL } from './stage'
 import { TourLayer } from './TourLayer'
+import { useTour } from './tourStore'
 import { dismissTip, setTipMenu, showTip, tipsEnabled, turnTipsOff, useTips, withdrawTip } from './store'
 import { TIPS, type Anchor, type TipContext, type TipId } from './tips'
 
@@ -174,7 +176,7 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
       }
       // Another surface has the floor: first-run setup is still open, a card grew out of the island, the launcher or
       // Settings borrowed it, the spotlight or a diagram is up.
-      const busy = !onboardedRef.current || !ctx.island.visible || !ctx.island.pill || !!root.querySelector(BUSY)
+      const busy = !onboardedRef.current || useTour.getState().open || !ctx.island.visible || !ctx.island.pill || !!root.querySelector(BUSY)
       const now = Date.now()
 
       if (s.active) {
@@ -344,8 +346,9 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 }
 
 /**
- * Whether first-run setup (main/features/onboarding.ts) has finished. Until it has, its window is the one thing on
- * screen and no tip shows. Asks `onboarding:get` once, then every ONBOARDING_POLL_MS until done; Core request 5 (main
+ * Whether first-run setup (main/features/onboarding.ts) has finished or was put off ("Set up later": the gate's setup
+ * part; an earlier copy waited for done only, so a learner who put setup off never saw a tip). Until then its window is
+ * the one thing on screen and no tip shows. Asks `onboarding:get` once, then every ONBOARDING_POLL_MS until done; Core request 5 (main
  * broadcasts `onboarding:done`) makes the hand-off instant. A main without the handler never blocks tips. Browser stage:
  * setup is only running when the URL opens it (`?onb=`).
  */
@@ -359,15 +362,15 @@ function useOnboardingDone(wanted: boolean): boolean {
       if (alive) setDone(true)
     }
     const ask = (): void => {
-      let p: Promise<{ done?: unknown } | undefined>
+      let p: Promise<unknown>
       try {
-        p = bridge.invoke<{ done?: unknown } | undefined>('onboarding:get')
+        p = bridge.invoke<unknown>('onboarding:get')
       } catch {
         return finish()
       }
       p.then((r) => {
         if (!alive) return
-        if (r?.done === true) finish()
+        if (setupSettled(r)) finish()
         else timer = setTimeout(ask, ONBOARDING_POLL_MS)
       }, finish)
     }

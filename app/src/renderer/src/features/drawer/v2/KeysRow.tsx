@@ -8,6 +8,7 @@ import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { AudioLines } from 'lucide-react'
 import { bridge } from '../../../bridge'
+import { useKey, useKeys } from '../../../core/keys'
 import { triggerShortcut } from '../../../core/shortcuts'
 import { copy, fill, radius2, type2 } from '../../../core/theme'
 import { pressMotion } from '../../../core/ui/motion'
@@ -24,9 +25,9 @@ const SHORT_KEY = 3
 
 export function KeysRow({ onHide, backDisabled }: { onHide: () => void; backDisabled?: boolean }): ReactNode {
   const voiceOn = useVoice((v) => v.on)
-  const launch = keyLabel('launcher')
+  const launch = useKey('launcher')
   const askLabel = launch && launch.length > SHORT_KEY ? copy.ask : copy.launcherPlaceholder
-  const keys = bridge.platform.keys
+  const keys = useKeys() // live: a rebound shortcut shows its own key
   return (
     <div data-part="panel-keys" className="flex shrink-0 items-center gap-[8px]" style={{ padding: '0 12px 12px 14px', fontSize: type2.xs, color: tone.label }}>
       <div className="flex min-w-0 flex-1 items-center gap-[4px]">
@@ -76,7 +77,7 @@ function KeyItem({
   grow?: boolean
   keyFirst?: boolean
 }): ReactNode {
-  const key = keyLabel(k)
+  const key = useKey(k)
   return (
     <motion.button
       type="button"

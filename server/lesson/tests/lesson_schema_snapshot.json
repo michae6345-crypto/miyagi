@@ -1,0 +1,163 @@
+{
+ "keys": {
+  "adapted.step": [
+   "checks",
+   "index",
+   "instructions",
+   "precision_checks",
+   "targets"
+  ],
+  "contract.check": [
+   "app",
+   "by_step",
+   "command",
+   "file",
+   "id",
+   "label",
+   "metric",
+   "metric_pattern",
+   "op",
+   "pattern",
+   "prompt",
+   "trend",
+   "type",
+   "value",
+   "window"
+  ],
+  "draft": [
+   "files",
+   "libraries",
+   "steps",
+   "summary",
+   "title"
+  ],
+  "draft.check": [
+   "app",
+   "by_step",
+   "command",
+   "file",
+   "label",
+   "metric",
+   "metric_pattern",
+   "op",
+   "pattern",
+   "trend",
+   "type",
+   "value",
+   "window"
+  ],
+  "draft.step": [
+   "checks",
+   "code",
+   "common_mistakes",
+   "end",
+   "expected_output",
+   "explanations",
+   "file",
+   "hints",
+   "instructions",
+   "run_command",
+   "start",
+   "targets",
+   "title"
+  ],
+  "graph": [
+   "lesson",
+   "sources",
+   "steps"
+  ],
+  "graph.lesson": [
+   "goal",
+   "id",
+   "libraries",
+   "title",
+   "workdir"
+  ],
+  "graph.source": [
+   "id",
+   "kind",
+   "title",
+   "url",
+   "videoId"
+  ],
+  "graph.step": [
+   "checks",
+   "common_mistakes",
+   "explanations",
+   "hints",
+   "id",
+   "index",
+   "instructions",
+   "precision_checks",
+   "targets",
+   "title",
+   "video"
+  ],
+  "shared": [
+   "files",
+   "lesson",
+   "libraries",
+   "sources",
+   "steps",
+   "summary",
+   "title"
+  ],
+  "shared.check": [
+   "app",
+   "by_step",
+   "command",
+   "file",
+   "id",
+   "label",
+   "metric",
+   "metric_pattern",
+   "op",
+   "pattern",
+   "trend",
+   "type",
+   "value",
+   "window"
+  ],
+  "shared.check_types": [
+   "command_exit_ok",
+   "file_contains",
+   "file_exists",
+   "metric_threshold",
+   "metric_trend",
+   "output_contains",
+   "screen_absent",
+   "screen_contains"
+  ],
+  "shared.lesson": [
+   "goal",
+   "id",
+   "libraries",
+   "summary",
+   "title"
+  ],
+  "shared.step": [
+   "checks",
+   "code",
+   "common_mistakes",
+   "end",
+   "expected_output",
+   "explanations",
+   "file",
+   "hints",
+   "id",
+   "index",
+   "instructions",
+   "precision_checks",
+   "requires",
+   "run_command",
+   "sample_output",
+   "setup",
+   "solution",
+   "start",
+   "targets",
+   "title",
+   "video"
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,73 @@
+{
+ "id": "terminal-gitcat-push-gh-repo-create-head-main",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Intro to Git and GitHub plan (docs/ui-next/catalog/plans/intro-git.json), 'Push the cookbook to GitHub' (passes: origin points at GitHub and origin/main matches the local main branch). The learner used the GitHub CLI instead: `gh repo create cookbook --public --source=. --remote=origin --push` made the repository, added origin and pushed. gh pushes HEAD, so git's line reads '* [new branch] HEAD -> main' (not 'main -> main'), then \"branch 'main' set up to track 'origin/main'\". `git remote -v` shows origin at github.com and `git status` says up to date with 'origin/main'. Done.",
+ "step": {
+  "id": "s8",
+  "index": 8,
+  "title": "Push the cookbook to GitHub",
+  "instructions": "Make an empty repository named cookbook on GitHub, add it as origin with git remote add origin git@github.com:<you>/cookbook.git, then git push -u origin main. Run git remote -v to check.",
+  "run_command": "git push -u origin main",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "git push -u origin main",
+    "caption": "Send main to GitHub"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s8c1",
+    "type": "screen_contains",
+    "label": "origin points at GitHub",
+    "app": "Terminal",
+    "pattern": "origin\\s+git@github\\.com:\\S+/cookbook(\\.git)?\\s+\\(push\\)"
+   },
+   {
+    "id": "s8c2",
+    "type": "screen_contains",
+    "label": "main pushed to GitHub",
+    "app": "Terminal",
+    "pattern": "main\\s*->\\s*main"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "cookbook/pancakes.md": "# Pancakes\n\n- 1 cup flour\n- 1 cup milk\n- 2 eggs\n- pinch of salt\n",
+   "cookbook/.git": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac cookbook % gh repo create cookbook --public --source=. --remote=origin --push",
+    "✓ Created repository ada-learner/cookbook on GitHub",
+    "  https://github.com/ada-learner/cookbook",
+    "✓ Added remote git@github.com:ada-learner/cookbook.git",
+    "Enumerating objects: 15, done.",
+    "Counting objects: 100% (15/15), done.",
+    "Delta compression using up to 10 threads",
+    "Compressing objects: 100% (11/11), done.",
+    "Writing objects: 100% (15/15), 1.42 KiB | 1.42 MiB/s, done.",
+    "Total 15 (delta 3), reused 0 (delta 0), pack-reused 0",
+    "remote: Resolving deltas: 100% (3/3), done.",
+    "To github.com:ada-learner/cookbook.git",
+    " * [new branch]      HEAD -> main",
+    "branch 'main' set up to track 'origin/main'.",
+    "✓ Pushed commits to git@github.com:ada-learner/cookbook.git",
+    "tripi@mac cookbook % git remote -v",
+    "origin\tgit@github.com:ada-learner/cookbook.git (fetch)",
+    "origin\tgit@github.com:ada-learner/cookbook.git (push)",
+    "tripi@mac cookbook % git status",
+    "On branch main",
+    "Your branch is up to date with 'origin/main'.",
+    "",
+    "nothing to commit, working tree clean",
+    "tripi@mac cookbook % "
+   ]
+  }
+ }
+}

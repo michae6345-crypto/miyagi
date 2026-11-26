@@ -1,0 +1,40 @@
+{
+ "id": "terminal-calc-s2-hidden-exit-1-after-5",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "VS Code's terminal is hidden; command_end says `python3 calculator.py` exited 1. It printed 5 and then crashed on the learner's extra line (TypeError). The step's own backup check says the file must run without errors; a run that ends in a traceback is not done.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))\nprint(add(2, \"3\"))\n"
+  },
+  "editor": "Code",
+  "run": {
+   "command": "python3 calculator.py",
+   "exit_code": 1,
+   "output_tail": [
+    "5",
+    "Traceback (most recent call last):",
+    "  File \"/Users/tripi/calc/calculator.py\", line 5, in <module>",
+    "    print(add(2, \"3\"))",
+    "  File \"/Users/tripi/calc/calculator.py\", line 2, in add",
+    "    return a + b",
+    "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
+   ]
+  },
+  "screen": {
+   "Code": [
+    "calculator.py",
+    "def add(a, b):",
+    "    return a + b",
+    "print(add(2, 3))",
+    "print(add(2, \"3\"))"
+   ]
+  }
+ }
+}

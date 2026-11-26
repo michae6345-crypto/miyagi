@@ -1,0 +1,16 @@
+{
+  "lesson": {"id": "lesson-blender-donut", "title": "Beginner Blender 4.0 Tutorial", "goal": "model a donut in Blender",
+             "libraries": {"blender": "4.0"}},
+  "sources": [{"id": "src1", "kind": "video", "title": "Beginner Blender 4.0 Tutorial (2023)", "url": "https://www.youtube.com/watch?v=B0J27sf9N1Y", "videoId": "B0J27sf9N1Y"}],
+  "build": {"hand_written": true, "note": "Hand-written test graph for server/workspace requirements (no Gemini quota spent). Steps follow the tutorial's outline; no timestamps claimed."},
+  "steps": [
+    {"id": "s1", "index": 1, "title": "Add a torus", "instructions": "In a new General scene, delete the cube and add a torus with Shift+A > Mesh > Torus.",
+     "checks": [{"id": "s1c1", "type": "screen_contains", "label": "Torus in outliner", "app": "Blender", "pattern": "Torus"}]},
+    {"id": "s2", "index": 2, "title": "Shape the donut", "instructions": "Adjust the torus major and minor radius in the Add Torus panel so it looks like a donut.",
+     "checks": [{"id": "s2c1", "type": "screen_contains", "label": "Add Torus panel", "app": "Blender", "pattern": "Minor\\s+Radius"}]},
+    {"id": "s3", "index": 3, "title": "Add subdivision surface", "instructions": "Add a Subdivision Surface modifier and shade smooth.",
+     "checks": [{"id": "s3c1", "type": "screen_contains", "label": "Modifier added", "app": "Blender", "pattern": "Subdivision"}]},
+    {"id": "s4", "index": 4, "title": "Make the icing", "instructions": "Duplicate the top faces with Shift+D, separate them with P, and add a Solidify modifier.",
+     "checks": [{"id": "s4c1", "type": "screen_contains", "label": "Solidify added", "app": "Blender", "pattern": "Solidify"}]}
+  ]
+}

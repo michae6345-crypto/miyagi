@@ -1,0 +1,13 @@
+{
+  "lesson": {"id": "lesson-git-rebase-test", "title": "Rebase a feature branch onto main", "goal": "learn git rebase",
+             "libraries": {"git": "2.x"}},
+  "sources": [{"id": "src1", "kind": "video", "title": "git rebase (test fixture)", "url": "https://example.invalid/git-rebase"}],
+  "build": {"hand_written": true, "note": "Test-only graph for the scripted git history path (fake Claude client)."},
+  "steps": [
+    {"id": "s1", "index": 1, "title": "Inspect the two branches", "instructions": "Run git log --oneline --graph --all and find where feature diverged from main.",
+     "checks": [{"id": "s1c1", "type": "screen_contains", "label": "graph shown", "app": "Terminal", "pattern": "\\*\\s+\\w{7}"}]},
+    {"id": "s2", "index": 2, "title": "Rebase feature onto main", "instructions": "On feature, run git rebase main and resolve the conflict in app.py.",
+     "checks": [{"id": "s2c1", "type": "screen_contains", "label": "rebase done", "app": "Terminal", "pattern": "Successfully rebased"}],
+     "precision_checks": [{"id": "s2p1", "type": "file_contains", "label": "conflict resolved", "file": "app.py", "pattern": "def greet\\(name, punctuation"}]}
+  ]
+}

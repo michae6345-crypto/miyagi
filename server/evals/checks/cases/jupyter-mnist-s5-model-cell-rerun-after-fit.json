@@ -1,0 +1,46 @@
+{
+ "id": "jupyter-mnist-s5-model-cell-rerun-after-fit",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "MNIST s5 (Compile and train the model). The fit cell ran as [4] and its output reaches 0.98, but the learner then scrolled up and ran the model cell again ([5], after the fit): models.Sequential(...) bound `model` to a brand-new, untrained, uncompiled network. The training output on screen belongs to the old object; the model in the kernel has random weights and the next step's predict would print noise. Not done until compile + fit run again after the model cell.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 4,
+     "counts": [
+      1,
+      2,
+      5,
+      4
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[5]",
+    "model = models.Sequential([",
+    "layers.Flatten(input_shape=(28, 28, 1)),",
+    "layers.Dense(128, activation='relu'),",
+    "layers.Dense(64, activation='relu'),",
+    "layers.Dense(10, activation='softmax')",
+    "])",
+    "UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer.",
+    "[4]",
+    "model.compile(optimizer='adam',",
+    "history = model.fit(",
+    "Epoch 5/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 556us/step - accuracy: 0.9862 - loss: 0.0447"
+   ]
+  }
+ }
+}

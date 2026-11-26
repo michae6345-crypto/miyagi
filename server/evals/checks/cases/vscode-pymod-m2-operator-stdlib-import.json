@@ -1,0 +1,35 @@
+{
+ "id": "vscode-pymod-m2-operator-stdlib-import",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "main.py says 'from operator import add': the standard library's operator module, one letter group away from the lesson's operations. python3 main.py prints 5 because operator.add also adds, so the output looks right, but main.py never touches operations.py.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operator import add\n\nprint(add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "main.py",
+    "operations.py",
+    "main.py",
+    "from operator import add",
+    "print(add(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

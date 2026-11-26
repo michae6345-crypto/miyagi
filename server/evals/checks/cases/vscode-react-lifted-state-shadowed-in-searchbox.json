@@ -1,0 +1,84 @@
+{
+ "id": "vscode-react-lifted-state-shadowed-in-searchbox",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "App.jsx holds query in useState and passes it to <BreedList query={query} />, and it hands setQuery to SearchBox as onQueryChange, but SearchBox.jsx keeps its own const [query, setQuery] = useState('') and its input updates only that local copy, never calling onQueryChange. Typing in the box never reaches App, so BreedList's query stays '' and the list never filters: the two children do not share one query.",
+ "step": {
+  "id": "re9s4",
+  "title": "Hold the query in App",
+  "kind": "code",
+  "instructions": "In src/App.jsx, keep query in useState and pass it down: <SearchBox query={query} onQueryChange={setQuery} /> and <BreedList query={query} />. In src/SearchBox.jsx, the input reads value={query} and calls onQueryChange(e.target.value).",
+  "file": "src/App.jsx",
+  "code": "const [query, setQuery] = useState('')\n\nreturn (\n  <>\n    <SearchBox query={query} onQueryChange={setQuery} />\n    <BreedList query={query} />\n  </>\n)\n\n// src/SearchBox.jsx\n<input value={query} onChange={e => onQueryChange(e.target.value)} />",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/App.jsx",
+    "match": "useState(",
+    "caption": "The parent holds the query"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re9s4c1",
+    "type": "screen_contains",
+    "label": "App holds the query in state",
+    "app": "Code",
+    "pattern": "const\\s*\\[\\s*query\\s*,\\s*setQuery\\s*\\]\\s*=\\s*useState\\("
+   },
+   {
+    "id": "re9s4c2",
+    "type": "screen_contains",
+    "label": "BreedList gets the query",
+    "app": "Code",
+    "pattern": "<BreedList[^>]*query=\\{\\s*query\\s*\\}"
+   },
+   {
+    "id": "re9s4c3",
+    "type": "screen_contains",
+    "label": "SearchBox can change the query",
+    "app": "Code",
+    "pattern": "onQueryChange"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re9s4p1",
+    "type": "file_contains",
+    "label": "App renders SearchBox",
+    "file": "dog-breeds/src/App.jsx",
+    "pattern": "<SearchBox"
+   }
+  ],
+  "hints": [
+   "Only one component should own query; the others get it as a prop."
+  ],
+  "common_mistakes": [
+   "Keeping a second useState for query inside SearchBox."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "dog-breeds/package.json": "{\n  \"name\": \"dog-breeds\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "dog-breeds/src/App.jsx": "import { useState } from 'react'\nimport SearchBox from './SearchBox.jsx'\nimport BreedList from './BreedList.jsx'\n\nfunction App() {\n  const [query, setQuery] = useState('')\n\n  return (\n    <>\n      <SearchBox onQueryChange={setQuery} />\n      <BreedList query={query} />\n    </>\n  )\n}\n\nexport default App\n",
+   "dog-breeds/src/SearchBox.jsx": "import { useState } from 'react'\n\nfunction SearchBox({ onQueryChange }) {\n  const [query, setQuery] = useState('')\n\n  return <input placeholder=\"Search breeds\" value={query} onChange={e => setQuery(e.target.value)} />\n}\n\nexport default SearchBox\n",
+   "dog-breeds/src/BreedList.jsx": "const breeds = ['Beagle', 'Border Collie', 'Boxer', 'Dachshund', 'Poodle']\n\nfunction BreedList({ query }) {\n  const shown = breeds.filter(b => b.toLowerCase().includes(query.toLowerCase()))\n  return <ul>{shown.map(b => <li key={b}>{b}</li>)}</ul>\n}\n\nexport default BreedList\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "SearchBox.jsx",
+    "function App() {",
+    "const [query, setQuery] = useState('')",
+    "<SearchBox onQueryChange={setQuery} />",
+    "<BreedList query={query} />",
+    "function SearchBox({ onQueryChange }) {",
+    "const [query, setQuery] = useState('')",
+    "return <input placeholder=\"Search breeds\" value={query} onChange={e => setQuery(e.target.value)} />"
+   ]
+  }
+ }
+}

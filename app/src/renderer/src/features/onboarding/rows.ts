@@ -20,6 +20,7 @@ import type { HealthItem } from '../../../../../../shared/contracts/events'
 import { useLesson } from '../../core/lesson'
 import { copy } from '../../core/theme'
 import type { StatusState } from '../../core/ui/status'
+import { REGION_LINE } from '../signincard/notice'
 import { needsGrants, osNow, shellName, thisDevice, type Os } from './device'
 import { useOnboarding, type Asked, type CloudView, type Permissions, type RowAction } from './store'
 
@@ -39,6 +40,8 @@ export type Row = {
   action?: { id: RowAction; label: string; item?: HealthItem }
   /** A second, quieter button beside the action (the engine's "Copy details"). */
   alt?: { id: RowAction; label: string }
+  /** Switched on in System Settings; miyagi sees it only after a restart (main/permissions.ts `relaunch`). */
+  restart?: boolean
 }
 
 /** main/localEngine.ts ENGINE_FAILED_LINE: the one line for an engine that didn't come up. */
@@ -57,6 +60,30 @@ export type RowInput = {
   os?: Os
 }
 
+/** The restart offer for a grant macOS applies only to a new miyagi (main/permissions.ts `relaunch`, Nov 25). */
+const RESTART = { state: 'watching', word: 'Restart needed', detail: 'On in System Settings. Restart miyagi to use it.', action: { id: 'relaunch', label: 'Restart miyagi' }, restart: true } as const
+const needsRestart = (i: RowInput, k: 'screen' | 'accessibility'): boolean => !!i.perms?.relaunch?.includes(k)
+
+/**
+ * What a grant row says instead of "switch it on" (main/permissions.ts, #286): managed by the organization, running
+ * from the disk image or a translocated copy, or a row macOS keeps for an earlier build. undefined = the usual row.
+ */
+function hintedRow(i: RowInput, k: 'screen' | 'accessibility'): Omit<Row, 'id' | 'label' | 'why'> | undefined {
+  const p = i.perms
+  if (!p || p[k] === 'granted' || p[k] === 'unknown') return undefined
+  if (p[k] === 'restricted' || p.hint?.[k] === 'managed') return { state: 'unknown', word: 'Managed', detail: 'Your organization manages this setting.' }
+  if (p.hint?.[k] === 'move') return { state: 'notyet', word: 'Move to Applications', detail: 'Move miyagi to Applications, then open it from there.' }
+  if (p.hint?.[k] === 'reset')
+    return {
+      state: 'notyet',
+      word: 'Not yet',
+      detail: 'Switch miyagi off and on in the list, or remove and re-add it.',
+      action: { id: k === 'screen' ? 'open-screen-pane' : 'open-accessibility-pane', label: 'Open System Settings' },
+      alt: { id: k === 'screen' ? 'reset-screen' : 'reset-accessibility', label: 'Reset miyagi in the list' }
+    }
+  return undefined
+}
+
 const UNKNOWN_DETAIL = (external: boolean, os: Os = 'mac'): string => (external ? `Can't check this while the engine runs in ${shellName(os)}.` : "miyagi can't check this from here.")
 
 function screenRow(i: RowInput): Row {
@@ -64,8 +91,11 @@ function screenRow(i: RowInput): Row {
   const s = i.perms?.screen
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
   if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
+  const hinted = hintedRow(i, 'screen')
+  if (hinted) return { ...base, ...hinted }
+  if (needsRestart(i, 'screen')) return { ...base, ...RESTART, action: { ...RESTART.action } }
   // macOS often applies this grant only after a relaunch.
-  if (i.asked.screen) return { ...base, state: 'watching', word: 'Watching', detail: 'Switch miyagi on, then relaunch it.', action: { id: 'relaunch', label: 'Relaunch' } }
+  if (i.asked.screen) return { ...base, state: 'watching', word: 'Watching', detail: 'Switch miyagi on, then restart it.', action: { id: 'relaunch', label: 'Restart miyagi' } }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Allow it, then switch miyagi on.', action: { id: 'allow-screen', label: 'Allow' } }
 }
 
@@ -74,6 +104,9 @@ function accessibilityRow(i: RowInput): Row {
   const s = i.perms?.accessibility
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
   if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
+  const hinted = hintedRow(i, 'accessibility')
+  if (hinted) return { ...base, ...hinted }
+  if (needsRestart(i, 'accessibility')) return { ...base, ...RESTART, action: { ...RESTART.action } }
   const action = { id: 'open-accessibility' as const, label: 'Open System Settings' }
   if (i.asked.accessibility) return { ...base, state: 'watching', word: 'Watching', detail: 'Watching. Switch miyagi on, then come back.', action }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Switch miyagi on in System Settings.', action }
@@ -116,6 +149,8 @@ function engineRow(i: RowInput): Row {
   }
   const cloud = i.cloud?.state
   if (cloud === 'minting') return { ...base, state: 'checking', word: 'Setting up', detail: `Setting up access for ${here}.` }
+  // 451 region_unavailable (cloud.ts): the cloud's own words, no Try again (it would be refused the same way)
+  if (cloud === 'failed' && i.cloud?.region) return { ...base, state: 'notyet', word: 'Not available', detail: REGION_LINE }
   if (cloud === 'failed') return { ...base, state: 'notyet', word: 'Not yet', detail: "Couldn't set up access. Check your connection.", action: { id: 'retry-cloud', label: 'Try again' } }
   if (cloud === 'ok' || i.cloudStatus) {
     switch (i.cloudStatus) {
@@ -158,7 +193,9 @@ export function summarize(rows: Row[]): Summary {
   const left = rows.filter((r) => r.state !== 'passed' && r.state !== 'unknown')
   const unknown = rows.some((r) => r.state === 'unknown')
   const hint =
-    left.length === 0
+    left.length > 0 && left.every((r) => r.restart)
+      ? 'Restart miyagi to finish.'
+      : left.length === 0
       ? unknown
         ? "miyagi can't check everything from here. You can start."
         : 'All set.'

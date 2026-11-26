@@ -1,0 +1,60 @@
+{
+ "id": "metric-nn4-rerun-after-save-converged",
+ "kind": "metric",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "NN-from-scratch lesson nn4 (run nn.py; the loss falls below 0.01 by epoch 18000). The lesson's common mistake, then the fix: the first run (scrollback) used the old unsaved file and plateaued at 0.0211; the learner saved and ran python3 nn.py again, and that run falls to 0.0018 at epoch 19000 and exits 0. The screen holds both runs, and the latest one is done; the stale run above it does not count against it.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-nn-from-scratch.json",
+  "id": "nn4"
+ },
+ "workspace": {
+  "files": {
+   "nn.py": "import numpy as np\n\n# The network\nX = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\nlr = 0.1\n\nfor epoch in range(20000):\n    ...\n    if epoch % 1000 == 0:\n        print(f'epoch {epoch} loss {loss:.4f}')\n"
+  },
+  "run": {
+   "command": "python3 nn.py",
+   "exit_code": 0,
+   "output_tail": [
+    "epoch 17000 loss 0.0020",
+    "epoch 18000 loss 0.0019",
+    "epoch 19000 loss 0.0018"
+   ]
+  },
+  "screen": {
+   "Terminal": [
+    "epoch 12000 loss 0.0215",
+    "epoch 13000 loss 0.0214",
+    "epoch 14000 loss 0.0213",
+    "epoch 15000 loss 0.0213",
+    "epoch 16000 loss 0.0212",
+    "epoch 17000 loss 0.0212",
+    "epoch 18000 loss 0.0212",
+    "epoch 19000 loss 0.0211",
+    "tripi@mac nn % python3 nn.py",
+    "epoch 0 loss 0.4721",
+    "epoch 1000 loss 0.1205",
+    "epoch 2000 loss 0.0410",
+    "epoch 3000 loss 0.0153",
+    "epoch 4000 loss 0.0081",
+    "epoch 5000 loss 0.0062",
+    "epoch 6000 loss 0.0051",
+    "epoch 7000 loss 0.0044",
+    "epoch 8000 loss 0.0039",
+    "epoch 9000 loss 0.0035",
+    "epoch 10000 loss 0.0032",
+    "epoch 11000 loss 0.0030",
+    "epoch 12000 loss 0.0028",
+    "epoch 13000 loss 0.0026",
+    "epoch 14000 loss 0.0024",
+    "epoch 15000 loss 0.0022",
+    "epoch 16000 loss 0.0021",
+    "epoch 17000 loss 0.0020",
+    "epoch 18000 loss 0.0019",
+    "epoch 19000 loss 0.0018",
+    "tripi@mac nn % "
+   ]
+  }
+ }
+}

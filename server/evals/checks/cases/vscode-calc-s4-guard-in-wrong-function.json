@@ -1,0 +1,28 @@
+{
+ "id": "vscode-calc-s4-guard-in-wrong-function",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The zero guard (if b == 0: raise ValueError(\"Cannot divide by zero\")) went into multiply(), divide() still divides by zero.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def multiply(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a * b\n\ndef divide(a, b):\n    return a / b\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "calculator.py",
+    "def multiply(a, b):",
+    "if b == 0:",
+    "raise ValueError(\"Cannot divide by zero\")",
+    "return a * b",
+    "def divide(a, b):",
+    "return a / b"
+   ]
+  }
+ }
+}

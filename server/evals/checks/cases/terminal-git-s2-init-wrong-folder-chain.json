@@ -1,0 +1,27 @@
+{
+ "id": "terminal-git-s2-init-wrong-folder-chain",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Multi-step shell with `;`: `cd projct1` (typo) failed, and `git init` still ran, in the home folder. 'Initialized empty Git repository in /Users/tripi/.git/' is on screen but project1 has no .git; the learner's whole home folder is now a repo.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "project1": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % mkdir project1",
+    "tripi@mac ~ % cd projct1; git init",
+    "cd: no such file or directory: projct1",
+    "Initialized empty Git repository in /Users/tripi/.git/",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

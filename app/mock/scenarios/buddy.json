@@ -1,0 +1,58 @@
+{
+  "name": "buddy",
+  "on": {
+    "connect": "buddy_point",
+    "bon.get": "buddy_bon",
+    "data.delete": "buddy_erased"
+  },
+  "segments": {
+    "buddy_point": [
+      {
+        "wait": 50,
+        "type": "engine.hello",
+        "payload": {
+          "version": "mock",
+          "contract": "2026-11-20",
+          "capabilities": ["health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get", "panel.state", "review.start", "data.delete", "activity.get", "bon.get", "bon.import", "plans.list", "plan.start", "plan.remove", "playlist.get", "plan.propose", "link.get", "proof.get", "data.get"]
+        }
+      },
+      {
+        "wait": 850,
+        "type": "annotate",
+        "payload": {
+          "marks": [{ "id": "b1", "x": 100, "y": 563, "w": 380, "h": 18, "why": "point", "label": "The optimizer" }],
+          "holdMs": 4000
+        }
+      },
+      {
+        "wait": 2000,
+        "type": "annotate",
+        "payload": {
+          "marks": [{ "id": "b1", "x": 102, "y": 564, "w": 380, "h": 18, "why": "point", "label": "The optimizer" }],
+          "holdMs": 4000
+        }
+      },
+      {
+        "wait": 3200,
+        "type": "annotate",
+        "payload": {
+          "marks": [
+            { "id": "b2", "x": 514, "y": 474, "w": 156, "h": 34, "why": "point", "label": "Used here" },
+            { "id": "b3", "x": 70, "y": 714, "w": 420, "h": 85, "why": "answer" }
+          ],
+          "holdMs": 6000
+        }
+      },
+      { "wait": 7000, "type": "annotate", "payload": { "clear": true } },
+      { "wait": 1500, "type": "step.passed", "payload": { "stepId": "b-s1", "key": "lesson-buddy:b-s1", "counted": true } },
+      { "wait": 50, "type": "bon", "payload": { "steps": 15, "level": 4, "name": "Sapling", "next": { "level": 5, "name": "Budding", "at": 25, "left": 10 }, "fraction": 0, "grew": true, "lastKey": "lesson-buddy:b-s1" } },
+      { "wait": 4000, "type": "step.passed", "payload": { "stepId": "b-s1", "key": "lesson-buddy:b-s1" } }
+    ],
+    "buddy_erased": [
+      { "wait": 120, "type": "bon", "payload": { "steps": 0, "level": 1, "name": "Seed", "next": { "level": 2, "name": "Sprout", "at": 3, "left": 3 }, "fraction": 0 } }
+    ],
+    "buddy_bon": [
+      { "wait": 60, "type": "bon", "payload": { "steps": 14, "level": 3, "name": "Shoot", "next": { "level": 4, "name": "Sapling", "at": 15, "left": 1 }, "fraction": 0.8571 } }
+    ]
+  }
+}

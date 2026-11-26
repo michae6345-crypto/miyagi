@@ -1,0 +1,91 @@
+{
+ "id": "pytest-unit-tests",
+ "topic": "testing",
+ "stack": "pytest 8 (venv, VS Code + its terminal)",
+ "tutorial": {"kind": "text", "goal": "unit test a small Python module with pytest: asserts, pytest.raises, parametrize and the tmp_path fixture",
+              "video_query": "pytest tutorial beginners"},
+ "lesson": null,
+ "learner": {
+  "folder": "pytest-lab",
+  "notes": "pytest output in pytest 8.3's verbatim format; the tests are never executed."
+ },
+ "outline": [
+  {
+   "about": "install pytest and write the first test", "match": "install|first test",
+   "expect_checks": [
+    {"type": "file_contains", "file": "test_calc.py", "pattern": "^def test_add\\(\\):"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "=+ 1 passed in [0-9.]+s =+"}
+   ],
+   "actions": [
+    {"do": "write", "file": "calc.py", "text": "def add(a, b):\n    return a + b\n\n\ndef divide(a, b):\n    return a / b\n"},
+    {"do": "run", "cmd": "python3 -m pip install pytest", "output": ["Collecting pytest", "  Using cached pytest-8.3.3-py3-none-any.whl (342 kB)",
+     "Successfully installed iniconfig-2.0.0 packaging-24.1 pluggy-1.5.0 pytest-8.3.3"]},
+    {"do": "mistake", "note": "names the file calc_tests.py, so pytest collects nothing", "caught_by_spec_rows": ["x0", "x1"], "actions": [
+     {"do": "write", "file": "calc_tests.py", "text": "from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"},
+     {"do": "run", "cmd": "pytest", "exit": 5, "output": ["============================= test session starts ==============================",
+      "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 0 items", "",
+      "============================ no tests ran in 0.01s ============================="]}
+    ]},
+    {"do": "run", "cmd": "mv calc_tests.py test_calc.py", "output": [], "creates": {"test_calc.py": "from calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n"}, "deletes": ["calc_tests.py"]},
+    {"do": "open", "file": "test_calc.py"},
+    {"do": "run", "cmd": "pytest", "output": ["============================= test session starts ==============================",
+     "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 1 item", "",
+     "test_calc.py .                                                           [100%]", "", "============================== 1 passed in 0.01s ==============================="]}
+   ]
+  },
+  {
+   "about": "assert an exception with pytest.raises", "match": "raises|exception",
+   "expect_checks": [
+    {"type": "file_contains", "file": "test_calc.py", "pattern": "with pytest\\.raises\\(ZeroDivisionError\\):"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "=+ 2 passed in [0-9.]+s =+"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "test_calc.py", "find": "from calc import add\n", "replace": "import pytest\n\nfrom calc import add, divide\n"},
+    {"do": "append", "file": "test_calc.py", "text": "\n\ndef test_divide_by_zero():\n    with pytest.raises(ZeroDivisionError):\n        divide(1, 0)\n"},
+    {"do": "run", "cmd": "pytest", "output": ["============================= test session starts ==============================",
+     "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 2 items", "",
+     "test_calc.py ..                                                          [100%]", "", "============================== 2 passed in 0.01s ==============================="]}
+   ]
+  },
+  {
+   "about": "parametrize test_add over three cases", "match": "parametrize",
+   "expect_checks": [
+    {"type": "file_contains", "file": "test_calc.py", "pattern": "@pytest\\.mark\\.parametrize\\(\"a, b, expected\""},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "=+ 4 passed in [0-9.]+s =+"}
+   ],
+   "actions": [
+    {"do": "mistake", "note": "one case expects 2 + 2 == 5", "caught_by_spec_rows": ["x1"], "actions": [
+     {"do": "edit", "file": "test_calc.py", "find": "def test_add():\n    assert add(2, 3) == 5\n",
+      "replace": "@pytest.mark.parametrize(\"a, b, expected\", [(2, 3, 5), (-1, 1, 0), (2, 2, 5)])\ndef test_add(a, b, expected):\n    assert add(a, b) == expected\n"},
+     {"do": "run", "cmd": "pytest", "exit": 1, "output": ["============================= test session starts ==============================",
+      "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 4 items", "",
+      "test_calc.py ..F.                                                        [100%]", "", "=================================== FAILURES ===================================",
+      "_______________________________ test_add[2-2-5] ________________________________", "", "a = 2, b = 2, expected = 5", "",
+      "    @pytest.mark.parametrize(\"a, b, expected\", [(2, 3, 5), (-1, 1, 0), (2, 2, 5)])", "    def test_add(a, b, expected):", ">       assert add(a, b) == expected",
+      "E       assert 4 == 5", "E        +  where 4 = add(2, 2)", "", "test_calc.py:8: AssertionError", "=========================== short test summary info ============================",
+      "FAILED test_calc.py::test_add[2-2-5] - assert 4 == 5", "========================= 1 failed, 3 passed in 0.03s =========================="]}
+    ]},
+    {"do": "edit", "file": "test_calc.py", "find": "(2, 2, 5)])", "replace": "(2, 2, 4)])"},
+    {"do": "clear"},
+    {"do": "run", "cmd": "pytest", "output": ["============================= test session starts ==============================",
+     "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 4 items", "",
+     "test_calc.py ....                                                        [100%]", "", "============================== 4 passed in 0.02s ==============================="]}
+   ]
+  },
+  {
+   "about": "use the tmp_path fixture to test a function that writes a file", "match": "fixture|tmp_path",
+   "expect_checks": [
+    {"type": "file_contains", "file": "test_calc.py", "pattern": "def test_save_result\\(tmp_path\\):"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "=+ 5 passed in [0-9.]+s =+"}
+   ],
+   "actions": [
+    {"do": "append", "file": "calc.py", "text": "\n\ndef save_result(path, value):\n    path.write_text(f\"{value}\\n\")\n"},
+    {"do": "append", "file": "test_calc.py", "text": "\n\ndef test_save_result(tmp_path):\n    out = tmp_path / \"result.txt\"\n    save_result(out, 42)\n    assert out.read_text() == \"42\\n\"\n"},
+    {"do": "edit", "file": "test_calc.py", "find": "from calc import add, divide\n", "replace": "from calc import add, divide, save_result\n"},
+    {"do": "run", "cmd": "pytest", "output": ["============================= test session starts ==============================",
+     "platform darwin -- Python 3.12.7, pytest-8.3.3, pluggy-1.5.0", "rootdir: /Users/me/pytest-lab", "collected 5 items", "",
+     "test_calc.py .....                                                       [100%]", "", "============================== 5 passed in 0.02s ==============================="]}
+   ]
+  }
+ ]
+}

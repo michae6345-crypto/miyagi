@@ -1,0 +1,90 @@
+{
+ "id": "jupyter-pandas-plot-by-item-not-weekday",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "pandas plan, 'Plot from a DataFrame' (sales.png exists and shows one bar for each weekday). The learner grouped by 'item' (the column from the lesson before) instead of 'weekday': the chart has five bars (Americano, Cappuccino, Latte, Mocha, Tea) and its x label reads item. sales.png is saved, .plot.bar() and savefig('sales.png') are on screen and nothing errors, but it is the wrong chart.",
+ "step": {
+  "id": "pd9s4",
+  "title": "Chart sales per weekday and save it",
+  "instructions": "In orders.ipynb, total the sales for each weekday with df.groupby('weekday')['total'].sum(), draw it with .plot.bar() so there is one bar per weekday, and save the chart as sales.png with plt.savefig('sales.png').",
+  "file": "orders.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "orders.ipynb",
+    "match": ".plot.bar()",
+    "caption": "pandas draws with matplotlib"
+   }
+  ],
+  "code": "sales = df.groupby('weekday')['total'].sum()\nsales.plot.bar()\nplt.savefig('sales.png')",
+  "checks": [
+   {
+    "id": "pd9s4c1",
+    "type": "file_exists",
+    "label": "sales.png saved",
+    "file": "sales.png"
+   },
+   {
+    "id": "pd9s4c2",
+    "type": "screen_contains",
+    "label": "Drawn as a bar chart",
+    "app": "Code",
+    "pattern": "\\.plot\\.bar\\(|\\.plot\\(\\s*kind\\s*=\\s*['\"]bar"
+   },
+   {
+    "id": "pd9s4c3",
+    "type": "screen_contains",
+    "label": "Saved as sales.png",
+    "app": "Code",
+    "pattern": "savefig\\(\\s*['\"]sales\\.png"
+   },
+   {
+    "id": "pd9s4c4",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "orders.csv": "date,item,price,quantity\n2026-11-02,Latte,4.50,2\n2026-11-02,Americano,3.20,1\n2026-11-03,Mocha,4.80,1\n2026-11-04,Tea,2.60,3\n2026-11-05,Cappuccino,4.20,2\n2026-11-06,Latte,4.50,1\n2026-11-07,Americano,3.20,2\n2026-11-08,Mocha,4.80,2\n",
+   "orders.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import pandas as pd\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('orders.csv')\ndf['total'] = df['price'] * df['quantity']\ndf['weekday'] = pd.to_datetime(df['date']).dt.day_name()",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "sales = df.groupby('item')['total'].sum()\nsales.plot.bar()\nplt.savefig('sales.png')",
+       "image": "<Figure size 640x480 with 1 Axes>",
+       "count": 2
+      }
+     ]
+    }
+   },
+   "sales.png": "PNG placeholder"
+  },
+  "screen": {
+   "Code": [
+    "orders.ipynb",
+    "[2]",
+    "sales = df.groupby('item')['total'].sum()",
+    "sales.plot.bar()",
+    "plt.savefig('sales.png')",
+    "Americano",
+    "Cappuccino",
+    "Latte",
+    "Mocha",
+    "Tea",
+    "item"
+   ]
+  }
+ }
+}

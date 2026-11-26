@@ -1,0 +1,1058 @@
+{
+ "t": 1794697299.240557,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "pandas-groupby — -zsh — 78×30",
+   "rect": {
+    "x": 1154.0,
+    "y": 640.0,
+    "w": 574.0,
+    "h": 477.0
+   }
+  },
+  {
+   "app": "Code",
+   "title": "groupby.ipynb — pandas-groupby",
+   "rect": {
+    "x": 0.0,
+    "y": 33.0,
+    "w": 1150.0,
+    "h": 1084.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0.0,
+  "y": 0.0,
+  "w": 1728.0,
+  "h": 1117.0
+ },
+ "scale": 2.0,
+ "ocr_ms": 238.2,
+ "frame": 1,
+ "source": "fixture:screen.png",
+ "blocks": [
+  {
+   "text": "Sat Nov 14 3:12 PM",
+   "rect": {
+    "x": 1557.2,
+    "y": 10.0,
+    "w": 120.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Code",
+   "rect": {
+    "x": 37.7,
+    "y": 12.6,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "File",
+   "rect": {
+    "x": 90.4,
+    "y": 12.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Edit",
+   "rect": {
+    "x": 133.1,
+    "y": 12.6,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Selection",
+   "rect": {
+    "x": 175.8,
+    "y": 12.5,
+    "w": 57.8,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "View",
+   "rect": {
+    "x": 251.2,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Go",
+   "rect": {
+    "x": 301.4,
+    "y": 12.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Run",
+   "rect": {
+    "x": 341.6,
+    "y": 12.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Window",
+   "rect": {
+    "x": 384.3,
+    "y": 12.6,
+    "w": 50.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Help",
+   "rect": {
+    "x": 452.1,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "groupby.ipynb - pandas-groupby",
+   "rect": {
+    "x": 482.2,
+    "y": 42.5,
+    "w": 188.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "FXPI ORFR",
+   "rect": {
+    "x": 60.3,
+    "y": 80.3,
+    "w": 50.2,
+    "h": 7.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "groupby.ipynb",
+   "rect": {
+    "x": 281.1,
+    "y": 79.3,
+    "w": 78.2,
+    "h": 17.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "PANDAS-GROUPBY",
+   "rect": {
+    "x": 57.8,
+    "y": 102.9,
+    "w": 110.5,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "groupby.ipynb",
+   "rect": {
+    "x": 281.0,
+    "y": 111.4,
+    "w": 73.3,
+    "h": 12.9
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": ".venv",
+   "rect": {
+    "x": 65.3,
+    "y": 128.0,
+    "w": 30.1,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "[5]",
+   "rect": {
+    "x": 276.3,
+    "y": 145.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "avg_salary.reset_index()",
+   "rect": {
+    "x": 326.5,
+    "y": 145.6,
+    "w": 170.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "groupby.ipynb",
+   "rect": {
+    "x": 65.3,
+    "y": 148.0,
+    "w": 77.9,
+    "h": 15.3
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "requirements.txt",
+   "rect": {
+    "x": 62.8,
+    "y": 170.7,
+    "w": 90.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Salary",
+   "rect": {
+    "x": 479.7,
+    "y": 175.7,
+    "w": 45.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Department",
+   "rect": {
+    "x": 354.1,
+    "y": 178.2,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 65.3,
+    "y": 190.8,
+    "w": 70.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Engineering",
+   "rect": {
+    "x": 346.6,
+    "y": 193.2,
+    "w": 82.9,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "87925.600000",
+   "rect": {
+    "x": 437.0,
+    "y": 193.3,
+    "w": 90.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "HR",
+   "rect": {
+    "x": 409.4,
+    "y": 210.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "78798.250000",
+   "rect": {
+    "x": 437.0,
+    "y": 210.8,
+    "w": 90.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "81935.545455",
+   "rect": {
+    "x": 437.0,
+    "y": 225.9,
+    "w": 90.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Marketing",
+   "rect": {
+    "x": 359.2,
+    "y": 228.4,
+    "w": 70.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Sales",
+   "rect": {
+    "x": 389.3,
+    "y": 246.0,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "84124.846154",
+   "rect": {
+    "x": 437.0,
+    "y": 243.5,
+    "w": 90.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "[6]",
+   "rect": {
+    "x": 276.3,
+    "y": 281.1,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "grouped = df.groupby(\"Department\", \"Experience_Years\") [\"Salary\"] -mean()",
+   "rect": {
+    "x": 326.5,
+    "y": 281.0,
+    "w": 499.8,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "grouped.head(10)",
+   "rect": {
+    "x": 326.5,
+    "y": 298.7,
+    "w": 115.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "ValueError",
+   "rect": {
+    "x": 326.5,
+    "y": 346.4,
+    "w": 72.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Traceback (most recent call last)",
+   "rect": {
+    "x": 617.9,
+    "y": 348.9,
+    "w": 236.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Cell In[6l, line 1",
+   "rect": {
+    "x": 326.5,
+    "y": 364.0,
+    "w": 130.6,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "-→ 1 grouped = df.groupby(\"Department\",",
+   "rect": {
+    "x": 331.5,
+    "y": 381.5,
+    "w": 293.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "\"Experience_Years\") [\"Salary\"].mean()",
+   "rect": {
+    "x": 622.9,
+    "y": 381.5,
+    "w": 258.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "2 grouped.head(10)",
+   "rect": {
+    "x": 366.7,
+    "y": 399.0,
+    "w": 130.6,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "File~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/util/_decorators.py:335, in deprecate_n",
+   "rect": {
+    "x": 326.5,
+    "y": 434.0,
+    "w": 828.8,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "329 if len(args) > num_allow_args:",
+   "rect": {
+    "x": 354.1,
+    "y": 449.3,
+    "w": 241.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "330",
+   "rect": {
+    "x": 354.1,
+    "y": 466.9,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "warnings.warn(",
+   "rect": {
+    "x": 409.4,
+    "y": 466.9,
+    "w": 103.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "331",
+   "rect": {
+    "x": 354.1,
+    "y": 484.5,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "msg.format(arguments=_format_argument_list(allow_args)),",
+   "rect": {
+    "x": 437.0,
+    "y": 484.5,
+    "w": 396.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "332",
+   "rect": {
+    "x": 354.1,
+    "y": 499.5,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "klass,",
+   "rect": {
+    "x": 437.0,
+    "y": 502.0,
+    "w": 45.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "333",
+   "rect": {
+    "x": 354.1,
+    "y": 517.1,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "stacklevel=find_stack_level(),",
+   "rect": {
+    "x": 437.0,
+    "y": 517.1,
+    "w": 216.0,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "334",
+   "rect": {
+    "x": 354.1,
+    "y": 534.7,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "-→> 335",
+   "rect": {
+    "x": 326.5,
+    "y": 552.0,
+    "w": 52.7,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "return func(*args, **kwargs)",
+   "rect": {
+    "x": 379.3,
+    "y": 552.0,
+    "w": 203.4,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "File~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/core/frame.py:13788, in DataFrame.group",
+   "rect": {
+    "x": 326.5,
+    "y": 584.9,
+    "w": 831.3,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "13784",
+   "rect": {
+    "x": 339.1,
+    "y": 602.4,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "13785",
+   "rect": {
+    "x": 341.6,
+    "y": 620.0,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "if level is None",
+   "rect": {
+    "x": 439.5,
+    "y": 620.0,
+    "w": 115.5,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "and by is None:",
+   "rect": {
+    "x": 555.1,
+    "y": 620.0,
+    "w": 110.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "13786",
+   "rect": {
+    "x": 339.1,
+    "y": 637.6,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "raise TypeError(\"You have to supply one of 'by' and 'level'\")",
+   "rect": {
+    "x": 467.2,
+    "y": 635.0,
+    "w": 429.5,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "pandas-groupby- -zsh-78×30",
+   "rect": {
+    "x": 1346.2,
+    "y": 647.5,
+    "w": 190.9,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "pandas-groupby — -zsh — 78×30"
+  },
+  {
+   "text": "13787",
+   "rect": {
+    "x": 339.1,
+    "y": 655.1,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "> 13788",
+   "rect": {
+    "x": 326.4,
+    "y": 669.6,
+    "w": 53.1,
+    "h": 16.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "return DataFrameGroupBy(",
+   "rect": {
+    "x": 439.5,
+    "y": 670.0,
+    "w": 170.8,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "(.venv) learner@MacBook-Pro pandas-groupby % pip install -r requirements.txt",
+   "rect": {
+    "x": 1162.9,
+    "y": 672.5,
+    "w": 535.0,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "pandas-groupby — -zsh — 78×30"
+  },
+  {
+   "text": "13789",
+   "rect": {
+    "x": 339.1,
+    "y": 687.8,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "obj=self,",
+   "rect": {
+    "x": 467.1,
+    "y": 687.6,
+    "w": 65.4,
+    "h": 15.4
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Successfully installed pandas-3.1.1 numpy-2.3.4 ipykernel-7.1.0 jupyter-1.1.1",
+   "rect": {
+    "x": 1160.4,
+    "y": 687.8,
+    "w": 542.5,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "pandas-groupby — -zsh — 78×30"
+  },
+  {
+   "text": "13790",
+   "rect": {
+    "x": 339.1,
+    "y": 705.3,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "keys=by,",
+   "rect": {
+    "x": 467.2,
+    "y": 705.3,
+    "w": 57.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "(.venv) learner@MacBook-Pro pandas-groupby %",
+   "rect": {
+    "x": 1162.9,
+    "y": 705.3,
+    "w": 311.4,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "pandas-groupby — -zsh — 78×30"
+  },
+  {
+   "text": "13791",
+   "rect": {
+    "x": 339.1,
+    "y": 720.4,
+    "w": 40.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "level=level,",
+   "rect": {
+    "x": 467.2,
+    "y": 722.9,
+    "w": 85.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "File~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/core/groupby/groupby.py:849, in GroupBy",
+   "rect": {
+    "x": 326.5,
+    "y": 755.5,
+    "w": 831.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "846 self.dropna = dropna",
+   "rect": {
+    "x": 354.1,
+    "y": 773.0,
+    "w": 170.8,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "848 if grouper is None:",
+   "rect": {
+    "x": 354.1,
+    "y": 790.5,
+    "w": 165.8,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "exclusions, obj = get_grouper(",
+   "rect": {
+    "x": 472.2,
+    "y": 805.5,
+    "w": 213.5,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "-→> 849",
+   "rect": {
+    "x": 329.0,
+    "y": 808.3,
+    "w": 50.2,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "grouper,",
+   "rect": {
+    "x": 409.4,
+    "y": 808.3,
+    "w": 60.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "850",
+   "rect": {
+    "x": 354.1,
+    "y": 823.3,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "obj,",
+   "rect": {
+    "x": 437.0,
+    "y": 825.8,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Output is truncated.",
+   "rect": {
+    "x": 326.5,
+    "y": 840.9,
+    "w": 143.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "View as a scrollable element or open in a text editor. Adjust cell output settings...",
+   "rect": {
+    "x": 472.2,
+    "y": 840.9,
+    "w": 600.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "main*",
+   "rect": {
+    "x": 10.0,
+    "y": 1099.4,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  },
+  {
+   "text": "Ln 1, Col1 Spaces: 4 UTF-8 LF Python 3.12.7 (.venv)",
+   "rect": {
+    "x": 856.5,
+    "y": 1099.4,
+    "w": 281.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "groupby.ipynb — pandas-groupby"
+  }
+ ]
+}

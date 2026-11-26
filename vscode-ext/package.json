@@ -1,0 +1,95 @@
+{
+  "name": "companion",
+  "publisher": "miyagi",
+  "displayName": "Miyagi Companion",
+  "description": "Lets the Miyagi tutor engine read and drive VS Code exactly (open, highlight, terminal, apply) over a localhost-only HTTP API.",
+  "version": "0.0.8",
+  "private": true,
+  "license": "UNLICENSED",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "miyagi.companion.status",
+        "title": "Miyagi: Companion status"
+      },
+      {
+        "command": "miyagi.companion.explainSelection",
+        "title": "Miyagi: Explain this"
+      },
+      {
+        "command": "miyagi.companion.refreshPython",
+        "title": "Miyagi: Refresh the lesson's Python environment"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "miyagi.companion.status",
+          "when": "false"
+        },
+        {
+          "command": "miyagi.companion.explainSelection",
+          "when": "editorIsOpen"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "miyagi.companion.explainSelection",
+          "when": "editorHasSelection",
+          "group": "0_miyagi@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "miyagi.companion.explainSelection",
+        "key": "ctrl+shift+alt+e",
+        "mac": "ctrl+cmd+e",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Miyagi Companion",
+      "properties": {
+        "miyagi.port": {
+          "type": "number",
+          "default": 8791,
+          "scope": "machine",
+          "description": "First localhost port to try. Each VS Code window takes the next free one (8791-8799)."
+        },
+        "miyagi.engineUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8787",
+          "scope": "machine",
+          "description": "Miyagi engine; editor/save/terminal events are posted to <engineUrl>/vscode/event."
+        },
+        "miyagi.editorUi": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let the engine draw inside VS Code: the /highlight box and /diff tabs. Off: Miyagi's overlay is the only UI (opening the lesson file and the \"Miyagi\" terminal still work)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "restrictedConfigurations": ["miyagi.engineUrl", "miyagi.port"]
+    },
+    "virtualWorkspaces": false
+  }
+}

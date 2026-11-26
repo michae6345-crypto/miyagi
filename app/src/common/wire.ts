@@ -48,6 +48,10 @@ const KNOWN = new Set<string>([
   'config.status',
   // Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts)
   'screen.avoid',
+  // Buddy draws (Nov 22, contract annotate): features/annotate draws a stroke from the island to each mark
+  'annotate',
+  // Circle to ask, streamed (contract answer.delta): features/circle shows the answer as it is written
+  'answer.delta',
   // v2 (BUILD-PLAN W0-1): all optional; a feature that doesn't subscribe never sees them
   'engine.hello',
   'health',
@@ -56,14 +60,36 @@ const KNOWN = new Set<string>([
   'blocker',
   'library',
   'library.item',
-  'progress'
+  'progress',
+  // ui-v4 (Nov 24, shared/contracts/UI-V4.md): listed here once so the app lanes only add their onMessage handlers
+  'activity',
+  'bon',
+  'plans',
+  'playlist',
+  'plan.proposal',
+  'link.preview',
+  'proof',
+  'data',
+  // shared lesson cache (Nov 24, contract cloud.notice): features/signincard shows the sign-in card (401) or cap line (429)
+  'cloud.notice',
+  // ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md): listed here once so the app lanes only add their onMessage handlers
+  'error.seen',
+  'error.explanation',
+  'setup.report',
+  'help.steps'
 ] satisfies (keyof EngineEvents | 'config.status')[])
 
 /**
  * v2 commands the app may send only when the engine listed them in engine.hello.capabilities (core/lesson.ts
  * `canSend`). An older engine would answer them with an error, so they are never sent blind.
  */
-export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'library.get', 'library.start', 'progress.get', 'panel.state'] as const satisfies readonly (keyof AppCommands)[]
+export const V2_COMMANDS = ['health.get', 'permission.open', 'library.list', 'library.get', 'library.start', 'progress.get', 'panel.state',
+  // the engine's review.start / data.delete (listed in its hello since Nov 22), now in the contract
+  'review.start', 'data.delete',
+  // ui-v4 (Nov 24, shared/contracts/UI-V4.md), gated like the rest: sent only when engine.hello lists them
+  'activity.get', 'bon.get', 'bon.import', 'plans.list', 'plan.start', 'plan.remove', 'playlist.get', 'plan.propose', 'link.get', 'proof.get', 'data.get',
+  // ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md), gated like the rest
+  'ambient.set', 'error.explain', 'error.dismiss', 'setup.scan', 'setup.fix', 'help.ask', 'help.nav'] as const satisfies readonly (keyof AppCommands)[]
 export type V2Command = (typeof V2_COMMANDS)[number]
 
 /** Parse one WebSocket frame. Accepts `{type, payload}` (contract) and, leniently, flat `{type, ...fields}`. */

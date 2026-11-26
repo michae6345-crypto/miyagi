@@ -9,7 +9,7 @@
 #   npm run ship:mac -- --publish       # also upload to the "mac" release (needs `gh auth login` + write access) and
 #                                       # set its title and notes, which is where the update card reads the version
 #
-# Env: MIYAGI_ENGINE_REF (default origin/integration/live), MIYAGI_RELEASE_REPO (default adrian-erlikhman/miyagi),
+# Env: MIYAGI_ENGINE_REF (default HEAD, this commit), MIYAGI_RELEASE_REPO (default adrian-erlikhman/miyagi),
 #      MIYAGI_DMG_FORMAT (default ULMO = lzma, macOS 10.15+; ULFO = lzfse, the format electron-builder writes).
 # See app/SHIP.md for the whole flow and how to test it before you publish, app/SIZE.md for what makes it this big.
 set -euo pipefail
@@ -64,7 +64,10 @@ for helper in "$APP"/Contents/Frameworks/*Helper*.app; do
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $shown" "$plist"
 done
 # Before the dmg: the image carries the signed app. No Developer ID yet (SHIP.md, Known gaps).
-codesign --force --deep -s - "$APP"
+# MIYAGI_SIGN_ID: a local signing identity (e.g. "miyagi Local Dev", a self-signed cert in the login keychain) so every
+# local build keeps the same signature and the keychain's "Always Allow" for safeStorage sticks. Unset: ad hoc, as before.
+SIGN_ID="${MIYAGI_SIGN_ID:--}"
+codesign --force --deep -s "$SIGN_ID" "$APP"
 codesign --verify --deep --strict "$APP"
 
 echo "[ship] 4/5 dmg ($FORMAT)"

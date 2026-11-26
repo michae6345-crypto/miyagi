@@ -1,0 +1,60 @@
+{
+ "id": "terminal-shellcat-grep-missed-capitalised-rain",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to the Terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Pipes and grep' (passes: rain.txt holds every line from the notes that mentions rain, in sorted order). The step says grep -hi; the learner left out -i, so day2.txt's 'Rain all morning' (capital R) was not matched. rain.txt exists and holds rain lines, but two of the three.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Save the sorted rain lines",
+  "instructions": "Find every line that mentions rain in any note, whatever its case, sort the lines and save them: grep -hi rain notes/*.txt | sort > rain.txt. Then look at it with cat rain.txt.",
+  "run_command": "grep -hi rain notes/*.txt | sort > rain.txt",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "grep -hi rain notes/*.txt | sort > rain.txt",
+    "caption": "Find, sort and save the rain lines"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_exists",
+    "label": "rain.txt made",
+    "file": "trail-log/rain.txt"
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "rain.txt holds the rain lines",
+    "file": "trail-log/rain.txt",
+    "pattern": "(?i)rain"
+   },
+   {
+    "id": "s5c3",
+    "type": "screen_contains",
+    "label": "cat shows the sorted lines",
+    "app": "Terminal",
+    "pattern": "(?i)rain"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Sunny start at the trailhead\nLight rain after lunch\nCamp by the creek\n",
+   "trail-log/notes/day2.txt": "Rain all morning\nTrail muddy past the bridge\nSkies cleared by four\n",
+   "trail-log/notes/summit.txt": "Windy at the top\nNo rain on the summit\nGreat view of the valley\n",
+   "trail-log/rain.txt": "Light rain after lunch\nNo rain on the summit\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % grep -h rain notes/*.txt | sort > rain.txt",
+    "tripi@mac trail-log % cat rain.txt",
+    "Light rain after lunch",
+    "No rain on the summit",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

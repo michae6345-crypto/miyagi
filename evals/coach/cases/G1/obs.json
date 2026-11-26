@@ -1,0 +1,1310 @@
+{
+ "t": 1794697332.0911832,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "git-rebase-lab — -zsh — 108×70",
+   "rect": {
+    "x": 944.0,
+    "y": 33.0,
+    "w": 784.0,
+    "h": 1084.0
+   }
+  },
+  {
+   "app": "Code",
+   "title": "git-rebase-todo — git-rebase-lab",
+   "rect": {
+    "x": 0.0,
+    "y": 33.0,
+    "w": 940.0,
+    "h": 1084.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0.0,
+  "y": 0.0,
+  "w": 1728.0,
+  "h": 1117.0
+ },
+ "scale": 2.0,
+ "ocr_ms": 436.9,
+ "frame": 1,
+ "source": "fixture:screen.png",
+ "blocks": [
+  {
+   "text": "Sat Nov 14 3:12 PM",
+   "rect": {
+    "x": 1557.2,
+    "y": 10.0,
+    "w": 120.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Code",
+   "rect": {
+    "x": 37.7,
+    "y": 12.6,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "File",
+   "rect": {
+    "x": 92.9,
+    "y": 12.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Edit",
+   "rect": {
+    "x": 133.1,
+    "y": 12.6,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Selection",
+   "rect": {
+    "x": 175.8,
+    "y": 12.6,
+    "w": 57.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "View",
+   "rect": {
+    "x": 251.2,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Go",
+   "rect": {
+    "x": 301.4,
+    "y": 12.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Run",
+   "rect": {
+    "x": 341.6,
+    "y": 12.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Window",
+   "rect": {
+    "x": 384.2,
+    "y": 12.3,
+    "w": 50.4,
+    "h": 13.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Help",
+   "rect": {
+    "x": 452.1,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "•",
+   "rect": {
+    "x": 949.4,
+    "y": 37.7,
+    "w": 22.6,
+    "h": 22.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "git-rebase-todo - git-rebase-lab",
+   "rect": {
+    "x": 374.2,
+    "y": 42.5,
+    "w": 190.9,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "git-rebase-lab - -zsh - 108×70",
+   "rect": {
+    "x": 1245.8,
+    "y": 42.5,
+    "w": 183.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "learner@MacBook-Pro git-rebase-lab % git rebase --interactive HEAD~5",
+   "rect": {
+    "x": 951.9,
+    "y": 67.8,
+    "w": 479.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "indexjs",
+   "rect": {
+    "x": 281.3,
+    "y": 80.3,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "git-rebase-todo",
+   "rect": {
+    "x": 361.7,
+    "y": 80.3,
+    "w": 87.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "=XРОК-К",
+   "rect": {
+    "x": 60.3,
+    "y": 82.8,
+    "w": 50.2,
+    "h": 5.0
+   },
+   "confidence": 0.5,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "error: cannot",
+   "rect": {
+    "x": 949.4,
+    "y": 82.8,
+    "w": 98.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "'squash'",
+   "rect": {
+    "x": 1049.9,
+    "y": 82.8,
+    "w": 57.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "walnoul dorevLous CommLL",
+   "rect": {
+    "x": 1105.1,
+    "y": 87.9,
+    "w": 183.3,
+    "h": 7.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "You can fix this with 'git rebase -edit-todo' and then run 'git rebase -continue'.",
+   "rect": {
+    "x": 949.4,
+    "y": 97.9,
+    "w": 592.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "GIT-REBASE-LAB",
+   "rect": {
+    "x": 57.8,
+    "y": 102.9,
+    "w": 95.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "git-rebase-todo",
+   "rect": {
+    "x": 281.3,
+    "y": 110.4,
+    "w": 82.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "Or you can abort the rebase with 'git rebase --abort'.",
+   "rect": {
+    "x": 949.4,
+    "y": 113.0,
+    "w": 381.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": ".gitignore",
+   "rect": {
+    "x": 65.3,
+    "y": 128.0,
+    "w": 50.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "learner@MacBook-Pro git-rebase-lab % git rebase --edit-todo",
+   "rect": {
+    "x": 951.9,
+    "y": 128.0,
+    "w": 416.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "squash 1194326 Add README",
+   "rect": {
+    "x": 316.5,
+    "y": 130.5,
+    "w": 178.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "hint: Waiting for your editor to close the file...",
+   "rect": {
+    "x": 949.4,
+    "y": 143.0,
+    "w": 356.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "index.js",
+   "rect": {
+    "x": 62.8,
+    "y": 148.1,
+    "w": 42.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "pick 7a428b4 Add login endpoint",
+   "rect": {
+    "x": 316.5,
+    "y": 148.0,
+    "w": 221.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "pick 8d7db63 Add",
+   "rect": {
+    "x": 316.5,
+    "y": 168.0,
+    "w": 115.5,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "logout endpoint",
+   "rect": {
+    "x": 434.5,
+    "y": 168.0,
+    "w": 110.5,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 62.8,
+    "y": 170.7,
+    "w": 72.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "pick a9db680 Cleanup",
+   "rect": {
+    "x": 316.5,
+    "y": 185.5,
+    "w": 143.2,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "pick cf8dfd5 Add authentication middleware",
+   "rect": {
+    "x": 316.5,
+    "y": 203.3,
+    "w": 298.9,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# Commands:",
+   "rect": {
+    "x": 316.5,
+    "y": 238.5,
+    "w": 80.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# p, pick <commit> = use commit",
+   "rect": {
+    "x": 316.5,
+    "y": 256.0,
+    "w": 221.0,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# r,",
+   "rect": {
+    "x": 316.5,
+    "y": 276.0,
+    "w": 30.1,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "reword <commit> = use commit, but edit the commit message",
+   "rect": {
+    "x": 351.6,
+    "y": 276.0,
+    "w": 404.4,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "10",
+   "rect": {
+    "x": 281.3,
+    "y": 293.7,
+    "w": 15.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# e,",
+   "rect": {
+    "x": 316.5,
+    "y": 293.5,
+    "w": 30.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "edit <commit> = use commit, but stop for amending",
+   "rect": {
+    "x": 349.1,
+    "y": 293.5,
+    "w": 349.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "11",
+   "rect": {
+    "x": 278.8,
+    "y": 311.3,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#S,",
+   "rect": {
+    "x": 315.6,
+    "y": 312.7,
+    "w": 29.3,
+    "h": 11.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "squash <commit> = use commit, but meld into previous commit",
+   "rect": {
+    "x": 351.6,
+    "y": 311.3,
+    "w": 416.9,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "12",
+   "rect": {
+    "x": 278.8,
+    "y": 328.8,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#f,",
+   "rect": {
+    "x": 316.5,
+    "y": 328.8,
+    "w": 32.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "fixup [-C | -c] <commit> = like \"squash\" but keep only the previous",
+   "rect": {
+    "x": 349.1,
+    "y": 326.3,
+    "w": 474.7,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "13",
+   "rect": {
+    "x": 278.8,
+    "y": 346.4,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "commit's log message, unless -C is used, in which case",
+   "rect": {
+    "x": 464.7,
+    "y": 346.4,
+    "w": 381.8,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "14",
+   "rect": {
+    "x": 278.8,
+    "y": 364.0,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#",
+   "rect": {
+    "x": 316.5,
+    "y": 364.0,
+    "w": 12.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "keep only this commit's message; -c is same as -C but",
+   "rect": {
+    "x": 464.7,
+    "y": 364.0,
+    "w": 374.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "opens the editor",
+   "rect": {
+    "x": 462.1,
+    "y": 384.0,
+    "w": 118.0,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "16",
+   "rect": {
+    "x": 278.8,
+    "y": 401.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# x,",
+   "rect": {
+    "x": 316.5,
+    "y": 399.0,
+    "w": 30.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "exec",
+   "rect": {
+    "x": 349.1,
+    "y": 401.6,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "<command>",
+   "rect": {
+    "x": 384.3,
+    "y": 401.6,
+    "w": 70.3,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "= run command (the rest of the",
+   "rect": {
+    "x": 454.6,
+    "y": 401.5,
+    "w": 216.0,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "line) using shell",
+   "rect": {
+    "x": 673.1,
+    "y": 401.5,
+    "w": 123.1,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "17",
+   "rect": {
+    "x": 278.8,
+    "y": 419.2,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#b,",
+   "rect": {
+    "x": 316.5,
+    "y": 419.2,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "break = stop here (continue rebase later with 'git rebase -continue')",
+   "rect": {
+    "x": 351.6,
+    "y": 419.0,
+    "w": 492.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "18",
+   "rect": {
+    "x": 278.8,
+    "y": 436.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# d,",
+   "rect": {
+    "x": 316.5,
+    "y": 436.8,
+    "w": 30.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "drop",
+   "rect": {
+    "x": 351.6,
+    "y": 436.8,
+    "w": 35.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "<commit> = remove commit",
+   "rect": {
+    "x": 384.3,
+    "y": 436.8,
+    "w": 175.8,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "19",
+   "rect": {
+    "x": 278.8,
+    "y": 454.3,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# l,",
+   "rect": {
+    "x": 316.5,
+    "y": 454.3,
+    "w": 30.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "label <label> = label current HEAD with a name",
+   "rect": {
+    "x": 351.6,
+    "y": 454.3,
+    "w": 326.5,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "20",
+   "rect": {
+    "x": 278.8,
+    "y": 471.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#t,",
+   "rect": {
+    "x": 316.5,
+    "y": 471.9,
+    "w": 30.1,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "reset <label> = reset HEAD to a label",
+   "rect": {
+    "x": 351.6,
+    "y": 471.9,
+    "w": 263.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "21",
+   "rect": {
+    "x": 278.8,
+    "y": 489.5,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "#m,",
+   "rect": {
+    "x": 316.5,
+    "y": 489.5,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "[-C <commit> | -c <commit>] <label> [# <oneline>]",
+   "rect": {
+    "x": 391.8,
+    "y": 489.5,
+    "w": 346.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "merge",
+   "rect": {
+    "x": 349.1,
+    "y": 492.0,
+    "w": 45.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "22",
+   "rect": {
+    "x": 278.8,
+    "y": 507.0,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "create a merge commit using the original merge commit's",
+   "rect": {
+    "x": 386.8,
+    "y": 507.0,
+    "w": 389.3,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "23",
+   "rect": {
+    "x": 278.8,
+    "y": 524.6,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "message (or the oneline, if no original merge commit was",
+   "rect": {
+    "x": 384.3,
+    "y": 524.5,
+    "w": 396.8,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "24",
+   "rect": {
+    "x": 278.8,
+    "y": 542.2,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "specified); use -c <commit> to reword the commit message",
+   "rect": {
+    "x": 386.8,
+    "y": 544.5,
+    "w": 396.8,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "25",
+   "rect": {
+    "x": 278.8,
+    "y": 562.3,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# u, update-ref <ref> = track a placeholder for the <ref> to be updated",
+   "rect": {
+    "x": 316.5,
+    "y": 562.3,
+    "w": 502.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "26",
+   "rect": {
+    "x": 278.8,
+    "y": 579.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "to this position in the new commits. The <ref> is",
+   "rect": {
+    "x": 484.7,
+    "y": 579.8,
+    "w": 346.6,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "27",
+   "rect": {
+    "x": 278.8,
+    "y": 597.4,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "updated at the end of the rebase",
+   "rect": {
+    "x": 484.7,
+    "y": 597.4,
+    "w": 228.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "20",
+   "rect": {
+    "x": 278.8,
+    "y": 617.5,
+    "w": 15.1,
+    "h": 7.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "These lines can be re-ordered; they are executed from top to bottom.",
+   "rect": {
+    "x": 329.0,
+    "y": 632.5,
+    "w": 477.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "29",
+   "rect": {
+    "x": 281.3,
+    "y": 635.1,
+    "w": 15.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "30",
+   "rect": {
+    "x": 278.8,
+    "y": 652.6,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "31",
+   "rect": {
+    "x": 278.8,
+    "y": 670.2,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "# If",
+   "rect": {
+    "x": 316.5,
+    "y": 670.0,
+    "w": 32.7,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "you",
+   "rect": {
+    "x": 349.1,
+    "y": 672.7,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "remove a line here THAT COMMIT WILL BE LOST.",
+   "rect": {
+    "x": 379.3,
+    "y": 670.0,
+    "w": 308.9,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "32",
+   "rect": {
+    "x": 278.8,
+    "y": 687.8,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "33",
+   "rect": {
+    "x": 281.3,
+    "y": 705.3,
+    "w": 15.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "You are editing the todo file of an ongoing interactive rebase.",
+   "rect": {
+    "x": 331.5,
+    "y": 705.3,
+    "w": 442.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "34",
+   "rect": {
+    "x": 281.3,
+    "y": 722.9,
+    "w": 15.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "To",
+   "rect": {
+    "x": 329.0,
+    "y": 722.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "continue rebase after editing, run:",
+   "rect": {
+    "x": 351.6,
+    "y": 725.4,
+    "w": 251.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "git rebase -continue",
+   "rect": {
+    "x": 356.7,
+    "y": 740.5,
+    "w": 153.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "feature/login",
+   "rect": {
+    "x": 10.0,
+    "y": 1099.4,
+    "w": 65.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  },
+  {
+   "text": "Ln 1, Col 1 Spaces: 4 UTF-8 LF Git Rebase Message",
+   "rect": {
+    "x": 645.5,
+    "y": 1099.4,
+    "w": 281.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "git-rebase-todo — git-rebase-lab"
+  }
+ ]
+}

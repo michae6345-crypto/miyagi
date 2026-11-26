@@ -1,0 +1,34 @@
+{
+ "id": "fusion-box-stl-named-by-design",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done: Intro to Fusion lesson 10 (\"Two STL files are saved, one for the base and one for the lid\"). Fusion's Export dialog starts from the design name, so the learner saved Box_Base.stl and Box_Lid.stl: one STL per part, in the lesson folder, each with triangles. Only the names differ from base.stl / lid.stl.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Export both parts as STL",
+  "instructions": "Right-click the Base component > Save As Mesh, format STL, and save it in your lesson folder. Do the same for the Lid.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "Base STL saved",
+    "file": "base.stl"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_exists",
+    "label": "Lid STL saved",
+    "file": "lid.stl"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "Box_Base.stl": "solid Base\n  facet normal 0 0 1\n    outer loop\n      vertex 0 0 0\n      vertex 80 0 0\n      vertex 80 50 0\n    endloop\n  endfacet\n  facet normal 0 0 1\n    outer loop\n      vertex 0 0 1\n      vertex 80 0 1\n      vertex 80 50 1\n    endloop\n  endfacet\n  facet normal 0 0 1\n    outer loop\n      vertex 0 0 2\n      vertex 80 0 2\n      vertex 80 50 2\n    endloop\n  endfacet\nendsolid Base\n",
+   "Box_Lid.stl": "solid Lid\n  facet normal 0 0 1\n    outer loop\n      vertex 0 0 0\n      vertex 80 0 0\n      vertex 80 50 0\n    endloop\n  endfacet\n  facet normal 0 0 1\n    outer loop\n      vertex 0 0 1\n      vertex 80 0 1\n      vertex 80 50 1\n    endloop\n  endfacet\nendsolid Lid\n"
+  }
+ }
+}

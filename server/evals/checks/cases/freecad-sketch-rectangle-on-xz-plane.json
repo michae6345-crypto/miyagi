@@ -1,0 +1,146 @@
+{
+ "id": "freecad-sketch-rectangle-on-xz-plane",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 2 (\"A sketch on the XY plane holds one closed rectangle\"). In the Select feature dialog the learner clicked XZ_Plane (the second row) instead of XY_Plane and drew the rectangle there. The sketch is closed (one closed wire, no open ones), but it stands upright on the front plane: the Pad in lesson 4 would grow towards the back (-Y) and the plate would be a wall, not a plate lying on the ground.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Your first sketch",
+  "file": "plate.FCStd",
+  "instructions": "In the Part Design workbench click Create sketch, pick XY_Plane in the list and click OK. Draw one rectangle with the Rectangle tool (two clicks, roughly 60 by 40), then Close the sketch and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_contains",
+    "label": "Sketch on the XY plane",
+    "file": "plate.scene.json",
+    "pattern": "\"type\":\\s*\"Sketcher::SketchObject\""
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "One closed rectangle",
+    "file": "plate.scene.json",
+    "pattern": "\"closed_wires\":\\s*1\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Sketch",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XZ_Plane",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          }
+         ],
+         "dof": 4,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true,
+         "geometry": [
+          {
+           "type": "LineSegment",
+           "start": [
+            4.2,
+            2.7
+           ],
+           "end": [
+            65.5,
+            2.7
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            65.5,
+            2.7
+           ],
+           "end": [
+            65.5,
+            41.6
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            65.5,
+            41.6
+           ],
+           "end": [
+            4.2,
+            41.6
+           ]
+          },
+          {
+           "type": "LineSegment",
+           "start": [
+            4.2,
+            41.6
+           ],
+           "end": [
+            4.2,
+            2.7
+           ]
+          }
+         ]
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 0,
+        "volume": 0.0,
+        "bound_box": null
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

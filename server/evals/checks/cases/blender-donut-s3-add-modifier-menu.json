@@ -1,0 +1,49 @@
+{
+ "id": "blender-donut-s3-add-modifier-menu",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss on the donut lesson's s3 (\"Add a Subdivision Surface modifier and shade smooth\"): the Modifier tab's Add Modifier > Generate menu is open, listing Subdivision Surface, but nothing has been added: the modifier stack is empty and the torus is still flat shaded.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/blender_donut.json",
+  "id": "s3",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "Blender": [
+    "Object Mode View Select Add Object",
+    "Scene Collection",
+    "Collection",
+    "Camera",
+    "Light",
+    "Torus",
+    "Torus",
+    "Add Modifier",
+    "Edit",
+    "Generate",
+    "Deform",
+    "Physics",
+    "Array",
+    "Bevel",
+    "Boolean",
+    "Build",
+    "Decimate",
+    "Edge Split",
+    "Geometry Nodes",
+    "Mask",
+    "Mirror",
+    "Multiresolution",
+    "Remesh",
+    "Screw",
+    "Skin",
+    "Solidify",
+    "Subdivision Surface",
+    "Triangulate",
+    "Volume to Mesh",
+    "Weld",
+    "Wireframe"
+   ]
+  }
+ }
+}

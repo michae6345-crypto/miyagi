@@ -1,0 +1,22 @@
+{
+  "note": "Hand-written (not recorded) watch-page fields and caption tracks for two videos of youtube_results.json, for test_claude_only.py: the description with its chapter list and the json3 caption events YouTube's timedtext endpoint returns. Shapes match lesson/transcript.py's parsers.",
+  "unBU1PwCnvQ": {
+    "description": "In this session we solve the linear convection equation with a physics-informed neural network in PyTorch.\n\n0:00 Introduction\n1:30 Define the network in PyTorch\n6:10 Physics loss with autograd\n12:40 Train on the convection equation\n19:05 Compare with the exact solution",
+    "events": [
+      {"tStartMs": 0, "segs": [{"utf8": "welcome back, today we code a PINN for the linear convection equation"}]},
+      {"tStartMs": 90000, "segs": [{"utf8": "let's open VS Code and write the network class in PyTorch"}]},
+      {"tStartMs": 95000, "segs": [{"utf8": "class PINN(nn.Module) with three hidden layers and tanh"}]},
+      {"tStartMs": 370000, "segs": [{"utf8": "now the physics loss: torch.autograd.grad gives u_t and u_x"}]},
+      {"tStartMs": 760000, "segs": [{"utf8": "we train with Adam for 5000 epochs and print the loss every 500"}]},
+      {"tStartMs": 1145000, "segs": [{"utf8": "and the prediction matches the exact solution of the convection equation"}]}
+    ]
+  },
+  "-zrY7P2dVC4": {
+    "description": "This video introduces PINNs, or Physics Informed Neural Networks, with slides.\n\n0:00 What is a PINN\n8:00 History of scientific machine learning\n20:00 Open problems\n30:00 Summary",
+    "events": [
+      {"tStartMs": 0, "segs": [{"utf8": "in this lecture I explain the idea behind physics informed neural networks"}]},
+      {"tStartMs": 480000, "segs": [{"utf8": "on this slide you can see the history of the field"}]},
+      {"tStartMs": 1200000, "segs": [{"utf8": "there is no code in this video, it is a conceptual overview"}]}
+    ]
+  }
+}

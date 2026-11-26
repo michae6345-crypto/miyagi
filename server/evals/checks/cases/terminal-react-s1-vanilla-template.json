@@ -1,0 +1,47 @@
+{
+ "id": "terminal-react-s1-vanilla-template",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "npm create vite@latest was answered with Vanilla / JavaScript instead of React / JavaScript (the arrow keys were never moved). npm install and npm run dev worked and Vite is ready on localhost:5173, but package.json has no react or react-dom and there is no src/App.jsx (src/main.js and counter.js instead). The step is a React app; every later step edits App.jsx, which does not exist.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/package.json": "{\n  \"name\": \"my-react-app\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"devDependencies\": {\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "my-react-app/index.html": "<!doctype html>\n<html lang=\"en\">\n  <body>\n    <div id=\"app\"></div>\n    <script type=\"module\" src=\"/src/main.js\"></script>\n  </body>\n</html>\n",
+   "my-react-app/src/main.js": "import './style.css'\nimport { setupCounter } from './counter.js'\n\ndocument.querySelector('#app').innerHTML = `<h1>Hello Vite!</h1><button id=\"counter\" type=\"button\"></button>`\nsetupCounter(document.querySelector('#counter'))\n",
+   "my-react-app/src/counter.js": "export function setupCounter(element) {\n  let counter = 0\n  const setCounter = (count) => {\n    counter = count\n    element.innerHTML = `count is ${counter}`\n  }\n  element.addEventListener('click', () => setCounter(counter + 1))\n  setCounter(0)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac projects % npm create vite@latest",
+    "✔ Project name: … my-react-app",
+    "✔ Select a framework: › Vanilla",
+    "✔ Select a variant: › JavaScript",
+    "Scaffolding project in /Users/tripi/projects/my-react-app...",
+    "tripi@mac projects % cd my-react-app && npm install",
+    "added 10 packages, and audited 11 packages in 2s",
+    "found 0 vulnerabilities",
+    "tripi@mac my-react-app % npm run dev",
+    "> my-react-app@0.0.0 dev",
+    "> vite",
+    "VITE v5.4.10  ready in 188 ms",
+    "➜  Local:   http://localhost:5173/",
+    "➜  Network: use --host to expose"
+   ]
+  },
+  "run": {
+   "command": "npm run dev",
+   "exit_code": null,
+   "running": true,
+   "output_tail": [
+    "VITE v5.4.10  ready in 188 ms",
+    "➜  Local:   http://localhost:5173/"
+   ]
+  }
+ }
+}

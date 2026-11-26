@@ -83,21 +83,56 @@ export class FakeSupabase {
   }
 }
 
-/** miyagi-cloud: /v1/install and /v1/link per the contract (verification faked: sig 'good', exp in the future). */
+/** miyagi-cloud: /v1/install, /v1/link and (with `session` set) /v1/session per the contract (verification faked: sig 'good', exp in the future). */
 export class FakeCloud {
   calls: Call[] = []
   installs = new Set<string>()
   links = new Map<string, string>() // install token → user id
   /** Answer /v1/link with this status (and the contract's body) instead of verifying. */
   linkStatus?: 401 | 403 | 404 | 503 | 500
+  /** Serve POST /v1/session with this account state; unset = 404 (a cloud older than the route). */
+  session?: { plan?: string; signin_mode?: string; caps?: Record<string, unknown> }
+  /** 451: answer /v1/install (and /v1/session) with the region block (cloud/app.py REGION_UNAVAILABLE). */
+  region?: boolean
   private n = 0
+
+  /** A good Supabase JWT for this project (the fake's rule: sig "good", aud authenticated, not expired) → its claims. */
+  verify(call: Call): { sub: string } | undefined {
+    const jwt = String((call.body as Record<string, unknown> | undefined)?.access_token ?? '')
+    const [, payload, sig] = jwt.split('.')
+    try {
+      const c = JSON.parse(Buffer.from(payload ?? '', 'base64url').toString('utf8')) as { sub?: string; exp?: number; aud?: string }
+      return sig === 'good' && c.aud === 'authenticated' && c.sub && c.exp && c.exp > nowSec() ? { sub: c.sub } : undefined
+    } catch {
+      return undefined
+    }
+  }
 
   async handle(url: URL, call: Call): Promise<Response> {
     this.calls.push(call)
+    if (this.region && (url.pathname === '/v1/install' || url.pathname === '/v1/session')) {
+      return json(451, { error: 'region_unavailable', message: "miyagi isn't available in your region yet." })
+    }
     if (url.pathname === '/v1/install' && call.method === 'POST') {
       const token = `mi_testinstalltoken${String(++this.n).padStart(4, '0')}`
       this.installs.add(token)
       return json(200, { token, token_id: `tid${this.n}` })
+    }
+    if (url.pathname === '/v1/session' && call.method === 'POST' && this.session) {
+      // The same checks as /v1/link (cloud/app.py link_from_request), then the account's state (MIC-30).
+      const install = /^Bearer (.+)$/.exec(call.headers.authorization ?? '')?.[1]
+      if (!install || !this.installs.has(install)) return json(401, { error: 'bad_install_token' })
+      const claims = this.verify(call)
+      if (!claims) return json(403, { error: 'bad_access_token' })
+      this.links.set(install, claims.sub)
+      const s = this.session
+      return json(200, {
+        account: { id: claims.sub, email_verified: true },
+        plan: s.plan ?? 'free',
+        caps: s.caps ?? { daily_usd: 3, used_usd: 0.42, tokens: 20000000, used_tokens: 183000, resets_at: '2026-11-25T00:00:00Z' },
+        linked: true,
+        signin_mode: s.signin_mode ?? 'off'
+      })
     }
     if (url.pathname === '/v1/link' && call.method === 'POST') {
       if (this.linkStatus === 404) return json(404, { detail: 'Not Found' })

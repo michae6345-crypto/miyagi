@@ -1,0 +1,119 @@
+# Pipeline v2: search → pick → preflight → progressive build → setup → run
+
+v1 went straight from the learner's pick to a 45–75 s build and then opened VS Code. That broke in two ways
+on Sat 14 Nov:
+
+1. Karpathy's 1 h 56 min "Let's build GPT" failed. Gemini is capped at 45 s, and the transcript fallback got
+   429 from YouTube on this network.
+2. The goal "build chat gpt" led to a no-code Zapier/Botpress video being picked. It built, and VS Code opened
+   with starter files that had nothing to do with it.
+
+v2 adds one cheap, honest step between the pick and the build (**preflight**, ≤ 5 s). The long build only
+starts after the learner has seen what the video is and said yes.
+
+```mermaid
+flowchart LR
+  L["learn {query}"] --> S["search<br/>ranked by strict topic match<br/>style + length on every row<br/>(E7)"]
+  S -->|search.done| PF0["prefetch preflight<br/>top 3 videos (S8)"]
+  S -->|"build_lesson {resultIds}<br/>or learn_url"| P["preflight ≤ 5 s<br/>card kind preflight<br/>(S8)"]
+  PF0 -.memo.-> P
+  P -->|action pick_another| S
+  P -->|action build| B["progressive build<br/>window 1 first, rest appended<br/>(E2)"]
+  B -->|lesson.ready| W["setup card<br/>install / open editor only on yes<br/>no editor for no-code + conceptual<br/>(S2)"]
+  W --> R["run<br/>screen checks + coach<br/>(E3/E5/E6)"]
+  R -->|end_lesson| E["lesson.ended"]
+  R -.app reconnects.-> RS["resume card<br/>(S7)"]
+  RS -->|action resume| R
+  RS -->|action end_lesson| E
+```
+
+## Stages, owners, timing targets
+
+| # | Stage | Owner | Target | Measured (14 Nov) |
+|---|---|---|---|---|
+| 1 | **Search.** Ranked by strict topic match. Each row carries `kind` (video / repo / blog), `style` (coding / no-code / conceptual), `durationLabel`, `long`, `chapters` (count) and `captions`. | E7 (`server/finder`) | first row ≤ 4 s, done ≤ 13 s | 3.0–3.9 s / 12–13 s (Run 3) |
+| 1b | **Prefetch.** On `search.done`, `server.preflight.prefetch(rows, query)` starts preflight for the top 3 videos in the background. | E4 calls it, S8 owns it | free: the later pick returns from the memo | stage rehearsal (S11): picked 8 s after search.done → card in 0.00 s |
+| 2 | **Preflight.** Metadata + Claude's read + an early tool check, then card `kind: "preflight"`. | S8 (`server/preflight`) | ≤ 5 s hard; a late part re-sends the card within +3 s | cold 2.3–5.0 s (rehearsal: 2.9–4.9 s); late tool list at 5.3–7.0 s; offline: partial card in 0.19 s, and Build still works from the cache |
+| 3 | **Confirm.** The learner presses `build`, or `pick_another` to go back to the results they already have. | Adrian (card UI), E4 | — | — |
+| 4 | **Progressive build.** Videos ≤ 30 min are built whole. Longer ones are built window by window: window 1 is chapters from 0:00 grouped to 3–6 min, and the rest are appended in time order, 3 windows in parallel. | E2 (`server/lesson`) | whole ≤ 60 s; window 1 ≤ 45 s | whole 44–69 s (Run 3); E2: Gemini ~40 s on 6 min |
+| 5 | **Setup card.** `requirements()` → card `kind: "setup"`. `install` / `open_editor` / `open_in_browser` run only on the learner's yes. No editor for no-code or conceptual lessons. | S2 (`server/workspace`) | ≤ 1 s (preflight warms it, #28) | cold ~3.7–5.9 s, warmed by preflight 0.01 s |
+| 6 | **Run.** Screen checks, metrics and the coach. | E3 / E5 / E6, wired by E4 | check verdict ≤ 1 s after a save | — |
+| 7 | **End / resume.** `end_lesson` is idempotent and cancels in-flight work. On reconnect: "Continue where you left off?" | E4 (end), S7 (resume) | `lesson.ended` ≤ 0.5 s | — |
+
+The UI for the result list, the preflight card, the building progress and the setup card is Adrian's.
+
+## Event sequence (WebSocket, `shared/contracts/events.ts`)
+
+```
+App → learn {query}
+Eng → status thinking
+Eng → search.result × N            (meta: "Video · 1:56:20 · Andrej Karpathy · …", ranked)
+Eng → search.done {total}           [engine: prefetch(rows, query) in the background]
+App → build_lesson {resultIds:[id]}  (or learn_url {url})
+Eng → card {kind:"preflight", title, body, items?, warning?, recommended?, preflight:{…},
+            actions:["build","pick_another"(,"install")]}            ≤ 5 s after the pick
+Eng → card {kind:"preflight", …}    (only if a late part landed: same card, filled in; it replaces the first)
+      ├─ App → action {kind:"pick_another"} → Eng → status idle  (the app shows its result list again)
+      ├─ App → action {kind:"install", text: tool}                → setup.progress … (S2's install flow)
+      └─ App → action {kind:"build"}
+Eng → lesson.building {message, progress} ~1/s
+Eng → lesson.ready {lesson, steps}  (long video: complete:false with window 1's steps, then
+                                     lesson.updated {steps, complete} as each window lands; ids never change)
+Eng → step.started …
+Eng → card {kind:"setup", setup:{editorNeeded, items}, actions:[open_editor|open_in_browser, install, skip_setup]}
+      └─ App → action open_editor   → VS Code opens (coding lessons only)
+… run: check.updated / offtrack / card / spotlight / video.seek …
+App → end_lesson {}                  → Eng → lesson.ended {lessonId, reason} + status idle
+(app reconnects mid-lesson)          → Eng → card {kind:"resume", actions:["resume","end_lesson"]}
+```
+
+## Preflight card
+
+`server.preflight.preflight(url, goal, row=picked_row, on_late=…)` returns everything it learned within 5 s.
+`preflight_card(result)` turns that into the card. Nothing in it is invented: a part that misses the deadline is
+listed in `missing`, and if it lands later it arrives through `on_late`.
+
+| Field | Source |
+|---|---|
+| title, channel, duration, description, category, tags | oEmbed + the watch page (plain fetch ~1 s) |
+| chapters | YouTube's own chapter list (`chapterRenderer`), else description timestamps (YouTube's rules: from 0:00, ascending, ≥ 3) |
+| `style`: coding / no-code / conceptual (E7's vocabulary), `topic`, `goalMatch {score 0–1 \| null, note}`, first hands-on chapter | Claude `claude-haiku-5-5`, structured output, on that metadata plus the finder row's `style` (as a prior; it is also the fallback when Claude is late) and the finder's Gemini skim if it's cached (no new Gemini call) |
+| `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |
+| `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, skippedIntro, estSecondsToFirstSteps}` | E2's `plan_windows(length, chapters, first_hands_on)` (local mirror when it isn't importable). A talk-only intro of 1–10 min is skipped, and part 1 starts at the first hands-on chapter |
+| `warning`, `recommended: "pick_another"` | when `goalMatch.score < 0.5` |
+| "Built before: ready instantly (N steps)", `buildPlan.cached` | E2's own cache lookup (`cache_key` / `find_cached` on E4's `build_workdir`); the tool check then runs on that real graph and folder |
+| `editorNeeded` | always true for coding (lessons run locally in VS Code, even when the video uses Colab); S2's answer otherwise |
+
+Live cards (14 Nov, cold, this network):
+
+| Video | Goal | Card | Latency |
+|---|---|---|---|
+| kCc8FmEb1nY Karpathy "Let's build GPT" | build an LLM | Coding · 1:56:20 · 30 chapters · match 0.9 · "Long video: skipping the 7:52 intro, I'll build 7:52–14:27 first" (when Claude marks 7:52 as the first hands-on chapter; otherwise 0:00–7:52 first). Late update: "Needs: Visual Studio Code ✓ Python 3 ✓ torch ✗" + `install` | 4.97 s, late 6.33 s |
+| zE2MJ3_muNQ "How to Build AI Agent with ChatGPT" (AI Master) | build chat gpt | No-code · 19:29 · 10 chapters · match 0.2 · ⚠ "This video builds no-code support bots, not an LLM." · No code editor needed · "Needs: ChatGPT (web) … Botpress (web) Zapier (web)" | 4.74 s |
+| MXId-Ae6k_I "How to Build a Todo-List-App with React" | build a todo app in React | Coding · 15:04 · 7 chapters · match ~0.95 · "Building takes ~53 s." · "Needs: Visual Studio Code ✓ Node.js ✓" | 4.95 s |
+
+## Contract (additive, one PR)
+
+All lifecycle contract changes go in one combined `contract:` PR. #17 (end_lesson, resume, setup card) merged
+at 22:54. Everything after it is in **#29** (`contract/progressive-nocode-extras`): `web_app` items +
+`open_in_browser`, `lesson.updated` for progressive builds, the finder's `search.result.style / durationLabel /
+long / chapters / captions`, and the preflight additions:
+
+- card `kind: "preflight"`, plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
+- action kinds `build` and `pick_another` (also on the card's `actions`)
+- `PreflightInfo.style` uses `search.result.style`'s vocabulary (coding / no-code / conceptual) plus
+  `styleFrom: claude | finder`. `goalMatch` has `lesson.goalMatch`'s shape. The rename from the first draft's
+  `kind` is in #29 (65c7235). `buildPlan.skippedIntro` is one fast-forward commit, f3fddd9 on branch
+  `contract/preflight-style-2`, on top of #29's head.
+
+## Open items
+
+- **E4:** wire preflight between the pick and `_build`, and call `prefetch` on `search.done` (the exact hook is in
+  `server/preflight/README.md`).
+- **E2:** done on `claude/michael-lesson-135f28` (1411782). `build_lesson(..., video_meta=pf.video_meta(res))`
+  skips the watch-page fetch, and part 1 starts at `firstHandsOn`. Progressive parts reach the app through
+  `lesson.ready {complete:false}` + `lesson.updated` (in #29); re-emitting `lesson.ready` also works.
+  A part 1 under 3 min takes one more chapter, up to 8 min (d701162), so Karpathy's part 1 is 7:52–14:27.
+- **S2:** done in #28. `requirements()` caches by video id, so the preflight warms the real lesson's setup card
+  (checked live: 0.01 s, no Claude call). #22 (`web_app` items) is merged, so no-code cards show "Botpress (web)".
+- **E7:** prefetching 3 preflights costs 3 haiku calls per search (~1–2 k tokens each); keep `top=3`.

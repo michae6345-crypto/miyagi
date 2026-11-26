@@ -1,0 +1,36 @@
+{
+ "id": "terminal-git-s10-remote-already-deleted-by-github",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done: the local branch is deleted ('Deleted branch update-name'), and the remote one is already gone: GitHub deleted the head branch when the PR merged, so `git push --delete` says 'remote ref does not exist'. `git fetch --prune` drops the stale origin/update-name and `git branch -a` lists no update-name anywhere.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s10"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/.git": {
+    "dir": true
+   },
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Let's Get Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac gitgoing % git branch -d update-name",
+    "Deleted branch update-name (was 5d6e7f8).",
+    "tripi@mac gitgoing % git push --delete origin update-name",
+    "error: unable to delete 'update-name': remote ref does not exist",
+    "error: failed to push some refs to 'https://github.com/ada-learner/GitGoing.git'",
+    "tripi@mac gitgoing % git fetch --prune",
+    "From https://github.com/ada-learner/GitGoing",
+    " - [deleted]         (none)     -> origin/update-name",
+    "tripi@mac gitgoing % git branch -a",
+    "* main",
+    "  remotes/origin/HEAD -> origin/main",
+    "  remotes/origin/main",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

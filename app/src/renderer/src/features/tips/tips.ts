@@ -1,5 +1,5 @@
 /**
- * Feature: tips. The six first-time coach marks, in the order they win when several could show.
+ * Feature: tips. The seven first-time coach marks, in the order they win when several could show.
  *
  * Each tip finds its real element on screen (data-* attributes the owning lanes already draw, or the island's box) and
  * says where the mark goes: below the island and the menu bar item, beside the lesson panel (never over it). A tip
@@ -10,11 +10,14 @@
  */
 import type { IslandBox } from '../../core/Island'
 import type { Rect } from './place'
+import { usePrefs } from '../../core/prefs'
+import { useCircle } from '../circle/store'
+import { usePtt } from '../ptt/store'
 
-export type TipId = 'check' | 'help' | 'mini' | 'pill' | 'launcher' | 'menubar'
+export type TipId = 'check' | 'help' | 'mini' | 'pill' | 'launcher' | 'menubar' | 'circle'
 
 /** A piece of a tip's body: text, a keycap (by platform key name), or an option's pastel chip. */
-export type BodyPart = string | { key: 'launcher' } | { option: 'hint' | 'show_me' | 'explain' }
+export type BodyPart = string | { key: 'launcher' | 'ptt' | 'ptt_alt' } | { option: 'hint' | 'show_me' | 'explain' }
 
 export type Side = 'below' | 'above' | 'left'
 
@@ -170,5 +173,20 @@ export const TIPS: Tip[] = [
       if (!c.island.visible || !c.island.pill || c.island.mode !== 'idle') return undefined
       return { target: c.tray, side: c.tray.y > c.height / 2 ? 'above' : 'below' }
     }
+  },
+  {
+    id: 'circle',
+    title: 'Circle to ask',
+    // The push-to-talk keys, as the learner set them (Settings > General), drawn from the platform's keycaps.
+    body: () => ['Hold ', { key: usePrefs.getState().ptt.chord === 'control+option' ? 'ptt_alt' : 'ptt' }, ' and circle anything to ask.'],
+    // Only when the keys can work (push to talk on, its helper ready, Input Monitoring not off), and after the first
+    // things to learn: on the step pill in a lesson, or on the idle pill once the launcher's tip is seen.
+    anchor: (c) => {
+      const ptt = usePtt.getState().ptt
+      if (c.offline || !usePrefs.getState().ptt.enabled || !ptt.available || ptt.perms.input === 'denied') return undefined
+      return islandAnchor(c, 'compact') ?? (c.seen('launcher') ? islandAnchor(c, 'idle') : undefined)
+    },
+    // A circle was asked about.
+    done: () => useCircle.getState().asked > 0
   }
 ]

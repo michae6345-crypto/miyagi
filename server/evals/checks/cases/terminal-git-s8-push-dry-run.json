@@ -1,0 +1,33 @@
+{
+ "id": "terminal-git-s8-push-dry-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Git lesson s8. The heading is changed and committed on update-name, but the push was `git push --dry-run origin update-name`: git prints the ref line it would send (' * [new branch]  update-name -> update-name') and sends nothing. The branch is not on GitHub, so the pull request in s9 can't be opened.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s8"
+ },
+ "workspace": {
+  "files": {
+   "gitgoing/index.html": "<!DOCTYPE html>\n<html>\n  <body>\n    <h1>Git Going</h1>\n  </body>\n</html>\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "index.html",
+    "<h1>Git Going</h1>"
+   ],
+   "Terminal": [
+    "tripi@mac gitgoing % git add index.html",
+    "tripi@mac gitgoing % git commit -m \"Update heading\"",
+    "[update-name 4c1d2e3] Update heading",
+    " 1 file changed, 1 insertion(+), 1 deletion(-)",
+    "tripi@mac gitgoing % git push --dry-run origin update-name",
+    "To https://github.com/ada-learner/GitGoing.git",
+    " * [new branch]      update-name -> update-name",
+    "tripi@mac gitgoing % "
+   ]
+  }
+ }
+}

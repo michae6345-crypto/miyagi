@@ -1,0 +1,434 @@
+{
+  "title": "PINNs for 1D Linear Convection Equation",
+  "summary": "Build and train a Physics-Informed Neural Network (PINN) in PyTorch to solve the 1D linear convection equation, verify positive and negative wave propagation against the analytical solution, test a sharp Gaussian initial condition, and compare with a non-dimensionalized PINN.",
+  "libraries": [
+    {
+      "name": "torch",
+      "version": "2.x"
+    },
+    {
+      "name": "numpy",
+      "version": "1.x"
+    },
+    {
+      "name": "matplotlib",
+      "version": "3.x"
+    }
+  ],
+  "files": [
+    "Untitled-1.ipynb"
+  ],
+  "steps": [
+    {
+      "start": 385.0,
+      "end": 477.0,
+      "title": "Import libraries and define PINN",
+      "instructions": "Open a Jupyter notebook in VS Code, import PyTorch, NumPy, and Matplotlib, and set the random seeds for reproducibility. Define the PINN neural network class using linear layers with Tanh activations.",
+      "file": "Untitled-1.ipynb",
+      "code": "import torch\nimport torch.nn as nn\nimport numpy as np\nimport matplotlib.pyplot as plt\nfrom mpl_toolkits.mplot3d import Axes3D\nfrom matplotlib import cm\n\ntorch.manual_seed(42)\nnp.random.seed(42)\n\nclass PINN(nn.Module):\n    def __init__(self, input_dim, output_dim, num_layers, hidden_dim):\n        super(PINN, self).__init__()\n        self.layers = nn.ModuleList()\n        self.layers.append(nn.Linear(input_dim, hidden_dim))\n        self.layers.append(nn.Tanh())\n        for _ in range(num_layers - 1):\n            self.layers.append(nn.Linear(hidden_dim, hidden_dim))\n            self.layers.append(nn.Tanh())\n        self.layers.append(nn.Linear(hidden_dim, output_dim))\n\n    def forward(self, x):\n        for layer in self.layers:\n            x = layer(x)\n        return x",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "PINN model class defined",
+          "app": "Code",
+          "pattern": "class\\s+PINN\\(nn\\.Module\\):"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Reproducibility seeds set",
+          "app": "Code",
+          "pattern": "torch\\.manual_seed\\(42\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "class PINN(nn.Module):",
+          "caption": "Define the fully connected PINN architecture with Tanh activations"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Setting random seeds for consistent weight initialization and optimization",
+          "t": 421.0
+        }
+      ],
+      "hints": [
+        "Start by importing torch, torch.nn, numpy, and matplotlib.pyplot.",
+        "Fix the random seeds with torch.manual_seed(42) and np.random.seed(42).",
+        "Use nn.ModuleList() inside PINN.__init__ to stack Linear and Tanh layers, ending with a Linear output layer."
+      ],
+      "common_mistakes": [
+        "Putting a Tanh activation after the final output Linear layer, which restricts output values to (-1, 1).",
+        "Using a plain Python list instead of nn.ModuleList(), which prevents PyTorch from tracking layer parameters."
+      ],
+      "index": 1
+    },
+    {
+      "start": 478.0,
+      "end": 596.0,
+      "title": "Implement the physics loss function",
+      "instructions": "Define physics_loss(model, x_pde, t_pde, c) and enable gradient tracking on x_pde and t_pde. Compute du/dt and du/dx using torch.autograd.grad with create_graph=True and return the mean squared PDE residual.",
+      "file": "Untitled-1.ipynb",
+      "code": "def physics_loss(model, x_pde, t_pde, c):\n    x_pde.requires_grad_(True)\n    t_pde.requires_grad_(True)\n    u = model(torch.cat((x_pde, t_pde), dim=1))\n    grad_u_t = torch.autograd.grad(u, t_pde, grad_outputs=torch.ones_like(u), create_graph=True)[0]\n    grad_u_x = torch.autograd.grad(u, x_pde, grad_outputs=torch.ones_like(u), create_graph=True)[0]\n    pde_residual = grad_u_t + c * grad_u_x\n    loss_pde = torch.mean(pde_residual**2)\n    return loss_pde",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Physics loss function defined",
+          "app": "Code",
+          "pattern": "def\\s+physics_loss\\("
+        },
+        {
+          "type": "screen_contains",
+          "label": "Autograd derivatives computed",
+          "app": "Code",
+          "pattern": "torch\\.autograd\\.grad\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "def physics_loss(",
+          "caption": "Compute PDE derivatives and mean squared residual via autograd"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Enabling requires_grad on x_pde and t_pde to compute PDE derivatives",
+          "t": 485.0
+        },
+        {
+          "topic": "Using grad_outputs and create_graph=True in torch.autograd.grad",
+          "t": 528.0
+        },
+        {
+          "topic": "Computing and squaring the PDE residual du/dt + c * du/dx",
+          "t": 573.0
+        }
+      ],
+      "hints": [
+        "Call requires_grad_(True) on both x_pde and t_pde before passing them to the model.",
+        "Concatenate x_pde and t_pde along dim=1 to pass (x, t) pairs into the model.",
+        "Use torch.autograd.grad(u, t_pde, grad_outputs=torch.ones_like(u), create_graph=True)[0] for each partial derivative."
+      ],
+      "common_mistakes": [
+        "Forgetting requires_grad_(True) on x_pde and t_pde, causing autograd.grad to raise a RuntimeError.",
+        "Omitting create_graph=True, which prevents backpropagation through the PDE residual loss during training.",
+        "Forgetting [0] after torch.autograd.grad(), which returns a tuple instead of a tensor."
+      ],
+      "index": 2
+    },
+    {
+      "start": 597.0,
+      "end": 718.0,
+      "title": "Write the PINN training loop",
+      "instructions": "Define train_pinn to evaluate the initial condition loss at t=0 and sample random collocation points for physics_loss each epoch. Combine the losses, run backpropagation with optimizer.step(), and log losses every 1000 epochs.",
+      "file": "Untitled-1.ipynb",
+      "code": "def train_pinn(model, optimizer, num_epochs, c, x_ic, u_ic, x_pde_domain_min, x_pde_domain_max, t_pde_domain_min, t_pde_domain_max, num_pde_points):\n    history = []\n    for epoch in range(num_epochs):\n        optimizer.zero_grad()\n        u_pred_ic = model(torch.cat((x_ic, torch.zeros_like(x_ic)), dim=1))\n        loss_ic = torch.mean((u_pred_ic - u_ic)**2)\n        x_pde = torch.rand(num_pde_points, 1) * (x_pde_domain_max - x_pde_domain_min) + x_pde_domain_min\n        t_pde = torch.rand(num_pde_points, 1) * (t_pde_domain_max - t_pde_domain_min) + t_pde_domain_min\n        loss_pde = physics_loss(model, x_pde, t_pde, c)\n        lambda_ic = 1.0\n        lambda_pde = 1.0\n        total_loss = lambda_ic * loss_ic + lambda_pde * loss_pde\n        total_loss.backward()\n        optimizer.step()\n        if (epoch + 1) % 1000 == 0:\n            print(f\"Epoch [{epoch+1}/{num_epochs}], Total Loss: {total_loss.item():.4e}, IC Loss: {loss_ic.item():.4e}, PDE Loss: {loss_pde.item():.4e}\")\n        history.append(total_loss.item())\n    return history",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Training loop function defined",
+          "app": "Code",
+          "pattern": "def\\s+train_pinn\\("
+        },
+        {
+          "type": "screen_contains",
+          "label": "IC and PDE losses summed",
+          "app": "Code",
+          "pattern": "lambda_ic\\s*\\*\\s*loss_ic"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "def train_pinn(",
+          "caption": "Combine initial condition loss and PDE residual loss in each training epoch"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Evaluating the model at t=0 with torch.zeros_like(x_ic) for initial condition loss",
+          "t": 625.0
+        },
+        {
+          "topic": "Combining IC and PDE losses and computing parameter gradients with total_loss.backward()",
+          "t": 674.0
+        }
+      ],
+      "hints": [
+        "Clear gradients at the start of every epoch using optimizer.zero_grad().",
+        "Pass torch.cat((x_ic, torch.zeros_like(x_ic)), dim=1) to evaluate u at t=0.",
+        "Sample x_pde and t_pde uniformly over their min/max bounds using torch.rand(num_pde_points, 1)."
+      ],
+      "common_mistakes": [
+        "Forgetting optimizer.zero_grad(), causing gradients to accumulate across epochs.",
+        "Misaligning tensor shapes between x_ic and torch.zeros_like(x_ic) when calling torch.cat."
+      ],
+      "index": 3
+    },
+    {
+      "start": 719.0,
+      "end": 1003.0,
+      "title": "Configure domain and run training",
+      "instructions": "Set model and training parameters (4 layers, 50 neurons, 5000 epochs, c=1.0, domain [-5, 5] x [0, 1]), generate 500 IC points for exp(-10*x^2), and train with Adam. Plot the 3D surface and compare against the analytical solution at t=1.0.",
+      "file": "Untitled-1.ipynb",
+      "code": "input_dim = 2\noutput_dim = 1\nnum_layers = 4\nhidden_dim = 50\nlearning_rate = 1e-3\nnum_epochs = 5000\nc = 1.0\nx_min, x_max = -5.0, 5.0\nt_min, t_max = 0.0, 1.0\nnum_ic_points = 500\nx_ic = torch.linspace(x_min, x_max, num_ic_points).view(-1, 1)\nu_ic = torch.exp(-10 * x_ic**2)\nnum_pde_points = 10000\nmodel = PINN(input_dim, output_dim, num_layers, hidden_dim)\noptimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)\nloss_history = train_pinn(model, optimizer, num_epochs, c, x_ic, u_ic, x_min, x_max, t_min, t_max, num_pde_points)\n\nu_analytical_at_t1 = np.exp(-10 * (x_analytical_plot.cpu().numpy() - c * 1.0)**2)",
+      "run_command": "Run All",
+      "expected_output": "Starting PINN training...\nEpoch [1000/5000], Total Loss: 1.1128e-05, IC Loss: 9.8830e-06\nEpoch [2000/5000], Total Loss: 1.8141e-06, IC Loss: 1.4351e-06\nEpoch [3000/5000], Total Loss: 5.5745e-07, IC Loss: 3.1911e-07\nEpoch [4000/5000], Total Loss: 3.2908e-07, IC Loss: 1.7568e-07\nEpoch [5000/5000], Total Loss: 2.3693e-07, IC Loss: 1.6472e-07\nTraining finished.",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Training hyperparameters configured",
+          "app": "Code",
+          "pattern": "num_epochs\\s*=\\s*5000"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Training completed successfully",
+          "app": "Code",
+          "pattern": "Training finished\\."
+        },
+        {
+          "type": "screen_absent",
+          "label": "No errors in notebook output",
+          "app": "Code",
+          "pattern": "Traceback|Error:|ERR!"
+        },
+        {
+          "type": "metric_threshold",
+          "label": "Total loss below 1e-5",
+          "metric": "total_loss",
+          "op": "<",
+          "value": 1e-05,
+          "by_step": 5000,
+          "window": 1
+        },
+        {
+          "type": "metric_trend",
+          "label": "Total loss decreases over epochs",
+          "metric": "total_loss",
+          "trend": "decreasing",
+          "window": 5
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "num_epochs = 5000",
+          "caption": "Set epochs to 5000 and run the notebook to train and plot results"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Sampling initial condition points and 10,000 PDE collocation points across the domain",
+          "t": 780.0
+        },
+        {
+          "topic": "First-order Adam optimizer vs quasi-second-order L-BFGS in PINNs",
+          "t": 852.0
+        }
+      ],
+      "hints": [
+        "Reshape torch.linspace(x_min, x_max, num_ic_points) with .view(-1, 1) so it is a column tensor.",
+        "Initialize Adam with torch.optim.Adam(model.parameters(), lr=learning_rate).",
+        "Compute the analytical solution at t=1.0 using np.exp(-10 * (x - c * 1.0)**2) to verify the PINN curve."
+      ],
+      "common_mistakes": [
+        "Passing a 1D tensor instead of shape (N, 1) for x_ic, which breaks torch.cat along dim=1.",
+        "Forgetting to switch the model to model.eval() and torch.no_grad() when evaluating predictions for plotting."
+      ],
+      "index": 4
+    },
+    {
+      "start": 1004.0,
+      "end": 1030.0,
+      "title": "Test negative convection speed",
+      "instructions": "Change the convection speed to c = -1.0 to simulate a left-moving wave without upwinding. Re-run training and confirm the solution matches the shifted analytical pulse at x = -1.0.",
+      "file": "Untitled-1.ipynb",
+      "code": "c = -1.0\nu_analytical_at_t1 = np.exp(-10 * (x_analytical_plot.cpu().numpy() - c * 1.0)**2)",
+      "run_command": "Run All",
+      "expected_output": "Starting PINN training...\nEpoch [1000/5000], Total Loss: 4.7073e-06, IC Loss: 3.8091e-06\nEpoch [2000/5000], Total Loss: 1.0186e-06, IC Loss: 5.5005e-07\nEpoch [3000/5000], Total Loss: 5.1913e-07, IC Loss: 2.4846e-07\nEpoch [4000/5000], Total Loss: 3.4218e-07, IC Loss: 1.5599e-07\nEpoch [5000/5000], Total Loss: 2.2952e-07, IC Loss: 1.0383e-07\nTraining finished.",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Negative convection speed set",
+          "app": "Code",
+          "pattern": "c\\s*=\\s*-1\\.0"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Negative wave training finished",
+          "app": "Code",
+          "pattern": "Training finished\\."
+        },
+        {
+          "type": "metric_threshold",
+          "label": "Total loss below 1e-5",
+          "metric": "total_loss",
+          "op": "<",
+          "value": 1e-05,
+          "by_step": 5000,
+          "window": 1
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "c = -1.0",
+          "caption": "Flip the wave propagation direction by setting c = -1.0"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Checking whether PINNs are sensitive to wave propagation direction unlike numerical upwinding",
+          "t": 996.0
+        }
+      ],
+      "hints": [
+        "Update the convection speed variable from c = 1.0 to c = -1.0.",
+        "Make sure the analytical solution formula also uses the variable c rather than a hardcoded +1.0."
+      ],
+      "common_mistakes": [
+        "Changing c to -1.0 for training while leaving the analytical comparison hardcoded to c = 1.0."
+      ],
+      "index": 5
+    },
+    {
+      "start": 1031.0,
+      "end": 1115.0,
+      "title": "Train on sharper Gaussian IC",
+      "instructions": "Increase the Gaussian sharpness by setting beta = 500 in exp(-beta * x**2), set c = 1.0, reduce hidden_dim to 30, and narrow the spatial domain to [-1.0, 2.0]. Run the notebook to verify the PINN captures the sharp pulse.",
+      "file": "Untitled-1.ipynb",
+      "code": "hidden_dim = 30\nc = 1.0\nx_min, x_max = -1.0, 2.0\nbeta = 500\nu_ic = torch.exp(-beta * x_ic**2)",
+      "run_command": "Run All",
+      "expected_output": "Starting PINN training...\nEpoch [1000/5000], Total Loss: 8.7292e-06, IC Loss: 4.8324e-06\nEpoch [2000/5000], Total Loss: 2.4075e-06, IC Loss: 1.9028e-06\nEpoch [3000/5000], Total Loss: 1.2012e-06, IC Loss: 8.2345e-07\nEpoch [4000/5000], Total Loss: 1.5406e-05, IC Loss: 1.4975e-05\nEpoch [5000/5000], Total Loss: 4.6993e-07, IC Loss: 3.2013e-07\nTraining finished.",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Sharp IC beta set to 500",
+          "app": "Code",
+          "pattern": "beta\\s*=\\s*500"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Hidden dimension set to 30",
+          "app": "Code",
+          "pattern": "hidden_dim\\s*=\\s*30"
+        },
+        {
+          "type": "metric_threshold",
+          "label": "Sharp IC loss below 1e-5",
+          "metric": "total_loss",
+          "op": "<",
+          "value": 1e-05,
+          "by_step": 5000,
+          "window": 1
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "beta = 500",
+          "caption": "Update the initial condition sharpness to exp(-500*x^2)"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How PINNs capture sharp Gaussian pulses without fine-grid discretization errors",
+          "t": 1065.0
+        }
+      ],
+      "hints": [
+        "Set hidden_dim = 30 and restore c = 1.0 with domain bounds -1.0 to 2.0.",
+        "Use beta = 500 in both u_ic and the analytical solution formula."
+      ],
+      "common_mistakes": [
+        "Updating the IC to exp(-500*x^2) while leaving the analytical comparison curve at -10."
+      ],
+      "index": 6
+    },
+    {
+      "start": 1116.0,
+      "end": 1299.0,
+      "title": "Compare with non-dimensionalized PINN",
+      "instructions": "Define characteristic scales L_c = 1.0 / np.sqrt(beta), T_c = L_c / c, and U_c = 1.0, and normalize the spatial and temporal domain bounds. Train model_nd for 5000 epochs alongside the dimensional PINN and plot both against the analytical solution at t=1.0.",
+      "file": "Untitled-1.ipynb",
+      "code": "L_c = 1.0 / np.sqrt(beta)\nT_c = L_c / c\nU_c = 1.0\n\nx_min_nd = x_min_dim / L_c\nx_max_nd = x_max_dim / L_c\nt_min_nd = t_min_dim / T_c\nt_max_nd = t_max_dim / T_c\n\nmodel_nd = PINN(input_dim, output_dim, num_layers, hidden_dim)\noptimizer_nd = torch.optim.Adam(model_nd.parameters(), lr=learning_rate)\n\nx_ic_nd = torch.linspace(x_min_nd, x_max_nd, num_ic_points).view(-1, 1)\nu_ic_nd = torch.exp(-x_ic_nd**2)",
+      "run_command": "Run All",
+      "expected_output": "Dimensional PINN - Epoch [5000/5000], Total Loss: 4.6993e-07\nDimensional PINN training finished.\n\n--- Training Non-dimensionalized PINN ---\nNon-Dimensional PINN - Epoch [1000/5000], Total Loss: 2.2216e-05\nNon-Dimensional PINN - Epoch [2000/5000], Total Loss: 7.1687e-06\nNon-Dimensional PINN - Epoch [3000/5000], Total Loss: 2.2107e-06\nNon-Dimensional PINN - Epoch [4000/5000], Total Loss: 8.9794e-07\nNon-Dimensional PINN - Epoch [5000/5000], Total Loss: 6.2341e-07\nNon-Dimensional PINN training finished.",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Characteristic scales defined",
+          "app": "Code",
+          "pattern": "L_c\\s*=\\s*1\\.0\\s*/\\s*np\\.sqrt\\(beta\\)"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Non-dimensional domain normalized",
+          "app": "Code",
+          "pattern": "x_min_nd\\s*=\\s*x_min_dim\\s*/\\s*L_c"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Non-dimensional training finished",
+          "app": "Code",
+          "pattern": "Non-Dimensional PINN training finished\\."
+        },
+        {
+          "type": "metric_threshold",
+          "label": "Non-dimensional loss below 1e-5",
+          "metric": "nd_total_loss",
+          "op": "<",
+          "value": 1e-05,
+          "by_step": 5000,
+          "window": 1
+        },
+        {
+          "type": "metric_trend",
+          "label": "Non-dimensional loss decreases",
+          "metric": "nd_total_loss",
+          "trend": "decreasing",
+          "window": 5
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled-1.ipynb",
+          "match": "L_c = 1.0 / np.sqrt(beta)",
+          "caption": "Compute characteristic length and time scales for non-dimensionalization"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Defining characteristic scales L_c, T_c, and U_c to normalize variables",
+          "t": 1223.0
+        },
+        {
+          "topic": "Comparing dimensional and non-dimensionalized PINN predictions at t=1.0",
+          "t": 1265.0
+        }
+      ],
+      "hints": [
+        "Set L_c = 1.0 / np.sqrt(beta) and T_c = L_c / c so the non-dimensional wave speed becomes 1.0.",
+        "Divide the dimensional x and t bounds by L_c and T_c respectively.",
+        "Use u_ic_nd = torch.exp(-x_ic_nd**2) since beta is absorbed into L_c."
+      ],
+      "common_mistakes": [
+        "Forgetting to rescale the non-dimensional evaluation coordinates (x / L_c, t / T_c) when comparing against the dimensional analytical solution at t=1.0.",
+        "Keeping beta in u_ic_nd = torch.exp(-x_ic_nd**2) after already scaling x by 1/sqrt(beta)."
+      ],
+      "index": 7
+    }
+  ],
+  "_built_by": "gemini-4-hydrogen (watched the video)",
+  "_engine": "gemini"
+}

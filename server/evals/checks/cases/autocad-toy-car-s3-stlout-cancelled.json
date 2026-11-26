@@ -1,0 +1,29 @@
+{
+ "id": "autocad-toy-car-s3-stlout-cancelled",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss on the toy car's s3 (\"Subtract two cylinders ... then export an STL\"): the learner subtracted the wheel wells, typed STLOUT, then pressed Esc at \"Select solids or watertight meshes\": no STL was written. STLOUT is on the command line, the export never happened.",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/autocad_toy_car.json",
+  "id": "s3",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "AutoCAD 2025": [
+    "Command: SUBTRACT",
+    "Select solids, surfaces, and regions to subtract from ..",
+    "Select objects: 1 found",
+    "Select solids, surfaces, and regions to subtract ..",
+    "Select objects: 1 found, 2 total",
+    "Command: STLOUT",
+    "Select solids or watertight meshes: *Cancel*",
+    "Command:",
+    "Model",
+    "Layout1",
+    "Layout2"
+   ]
+  }
+ }
+}

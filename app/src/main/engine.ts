@@ -32,10 +32,10 @@ export const HANDSHAKE_TIMEOUT_MS = 4000
 
 /**
  * Timings, for tests only: heartbeatMs (ping interval), deadMs (silence that drops the socket), probeMs (the wake
- * probe) and handshakeMs (an attempt nobody answers). Everywhere else main/heartbeat.ts's PING_MS, DEAD_MS and
- * PROBE_MS, and HANDSHAKE_TIMEOUT_MS.
+ * probe), handshakeMs (an attempt nobody answers) and retryMs (the fast retry). Everywhere else main/heartbeat.ts's
+ * PING_MS, DEAD_MS and PROBE_MS, HANDSHAKE_TIMEOUT_MS and FAST_RETRY_MS.
  */
-export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number }
+export type LinkTimings = { heartbeatMs?: number; deadMs?: number; probeMs?: number; handshakeMs?: number; retryMs?: number }
 
 /**
  * Where the socket is, for the pill (review A16: never say "can't reach" before an attempt has actually failed).
@@ -61,8 +61,16 @@ export function secureEngineUrl(url: string): boolean {
   return LOOPBACK.test(url) || /^wss:\/\//i.test(url)
 }
 
+/**
+ * Ambient help (shared/contracts/AMBIENT-HELP.md) goes to every window as it comes, but never into the replay log: a
+ * window that reloads lost the ids the learner closed (the overlay's seen / closedHelp sets), so a replay would bring
+ * back a chip they dismissed, a setup card they closed or a help walk-through bon already finished pointing at.
+ * setup.progress stays logged: a lesson's own setup card uses it too (the ambient store ignores tools it never started).
+ */
+export const NOT_REPLAYED: ReadonlySet<string> = new Set(['error.seen', 'error.explanation', 'setup.report', 'help.steps'])
+
 export class EngineLink {
-  /** Every event since the last learn/build, replayed to a window that reloads. */
+  /** Every event since the last learn/build (but ambient help, NOT_REPLAYED), replayed to a window that reloads. */
   readonly log: Incoming[] = []
   connected = false
   private ws?: WebSocket
@@ -378,7 +386,7 @@ export class EngineLink {
     clearTimeout(this.timer)
     if (this.stopped) return
     const fast = Date.now() - this.downSince < FAST_WINDOW_MS
-    const delay = fast ? FAST_RETRY_MS : (this.slow = Math.min(SLOW_RETRY_MAX_MS, this.slow ? this.slow * 2 : 2000))
+    const delay = fast ? (this.timings.retryMs ?? FAST_RETRY_MS) : (this.slow = Math.min(SLOW_RETRY_MAX_MS, this.slow ? this.slow * 2 : 2000))
     this.timer = setTimeout(() => this.connect(), delay)
     this.emitLink()
   }
@@ -407,6 +415,7 @@ export class EngineLink {
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
     if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
+    if (NOT_REPLAYED.has(e.type)) return this.notify(e)
     this.log.push(e)
     for (const l of this.listeners) l(e)
   }

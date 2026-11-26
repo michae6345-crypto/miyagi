@@ -1,0 +1,37 @@
+{
+ "id": "vscode-pymod-m4-main-off-screen",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "F2 renamed add in all three files: on disk main.py imports add_numbers and prints add_numbers(2, 3), test_operations.py follows too, and python3 main.py prints 5. Only operations.py is open in the editor, so main.py's call isn't on screen; the rename itself is finished.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m4"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add_numbers(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add_numbers\n\nprint(add_numbers(2, 3))\n",
+   "test_operations.py": "from operations import add_numbers, subtract, divide\n\n\ndef test_add():\n    assert add_numbers(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "operations.py",
+    "def add_numbers(a, b):",
+    "return a + b",
+    "def subtract(a, b):",
+    "return a - b",
+    "def divide(a, b):",
+    "if b == 0:",
+    "raise ValueError(\"Cannot divide by zero\")",
+    "return a / b"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

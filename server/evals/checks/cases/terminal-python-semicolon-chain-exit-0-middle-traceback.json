@@ -1,0 +1,75 @@
+{
+ "id": "terminal-python-semicolon-chain-exit-0-middle-traceback",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Intro to Python plan (docs/ui-next/catalog/plans/intro-python.json), 'Read an error message' (passes: all three scripts run with no error). VS Code's terminal is hidden; the learner joined the runs with ; instead of &&, so the shell went on past broken2.py's TypeError (it printed 'Hello, Ada' first, then crashed on `len(name) + \" letters\"`), and the chain's exit code is broken3.py's 0. Every expected line is in the output and the exit code is 0, but one of the three scripts still raises.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Run all three fixed scripts",
+  "instructions": "Fix the bug in each of broken1.py, broken2.py and broken3.py, then run all three: python3 broken1.py && python3 broken2.py && python3 broken3.py. Each should print its line with no traceback.",
+  "run_command": "python3 broken1.py && python3 broken2.py && python3 broken3.py",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "python3 broken1.py",
+    "caption": "Run the three scripts"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "output_contains",
+    "label": "broken1.py prints the total",
+    "pattern": "Total:\\s*42"
+   },
+   {
+    "id": "s10c2",
+    "type": "output_contains",
+    "label": "broken2.py greets Ada",
+    "pattern": "Hello,\\s*Ada"
+   },
+   {
+    "id": "s10c3",
+    "type": "output_contains",
+    "label": "broken3.py counts the items",
+    "pattern": "3\\s+items"
+   },
+   {
+    "id": "s10c4",
+    "type": "command_exit_ok",
+    "label": "The scripts exit with no error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "py/broken1.py": "prices = [12, 18, 12]\nprint(f\"Total: {sum(prices)}\")\n",
+   "py/broken2.py": "name = \"Ada\"\nprint(f\"Hello, {name}\")\nprint(len(name) + \" letters\")\n",
+   "py/broken3.py": "items = [\"map\", \"torch\", \"rope\"]\nprint(f\"{len(items)} items\")\n"
+  },
+  "screen": {
+   "Code": [
+    "broken3.py",
+    "items = [\"map\", \"torch\", \"rope\"]",
+    "print(f\"{len(items)} items\")"
+   ]
+  },
+  "run": {
+   "command": "python3 broken1.py; python3 broken2.py; python3 broken3.py",
+   "exit_code": 0,
+   "output_tail": [
+    "Total: 42",
+    "Hello, Ada",
+    "Traceback (most recent call last):",
+    "  File \"/Users/tripi/py/broken2.py\", line 3, in <module>",
+    "    print(len(name) + \" letters\")",
+    "          ~~~~~~~~~~^~~~~~~~~~~~",
+    "TypeError: unsupported operand type(s) for +: 'int' and 'str'",
+    "3 items"
+   ]
+  }
+ }
+}

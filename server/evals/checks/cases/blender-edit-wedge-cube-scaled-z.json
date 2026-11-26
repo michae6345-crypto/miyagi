@@ -1,0 +1,163 @@
+{
+ "id": "blender-edit-wedge-cube-scaled-z",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Blender lesson 3 (\"One edge of the cube sits 1 m higher than the others\"). The learner never went into Edit mode: in Object mode they pressed S Z 1.5, so the whole cube is a 3 m tall box (scale Z 1.5). Its dimensions read 2 x 2 x 3 and it still has 8 vertices, exactly like the wedge, but every top edge sits at the same height; no single edge was raised.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Pull one edge up",
+  "file": "wedge.blend",
+  "instructions": "Press Tab for Edit mode and 2 for edge select. Click one top edge of the cube and move it up 1 m (G Z 1). Tab back to Object mode and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "One edge 1 m higher",
+    "file": "wedge.scene.json",
+    "pattern": "\"dimensions\":\\s*\\[\\s*2(?:\\.0+)?,\\s*2(?:\\.0+)?,\\s*3(?:\\.0+)?\\s*\\]"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Still the cube's 8 vertices",
+    "file": "wedge.scene.json",
+    "pattern": "\"verts\":\\s*8\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wedge.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see wedge.scene.json)\n",
+   "wedge.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "wedge.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Cube",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.5
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        3.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,41 @@
+{
+ "id": "metric-nn4-plateau",
+ "kind": "metric",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: loss plateaus at ~0.021 through epoch 19000 (learning rate too small).",
+ "step": {
+  "lesson": "demo/cache/lessons/text-nn-from-scratch.json",
+  "id": "nn4"
+ },
+ "workspace": {
+  "files": {
+   "nn.py": "import numpy as np\n\n# The network\nX = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = np.tanh(h1 @ W2 + b2)\n    return h1, h2, h2 @ W3 + b3\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac nn % python3 nn.py",
+    "epoch 0 loss 0.4721",
+    "epoch 1000 loss 0.2105",
+    "epoch 2000 loss 0.0810",
+    "epoch 3000 loss 0.0402",
+    "epoch 4000 loss 0.0301",
+    "epoch 5000 loss 0.0260",
+    "epoch 6000 loss 0.0240",
+    "epoch 7000 loss 0.0230",
+    "epoch 8000 loss 0.0224",
+    "epoch 9000 loss 0.0220",
+    "epoch 10000 loss 0.0218",
+    "epoch 11000 loss 0.0216",
+    "epoch 12000 loss 0.0215",
+    "epoch 13000 loss 0.0214",
+    "epoch 14000 loss 0.0213",
+    "epoch 15000 loss 0.0213",
+    "epoch 16000 loss 0.0212",
+    "epoch 17000 loss 0.0212",
+    "epoch 18000 loss 0.0212",
+    "epoch 19000 loss 0.0211"
+   ]
+  }
+ }
+}

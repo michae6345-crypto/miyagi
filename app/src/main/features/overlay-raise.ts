@@ -31,6 +31,7 @@ import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
 import { createOtherOpenMute, GRAB, withinGrab } from '../../renderer/src/core/notchGeometry'
 import { getNotchService } from '../notch'
+import { overlaysHidden } from '../overlayHide'
 
 const isMac = process.platform === 'darwin'
 const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
@@ -56,6 +57,11 @@ type Box = { x: number; y: number; w: number; h: number }
  */
 const within = (p: { x: number; y: number }, r: Box, notch = false, displayTop = 0, opts?: { coexist?: boolean; notch?: { x: number; width: number; height: number } }): boolean =>
   withinGrab(p, r, { notch, displayTop, margin: MARGIN }, opts)
+
+/** The pointer strictly inside a rect (no grab margin). */
+const inside = (p: { x: number; y: number }, r: Box): boolean => p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
+/** Two rects share any area (a hit rect that is the island, or part of its card, is left to the rest-to-wake rule). */
+const overlaps = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 export default defineMainFeature({
   id: 'overlay-raise',
@@ -138,6 +144,16 @@ export default defineMainFeature({
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
+      // "Hide miyagi overlays" (main/overlayHide.ts): nothing is drawn, so nothing is grabbed (the island's reported
+      // size would otherwise keep a ghost click target at the notch).
+      if (overlaysHidden()) {
+        if (grabbed) {
+          grabbed = false
+          ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+        }
+        restSince = 0
+        return
+      }
       if (Date.now() < passUntil) return
       const d = ctx.display().bounds
       const { w, h, dx = 0, dy = 0, shown = true, top, place } = ctx.islandSize()
@@ -170,8 +186,21 @@ export default defineMainFeature({
       const ng = inNotch ? (svc?.geometryFor(ctx.display()) ?? g) : undefined
       const inNotchRect = !!ng && p.x >= d.x + ng.x - GRAB.side && p.x <= d.x + ng.x + ng.width + GRAB.side && p.y >= d.y && p.y <= d.y + ng.height + GRAB.below
       if (away) {
-        // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!shown || !within(p, island, inNotch, d.y, shared)) restSince = 0
+        // Michael, Nov 22: the steps panel stayed on screen while he was in another app, but its X and drag did
+        // nothing. A pointer right on a visible control that is not the island (the drawer, the player's cards: no
+        // grab margin, so passing near one never counts) wakes the overlay at once and grabs in this same tick, so the
+        // first press lands. The renderer hears 'overlay:wake' and starts a fresh away count.
+        const overIsland = shown && within(p, island, inNotch, d.y, shared)
+        if (!overIsland && (hits ?? []).some((r) => inside(p, r) && !overlaps(r, island))) {
+          away = false
+          restSince = 0
+          grabbed = true
+          ctx.overlay.setIgnoreMouseEvents(false)
+          ctx.broadcast('overlay:wake')
+          return
+        }
+        // Otherwise grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
+        if (!overIsland) restSince = 0
         else if (!restSince) restSince = Date.now()
         else if (restSince > 0 && Date.now() - restSince >= (inNotchRect ? REST_NOTCH_MS : REST_MS)) {
           restSince = -1 // once per rest

@@ -1,0 +1,44 @@
+{
+ "id": "jupyter-mnist-s7-evaluated-before-training",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Cell order: the learner ran the evaluate cell (count 19) before the training cell (count 20), so its output is the untrained model's 9.74%. Training afterwards doesn't change an output that was already printed; the evaluate cell has to run again.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s7"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 5,
+     "counts": [
+      16,
+      17,
+      18,
+      20,
+      21
+     ],
+     "append": [
+      {
+       "source": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+       "count": 19,
+       "stdout": "313/313 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 402us/step - accuracy: 0.0974 - loss: 2.3519\nAccuracy of the neural network on the 10000 test images: 9.74%\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "test_loss, test_accuracy = model.evaluate(test_images, test_labels)",
+    "print(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')",
+    "313/313 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 0s 402us/step - accuracy: 0.0974 - loss: 2.3519",
+    "Accuracy of the neural network on the 10000 test images: 9.74%"
+   ]
+  }
+ }
+}

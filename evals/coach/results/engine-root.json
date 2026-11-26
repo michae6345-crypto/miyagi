@@ -1,0 +1,523 @@
+{
+ "layout": "root",
+ "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/engine-eval-s_qqcrqj/lesson/demo-app",
+ "marks": {
+  "connected": 3.55,
+  "step.started": 3.55,
+  "segment end": 3.55,
+  "save #1": 3.55,
+  "offtrack level 2": 32.84,
+  "save_to_l2_s": 29.29,
+  "save #2 (repeat)": 53.85,
+  "offtrack level 3": 68.28,
+  "save_to_l3_s": 14.43,
+  "apply_fix response": 68.28,
+  "fix applied": 68.29,
+  "screen now shows the recompiled app": 69.21,
+  "step.passed": 69.73
+ },
+ "file_after": "import React, { useState, useEffect } from 'react';\n\nfunction Timer() {\n  const [seconds, setSeconds] = useState(0);\n\n  useEffect(() => {\n    const interval = setInterval(() => {\n      console.log('Interval running');\n      setSeconds((prev) => prev + 1);\n    }, 1000);\n  }, []);\n\n  return <h1>Seconds: {seconds}</h1>;\n}\n\nexport default Timer;\n",
+ "events": [
+  {
+   "type": "lesson.ready",
+   "payload": {
+    "lesson": {
+     "id": "lesson-6e88be47",
+     "title": "React useEffect Hook Cleanup",
+     "sources": [
+      {
+       "id": "src1",
+       "kind": "video",
+       "title": "React useEffect Hook Cleanup",
+       "url": "https://www.youtube.com/watch?v=ZipmUa9N7Os",
+       "videoId": "ZipmUa9N7Os"
+      }
+     ]
+    },
+    "steps": [
+     {
+      "id": "s1",
+      "index": 1,
+      "title": "Create the Timer component",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 51.0,
+       "end": 73.0
+      }
+     },
+     {
+      "id": "s2",
+      "index": 2,
+      "title": "Toggle Timer in App component",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 73.0,
+       "end": 165.0
+      }
+     },
+     {
+      "id": "s3",
+      "index": 3,
+      "title": "Return cleanup function in Timer",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 166.0,
+       "end": 236.0
+      }
+     },
+     {
+      "id": "s4",
+      "index": 4,
+      "title": "Run cleanup on state change",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 237.0,
+       "end": 335.0
+      }
+     }
+    ]
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "step.started",
+   "payload": {
+    "stepId": "s1",
+    "index": 1,
+    "title": "Create the Timer component",
+    "instructions": "Create a React app with npx create-react-app demo-app, then start the dev server with npm start. Add src/Components/Timer.js with a seconds state and a useEffect that runs setInterval every 1000ms.",
+    "video": {
+     "videoId": "ZipmUa9N7Os",
+     "start": 51.0,
+     "end": 73.0
+    }
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c1",
+    "label": "useEffect hook in Timer",
+    "status": "pending",
+    "detail": "waiting for screen"
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c2",
+    "label": "setInterval inside effect",
+    "status": "pending",
+    "detail": "waiting for screen"
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c3",
+    "label": "Dev server compiled",
+    "status": "pending",
+    "detail": "waiting for screen"
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c4",
+    "label": "No compile errors",
+    "status": "pending",
+    "detail": "waiting for screen"
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "watching"
+   },
+   "_t": 3.55
+  },
+  {
+   "type": "video.pause",
+   "payload": {},
+   "_t": 3.55
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "rect": {
+     "x": 338.1,
+     "y": 232.5,
+     "w": 273.2,
+     "h": 27.1
+    },
+    "caption": "Start the interval inside useEffect with an empty dependency array",
+    "app": "Code",
+    "matched": "const interval = setInterval(()={"
+   },
+   "_t": 6.21
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "watching"
+   },
+   "_t": 6.21
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697465.5258482
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c1",
+    "label": "useEffect hook in Timer",
+    "status": "pass",
+    "detail": "seen in Code: 'useEffect('"
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c2",
+    "label": "setInterval inside effect",
+    "status": "pass",
+    "detail": "seen in Code: 'setInterval('"
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c3",
+    "label": "Dev server compiled",
+    "status": "pass",
+    "detail": "seen in Terminal: 'webpack compiled'"
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c4",
+    "label": "No compile errors",
+    "status": "pending",
+    "detail": "still showing 'Failed to compile' in Terminal"
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c4",
+    "label": "No compile errors",
+    "status": "fail",
+    "detail": "still showing 'Failed to compile' in Terminal"
+   },
+   "_t": 6.22
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697481.6290271
+   },
+   "_t": 21.87
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "thinking"
+   },
+   "_t": 26.24
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "rect": {
+     "x": 414.4,
+     "y": 130.5,
+     "w": 185.9,
+     "h": 15.1
+    },
+    "caption": "import line",
+    "matched": "{ useState } from 'react';"
+   },
+   "_t": 31.07
+  },
+  {
+   "type": "offtrack",
+   "payload": {
+    "stepId": "s1",
+    "severity": "fail",
+    "title": "useEffect is used but not imported",
+    "body": "ESLint's no-undef rule stops the build because useEffect is called on line 6 but only useState is imported from 'react'. Add useEffect to the import on line 1.",
+    "actions": [
+     "explain",
+     "show_me",
+     "hint"
+    ],
+    "level": 2,
+    "targets": [
+     {
+      "boxId": 22,
+      "label": "import line",
+      "text": "{ useState } from 'react';",
+      "rect": {
+       "x": 414.4,
+       "y": 130.5,
+       "w": 185.9,
+       "h": 15.1
+      }
+     },
+     {
+      "boxId": 65,
+      "label": "eslint error",
+      "text": "'useEffect'",
+      "rect": {
+       "x": 1102.6,
+       "y": 650.1,
+       "w": 80.4,
+       "h": 15.1
+      }
+     },
+     {
+      "boxId": 33,
+      "label": "useEffect call",
+      "text": "useEffect(() = {",
+      "rect": {
+       "x": 329.0,
+       "y": 220.9,
+       "w": 125.6,
+       "h": 12.6
+      }
+     }
+    ],
+    "guidingQuestion": "Which names does line 1 bring into scope, and is useEffect among them?"
+   },
+   "_t": 32.84
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "rect": {
+     "x": 310.5,
+     "y": 124.5,
+     "w": 295.8,
+     "h": 27.1
+    },
+    "caption": "useEffect is used but not imported",
+    "app": "Code",
+    "matched": "import React, { useState } from 'react';"
+   },
+   "_t": 32.84
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "offtrack"
+   },
+   "_t": 32.84
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697497.23343
+   },
+   "_t": 37.48
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697512.8862169
+   },
+   "_t": 53.13
+  },
+  {
+   "type": "offtrack",
+   "payload": {
+    "stepId": "s1",
+    "severity": "fail",
+    "title": "useEffect is used but not imported",
+    "body": "ESLint's no-undef rule stops the build because useEffect is called on line 6 but only useState is imported from 'react'. Add useEffect to the import on line 1.",
+    "diff": {
+     "expected": "import React, { useState, useEffect } from 'react';",
+     "yours": "import React, { useState } from 'react';",
+     "file": "src/Components/Timer.js",
+     "line": 1
+    },
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "level": 3,
+    "targets": [
+     {
+      "boxId": 22,
+      "label": "import line",
+      "text": "{ useState } from 'react';",
+      "rect": {
+       "x": 414.4,
+       "y": 130.5,
+       "w": 185.9,
+       "h": 15.1
+      }
+     },
+     {
+      "boxId": 65,
+      "label": "eslint error",
+      "text": "'useEffect'",
+      "rect": {
+       "x": 1102.6,
+       "y": 650.1,
+       "w": 80.4,
+       "h": 15.1
+      }
+     },
+     {
+      "boxId": 33,
+      "label": "useEffect call",
+      "text": "useEffect(() = {",
+      "rect": {
+       "x": 329.0,
+       "y": 220.9,
+       "w": 125.6,
+       "h": 12.6
+      }
+     }
+    ],
+    "guidingQuestion": "Which names does line 1 bring into scope, and is useEffect among them?"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "rect": {
+     "x": 310.5,
+     "y": 124.5,
+     "w": 295.8,
+     "h": 27.1
+    },
+    "caption": "useEffect is used but not imported",
+    "app": "Code",
+    "matched": "import React, { useState } from 'react';"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "offtrack"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "thinking"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "card",
+   "payload": {
+    "stepId": "s1",
+    "kind": "answer",
+    "title": "Apply this fix?",
+    "body": "Add useEffect to the import on line 1",
+    "actions": [
+     "confirm"
+    ],
+    "diff": "--- a/Timer.js\n+++ b/Timer.js\n@@ -1,4 +1,4 @@\n-import React, { useState } from 'react';\n+import React, { useState, useEffect } from 'react';\n \n function Timer() {\n   const [seconds, setSeconds] = useState(0);\n"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "offtrack"
+   },
+   "_t": 68.28
+  },
+  {
+   "type": "card",
+   "payload": {
+    "stepId": "s1",
+    "kind": "answer",
+    "title": "Fix applied",
+    "body": "Re-run to check it. Undo if you'd rather type it yourself.",
+    "actions": [
+     "undo"
+    ]
+   },
+   "_t": 68.29
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697528.608945
+   },
+   "_t": 69.21
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c3",
+    "label": "Dev server compiled",
+    "status": "pass",
+    "detail": "seen in Terminal: 'Compiled successfully'"
+   },
+   "_t": 69.73
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c4",
+    "label": "No compile errors",
+    "status": "pass",
+    "detail": "not showing in Terminal"
+   },
+   "_t": 69.73
+  },
+  {
+   "type": "step.passed",
+   "payload": {
+    "stepId": "s1",
+    "nextStepId": "s2"
+   },
+   "_t": 69.73
+  }
+ ]
+}

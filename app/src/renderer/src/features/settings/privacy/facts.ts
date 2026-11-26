@@ -20,6 +20,9 @@
  *             workdir summary with the learner's own Gemini key, but builder.py calls claude.adapt_checks today (so
  *             those go to Anthropic): if Gemini adapts again, say so here and in the policy.
  *   account   main/features/auth.ts (Google through Supabase; the session in userData/auth.bin, safeStorage)
+ *   session   main/features/cloudSession.ts: after sign-in and on launch, POST <miyagi-cloud>/v1/session (same request as
+ *             link below; /v1/link on an older cloud). Answers the plan, today's caps and use, the sign-in mode. Local
+ *             cache: userData/session.json (no token, no email, no account id), removed by Delete my data.
  *   link      main/features/cloudLink.ts: after sign-in, POST <miyagi-cloud>/v1/link with the install token and the
  *             Supabase access token; the cloud (cloud/app.py on claude/eng-proxy, store.py links table) keeps the
  *             install's token hash with the Supabase user id. Sign-out never unlinks. Local note: userData/cloud-link.json

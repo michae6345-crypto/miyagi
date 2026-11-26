@@ -1,0 +1,213 @@
+{
+ "id": "freecad-bracket-rotated-about-z-pin-hole-flat",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: 3D printing lesson 4 (\"The bracket rests on its largest flat face and the hole's axis runs along Z\"). The learner set the Body's Placement to Angle 90 but left the rotation axis at its default Z, so the bracket only turned on the spot: it still stands on its 40 x 30 base (1200 mm2) instead of the 40 x 40 back of the upright (1600 mm2), and the 5 mm pin hole now runs along Y instead of X, never along Z. The two 4 mm mounting holes in the base run along Z, so a hole with a Z axis exists, but not the pin hole the step is about; it would print as a sagging horizontal hole.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Choose a print orientation",
+  "file": "bracket.FCStd",
+  "instructions": "The 5 mm pin hole has to print round, so it must point straight up. Select the Body, open its Placement and rotate it 90 degrees about the Y axis so the bracket lies on the back of the upright, its largest flat face, and the pin hole's axis runs along Z. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Rotated 90 degrees",
+    "file": "bracket.scene.json",
+    "pattern": "\"angle\":\\s*90(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Hole axis along Z",
+    "file": "bracket.scene.json",
+    "pattern": "\"axis\":\\s*\\[\\s*-?0(?:\\.0+)?,\\s*-?0(?:\\.0+)?,\\s*-?1(?:\\.0+)?\\s*\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "bracket.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "bracket.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "bracket.FCStd",
+     "bodies": [
+      {
+       "name": "Bracket",
+       "tip": "Pocket001",
+       "placement": {
+        "base": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "axis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "angle": 90.0
+       },
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "YZ_Plane",
+         "constraints": [
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 30.0
+          },
+          {
+           "name": "",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "DistanceX",
+           "value": 4.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 40.0,
+         "Reversed": false,
+         "valid": true,
+         "Midplane": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face3",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          },
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 2,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Type": "ThroughAll",
+         "valid": true
+        },
+        {
+         "name": "Sketch002",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face7",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 5.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pocket001",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch002",
+         "Type": "ThroughAll",
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 10381.0,
+        "bound_box": [
+         40.0,
+         30.0,
+         40.0
+        ],
+        "orientation": {
+         "down_face": {
+          "name": "Face3",
+          "area": 1200.0,
+          "normal": [
+           0.0,
+           0.0,
+           -1.0
+          ]
+         },
+         "largest_flat_face": {
+          "name": "Face5",
+          "area": 1600.0,
+          "normal": [
+           0.0,
+           -1.0,
+           0.0
+          ]
+         }
+        },
+        "holes": [
+         {
+          "feature": "Pocket",
+          "diameter": 4.0,
+          "axis": [
+           0.0,
+           0.0,
+           1.0
+          ],
+          "through": true
+         },
+         {
+          "feature": "Pocket",
+          "diameter": 4.0,
+          "axis": [
+           0.0,
+           0.0,
+           1.0
+          ],
+          "through": true
+         },
+         {
+          "feature": "Pocket001",
+          "diameter": 5.0,
+          "axis": [
+           0.0,
+           -1.0,
+           0.0
+          ],
+          "through": true
+         }
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

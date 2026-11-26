@@ -1,0 +1,29 @@
+{
+ "id": "terminal-git-s1-config-set-subcommand",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Done with git 2.46+'s newer subcommand form: `git config set --global ...` and `git config list --global` instead of `git config --global ...` / `--list`. The list shows user.name, user.email and alias.i=init: the same settings the video makes.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % git --version",
+    "git version 2.47.1",
+    "tripi@mac ~ % git config set --global user.name \"Sam Rivera\"",
+    "tripi@mac ~ % git config set --global user.email \"sam@example.com\"",
+    "tripi@mac ~ % git config set --global alias.i init",
+    "tripi@mac ~ % git config list --global",
+    "user.name=Sam Rivera",
+    "user.email=sam@example.com",
+    "alias.i=init",
+    "tripi@mac ~ % "
+   ]
+  }
+ }
+}

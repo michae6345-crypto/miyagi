@@ -1,0 +1,23 @@
+{
+ "id": "terminal-calc-s2-prints-15",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: the learner's test line is add(10, 5); the program printed 15, not 5.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "def add(a, b):\n    return a + b\n\nprint(add(10, 5))\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac calc % python3 calculator.py",
+    "15",
+    "tripi@mac calc % "
+   ]
+  }
+ }
+}

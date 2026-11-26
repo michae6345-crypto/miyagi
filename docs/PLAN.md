@@ -16,9 +16,9 @@ Each person is a **lead** who runs 2–3 Claude Code sessions in parallel, each 
 
 | Lead | Claude sessions (folder they own) |
 |---|---|
-| **A — Engine (you)** | **A1 Lesson Builder** (`server/lesson/`): YouTube URL → Gemini → step graph + machine-checkable checks. **A2 Runner & Checks** (`cli/` + `server/checks/`): `tut run <cmd>` wrapper, metric parser, check evaluator, Tiger ingest. **A3 Coach** (`server/coach/`): Claude Opus diagnosis, hint ladder, outdated-code fixer via DuckDuckGo web search. |
+| **A — Engine (you)** | **A1 Lesson Builder** (`server/lesson/`): YouTube URL → Gemini → step graph + machine-checkable checks. **A2 Runner & Checks** (`cli/` + `server/checks/`): `tut run <cmd>` wrapper, metric parser, check evaluator, Tiger ingest. **A3 Coach** (`server/coach/`): Claude Opus diagnosis, hint ladder, outdated-code fixer via DuckDuckGo search. |
 | **B — Overlay (Apple UI): Adrian, see FRONTEND-HANDOFF.md** | **B1 Shell** (`app/`): Electron, top-center pill (Dynamic-Island style), Spotlight launcher, lesson drawer, shortcut bar, native vibrancy. **B2 Spotlight** (`app/spotlight/` + `vscode-ext/`): dim overlay with cut-out, VS Code extension that reports exact line rects. **B3 Video + Voice** (`app/player/`): YouTube IFrame player with gating (pause / seek / resume on step pass), ElevenLabs TTS toggle. |
-| **C — Finder, Diagrams, Demo (third teammate)** | **C1 Finder** (`server/finder/`): YouTube + DuckDuckGo search (web + papers) + Gemini triage → ranked candidates. **C2 Diagrams** (`server/diagrams/` + `app/diagrams/`): 3 templates from real run data (network graph, per-layer gradient flow, solution heatmap) + Claude one-line intuition. **C3 Demo content** (`demo/`): the PINN repo, chosen tutorial, cached search results + step graph, demo-mode switch, backup video, Devpost. |
+| **C — Finder, Diagrams, Demo (third teammate)** | **C1 Finder** (`server/finder/`): search (YouTube + DuckDuckGo web + papers) + Gemini triage → ranked candidates. **C2 Diagrams** (`server/diagrams/` + `app/diagrams/`): 3 templates from real run data (network graph, per-layer gradient flow, solution heatmap) + Claude one-line intuition. **C3 Demo content** (`demo/`): the PINN repo, chosen tutorial, cached search results + step graph, demo-mode switch, backup video, Devpost. |
 
 **Background agents** (fire-and-forget, any lead can launch): pick & verify the real public PINN YouTube tutorial · write seed/demo data · README + architecture diagram · Devpost draft · test scripts · landing page on the GoDaddy domain.
 
@@ -97,7 +97,7 @@ Put these in `shared/contracts/` and don't change them without telling the other
 
 ## Sponsor map (say these words in the pitch)
 - **Gemini:** watches the YouTube video → step graph with timestamps; triages candidate tutorials.
-- **YouTube pages + DuckDuckGo:** find and rank tutorials across YouTube, blogs, notebooks, papers; pull current docs for outdated code.
+- **Web search:** the finder ranks tutorials across YouTube, blogs, notebooks, papers; the coach pulls current docs (DuckDuckGo) for outdated code.
 - **Tiger Data:** every training metric streams into hypertables; continuous aggregates power the live curve comparison and the check that grades your step.
 - **ElevenLabs:** optional voice explanations.
 - **Vultr:** backend hosting. **GoDaddy:** domain. **Claude:** coach and diagnosis.

@@ -1,0 +1,32 @@
+{
+ "id": "terminal-rebase-s3-continue-twice",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "The rebase finished ('Successfully rebased and updated refs/heads/feature/login.'); the learner then ran `git rebase --continue` once more and git said 'fatal: No rebase in progress?'. That fatal is about the extra command, not the work: the step is done.",
+ "step": {
+  "lesson": "evals/coach/lessons/git-interactive-rebase.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac login-app % git rebase --interactive HEAD~4",
+    "Stopped at a7d22de...  Add README and login endpoint",
+    "You can amend the commit now, with",
+    "  git commit --amend",
+    "Once you are satisfied with your changes, run",
+    "  git rebase --continue",
+    "tripi@mac login-app % git add index.js && git rebase --continue",
+    "[detached HEAD 9c1e2f4] Add README and login endpoint",
+    " 2 files changed, 12 insertions(+)",
+    " create mode 100644 README.md",
+    "Successfully rebased and updated refs/heads/feature/login.",
+    "tripi@mac login-app % git rebase --continue",
+    "fatal: No rebase in progress?",
+    "tripi@mac login-app % "
+   ]
+  }
+ }
+}

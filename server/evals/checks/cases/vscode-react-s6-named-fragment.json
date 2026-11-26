@@ -1,0 +1,36 @@
+{
+ "id": "vscode-react-s6-named-fragment",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Header and Footer are wrapped in <Fragment>...</Fragment> imported from react: the same React fragment as the <>...</> shorthand the video types (no extra DOM node, no adjacent-JSX error). Footer is imported and rendered below Header.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "function Footer() {\n  return (<footer><p>&copy; {new Date().getFullYear()} Your website name</p></footer>)\n}\nexport default Footer\n",
+   "my-react-app/src/App.jsx": "import { Fragment } from 'react'\nimport Header from './Header.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <Fragment>\n      <Header/>\n      <Footer/>\n    </Fragment>\n  )\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import { Fragment } from 'react'",
+    "import Header from './Header.jsx'",
+    "import Footer from './Footer.jsx'",
+    "function App() {",
+    "return (",
+    "<Fragment>",
+    "<Header/>",
+    "<Footer/>",
+    "</Fragment>",
+    ")",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

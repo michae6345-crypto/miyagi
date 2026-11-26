@@ -1,0 +1,30 @@
+{
+ "id": "vscode-tsshop-t2-ts-extension-import",
+ "kind": "vscode",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Cart.tsx imports formatPrice from '../utils.ts' (with the extension). The Vite react-ts template's tsconfig sets allowImportingTsExtensions with moduleResolution bundler, so this is the same module as '../utils': no problems in the status bar, and every price goes through formatPrice(item.price).",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t2"
+ },
+ "workspace": {
+  "files": {
+   "shop/tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2020\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"allowImportingTsExtensions\": true,\n    \"noEmit\": true,\n    \"jsx\": \"react-jsx\",\n    \"strict\": true\n  },\n  \"include\": [\"src\"]\n}\n",
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/components/Cart.tsx": "import { formatPrice } from '../utils.ts'\n\nexport function Cart({ items }: CartProps) {\n  return (<ul>{items.map(item => <li key={item.id}>{item.name}: <span>{formatPrice(item.price)}</span></li>)}</ul>)\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "Cart.tsx",
+    "src > components > Cart.tsx",
+    "import { formatPrice } from '../utils.ts'",
+    "export function Cart({ items }: CartProps) {",
+    "return (<ul>{items.map(item => <li key={item.id}>{item.name}: <span>{formatPrice(item.price)}</span></li>)}</ul>)",
+    "}",
+    "⊗ 0 ⚠ 0"
+   ]
+  }
+ }
+}

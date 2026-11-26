@@ -1,0 +1,95 @@
+{
+ "id": "vscode-calc-s1-code-only-in-browser",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The tutorial page in Chrome shows the finished code; the learner's calculator.py in VS Code still holds only the starter comment.",
+ "step": {
+  "lesson": "demo/cache/lessons/text-43e26ca1d86c37ed.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "calculator.py": "# Step 1: Start building your calculator here\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "t": 1.0,
+   "app": "Google Chrome",
+   "windows": [
+    {
+     "app": "Google Chrome",
+     "title": "Python calculator tutorial",
+     "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 900,
+      "h": 1000
+     }
+    },
+    {
+     "app": "Code",
+     "title": "calculator.py",
+     "rect": {
+      "x": 900,
+      "y": 0,
+      "w": 900,
+      "h": 1000
+     }
+    }
+   ],
+   "blocks": [
+    {
+     "text": "def add(a, b):",
+     "rect": {
+      "x": 40,
+      "y": 200,
+      "w": 300,
+      "h": 20
+     },
+     "confidence": 0.98
+    },
+    {
+     "text": "return a + b",
+     "rect": {
+      "x": 80,
+      "y": 230,
+      "w": 300,
+      "h": 20
+     },
+     "confidence": 0.97
+    },
+    {
+     "text": "print(add(2, 3))",
+     "rect": {
+      "x": 40,
+      "y": 290,
+      "w": 300,
+      "h": 20
+     },
+     "confidence": 0.97
+    },
+    {
+     "text": "calculator.py",
+     "rect": {
+      "x": 950,
+      "y": 40,
+      "w": 200,
+      "h": 20
+     },
+     "confidence": 0.99
+    },
+    {
+     "text": "# Step 1: Start building your calculator here",
+     "rect": {
+      "x": 950,
+      "y": 120,
+      "w": 500,
+      "h": 20
+     },
+     "confidence": 0.95
+    }
+   ]
+  }
+ }
+}

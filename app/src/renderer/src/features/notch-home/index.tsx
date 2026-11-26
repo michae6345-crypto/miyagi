@@ -2,8 +2,10 @@
  * Feature: notch-home. In the notch (layout.notch.place 'notch'), hovering the island with no lesson on screen opens a
  * Boring-Notch-size panel grown down from the notch (Michael, Nov 22: "almost as big as boring notch ... show Continue
  * Lesson"). Left: the lesson to pick up (the engine's saved offer, else the most recent unfinished lesson), with one
- * white Continue. Right: ask miyagi, a drop zone for a video link (drag a YouTube link onto the notch to build a lesson),
- * and lessons ready to run. Footer: the library.
+ * white Continue. Right: ask miyagi, a drop zone for a link (drag a YouTube link onto the notch to build a lesson; with
+ * the engine's "link.any", any page: an article, a docs page or a GitHub repo, ANY-LINK.md), and lessons ready to run.
+ * Footer: the library. A dropped page first shows its preview card on the left (anylink/Card NotchLinkCard: what it
+ * is, about how long, or why miyagi can't teach it) with its own Build lesson; the ✕ puts Continue back.
  * During a lesson the overview card (priority 20) is the hover card; below the menu bar nothing changes.
  */
 import { motion } from 'motion/react'
@@ -11,19 +13,24 @@ import { useEffect, useState, type DragEvent, type ReactNode } from 'react'
 import { ArrowUpRight, Link2, Play } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { useKey } from '../../core/keys'
+import { noteLearnMode, useLesson } from '../../core/lesson'
 import { notchOf } from '../../core/notchGeometry'
 import { useNotchInfo } from '../../core/notchInfo'
 import { defineFeature } from '../../core/registry'
 import { openLibrary } from '../../core/surfaces'
 import { Kbd, PrimaryButton, Thumb } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { PokeBon } from '../buddy/Poke'
 import { color, copy, fill } from '../../core/theme'
 import { librarySections, refreshLibrary, startLibraryLesson, useLibrary, type LibraryItem } from '../launcher/library'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { resumeSaved, usePill } from '../pill/store'
+import { NotchLinkCard } from '../anylink/Card'
+import { pageAction, parseWebLink } from '../anylink/link'
+import { askLink, dropLink, useAnyLink, useLinkAny, usePreview } from '../anylink/store'
 
-/** The panel's own width (the island adds its open top radius each side): ~600 wide in all, like Boring Notch's 640. */
+/** The panel's own width (the island adds its open top radius, 12, each side): 584 wide in all, near Boring Notch's 640. */
 export const HOME_W = 560
 
 /** Open on hover in the notch, with the engine connected and no lesson step or build on screen. */
@@ -83,7 +90,9 @@ function Progress({ n, total }: { n: number; total: number }): ReactNode {
 }
 
 function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const resuming = usePill((s) => s.resuming)
+  const linkAny = useLinkAny()
   if (!pick)
     return (
       <div className="flex h-full flex-col justify-between">
@@ -92,11 +101,11 @@ function ContinueCard({ pick }: { pick: Pick | undefined }): ReactNode {
             Learn anything by doing.
           </div>
           <div className="mt-[4px] text-[13px]" style={{ color: color.label }}>
-            Ask for a topic or drop in a video.
+            {linkAny ? 'Ask for a topic or drop in a link.' : 'Ask for a topic or drop in a video.'}
           </div>
         </div>
         <div className="flex">
-          <PrimaryButton label="Start a lesson" kbd={bridge.platform.keys.launcher} onClick={() => bridge.emit('launcher:toggle')} />
+          <PrimaryButton label="Start a lesson" kbd={launcherKey} onClick={() => bridge.emit('launcher:toggle')} />
         </div>
       </div>
     )
@@ -132,7 +141,7 @@ function Row({ children, onClick, title }: { children: ReactNode; onClick: () =>
     <motion.button
       type="button"
       title={title}
-      className="flex h-[30px] w-full cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]"
+      className="flex h-[30px] w-full shrink-0 cursor-pointer items-center gap-[8px] rounded-[8px] px-[8px] text-left text-[13px]"
       style={{ color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
       onMouseDown={(e) => e.preventDefault()}
@@ -143,21 +152,59 @@ function Row({ children, onClick, title }: { children: ReactNode; onClick: () =>
   )
 }
 
-/** Drag a video link onto the notch: miyagi builds the lesson from it. A click opens the launcher to paste one. */
+/**
+ * A dropped page's card (left half): link.get answers into it; Build lesson sends learn_url, or "Just teach me" on its
+ * title when the page has nothing to practice. Once sent, the building pill takes over (the panel closes on build).
+ */
+function DroppedLink({ url }: { url: string }): ReactNode {
+  const link = parseWebLink(url)
+  const preview = usePreview(url)
+  const [sent, setSent] = useState(false)
+  if (!link) return null
+  const go = (): void => {
+    const act = pageAction(preview)
+    if (act.kind === 'build') {
+      noteLearnMode(undefined)
+      bridge.send(cmd('learn_url', { url: link.url }))
+    } else if (act.kind === 'teach') {
+      noteLearnMode('lesson')
+      bridge.send(cmd('learn', { query: act.goal, mode: 'lesson' }))
+    } else return
+    // The card stays (Starting…) until the build begins: the store clears the drop on lesson.building.
+    setSent(true)
+  }
+  return <NotchLinkCard link={link} preview={preview} sent={sent} onGo={go} onClose={() => dropLink(undefined)} />
+}
+
+/** How long "Only YouTube links work here" stays after a drop that isn't one. */
+const MISS_MS = 2600
+
+/**
+ * Drag a link onto the notch: a YouTube video builds at once; a page (with link.any) shows its preview card first. A
+ * click opens the launcher to paste one.
+ */
 function DropZone(): ReactNode {
+  const linkAny = useLinkAny()
   const [over, setOver] = useState(false)
   const [sent, setSent] = useState(false)
+  // A drop that isn't a YouTube link says so for a moment, then the zone reads as before (QA Q05).
+  const [miss, setMiss] = useState(false)
+  useEffect(() => {
+    if (!miss) return
+    const t = setTimeout(() => setMiss(false), MISS_MS)
+    return () => clearTimeout(t)
+  }, [miss])
   const linkOf = (e: DragEvent): string | undefined => {
     const raw = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     const url = raw.split(/\s+/).find((s) => /^https?:\/\//.test(s))
-    return url && parseYouTube(url) ? url : undefined
+    return url && (parseYouTube(url) || (linkAny && parseWebLink(url))) ? url : undefined
   }
   return (
     <div
       role="button"
       tabIndex={-1}
       data-drop-link
-      className="flex h-[44px] cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] text-[12px]"
+      className="flex h-[44px] shrink-0 cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] text-[12px]"
       style={{ border: `1px dashed ${over ? color.text : fill.rule}`, color: over ? color.text : color.label, background: over ? fill.chip : 'transparent' }}
       onClick={() => bridge.emit('launcher:toggle')}
       onDragOver={(e) => {
@@ -170,35 +217,45 @@ function DropZone(): ReactNode {
         e.preventDefault()
         setOver(false)
         const url = linkOf(e)
-        if (!url) return
+        if (!url) return setMiss(true)
+        setMiss(false)
+        if (!parseYouTube(url) && askLink(url)) return dropLink(url)
         bridge.send(cmd('learn_url', { url }))
         setSent(true)
       }}
     >
       <Link2 size={14} strokeWidth={1.8} className="shrink-0" />
-      <span className="truncate">{sent ? 'Building your lesson…' : 'Drop a YouTube link'}</span>
+      <span className="truncate" aria-live="polite">
+        {sent ? 'Building your lesson…' : miss ? (linkAny ? 'That isn’t a link miyagi can read' : 'Only YouTube links work here') : linkAny ? 'Drop a link to learn it' : 'Drop a YouTube link'}
+      </span>
     </div>
   )
 }
 
 function Home(): ReactNode {
+  const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const pick = usePick()
+  const dropped = useAnyLink((s) => s.dropped)
   const items = useLibrary((s) => s.items)
   const ready = librarySections(items, pick?.title).ready.slice(0, 2)
   // Fresh lessons each time the panel opens (cheap: the engine answers from its cache).
   useEffect(() => refreshLibrary(), [])
   return (
     <div className="flex flex-col px-[18px] pb-[14px] pt-[12px]" data-notch-home style={{ width: HOME_W }}>
-      <div className="flex gap-[18px]" style={{ height: 136 }}>
-        <div className="min-w-0 flex-1">
-          <ContinueCard pick={pick} />
+      {/* At least 136 tall, and as tall as the right column needs: at a fixed 136 its five rows (184 with two lessons
+          ready) were squeezed, the drop zone down to about half its height (MIC-83). The left half is a grid so its
+          card's h-full still fills it. */}
+      <div className="flex gap-[18px]" style={{ minHeight: 136 }}>
+        <div className="grid min-w-0 flex-1">
+          {dropped ? <DroppedLink url={dropped} /> : <ContinueCard pick={pick} />}
         </div>
         <div className="w-px shrink-0" style={{ background: fill.rule }} />
         <div className="flex w-[200px] shrink-0 flex-col gap-[4px]">
           <Row onClick={() => bridge.emit('launcher:toggle')} title={`${copy.ask}`}>
             <MiyagiMark size={14} />
             <span className="flex-1 truncate">{copy.ask}</span>
-            <Kbd>{bridge.platform.keys.launcher}</Kbd>
+            {/* One keycap per action (QA Q06): with no lesson to continue, Start a lesson already shows it. */}
+            {pick && <Kbd>{launcherKey}</Kbd>}
           </Row>
           <DropZone />
           {ready.map((r) => (
@@ -208,12 +265,18 @@ function Home(): ReactNode {
             </Row>
           ))}
           <div className="flex-1" />
-          <Row onClick={() => void openLibrary()}>
-            <span className="flex-1" style={{ color: color.label }}>
-              Library
-            </span>
-            <ArrowUpRight size={13} strokeWidth={1.8} style={{ color: color.label }} />
-          </Row>
+          {/* bon sits by Library: tap it and it plays (features/buddy Poke.tsx; Michael, Nov 24). */}
+          <div className="flex items-center gap-[4px]">
+            <div className="min-w-0 flex-1">
+              <Row onClick={() => void openLibrary()}>
+                <span className="flex-1" style={{ color: color.label }}>
+                  Library
+                </span>
+                <ArrowUpRight size={13} strokeWidth={1.8} style={{ color: color.label }} />
+              </Row>
+            </div>
+            <PokeBon size={26} />
+          </div>
         </div>
       </div>
     </div>

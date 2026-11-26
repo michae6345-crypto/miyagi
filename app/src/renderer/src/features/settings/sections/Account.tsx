@@ -9,6 +9,8 @@
  * "Saved", "Not set" (ring), "Not yet. Check the key." (ring). No green: green only means a step passed.
  * Save key is the section's one primary (live the moment a field changes, then "Saved to Keychain"); Test is quiet
  * and needs a key to test. The plan card and meter (Set-Account) show only with an account (v2Cloud): never this push.
+ * MIC-30: signed in, with an answer from miyagi-cloud (features/session), one quiet group on top says the plan and
+ * today's use ("$0.42 of $3.00 today · resets 4:00 PM", local time). Signed out or no answer yet: nothing.
  */
 import { motion } from 'motion/react'
 import { Check, ExternalLink, Lock, WifiOff } from 'lucide-react'
@@ -24,8 +26,10 @@ import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
 import { useSettings } from '../store'
 import { keysNote } from '../here'
-import { Group, Note, PageHeader } from '../ui'
+import { Group, Note, PageHeader, Row } from '../ui'
 import { OWN_KEY } from '../words'
+import { capsLine, planLabel } from '../../session/model'
+import { loadSession, useSession } from '../../session/store'
 
 const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
@@ -40,6 +44,12 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
   const connected = useLesson((s) => s.connected)
   const inputs = useRef<Partial<Record<KeyName, HTMLInputElement | null>>>({})
   const { view, status } = flow
+  const session = useSession((s) => s.view)
+  // Opening the section asks main again (it refreshes from the cloud in the background when the answer is old).
+  useEffect(() => {
+    void loadSession()
+  }, [])
+  const usage = session?.signedIn ? capsLine(session.caps) : null
 
   // The caret goes where a key is needed first: a required key with no source, else the first row. On open (the limit
   // card's "Your own key", or the sheet opening here) and on a click it does, even though the sidebar focused its tab
@@ -64,6 +74,14 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
   return (
     <>
       <PageHeader title={OWN_KEY} caption={OWN_KEY_CAPTION} />
+
+      {session?.signedIn && (session.plan || usage) && (
+        <div data-session-plan>
+          <Group label="Your plan">
+            <Row label={planLabel(session.plan)} caption={usage ?? undefined} />
+          </Group>
+        </div>
+      )}
 
       <div onKeyDown={onKey}>
         <Group label="Your keys">

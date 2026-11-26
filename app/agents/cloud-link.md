@@ -43,3 +43,8 @@ Ends `TODO(cloud-link)` from agents/auth.md. Main process only, no UI.
   `/v1/link` must match the contract above.
 - A 401 from `/v1/link` (the cloud forgot the install token) only logs; the proxy's own 401 already triggers
   cloud.ts's self-heal, and the new token is linked through `onInstallToken`.
+
+## Nov 24 (MIC-30)
+The triggers (sign-in, launch, a new install token) moved to `features/cloudSession.ts` (agents/session.md): it calls
+`POST /v1/session` and uses this linker only when the cloud answers 404. `cloudLink.ts` keeps `createLinker` and registers
+nothing, so `/v1/link` is never sent twice.

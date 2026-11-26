@@ -1,0 +1,70 @@
+{
+ "id": "terminal-shell-touch-files-in-parent-folder",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to the terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Make folders and files' (passes: trail-log holds notes and photos, and notes holds day1.txt, day2.txt and day3.txt). The learner made the folders, went into trail-log and ran touch there, without `cd notes`: `ls` shows day1.txt, day2.txt and day3.txt beside notes and photos. notes is empty. Every file exists, one folder too high.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Make the notes files",
+  "instructions": "Make trail-log with two folders inside, notes and photos: mkdir -p trail-log/notes trail-log/photos. Then go into trail-log/notes and make day1.txt, day2.txt and day3.txt with touch.",
+  "run_command": "touch day1.txt day2.txt day3.txt",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "touch day1.txt",
+    "caption": "Make the three notes"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_exists",
+    "label": "notes holds day1.txt",
+    "file": "trail-log/notes/day1.txt"
+   },
+   {
+    "id": "s2c2",
+    "type": "file_exists",
+    "label": "notes holds day2.txt",
+    "file": "trail-log/notes/day2.txt"
+   },
+   {
+    "id": "s2c3",
+    "type": "file_exists",
+    "label": "notes holds day3.txt",
+    "file": "trail-log/notes/day3.txt"
+   },
+   {
+    "id": "s2c4",
+    "type": "file_exists",
+    "label": "photos folder exists",
+    "file": "trail-log/photos"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/day1.txt": "",
+   "trail-log/day2.txt": "",
+   "trail-log/day3.txt": "",
+   "trail-log/notes": {
+    "dir": true
+   },
+   "trail-log/photos": {
+    "dir": true
+   }
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % mkdir -p trail-log/notes trail-log/photos",
+    "tripi@mac ~ % cd trail-log",
+    "tripi@mac trail-log % touch day1.txt day2.txt day3.txt",
+    "tripi@mac trail-log % ls",
+    "day1.txt\tday2.txt\tday3.txt\tnotes\t\tphotos",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

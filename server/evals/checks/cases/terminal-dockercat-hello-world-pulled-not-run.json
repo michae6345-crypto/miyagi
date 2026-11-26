@@ -1,0 +1,66 @@
+{
+ "id": "terminal-dockercat-hello-world-pulled-not-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Intro to Docker plan, 'Run your first container' (passes: docker ps -a lists a hello-world container that exited with code 0). The learner ran `docker pull hello-world` instead of `docker run hello-world`: the image is downloaded (docker images lists it) but no container was ever made. docker ps -a shows only an old docker/getting-started container, whose 'Exited (0)' is what the exit-code check sees.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Run hello-world and find its container",
+  "instructions": "Run your first container with docker run hello-world. It prints a greeting and stops. Then list every container, stopped ones too, with docker ps -a.",
+  "run_command": "docker run hello-world",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "docker run hello-world",
+    "caption": "Run the container"
+   },
+   {
+    "app": "Terminal",
+    "match": "docker ps -a",
+    "caption": "List all containers"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "screen_contains",
+    "label": "hello-world listed",
+    "app": "Terminal",
+    "pattern": "hello-world"
+   },
+   {
+    "id": "s3c2",
+    "type": "screen_contains",
+    "label": "It exited with code 0",
+    "app": "Terminal",
+    "pattern": "Exited\\s+\\(0\\)"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "docker-intro/.keep": ""
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac docker-intro % docker pull hello-world",
+    "Using default tag: latest",
+    "latest: Pulling from library/hello-world",
+    "c9c5fd25a1bd: Pull complete",
+    "Digest: sha256:305243c734571da2d100c8c8b3c3167a098cab6049c9a5b066b6021a60fcb966",
+    "Status: Downloaded newer image for hello-world:latest",
+    "docker.io/library/hello-world:latest",
+    "tripi@mac docker-intro % docker images",
+    "REPOSITORY               TAG       IMAGE ID       CREATED         SIZE",
+    "hello-world              latest    ee301c921b8a   18 months ago   9.14kB",
+    "docker/getting-started   latest    3e4394f6b72f   2 years ago     47MB",
+    "tripi@mac docker-intro % docker ps -a",
+    "CONTAINER ID   IMAGE                    COMMAND                  CREATED       STATUS                   PORTS     NAMES",
+    "8d2f1e0c9b7a   docker/getting-started   \"/docker-entrypoint.…\"   3 weeks ago   Exited (0) 3 weeks ago             nice_hopper",
+    "tripi@mac docker-intro % "
+   ]
+  }
+ }
+}

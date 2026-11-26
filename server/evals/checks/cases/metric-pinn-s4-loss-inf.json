@@ -1,0 +1,131 @@
+{
+ "id": "metric-pinn-s4-loss-inf",
+ "kind": "metric",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The PINN reached loss 0.058 at step 1700 and then blew up: 0.31, 2.7, 48, inf by step 2300 (learning rate too high for beta 1). The earlier values under 0.1 belong to weights that no longer exist; the run crashed out with exit 0 but an overflowed model.",
+ "step": {
+  "lesson": "demo/cache/lessons/8032bf0cabe0e287.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {},
+  "metrics": {
+   "loss": [
+    [
+     0,
+     1.2
+    ],
+    [
+     100,
+     1.08
+    ],
+    [
+     200,
+     0.972
+    ],
+    [
+     300,
+     0.81
+    ],
+    [
+     400,
+     0.66
+    ],
+    [
+     500,
+     0.52
+    ],
+    [
+     600,
+     0.41
+    ],
+    [
+     700,
+     0.33
+    ],
+    [
+     800,
+     0.27
+    ],
+    [
+     900,
+     0.22
+    ],
+    [
+     1000,
+     0.18
+    ],
+    [
+     1100,
+     0.15
+    ],
+    [
+     1200,
+     0.12
+    ],
+    [
+     1300,
+     0.098
+    ],
+    [
+     1400,
+     0.083
+    ],
+    [
+     1500,
+     0.071
+    ],
+    [
+     1600,
+     0.064
+    ],
+    [
+     1700,
+     0.058
+    ],
+    [
+     1800,
+     0.061
+    ],
+    [
+     1900,
+     0.094
+    ],
+    [
+     2000,
+     0.31
+    ],
+    [
+     2100,
+     2.7
+    ],
+    [
+     2200,
+     48.0
+    ],
+    [
+     2300,
+     "inf"
+    ]
+   ]
+  },
+  "run": {
+   "command": "python3 pinn_convection.py --beta 1.0 --epochs 4000",
+   "exit_code": 0,
+   "output_tail": [
+    "epoch 2200 loss 48.0000",
+    "epoch 2300 loss inf"
+   ]
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac pinn % python3 pinn_convection.py --beta 1.0 --epochs 4000",
+    "epoch 2100 loss 2.7000",
+    "epoch 2200 loss 48.0000",
+    "epoch 2300 loss inf",
+    "tripi@mac pinn % "
+   ]
+  }
+ }
+}

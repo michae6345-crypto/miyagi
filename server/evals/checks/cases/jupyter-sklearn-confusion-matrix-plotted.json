@@ -1,0 +1,86 @@
+{
+ "id": "jupyter-sklearn-confusion-matrix-plotted",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "scikit-learn plan (docs/ui-next/catalog/plans/scikit-learn.json), 'Score a classifier' (the notebook prints the test accuracy and a 3 by 3 confusion matrix): the learner printed 'accuracy 0.7111111111111111' and showed the matrix with ConfusionMatrixDisplay.from_predictions instead of print(confusion_matrix(...)). The figure under the cell is the 3 by 3 grid of counts (13 0 1 / 1 11 4 / 2 5 8, 45 test wines). Same numbers, drawn.",
+ "step": {
+  "id": "sk4s2",
+  "title": "Score the classifier",
+  "instructions": "In wine.ipynb, print the KNN model's accuracy_score on the test set, then its 3 by 3 confusion_matrix.",
+  "file": "wine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "wine.ipynb",
+    "match": "accuracy_score(y_test, y_pred)",
+    "caption": "Score the test predictions"
+   }
+  ],
+  "code": "from sklearn.metrics import accuracy_score, confusion_matrix\n\nprint('accuracy', accuracy_score(y_test, y_pred))\nprint(confusion_matrix(y_test, y_pred))",
+  "checks": [
+   {
+    "id": "sk4s2c1",
+    "type": "screen_contains",
+    "label": "accuracy_score called",
+    "app": "Code",
+    "pattern": "accuracy_score\\("
+   },
+   {
+    "id": "sk4s2c2",
+    "type": "screen_contains",
+    "label": "Test accuracy printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "accuracy\\s+0\\.\\d+"
+   },
+   {
+    "id": "sk4s2c3",
+    "type": "screen_contains",
+    "label": "3 by 3 confusion matrix printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "\\[\\[\\s*\\d+\\s+\\d+\\s+\\d+\\s*\\]\\s*\\[\\s*\\d+\\s+\\d+\\s+\\d+\\s*\\]\\s*\\[\\s*\\d+\\s+\\d+\\s+\\d+\\s*\\]\\]"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "from sklearn.datasets import load_wine\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.neighbors import KNeighborsClassifier\n\nX, y = load_wine(return_X_y=True)\nX_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)\nknn = KNeighborsClassifier().fit(X_train, y_train)\ny_pred = knn.predict(X_test)",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay\n\nprint('accuracy', accuracy_score(y_test, y_pred))\nConfusionMatrixDisplay.from_predictions(y_test, y_pred)",
+       "count": 2,
+       "stdout": "accuracy 0.7111111111111111\n",
+       "image": true
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "wine.ipynb",
+    "[2]",
+    "from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay",
+    "print('accuracy', accuracy_score(y_test, y_pred))",
+    "ConfusionMatrixDisplay.from_predictions(y_test, y_pred)",
+    "accuracy 0.7111111111111111",
+    "<sklearn.metrics._plot.confusion_matrix.ConfusionMatrixDisplay at 0x30a1f2d50>",
+    "0 13 0 1",
+    "True label 1 1 11 4",
+    "2 2 5 8",
+    "0 1 2",
+    "Predicted label"
+   ]
+  }
+ }
+}

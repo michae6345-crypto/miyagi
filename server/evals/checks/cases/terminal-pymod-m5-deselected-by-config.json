@@ -1,0 +1,37 @@
+{
+ "id": "terminal-pymod-m5-deselected-by-config",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "pytest exits 0 with '2 passed, 1 deselected': the project's pytest.ini (left over from debugging) has addopts = -k \"not divide\", so test_divide never runs. The step is that every test in test_operations.py passes; one of the three was not run at all, so the run says nothing about divide.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m5"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "test_operations.py": "from operations import add, subtract, divide\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_subtract():\n    assert subtract(5, 2) == 3\n\n\ndef test_divide():\n    assert divide(5, 2) == 2.5\n",
+   "pytest.ini": "[pytest]\naddopts = -k \"not divide\"\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "(.venv) tripi@mac calc % python3 -m pytest -q",
+    "..                                                                       [100%]",
+    "2 passed, 1 deselected in 0.01s",
+    "(.venv) tripi@mac calc %"
+   ]
+  },
+  "run": {
+   "command": "python3 -m pytest -q",
+   "exit_code": 0,
+   "output_tail": [
+    "..                                                                       [100%]",
+    "2 passed, 1 deselected in 0.01s"
+   ],
+   "running": false
+  }
+ }
+}

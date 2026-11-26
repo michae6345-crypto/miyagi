@@ -1,0 +1,217 @@
+{
+ "id": "blender-handle-separate-torus-not-joined",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to Blender lesson 6 (\"The handle joins the mug in two places and the mesh is one piece\"). Extruding and bridging felt hard, so the learner added a Torus in Object mode (Shift+A > Mesh > Torus), scaled it to 0.35 and pushed it against the side of the mug. It looks like a handle in the viewport, but it is a second object: the Mug's own mesh is unchanged from lesson 5 (162 faces, one island) and the torus is its own island. Nothing joins them, so the mug and handle would come apart in any export.",
+ "step": {
+  "id": "s6",
+  "index": 6,
+  "title": "Build the handle",
+  "file": "mug.blend",
+  "instructions": "Select the mug and Tab into Edit mode. Pick the two faces on the side between your loop cuts, extrude them out (E), then join the two ends with Edge > Bridge Edge Loops so the handle meets the mug in two places. Tab out and save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s6c1",
+    "type": "file_contains",
+    "label": "Mug is one piece",
+    "file": "mug.scene.json",
+    "pattern": "\"islands\":\\s*1\\b"
+   },
+   {
+    "id": "s6c2",
+    "type": "file_contains",
+    "label": "Handle faces added",
+    "file": "mug.scene.json",
+    "pattern": "\"faces\":\\s*\\d{3,}"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "mug.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see mug.scene.json)\n",
+   "mug.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "mug.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Mug",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.6,
+        1.6,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 164,
+        "edges": 324,
+        "faces": 162,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Material"
+       ]
+      },
+      {
+       "name": "Torus",
+       "type": "MESH",
+       "location": [
+        1.05,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        90.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        0.35,
+        0.35,
+        0.35
+       ],
+       "dimensions": [
+        0.875,
+        0.875,
+        0.175
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 576,
+        "edges": 1152,
+        "faces": 576,
+        "smooth": false,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Material",
+       "users": [
+        "Mug"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

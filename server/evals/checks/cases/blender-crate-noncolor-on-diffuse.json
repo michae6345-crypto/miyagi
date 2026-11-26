@@ -1,0 +1,267 @@
+{
+ "id": "blender-crate-noncolor-on-diffuse",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials lesson 5 (\"An Image Texture feeds Base Color and the roughness image is set to Non-Color\"). Both Image Texture nodes are wired right (crate_diffuse.png -> Base Color, crate_roughness.png -> Roughness), but the learner set Color Space to Non-Color on the diffuse node and left the roughness node at sRGB. The colours now render washed out and the roughness map is still gamma-curved: the opposite of the step. A Non-Color image and a roughness image both exist.",
+ "step": {
+  "id": "s5",
+  "index": 5,
+  "title": "Put an image texture on it",
+  "file": "crate.blend",
+  "instructions": "In the Shader Editor add an Image Texture, open textures/crate_diffuse.png and connect its Color to Base Color. Add a second Image Texture with textures/crate_roughness.png, connect its Color to Roughness and set that node's Color Space to Non-Color. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s5c1",
+    "type": "file_contains",
+    "label": "Image feeds Base Color",
+    "file": "crate.scene.json",
+    "pattern": "\"to_socket\":\\s*\"Base Color\""
+   },
+   {
+    "id": "s5c2",
+    "type": "file_contains",
+    "label": "Roughness image loaded",
+    "file": "crate.scene.json",
+    "pattern": "crate_roughness\\.png"
+   },
+   {
+    "id": "s5c3",
+    "type": "file_contains",
+    "label": "Non-Color set",
+    "file": "crate.scene.json",
+    "pattern": "\"colorspace\":\\s*\"Non-Color\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "textures/crate_diffuse.png": {
+    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg=="
+   },
+   "textures/crate_roughness.png": {
+    "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg=="
+   },
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1,
+        "seams": 7,
+        "uv_layers": [
+         "UVMap"
+        ]
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0
+       },
+       "use_nodes": true,
+       "nodes": [
+        {
+         "name": "Principled BSDF",
+         "type": "BSDF_PRINCIPLED"
+        },
+        {
+         "name": "Material Output",
+         "type": "OUTPUT_MATERIAL"
+        },
+        {
+         "name": "Image Texture",
+         "type": "TEX_IMAGE",
+         "image": "crate_diffuse.png",
+         "colorspace": "Non-Color"
+        },
+        {
+         "name": "Image Texture.001",
+         "type": "TEX_IMAGE",
+         "image": "crate_roughness.png",
+         "colorspace": "sRGB"
+        }
+       ],
+       "links": [
+        {
+         "from": "Image Texture",
+         "from_socket": "Color",
+         "to": "Principled BSDF",
+         "to_socket": "Base Color"
+        },
+        {
+         "from": "Image Texture.001",
+         "from_socket": "Color",
+         "to": "Principled BSDF",
+         "to_socket": "Roughness"
+        },
+        {
+         "from": "Principled BSDF",
+         "from_socket": "BSDF",
+         "to": "Material Output",
+         "to_socket": "Surface"
+        }
+       ]
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     },
+     "images": [
+      {
+       "name": "crate_diffuse.png",
+       "filepath": "//textures/crate_diffuse.png",
+       "colorspace": "Non-Color",
+       "packed": false,
+       "has_data": true,
+       "size": [
+        1024,
+        1024
+       ]
+      },
+      {
+       "name": "crate_roughness.png",
+       "filepath": "//textures/crate_roughness.png",
+       "colorspace": "sRGB",
+       "packed": false,
+       "has_data": true,
+       "size": [
+        1024,
+        1024
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

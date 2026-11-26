@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Start the engine in LIVE mode: real modules, real screen, VS Code auto-open.
+#
+#   scripts/miyagi-engine.sh                 # ws://localhost:8787 (this Mac only)
+#   ENGINE_HOST=0.0.0.0 scripts/miyagi-engine.sh   # opt-in LAN access: ws://<this-mac>.local:8787 (Adrian's app on
+#                                            # another Mac). GET /state and /events have no auth and carry screen text.
+#   scripts/miyagi-engine.sh --port 8788     # extra args go to the engine (--host/--port)
+#   scripts/miyagi-demo.sh                   # the PINN hero lesson, autostarted on demo/pinn-lab
+#   DEMO=1 scripts/miyagi-engine.sh          # cached/canned demo data instead of live APIs
+#
+# Keys come from the shared .env (TUT_ENV, else this checkout's .env, else the main checkout's)
+# or from the app's Settings (config.keys), which win.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+PY="${PYTHON:-$ROOT/.venv/bin/python}"
+if [ ! -x "$PY" ]; then
+  echo "[miyagi] first run: creating .venv with Python 3.12…"
+  command -v uv >/dev/null || { echo "[miyagi] needs uv: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
+  uv venv -q --python 3.12 .venv
+  uv pip install -q --python .venv/bin/python -e "server[dev]"
+  [ -f cli/pyproject.toml ] && uv pip install -q --python .venv/bin/python -e cli
+  PY="$ROOT/.venv/bin/python"
+fi
+
+export ENGINE_HOST="${ENGINE_HOST:-127.0.0.1}"  # E3: LAN (0.0.0.0) is opt-in
+export ENGINE_PORT="${ENGINE_PORT:-8787}"
+export ORCH_SCREEN="${ORCH_SCREEN:-1}"
+export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
+# LIVE: no lesson until the launcher sends `learn`; each lesson gets its own workspace under ~/miyagi/lessons.
+# (The PINN hero with demo/pinn-lab autostarted is scripts/miyagi-demo.sh.)
+export ORCH_AUTOSTART="${ORCH_AUTOSTART:-0}"
+export ORCH_AUTO_RESUME="${ORCH_AUTO_RESUME:-1}"  # dev deploys keep the running lesson; the app (localEngine.ts) starts fresh
+# Nov 21: the dev engine keeps its own saved lesson, never the installed app's (~/miyagi/state): a dev run's
+# auto-resume must not reload (or overwrite) the lesson the real app offers back, and the other way round
+export MIYAGI_STATE_DIR="${MIYAGI_STATE_DIR:-$HOME/miyagi/state-dev}"
+
+# --- macOS Screen Recording permission (the screen reader needs it) ---------------------
+if [ "$(uname)" = "Darwin" ] && [ "$ORCH_SCREEN" = "1" ]; then
+  if ! "$PY" -c "import sys, Quartz; sys.exit(0 if Quartz.CGPreflightScreenCaptureAccess() else 1)" 2>/dev/null; then
+    HOST_APP="${TERM_PROGRAM:-the app that runs this script}"
+    case "$HOST_APP" in
+      Apple_Terminal) HOST_APP="Terminal" ;;
+      iTerm.app) HOST_APP="iTerm" ;;
+      vscode) HOST_APP="Visual Studio Code" ;;
+    esac
+    cat <<EOF
+
+[miyagi] Screen capture is DENIED, so the engine can't see your screen.
+  Grant it:  System Settings › Privacy & Security › Screen & System Audio Recording
+             → turn ON "$HOST_APP"  (the app running this script / python)
+  Then QUIT and reopen $HOST_APP and run this script again.
+  (Shortcut: open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+
+EOF
+    "$PY" -c "import Quartz; Quartz.CGRequestScreenCaptureAccess()" 2>/dev/null || true
+    echo "[miyagi] Starting anyway: file saves and \`tut run\` still grade steps; screen checks wait."
+  fi
+fi
+
+if command -v lsof >/dev/null && lsof -nP -iTCP:"$ENGINE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "[miyagi] port $ENGINE_PORT is already in use (another engine or the app's mock?):"
+  lsof -nP -iTCP:"$ENGINE_PORT" -sTCP:LISTEN | tail -n +2
+  exit 1
+fi
+
+HOSTNAME_LOCAL="$(scutil --get LocalHostName 2>/dev/null || hostname -s).local"
+if [ "$ENGINE_HOST" = "0.0.0.0" ]; then
+  echo "[miyagi] engine: ws://localhost:$ENGINE_PORT  ·  LAN: ws://$HOSTNAME_LOCAL:$ENGINE_PORT (no auth: trusted networks only)"
+else
+  echo "[miyagi] engine: ws://$ENGINE_HOST:$ENGINE_PORT  (LAN: ENGINE_HOST=0.0.0.0 $0)"
+fi
+echo "[miyagi] workspace: ${TUT_WORKDIR:-per lesson in ~/miyagi/lessons}   mode: $([ "${DEMO:-0}" = "1" ] && echo DEMO || echo LIVE)   autostart: $ORCH_AUTOSTART"
+exec "$PY" -m server.orchestrator.main --host "$ENGINE_HOST" --port "$ENGINE_PORT" "$@"

@@ -69,11 +69,12 @@ describe('plan at rest', () => {
     assert.equal(shadowFor(false, false), 'none')
     assert.equal(plan({ hovering: true }).shadow, NOTCH_SHADOW)
     assert.equal(plan({ open: true, view: 'drop' }).shadow, NOTCH_SHADOW)
-    assert.ok(NOTCH_SHADOW.includes('0 0 6px') && NOTCH_SHADOW.includes('0.7'))
+    // Falls downward (a y offset, no even halo): nothing spreads up onto a light menu bar.
+    assert.match(NOTCH_SHADOW, /^drop-shadow\(0 [1-9]\d*px /)
   })
   test('open radii for the peek, closed otherwise', () => {
     assert.equal(plan().radii.top, 6)
-    assert.equal(plan({ open: true, view: 'drop' }).radii.top, 19)
+    assert.equal(plan({ open: true, view: 'drop' }).radii.top, 12)
   })
 })
 

@@ -1,0 +1,196 @@
+{
+ "id": "metric-pinn-s4-spike-recovered",
+ "kind": "metric",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done with a scare: Adam spiked the loss to 0.62 at step 1500 and it recovered, ending at 0.023 by step 3900. A finite spike that training recovers from is normal; the run ended clean and well under 0.1.",
+ "heldOut": true,
+ "step": {
+  "lesson": "demo/cache/lessons/8032bf0cabe0e287.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {},
+  "metrics": {
+   "loss": [
+    [
+     0,
+     1.2
+    ],
+    [
+     100,
+     1.08
+    ],
+    [
+     200,
+     0.972
+    ],
+    [
+     300,
+     0.81
+    ],
+    [
+     400,
+     0.66
+    ],
+    [
+     500,
+     0.52
+    ],
+    [
+     600,
+     0.41
+    ],
+    [
+     700,
+     0.33
+    ],
+    [
+     800,
+     0.27
+    ],
+    [
+     900,
+     0.22
+    ],
+    [
+     1000,
+     0.18
+    ],
+    [
+     1100,
+     0.15
+    ],
+    [
+     1200,
+     0.12
+    ],
+    [
+     1300,
+     0.098
+    ],
+    [
+     1400,
+     0.083
+    ],
+    [
+     1500,
+     0.62
+    ],
+    [
+     1600,
+     0.41
+    ],
+    [
+     1700,
+     0.24
+    ],
+    [
+     1800,
+     0.13
+    ],
+    [
+     1900,
+     0.088
+    ],
+    [
+     2000,
+     0.071
+    ],
+    [
+     2100,
+     0.062
+    ],
+    [
+     2200,
+     0.055
+    ],
+    [
+     2300,
+     0.049
+    ],
+    [
+     2400,
+     0.044
+    ],
+    [
+     2500,
+     0.04
+    ],
+    [
+     2600,
+     0.037
+    ],
+    [
+     2700,
+     0.034
+    ],
+    [
+     2800,
+     0.032
+    ],
+    [
+     2900,
+     0.03
+    ],
+    [
+     3000,
+     0.029
+    ],
+    [
+     3100,
+     0.028
+    ],
+    [
+     3200,
+     0.027
+    ],
+    [
+     3300,
+     0.026
+    ],
+    [
+     3400,
+     0.025
+    ],
+    [
+     3500,
+     0.025
+    ],
+    [
+     3600,
+     0.024
+    ],
+    [
+     3700,
+     0.024
+    ],
+    [
+     3800,
+     0.023
+    ],
+    [
+     3900,
+     0.023
+    ]
+   ]
+  },
+  "run": {
+   "command": "python3 pinn_convection.py --beta 1.0 --epochs 4000",
+   "exit_code": 0,
+   "output_tail": [
+    "epoch 3800 loss 0.0230",
+    "epoch 3900 loss 0.0230"
+   ]
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac pinn % python3 pinn_convection.py --beta 1.0 --epochs 4000",
+    "epoch 3700 loss 0.0240",
+    "epoch 3800 loss 0.0230",
+    "epoch 3900 loss 0.0230",
+    "tripi@mac pinn % "
+   ]
+  }
+ }
+}

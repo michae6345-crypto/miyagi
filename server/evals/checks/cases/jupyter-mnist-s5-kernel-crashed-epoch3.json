@@ -1,0 +1,49 @@
+{
+ "id": "jupyter-mnist-s5-kernel-crashed-epoch3",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "The kernel died during epoch 4 (tensorflow-metal ran out of memory): VS Code shows 'The Kernel crashed while executing code in the current cell'. The saved output stops after epoch 3 at accuracy 0.9771, above the 0.95 bar, but the process that held `model` is gone: the weights, `history` and the data are lost and the next cell will raise NameError. A crashed fit is not a trained model; the learner has to re-run the notebook.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "append": [
+      {
+       "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)",
+       "count": 19,
+       "stdout": "Epoch 1/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 812us/step - accuracy: 0.8779 - loss: 0.4262\nEpoch 2/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 846us/step - accuracy: 0.9648 - loss: 0.1176\nEpoch 3/5\n1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 1s 901us/step - accuracy: 0.9771 - loss: 0.0767\nEpoch 4/5\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])",
+    "history = model.fit(",
+    "train_images,",
+    "train_labels,",
+    "epochs=5",
+    ")",
+    "Epoch 3/5",
+    "1875/1875 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 2s 901us/step - accuracy: 0.9771 - loss: 0.0767",
+    "Epoch 4/5",
+    "The Kernel crashed while executing code in the current cell or a previous cell.",
+    "Please review the code in the cell(s) to identify a possible cause of the failure.",
+    "Click here for more info.",
+    "View Jupyter log for further details."
+   ]
+  }
+ }
+}

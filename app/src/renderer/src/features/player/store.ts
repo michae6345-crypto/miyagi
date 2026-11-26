@@ -31,6 +31,7 @@ import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
+import { setupWaiting } from '../cards/setupHold'
 import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, panelVisible, replayKeepsVideo, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
 import { FramePlayer } from './frame'
 import { describeYTError, isYouTubeId, resolveVideoId, YTState, type YTPlayer } from './youtube'
@@ -62,7 +63,7 @@ type PlayerState = {
 
 /** The speed chip cycles through these. */
 export const RATES = [1, 1.25, 1.5, 2, 0.75] as const
-const PREF_KEY = 'miyagi.player.prefs'
+export const PREF_KEY = 'miyagi.player.prefs'
 function savedPrefs(): { volume: number; rate: number } {
   try {
     const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { volume?: unknown; rate?: unknown }
@@ -110,7 +111,8 @@ const GATE_ZONE = GATE_ZONE_S
 const TICK_MS = 100
 const REPORT_MS = 1000
 const AUTOPLAY_GRACE_MS = 1500
-const LOAD_ERROR = 'Could not load the YouTube player (offline?)'
+/** Shown under "The video didn’t load" (Player.tsx ErrorState, with Try again): calm, no jargon (QA Q12). */
+const LOAD_ERROR = 'Check your connection, then try again.'
 
 /** Electron loads index.html#/player for the player window; the browser stage is one window that hosts everything. */
 const route = location.hash.replace(/^#\/?/, '')
@@ -740,9 +742,11 @@ onUi('reset', (payload) => {
 
 /**
  * A setup card waiting on the learner ("Set up first": Install / Open VS Code / Skip). The passing note that ends
- * setup ("matplotlib installed ✓", no buttons) is not one.
+ * setup ("matplotlib installed ✓", no buttons) is not one. Smart setup (Nov 22): only when the card says
+ * setup.holdVideo is true; without the field (an older engine), any setup card with buttons. Setup is a companion:
+ * "This lesson uses AutoCAD" waits beside the video while it plays.
  */
-export const setupWaiting = (c: Payload<'card'> | undefined): boolean => c?.kind === 'setup' && (c.actions?.length ?? 0) > 0
+export { setupWaiting }
 
 /** The card lands < 1 s after step.started: a hold this early in the clip goes back to its start. */
 const SETUP_REWIND_S = 5
@@ -826,7 +830,17 @@ if (!isElectron && typeof document !== 'undefined') document.addEventListener('v
 registerWebHandler('player:dock', () => undefined)
 registerWebHandler('player:hover', () => undefined)
 registerWebHandler('player:visible', () => pageVisible())
-// The stage's Vite server serves the host page itself (vite.web.config.ts), on the stage's own origin.
-registerWebHandler('player:host', () => `${location.origin}/player-host.html`)
+// The stage's Vite server serves the host page itself (vite.web.config.ts), from its own loopback origin like main
+// (QA Q13: framed from the stage's origin, Chrome warns the sandbox can be escaped); the stage's origin if it can't say.
+registerWebHandler('player:host', async () => {
+  const same = `${location.origin}/player-host.html`
+  try {
+    const r = await fetch('/__miyagi/player-host', { cache: 'no-store' })
+    const url = ((await r.json()) as { url?: unknown }).url
+    return typeof url === 'string' && /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}\/player-host\.html$/.test(url) ? url : same
+  } catch {
+    return same
+  }
+})
 
 if (import.meta.env.DEV && isHost) Object.assign(window, { __player: { player, usePlayer, now, yt: () => yt } })

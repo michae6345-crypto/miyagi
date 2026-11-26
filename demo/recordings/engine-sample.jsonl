@@ -1,0 +1,131 @@
+{"wait": 61, "type": "status", "payload": {"state": "idle"}}
+{"wait": 0, "type": "config.status", "payload": {"anthropic": "env", "gemini": "env", "elevenlabs": "missing", "tigerUrl": "missing"}}
+{"wait": 0, "type": "status", "payload": {"state": "thinking"}}
+{"wait": 0, "type": "search.result", "payload": {"id": "r1", "kind": "video", "title": "Physics-informed neural networks: convection in PyTorch", "meta": "YouTube · 9 min", "score": 0.94, "reason": "Codes the convection PINN step by step; matches your goal exactly.", "url": "https://www.youtube.com/watch?v=STUB_PINN_VID"}}
+{"wait": 61, "type": "search.result", "payload": {"id": "r2", "kind": "paper", "title": "Characterizing possible failure modes in PINNs", "meta": "NeurIPS 2021 · Krishnapriyan et al.", "score": 0.88, "reason": "Explains why convection at large β fails and how a curriculum fixes it.", "url": "https://arxiv.org/abs/2109.01050"}}
+{"wait": 61, "type": "search.result", "payload": {"id": "r3", "kind": "notebook", "title": "PINN convection notebook", "meta": "Colab · PyTorch", "score": 0.71, "reason": "Runnable reference code; fewer explanations.", "url": "https://colab.research.google.com/"}}
+{"wait": 61, "type": "search.done", "payload": {"total": 3}}
+{"wait": 0, "type": "status", "payload": {"state": "idle"}}
+{"wait": 501, "type": "screen.seen", "payload": {"app": "Terminal", "summary": "• tripi — fake_train.py --flat — 102×44 · epoch", "t": 1794690877.834584}}
+{"wait": 816, "type": "status", "payload": {"state": "thinking"}}
+{"wait": 0, "type": "lesson.building", "payload": {"message": "Lesson ready", "progress": 1.0}}
+{"wait": 0, "type": "lesson.ready", "payload": {"lesson": {"id": "stub-pinn-convection", "title": "Train a PINN on the convection equation", "sources": [{"id": "src-video", "kind": "video", "title": "Physics-informed neural networks: convection in PyTorch (stub)", "url": "https://www.youtube.com/watch?v=STUB_PINN_VID", "videoId": "STUB_PINN_VID"}, {"id": "src-paper", "kind": "paper", "title": "Characterizing possible failure modes in physics-informed neural networks", "url": "https://arxiv.org/abs/2109.01050"}]}, "steps": [{"id": "s1", "index": 0, "title": "Create the training script", "video": {"videoId": "STUB_PINN_VID", "start": 0.0, "end": 40.0}}, {"id": "s2", "index": 1, "title": "Build the MLP", "video": {"videoId": "STUB_PINN_VID", "start": 40.0, "end": 120.0}}, {"id": "s3", "index": 2, "title": "Sample collocation points", "video": {"videoId": "STUB_PINN_VID", "start": 120.0, "end": 200.0}}, {"id": "s4", "index": 3, "title": "Write the PDE residual", "video": {"videoId": "STUB_PINN_VID", "start": 200.0, "end": 310.0}}, {"id": "s5", "index": 4, "title": "Train at β = 1", "video": {"videoId": "STUB_PINN_VID", "start": 310.0, "end": 380.0}}, {"id": "s6", "index": 5, "title": "Scale up to β = 30", "video": {"videoId": "STUB_PINN_VID", "start": 380.0, "end": 480.0}}]}}
+{"wait": 0, "type": "step.started", "payload": {"stepId": "s1", "index": 0, "title": "Create the training script", "instructions": "Create pinn_convection.py in your project folder.", "video": {"videoId": "STUB_PINN_VID", "start": 0.0, "end": 40.0}}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s1", "checkId": "s1c1", "label": "pinn_convection.py open", "status": "pending"}}
+{"wait": 0, "type": "video.seek", "payload": {"t": 0.0, "play": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s1", "checkId": "s1c1", "label": "pinn_convection.py open", "status": "pass", "detail": "seen in Code: 'pinn_convection.py'"}}
+{"wait": 3043, "type": "step.passed", "payload": {"stepId": "s1", "nextStepId": "s2"}}
+{"wait": 0, "type": "status", "payload": {"state": "passed"}}
+{"wait": 0, "type": "spotlight", "payload": {"clear": true}}
+{"wait": 401, "type": "step.started", "payload": {"stepId": "s2", "index": 1, "title": "Build the MLP", "instructions": "Define a fully connected network with tanh activations that maps (x, t) to u.", "video": {"videoId": "STUB_PINN_VID", "start": 40.0, "end": 120.0}}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s2", "checkId": "s2c1", "label": "has Linear layers", "status": "pending"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s2", "checkId": "s2c2", "label": "uses tanh", "status": "pending"}}
+{"wait": 0, "type": "video.seek", "payload": {"t": 40.0, "play": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s2", "checkId": "s2c1", "label": "has Linear layers", "status": "pass", "detail": "seen in Code: 'nn.Linear'"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s2", "checkId": "s2c2", "label": "uses tanh", "status": "pending", "detail": "not seen in Code"}}
+{"wait": 2601, "type": "step.started", "payload": {"stepId": "s4", "index": 3, "title": "Write the PDE residual", "instructions": "Use autograd for u_t and u_x, then return u_t + β·u_x.", "video": {"videoId": "STUB_PINN_VID", "start": 200.0, "end": 310.0}}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s4", "checkId": "s4c1", "label": "computes u_t with autograd", "status": "pending"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s4", "checkId": "s4c2", "label": "residual includes β·u_x", "status": "pending"}}
+{"wait": 0, "type": "video.seek", "payload": {"t": 200.0, "play": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s4", "checkId": "s4c1", "label": "computes u_t with autograd", "status": "pass", "detail": "seen in Code: 'autograd.grad'"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s4", "checkId": "s4c2", "label": "residual includes β·u_x", "status": "pass", "detail": "seen in Code: 'u_t + beta * u_x'"}}
+{"wait": 1502, "type": "step.passed", "payload": {"stepId": "s4", "nextStepId": "s5"}}
+{"wait": 0, "type": "status", "payload": {"state": "passed"}}
+{"wait": 0, "type": "spotlight", "payload": {"clear": true}}
+{"wait": 400, "type": "step.started", "payload": {"stepId": "s5", "index": 4, "title": "Train at β = 1", "instructions": "Run the script with tut run and watch the loss fall.", "video": {"videoId": "STUB_PINN_VID", "start": 310.0, "end": 380.0}}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s5", "checkId": "s5c1", "label": "loss < 1e-2", "status": "pending"}}
+{"wait": 0, "type": "video.seek", "payload": {"t": 310.0, "play": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s5", "checkId": "s5c1", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.2506 at step 5800, need < 0.01"}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 2000, "name": "loss", "value": 0.25068}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 2400, "name": "loss", "value": 0.25035}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 2800, "name": "loss", "value": 0.25018}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 3200, "name": "loss", "value": 0.25069}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 3600, "name": "loss", "value": 0.25032}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 4000, "name": "loss", "value": 0.25019}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 4400, "name": "loss", "value": 0.25069}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 4800, "name": "loss", "value": 0.2503}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 5200, "name": "loss", "value": 0.25022}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 5600, "name": "loss", "value": 0.2507}}
+{"wait": 3598, "type": "step.started", "payload": {"stepId": "s6", "index": 5, "title": "Scale up to β = 30", "instructions": "Train at β = 30 until the loss drops below 1e-2.", "video": {"videoId": "STUB_PINN_VID", "start": 380.0, "end": 480.0}}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pending"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending"}}
+{"wait": 0, "type": "video.seek", "payload": {"t": 380.0, "play": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pending", "detail": "loss 0.2506 → 0.2506 over last 1500 steps (+0.0%) — plateau"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.2502 at step 4000, need < 0.01 by step 4000"}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 1800, "name": "loss", "value": 0.25044}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 2200, "name": "loss", "value": 0.25063}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 2600, "name": "loss", "value": 0.25012}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 3000, "name": "loss", "value": 0.25047}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 3400, "name": "loss", "value": 0.25061}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 3800, "name": "loss", "value": 0.25011}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 4200, "name": "loss", "value": 0.25049}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 4600, "name": "loss", "value": 0.2506}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 5000, "name": "loss", "value": 0.2501}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 5400, "name": "loss", "value": 0.25052}}
+{"wait": 0, "type": "metric", "payload": {"runId": "screen-stub-pinn-convection", "step": 5800, "name": "loss", "value": 0.25057}}
+{"wait": 1502, "type": "video.pause", "payload": {}}
+{"wait": 1, "type": "spotlight", "payload": {"rect": {"x": 328.0, "y": 629.1, "w": 270.7, "h": 64.9}, "caption": "Add a β curriculum here", "app": "Code", "matched": "28 def train(model, epochs=5000, Ir=le\nfor epoch in range(epochs):"}}
+{"wait": 0, "type": "status", "payload": {"state": "watching"}}
+{"wait": 2001, "type": "metric", "payload": {"runId": "run-beta30", "step": 300, "name": "loss", "value": 0.312395}}
+{"wait": 137, "type": "screen.seen", "payload": {"app": "Terminal", "summary": "• tripi — fake_train.py --flat — 102×44 · epoch", "t": 1794690893.848737}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pending", "detail": "collecting loss: 5 pts over 400/1500 steps"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.3906 at step 400, need < 0.01"}}
+{"wait": 13, "type": "metric", "payload": {"runId": "run-beta30", "step": 700, "name": "loss", "value": 0.254896}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-beta30", "step": 1100, "name": "loss", "value": 0.24984}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-beta30", "step": 1500, "name": "loss", "value": 0.247208}}
+{"wait": 0, "type": "metric", "payload": {"runId": "run-beta30", "step": 1900, "name": "loss", "value": 0.25193}}
+{"wait": 45, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pending", "detail": "loss 0.2549 → 0.2511 over last 1500 steps (-1.5%) — plateau"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.2511 at step 1900, need < 0.01"}}
+{"wait": 106, "type": "metric", "payload": {"runId": "run-beta30", "step": 2300, "name": "loss", "value": 0.250729}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-beta30", "step": 2700, "name": "loss", "value": 0.249782}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-beta30", "step": 3100, "name": "loss", "value": 0.253369}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-beta30", "step": 3500, "name": "loss", "value": 0.253485}}
+{"wait": 0, "type": "metric", "payload": {"runId": "run-beta30", "step": 3900, "name": "loss", "value": 0.247736}}
+{"wait": 45, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "fail", "detail": "loss 0.2498 → 0.2477 over last 1500 steps (-0.8%) — plateau"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.2477 at step 3900, need < 0.01"}}
+{"wait": 0, "type": "status", "payload": {"state": "thinking"}}
+{"wait": 889, "type": "metric", "payload": {"runId": "run-beta30", "step": 4300, "name": "loss", "value": 0.248408}}
+{"wait": 153, "type": "metric", "payload": {"runId": "run-beta30", "step": 4700, "name": "loss", "value": 0.250681}}
+{"wait": 305, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "fail", "detail": "loss 0.2477 → 0.2507 over last 1500 steps (+1.2%) — plateau"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "fail", "detail": "loss 0.2477 at step 4000, need < 0.01 by step 4000"}}
+{"wait": 3041, "type": "offtrack", "payload": {"stepId": "s6", "severity": "warn", "title": "Training directly at β = 30 stalls", "body": "At BETA = 30 the residual term makes the loss landscape hard to optimize, so Adam plateaus near 0.25. Warm-start with a β curriculum, raising beta in stages up to 30.", "diff": {"expected": "for beta in [1.0, 5.0, 10.0, 20.0, 30.0]:\n    BETA = beta  # pde_residual reads beta=BETA\n    train(model, epochs=1000)", "yours": "BETA = 30.0", "file": "pinn_convection.py", "line": 17}, "citation": {"label": "Krishnapriyan et al., NeurIPS 2021", "url": "https://arxiv.org/abs/2109.01050"}, "actions": ["explain", "show_me", "hint", "apply_fix"]}}
+{"wait": 1, "type": "spotlight", "payload": {"rect": {"x": 328.0, "y": 199.8, "w": 94.9, "h": 24.7}, "caption": "Training directly at β = 30 stalls", "app": "Code", "matched": "BETA = 30.0"}}
+{"wait": 0, "type": "status", "payload": {"state": "offtrack"}}
+{"wait": 10691, "type": "screen.seen", "payload": {"app": "Terminal", "summary": "• tripi — fake_train.py --flat — 102×44 · epoch", "t": 1794690909.904133}}
+{"wait": 11269, "type": "card", "payload": {"stepId": "s6", "kind": "hint", "title": "A question first", "body": "Does the loss plateau? What makes β = 30 harder than β = 1?", "level": 0, "levelName": "question"}}
+{"wait": 1998, "type": "status", "payload": {"state": "thinking"}}
+{"wait": 2794, "type": "screen.seen", "payload": {"app": "Terminal", "summary": "• tripi — fake_train.py --flat — 102×44 · epoch", "t": 1794690925.966333}}
+{"wait": 366, "type": "card", "payload": {"stepId": "s6", "kind": "explain", "title": "Why large β stalls training", "body": "At β = 30 the wave crosses the domain many times, so the residual u_t + βu_x punishes tiny errors with large, sharply varying gradients. The loss landscape becomes rugged and badly conditioned, and Adam settles near a smooth, almost constant solution. At β = 1 the landscape is easy.", "videoJump": {"t": 455.0, "label": "Explained at 7:35"}, "citation": {"label": "Krishnapriyan et al., NeurIPS 2021", "url": "https://arxiv.org/abs/2109.01050"}}}
+{"wait": 0, "type": "status", "payload": {"state": "offtrack"}}
+{"wait": 8841, "type": "diagram", "payload": {"kind": "gradients", "caption": "Early layers stop learning: gradients vanish at β = 30", "data": {"layers": ["layer1", "layer2", "layer3", "layer4", "out"], "epochs": [0.0, 250.0, 500.0, 750.0, 1000.0, 1250.0, 1500.0, 1750.0, 2000.0, 2250.0, 2500.0, 2750.0], "norms": [[0.1, 0.07046881, 0.04965853, 0.03499377, 0.0246597, 0.01737739, 0.01224564, 0.00862936, 0.00608101, 0.00428521, 0.00301974, 0.00212797], [0.04, 0.02818752, 0.01986341, 0.01399751, 0.00986388, 0.00695096, 0.00489826, 0.00345174, 0.0024324, 0.00171409, 0.0012079, 0.00085119], [0.016, 0.01127501, 0.00794536, 0.005599, 0.00394555, 0.00278038, 0.0019593, 0.0013807, 0.00097296, 0.00068563, 0.00048316, 0.00034048], [0.0064, 0.00451, 0.00317815, 0.0022396, 0.00157822, 0.00111215, 0.00078372, 0.00055228, 0.00038918, 0.00027425, 0.00019326, 0.00013619], [0.00256, 0.001804, 0.00127126, 0.00089584, 0.00063129, 0.00044486, 0.00031349, 0.00022091, 0.00015567, 0.0001097, 7.731e-05, 5.448e-05]]}}}
+{"wait": 1503, "type": "metric", "payload": {"runId": "run-curriculum", "step": 0, "name": "loss", "value": 1.0}}
+{"wait": 0, "type": "metric", "payload": {"runId": "run-curriculum", "step": 400, "name": "loss", "value": 0.463369}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-curriculum", "step": 800, "name": "loss", "value": 0.214711}}
+{"wait": 152, "type": "metric", "payload": {"runId": "run-curriculum", "step": 1200, "name": "loss", "value": 0.099491}}
+{"wait": 151, "type": "metric", "payload": {"runId": "run-curriculum", "step": 1600, "name": "loss", "value": 0.046101}}
+{"wait": 45, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pass", "detail": "loss 0.3154 → 0.03804 over last 1500 steps (-87.9%)"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pending", "detail": "loss 0.03804 at step 1900, need < 0.01"}}
+{"wait": 106, "type": "metric", "payload": {"runId": "run-curriculum", "step": 2000, "name": "loss", "value": 0.021362}}
+{"wait": 0, "type": "metric", "payload": {"runId": "run-curriculum", "step": 2400, "name": "loss", "value": 0.009898}}
+{"wait": 152, "type": "metric", "payload": {"runId": "run-curriculum", "step": 2800, "name": "loss", "value": 0.004587}}
+{"wait": 152, "type": "metric", "payload": {"runId": "run-curriculum", "step": 3200, "name": "loss", "value": 0.002125}}
+{"wait": 152, "type": "metric", "payload": {"runId": "run-curriculum", "step": 3600, "name": "loss", "value": 0.000985}}
+{"wait": 45, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c1", "label": "loss still dropping", "status": "pass", "detail": "loss 0.006738 → 8.13e-04 over last 1500 steps (-87.9%)"}}
+{"wait": 0, "type": "check.updated", "payload": {"stepId": "s6", "checkId": "s6c2", "label": "loss < 1e-2", "status": "pass", "detail": "loss 8.13e-04 < 0.01 at step 3900"}}
+{"wait": 0, "type": "step.passed", "payload": {"stepId": "s6"}}
+{"wait": 0, "type": "status", "payload": {"state": "passed"}}
+{"wait": 0, "type": "spotlight", "payload": {"clear": true}}
+{"wait": 0, "type": "video.play", "payload": {}}
+{"wait": 106, "type": "metric", "payload": {"runId": "run-curriculum", "step": 4000, "name": "loss", "value": 0.000456}}
+{"wait": 0, "type": "metric", "payload": {"runId": "run-curriculum", "step": 4400, "name": "loss", "value": 0.000211}}
+{"wait": 152, "type": "metric", "payload": {"runId": "run-curriculum", "step": 4800, "name": "loss", "value": 0.0002}}

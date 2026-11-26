@@ -7,6 +7,7 @@
  * are capped. Anything that fails is dropped, never guessed.
  */
 import type { LessonTool, LibraryItem, OutlineStep } from '../../../../../../shared/contracts/events'
+import { safeWebUrl, siteOf } from '../anylink/link'
 
 export const LIBRARY_ID = /^[A-Za-z0-9_-]{1,64}$/
 export const isLibraryId = (id: unknown): id is string => typeof id === 'string' && LIBRARY_ID.test(id)
@@ -56,14 +57,28 @@ export const youtubeWatchUrl = (id: string): string => `https://www.youtube.com/
 function source(v: unknown): LibraryItem['source'] {
   const s = obj(v)
   if (!s) return undefined
-  const kind = s.kind === 'youtube' || s.kind === 'goal' || s.kind === 'library' ? s.kind : undefined
+  const kind = s.kind === 'youtube' || s.kind === 'goal' || s.kind === 'library' || s.kind === 'web' || s.kind === 'github' ? s.kind : undefined
   const title = str(s.title)
   if (!kind || !title) return undefined
+  // Any link (ANY-LINK.md): a page keeps its own link, but only a plain http(s) one with a public host (anylink
+  // safeWebUrl: no user / password, no odd port, no localhost), and its site and author as short strings.
+  if (kind === 'web' || kind === 'github') {
+    const url = safeWebUrl(s.url)
+    if (!url) return undefined
+    return { kind, title, url, site: str(s.site, 80) ?? siteOf(url), author: str(s.author, 60) }
+  }
   // Only a YouTube video survives, rebuilt as its canonical watch link from the checked id (the engine's own URL could
   // be a youtube.com/redirect?v=…&q=… that passes the id check); anything else is dropped.
   const vid = typeof s.url === 'string' ? youtubeId(s.url) : undefined
   const url = vid ? youtubeWatchUrl(vid) : undefined
   return { kind, title, channel: str(s.channel, 80), durationS: int(s.durationS, 0, 86_400), url }
+}
+
+/** LibraryItem.teaches / uses / unlocks: skill ids (or labels), short strings, no repeats, at most 12. Undefined when none. */
+function skillIds(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const ids = [...new Set(v.map((x) => str(x, 80)).filter((x): x is string => !!x && !x.endsWith('…')))].slice(0, 12)
+  return ids.length ? ids : undefined
 }
 
 export function cleanItem(v: unknown): LibraryItem | undefined {
@@ -88,7 +103,10 @@ export function cleanItem(v: unknown): LibraryItem | undefined {
     ready: o.ready === true,
     progress,
     source: source(o.source),
-    updatedAt: str(o.updatedAt, 40)
+    updatedAt: str(o.updatedAt, 40),
+    teaches: skillIds(o.teaches),
+    uses: skillIds(o.uses),
+    unlocks: skillIds(o.unlocks)
   }
 }
 

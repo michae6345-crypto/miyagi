@@ -12,7 +12,7 @@
  *
  * The views are the features' own (onboarding Intro / Guided / Ready / Checklist, auth Login), in flow mode: no
  * header of their own, and the end hands over to home instead of opening another window.
- * Live like the setup window: permissions watched and health asked for while the window is focused (useLive).
+ * Live like the setup window: permissions watched while the window is on screen, health asked for while it is focused (useLive).
  * Leaving (Shell.tsx runs the arrival), in two beats: this layer's screen fades out first (screenOut), leaving only its
  * plain paper; then the paper fades (layerOut) while the sidebar slides in over it, the bonsai glides from the strip
  * into the sidebar's logo and Home rises underneath. Two screens are never drawn over each other.
@@ -27,7 +27,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { cmd } from '../../../../../common/wire'
 import { bridge } from '../../../bridge'
 import { canSend } from '../../../core/lesson'
-import { color, type2 } from '../../../core/theme'
+import { color, type2, v4c } from '../../../core/theme'
 import { beat, fade } from '../../../core/ui/motion'
 import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
@@ -46,6 +46,11 @@ import { backToSetup, endConsent, endIntro, endLogin, finishFlow, flowCovers, le
 
 /** Below this window width the strip is compact (current label, ticks and dots). */
 const COMPACT_W = 760
+/*
+ * Setup and You're ready (v4, Nov 24): the views lay themselves out (features/onboarding v4.tsx SetupPage: Adrian's
+ * ui-next onboard pages, a 1000 column with the step on the left and a quiet rail on the right, top-anchored under
+ * the strip, one column under 860), so the flow hands them the whole body.
+ */
 
 /** One phase's view: absolutely placed so the old one can fade while the new one arrives. */
 function View({ id, children }: { id: string; children: ReactNode }): ReactNode {
@@ -112,7 +117,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
       data-flow-again={again || undefined}
       role="presentation"
       className="absolute inset-0 z-[2] overflow-hidden"
-      style={{ background: color.window, color: color.text }}
+      style={{ background: v4c.page, color: color.text }}
       initial={again ? { opacity: 0 } : false}
       animate={{ opacity: 1, transition: layerIn }}
       exit={{ opacity: 0, transition: layerOut }}
@@ -175,16 +180,21 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             )}
             {phase === 'setup' && (
               <View key="setup" id="setup">
-                <Guided chrome="flow" rows={rows} width={width} height={height - 64} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                <div data-flow-column className="h-full w-full">
+                  <Guided chrome="flow" rows={rows} width={width} height={height - 64} enterDelay={arriveDelay} resumeAt={resume} onFinish={toReady} />
+                </div>
               </View>
             )}
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
-                {sum.canStart ? (
-                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
-                ) : (
-                  <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
-                )}
+                {/* The same top-anchored v4 page as setup: You're ready (and the checklist) sit under the strip. */}
+                <div data-flow-column className="h-full w-full">
+                  {sum.canStart ? (
+                    <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
+                  ) : (
+                    <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
+                  )}
+                </div>
               </View>
             )}
           </AnimatePresence>

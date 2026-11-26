@@ -1,0 +1,394 @@
+import math
+import random
+
+import pytest
+
+from server.checks import RunContext, evaluate_check, evaluate_step, step_passed
+
+
+def status(check, ctx):
+    return evaluate_check(check, ctx)["status"]
+
+
+# ---------------------------------------------------------------- fixtures
+@pytest.fixture
+def wd(tmp_path):
+    (tmp_path / "pinn_convection.py").write_text(
+        "import torch\n\ndef pde_residual(u_t, u_x, beta):\n    return u_t + beta * u_x\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+def flat_pinn_loss(n_steps=4000, every=50, seed=0):
+    """β=30 convection PINN: loss plateaus around 0.25 with minibatch noise."""
+    rng = random.Random(seed)
+    pts = []
+    for s in range(0, n_steps + 1, every):
+        base = 0.2504 - 0.0014 * (s / n_steps)  # ~0.6% drift over the whole run
+        pts.append((s, base * (1 + rng.gauss(0, 0.03))))
+    return pts
+
+
+def dropping_pinn_loss(n_steps=4000, every=50, seed=1):
+    """After the β curriculum: loss decays ~exponentially from 0.25 toward 1e-3."""
+    rng = random.Random(seed)
+    return [(s, (0.25 * math.exp(-s / 800) + 1e-3) * (1 + rng.gauss(0, 0.05))) for s in range(0, n_steps + 1, every)]
+
+
+# ---------------------------------------------------------------- file_exists
+def test_file_exists(wd):
+    ctx = RunContext(workdir=str(wd))
+    assert status({"id": "a", "type": "file_exists", "label": "x", "file": "pinn_convection.py"}, ctx) == "pass"
+    r = evaluate_check({"id": "b", "type": "file_exists", "label": "x", "file": "nope.py"}, ctx)
+    assert r["status"] == "fail" and "nope.py" in r["detail"]
+    assert r["checkId"] == "b" and r["label"] == "x"
+
+
+# ---------------------------------------------------------------- file_contains
+def test_file_contains_pass_fail_missing(wd):
+    ctx = RunContext(workdir=str(wd))
+    c = {"id": "c1", "type": "file_contains", "label": "residual", "file": "pinn_convection.py",
+         "pattern": r"u_t\s*\+\s*\w*\s*\*\s*u_x"}
+    r = evaluate_check(c, ctx)
+    assert r["status"] == "pass" and r["detail"].endswith(":4")
+    (wd / "pinn_convection.py").write_text("def pde_residual(u_t, u_x):\n    return u_t\n", encoding="utf-8")
+    assert status(c, ctx) == "fail"
+    assert status({**c, "file": "missing.py"}, ctx) == "fail"
+
+
+def test_file_contains_bad_regex_is_fail_not_crash(wd):
+    r = evaluate_check({"id": "c", "type": "file_contains", "label": "x", "file": "pinn_convection.py",
+                        "pattern": "u_t(("}, RunContext(workdir=str(wd)))
+    assert r["status"] == "fail" and "invalid pattern" in r["detail"]
+
+
+# ---------------------------------------------------------------- command_exit_ok
+def test_command_exit_ok():
+    c = {"id": "c2", "type": "command_exit_ok", "label": "runs", "command": "python pinn_convection.py --epochs 1"}
+    assert status(c, RunContext()) == "pending"
+    assert status(c, RunContext(command="python pinn_convection.py", running=True)) == "pending"
+    assert status(c, RunContext(command="python pinn_convection.py --epochs 1", exit_code=0)) == "pass"
+    # flags may differ; the script must match
+    assert status(c, RunContext(command="python3 -u pinn_convection.py --epochs 5", exit_code=0)) == "pass"
+    assert status(c, RunContext(command="python pinn_convection.py", exit_code=1)) == "fail"
+    # a different script doesn't count
+    assert status(c, RunContext(command="python other.py", exit_code=0)) == "pending"
+
+
+# ---------------------------------------------------------------- output_contains
+def test_output_contains():
+    c = {"id": "o", "type": "output_contains", "label": "prints shape", "pattern": r"torch\.Size\(\[\d+, 1\]\)"}
+    assert status(c, RunContext()) == "pending"
+    assert status(c, RunContext(command="x", running=True, output_tail=["epoch 1"])) == "pending"
+    assert status(c, RunContext(command="x", exit_code=0, output_tail=["u: torch.Size([256, 1])"])) == "pass"
+    assert status(c, RunContext(command="x", exit_code=0, output_tail="nothing here")) == "fail"
+
+
+# ---------------------------------------------------------------- metric_threshold
+def test_metric_threshold():
+    c = {"id": "c3", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<",
+         "value": 0.01, "by_step": 4000}
+    assert status(c, RunContext(running=True, command="x")) == "pending"
+    ctx = RunContext(running=True, command="x", metrics={"loss": [(100, 0.2), (200, 0.1)]})
+    assert status(c, ctx) == "pending"  # not there yet, by_step not reached
+    ctx.metrics["loss"] += [(s, 0.005) for s in range(300, 800, 100)]
+    assert status(c, ctx) == "pass"
+    # flat run reached by_step without hitting the threshold → fail
+    flat = RunContext(running=True, command="x", metrics={"loss": flat_pinn_loss()})
+    r = evaluate_check(c, flat)
+    assert r["status"] == "fail" and "by step 4000" in r["detail"]
+    # a single lucky minibatch does not pass (median smoothing)
+    noisy = RunContext(running=True, command="x", metrics={"loss": [(s, 0.2) for s in range(0, 500, 100)] + [(500, 0.001)]})
+    assert status(c, noisy) == "pending"
+
+
+def test_metric_threshold_greater_and_run_end():
+    c = {"id": "acc", "type": "metric_threshold", "label": "acc", "metric": "acc", "op": ">=", "value": 0.9}
+    assert status(c, RunContext(exit_code=0, metrics={"acc": [(1, 0.5), (2, 0.95), (3, 0.96)]})) == "pass"
+    assert status(c, RunContext(exit_code=0, metrics={"acc": [(1, 0.5), (2, 0.6)]})) == "fail"
+    assert status(c, RunContext(exit_code=0)) == "fail"  # run ended, never logged acc
+
+
+# ---------------------------------------------------------------- metric_trend
+TREND = {"id": "c4", "type": "metric_trend", "label": "loss still dropping", "metric": "loss",
+         "trend": "not_flat", "window": 1500}
+
+
+def test_flat_pinn_loss_fails_not_flat():
+    r = evaluate_check(TREND, RunContext(running=True, command="x", metrics={"loss": flat_pinn_loss()}))
+    assert r["status"] == "fail", r
+    assert "plateau" in r["detail"]
+
+
+def test_dropping_pinn_loss_passes_not_flat():
+    r = evaluate_check(TREND, RunContext(running=True, command="x", metrics={"loss": dropping_pinn_loss()}))
+    assert r["status"] == "pass", r
+
+
+def test_flat_curve_with_spikes_still_fails():
+    pts = flat_pinn_loss(seed=3)
+    pts[-3] = (pts[-3][0], 0.02)  # one lucky minibatch near the end
+    pts[5] = (pts[5][0], 3.0)     # one blow-up early in the window
+    assert status(TREND, RunContext(running=True, command="x", metrics={"loss": pts})) == "fail"
+
+
+def test_trend_pending_until_window_covered():
+    short = [(s, 0.25) for s in range(0, 300, 50)]
+    assert status(TREND, RunContext(running=True, command="x", metrics={"loss": short})) == "pending"
+    assert status(TREND, RunContext(exit_code=0, metrics={"loss": short})) == "fail"
+
+
+def test_trend_decreasing():
+    c = {**TREND, "trend": "decreasing"}
+    assert status(c, RunContext(running=True, command="x", metrics={"loss": dropping_pinn_loss()})) == "pass"
+    assert status(c, RunContext(running=True, command="x", metrics={"loss": flat_pinn_loss()})) == "fail"
+    rising = [(s, 0.1 + s / 1000) for s in range(0, 2000, 50)]
+    assert status(c, RunContext(running=True, command="x", metrics={"loss": rising})) == "fail"
+
+
+def test_trend_handles_negative_values_and_fails_on_trailing_nan():
+    pts = [(s, -1.0 - s / 500) for s in range(0, 2000, 50)]
+    assert status(TREND, RunContext(running=True, command="x", metrics={"loss": pts})) == "pass"
+    pts.append((2000, float("nan")))
+    assert status(TREND, RunContext(running=True, command="x", metrics={"loss": pts})) == "fail"
+
+
+# ---------------------------------------------------------------- visual
+def test_visual_uses_supplied_verdict():
+    c = {"id": "v", "type": "visual", "label": "plot shows wave", "prompt": "Is there a sine wave?"}
+    assert status(c, RunContext()) == "pending"
+    assert status(c, RunContext(visual={"v": {"pass": True, "detail": "yes"}})) == "pass"
+    assert status(c, RunContext(visual={"v": {"pass": False}})) == "fail"
+
+
+# ---------------------------------------------------------------- evaluate_step
+def test_evaluate_step_all_and_filtered(wd):
+    step = {"id": "s4", "checks": [
+        {"id": "c1", "type": "file_contains", "label": "residual", "file": "pinn_convection.py", "pattern": r"beta \* u_x"},
+        TREND,
+        {"id": "z", "type": "bogus", "label": "?"},
+    ]}
+    ctx = RunContext(workdir=str(wd), running=True, command="x", metrics={"loss": dropping_pinn_loss()})
+    res = evaluate_step(step, ctx)
+    assert [r["status"] for r in res] == ["pass", "pass", "fail"]
+    assert not step_passed(res)
+    only_files = evaluate_step(step, ctx, types={"file_exists", "file_contains"})
+    assert [r["checkId"] for r in only_files] == ["c1"]
+    assert step_passed(only_files)
+    assert not step_passed([])
+
+
+# ---------------------------------------------------------------- screen-first
+OBS = {
+    "t": 1.0, "app": "Code",
+    "windows": [
+        {"app": "Code", "title": "pinn_convection.py", "rect": {"x": 0, "y": 0, "w": 800, "h": 900}},
+        {"app": "Terminal", "title": "zsh", "rect": {"x": 800, "y": 0, "w": 640, "h": 900}},
+    ],
+    "blocks": [
+        {"text": "def pde_residual(u_t, u_x, beta):", "rect": {"x": 20, "y": 100, "w": 300, "h": 14}, "confidence": 0.95},
+        {"text": "    return u_t + beta * u_x", "rect": {"x": 20, "y": 116, "w": 300, "h": 14}, "confidence": 0.9},
+        {"text": "epoch 100 loss 0.2504", "rect": {"x": 820, "y": 100, "w": 200, "h": 14}, "confidence": 0.9},
+        {"text": "epoch 200 loss O.2501", "rect": {"x": 820, "y": 116, "w": 200, "h": 14}, "confidence": 0.9},
+        {"text": "ModuleNotFoundError: No module named 'torch'", "rect": [820, 132, 300, 14], "confidence": 0.9},
+        {"text": "garbled", "rect": [820, 148, 50, 14], "confidence": 0.1},
+    ],
+}
+
+
+def test_screen_contains_and_absent_with_app_scope():
+    sc = {"id": "s1", "type": "screen_contains", "label": "residual typed", "pattern": r"u_t\s*\+\s*beta\s*\*\s*u_x", "app": "code"}
+    assert status(sc, RunContext()) == "pending"  # no observation yet
+    assert evaluate_step({"checks": [sc]}, screen=OBS)[0]["status"] == "pass"
+    assert status({**sc, "app": "Terminal"}, RunContext(screen=OBS)) == "fail"  # it's in the editor, not the terminal
+    assert status({**sc, "app": "Safari"}, RunContext(screen=OBS, segment_done=False)) == "pending"  # app not on screen yet
+    ab = {"id": "s2", "type": "screen_absent", "label": "no import error", "pattern": "ModuleNotFoundError", "app": "Terminal"}
+    r = evaluate_check(ab, RunContext(screen=OBS))
+    assert r["status"] == "fail" and "ModuleNotFoundError" in r["detail"]
+    assert status({**ab, "pattern": "Traceback"}, RunContext(screen=OBS)) == "pass"
+    assert status({**sc, "pattern": "garbled", "app": None}, RunContext(screen=OBS)) == "fail"  # low-confidence block dropped
+
+
+def test_screen_per_app_dict_and_line_wrap():
+    screen = {"Terminal": ["Epoch 3: loss went", "down to 0.01"], "Code": "x = 1"}
+    c = {"id": "w", "type": "screen_contains", "label": "x", "pattern": r"loss went down", "app": "Terminal"}
+    assert status(c, RunContext(screen=screen)) == "pass"  # matched across an OCR line break
+
+
+def test_metric_pattern_reads_terminal_text():
+    pat = r"epoch\s+(?P<step>\d+).*?loss\s+(?P<value>[0-9.eEO+-]+)"
+    c = {"id": "m", "type": "metric_threshold", "label": "loss < 0.3", "metric": "loss", "metric_pattern": pat,
+         "op": "<", "value": 0.3, "app": "Terminal"}
+    r = evaluate_check(c, RunContext(screen=OBS))
+    assert r["status"] == "pass" and "step 200" in r["detail"]  # 'O.2501' OCR slip read as 0.2501
+    # ctx.metrics (E6/orchestrator accumulated history) wins over the visible lines
+    assert status(c, RunContext(screen=OBS, metrics={"loss": [(5000, 0.9)] * 5}, exit_code=0)) == "fail"
+
+
+def test_metric_pattern_trend_from_output_without_metric_name():
+    lines = [f"it {s} | loss {0.25 * 0.999 ** s:.5f}" for s in range(0, 3000, 50)]
+    c = {"id": "trend1", "type": "metric_trend", "label": "loss dropping", "trend": "not_flat", "window": 1500,
+         "metric_pattern": r"it (?P<step>\d+) \| loss (?P<value>\S+)"}
+    assert status(c, RunContext(output_tail=lines, running=True, command="x")) == "pass"
+    flat = [f"it {s} | loss {0.2504 - s * 1e-7:.5f}" for s in range(0, 3000, 50)]
+    assert status(c, RunContext(output_tail=flat, running=True, command="x")) == "fail"
+
+
+# ---------------------------------------------------------------- hidden apps: never pending forever
+NO_ERRORS = {"id": "s1c1", "type": "screen_absent", "label": "no errors so far", "app": "Terminal",
+             "pattern": r"Traceback|Error:"}
+OPEN_TERM = {"id": "s1c2", "type": "screen_contains", "label": "training started", "app": "Terminal",
+             "pattern": r"epoch \d+"}
+CODE_ONLY = {"Code": ["import torch", "model = Net()"]}  # Terminal closed / behind another app
+
+
+def test_absent_on_hidden_app_passes_after_segment():
+    r = evaluate_check(NO_ERRORS, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "pass" and "Terminal is not on screen" in r["detail"]
+    r = evaluate_check(NO_ERRORS, RunContext(screen=CODE_ONLY, segment_done=False))
+    assert r["status"] == "pending" and r["detail"] == "Terminal not open yet"
+    # orchestrator doesn't say (old wiring): treated as done, so it can never hang the step
+    assert status(NO_ERRORS, RunContext(screen=CODE_ONLY)) == "pass"
+    # no screen reading at all (t9 V1: no frame yet): nothing was looked at, so it never passes
+    assert status(NO_ERRORS, RunContext(segment_done=True)) == "pending"
+    assert status(NO_ERRORS, RunContext(segment_done=False)) == "pending"
+
+
+def test_absent_fails_only_when_the_pattern_is_seen():
+    shown = {"Terminal": ["Traceback (most recent call last):", "ValueError: shapes"]}
+    for seg in (False, True, None):
+        r = evaluate_check(NO_ERRORS, RunContext(screen=shown, segment_done=seg))
+        assert r["status"] == "fail" and "Traceback" in r["detail"]
+    clean = {"Terminal": ["$ python train.py", "epoch 1 loss 0.3"]}
+    assert status(NO_ERRORS, RunContext(screen=clean, segment_done=False)) == "pass"
+
+
+def test_contains_on_hidden_app_says_what_to_open():
+    r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=False))
+    assert r["status"] == "pending" and r["detail"] == "Open the Terminal so I can check it."
+    r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "fail" and r["detail"] == "Open the Terminal so I can check it."
+    r = evaluate_check(OPEN_TERM, RunContext(segment_done=True))  # no screen reader: not the learner's fault
+    assert r["status"] == "pending" and r["detail"] == "waiting for the screen"
+
+
+def test_hidden_absent_check_no_longer_blocks_the_step():
+    step = {"checks": [NO_ERRORS, {**OPEN_TERM, "app": "Code", "pattern": r"model = Net\(\)"}]}
+    g = evaluate_gate(step, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert g["passed"] and [r["status"] for r in g["checks"]] == ["pass", "pass"]
+    assert not evaluate_gate(step, RunContext(screen=CODE_ONLY, segment_done=False))["passed"]
+
+
+def test_screen_metric_on_hidden_app_says_what_to_open():
+    c = {"id": "m", "type": "metric_threshold", "label": "loss < 0.3", "metric": "loss", "app": "Terminal",
+         "metric_pattern": r"epoch (?P<step>\d+) loss (?P<value>\S+)", "op": "<", "value": 0.3}
+    r = evaluate_check(c, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "fail" and r["detail"] == "open Terminal so I can read loss"
+    assert status(c, RunContext(screen=CODE_ONLY, segment_done=False)) == "pending"
+    r = evaluate_check(c, RunContext(screen={"Terminal": ["$ python train.py"]}, segment_done=True))
+    assert r["status"] == "pending" and r["detail"] == "waiting for the run's loss lines in Terminal"  # visible: training may be starting
+    t = {**c, "type": "metric_trend", "trend": "decreasing", "window": 100}
+    assert status(t, RunContext(screen=CODE_ONLY, segment_done=True)) == "fail"
+    # a `tut run` still running: its metrics arrive over /ingest, so keep waiting
+    assert status(c, RunContext(screen=CODE_ONLY, segment_done=True, running=True, command="python t.py")) == "pending"
+
+
+# ---------------------------------------------------------------- precision_checks
+from server.checks import evaluate_gate  # noqa: E402
+
+PSTEP = {
+    "id": "s3",
+    "checks": [{"id": "s3c1", "type": "screen_contains", "label": "residual typed", "app": "Code",
+                "pattern": r"u_t\s*\+\s*beta\s*\*\s*u_x"}],
+    "precision_checks": [{"id": "s3p1", "type": "file_contains", "label": "residual in file",
+                          "file": "pinn_convection.py", "pattern": r"beta \* u_x"},
+                         {"id": "s3p2", "type": "command_exit_ok", "label": "script runs", "command": "python pinn_convection.py"}],
+}
+
+
+def test_which_selects_list(wd):
+    ctx = RunContext(workdir=str(wd))
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx)] == ["s3c1"]
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx, which="precision")] == ["s3p1", "s3p2"]
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx, which="all")] == ["s3c1", "s3p1", "s3p2"]
+    assert evaluate_step({"checks": []}, ctx, which="precision") == []
+    with pytest.raises(ValueError):
+        evaluate_step(PSTEP, ctx, which="bogus")
+
+
+def test_precision_failures_never_block_screen_mode(tmp_path):
+    ctx = RunContext(workdir=str(tmp_path))  # empty workdir: every precision check would fail
+    g = evaluate_gate(PSTEP, ctx, screen=OBS)
+    assert g["passed"] and g["via"] == "checks" and g["precision"] == []
+    g = evaluate_gate(PSTEP, ctx, screen=OBS, precision_mode=True)
+    assert g["passed"] and g["via"] == "checks"
+    assert [r["status"] for r in g["precision"]] == ["fail", "pending"]
+
+
+def test_precision_mode_is_an_extra_route_to_green(wd):
+    ctx = RunContext(workdir=str(wd), command="python pinn_convection.py", exit_code=0)
+    assert not evaluate_gate(PSTEP, ctx)["passed"]  # screen mode, no screen yet → pending
+    g = evaluate_gate(PSTEP, ctx, precision_mode=True)
+    assert g["passed"] and g["via"] == "precision"
+    assert not evaluate_gate({**PSTEP, "precision_checks": []}, ctx, precision_mode=True)["passed"]
+
+
+# ---------------------------------------------------------------- seed sweeps (QA audit)
+def _flat(seed, noise, every, n=4000, level=0.25):
+    rng = random.Random(seed)
+    return [(s, level * (1 + rng.gauss(0, noise))) for s in range(0, n + 1, every)]
+
+
+def _decay(seed, noise, every, n=4000):
+    """Loss still clearly improving: halves every ~700 steps (≈ 4x over a 1500-step window)."""
+    rng = random.Random(seed)
+    return [(s, (0.25 * math.exp(-s / 1000) + 1e-3) * (1 + rng.gauss(0, noise))) for s in range(0, n + 1, every)]
+
+
+def _sweep(trend, gen, noise, every, seeds=200):
+    c = {**TREND, "trend": trend}
+    return sum(evaluate_check(c, RunContext(running=True, command="x", metrics={"loss": gen(sd, noise, every)}))["status"] == "pass"
+               for sd in range(seeds))
+
+
+@pytest.mark.parametrize("trend", ["not_flat", "decreasing"])
+@pytest.mark.parametrize("noise", [0.03, 0.10, 0.20])
+@pytest.mark.parametrize("every", [10, 50])
+def test_noisy_flat_curves_rarely_pass(trend, noise, every):
+    # was 61/300 (not_flat) and 72/300 (decreasing) at 10% noise; Mann-Kendall p<0.01 gate → ≤ ~1%
+    assert _sweep(trend, _flat, noise, every) <= 4  # ≤ 2% of 200 seeds
+
+
+@pytest.mark.parametrize("trend", ["not_flat", "decreasing"])
+@pytest.mark.parametrize("noise", [0.03, 0.10])
+@pytest.mark.parametrize("every", [10, 50])
+def test_clearly_dropping_curves_pass(trend, noise, every):
+    assert _sweep(trend, _decay, noise, every) >= 196  # ≥ 98%
+
+
+def test_dense_plateau_with_tiny_drift_fails():
+    """Thousands of points make a 0.6% drift 'significant'; the effect-size gate still says plateau."""
+    rng = random.Random(7)
+    pts = [(s, (0.2504 - 0.0014 * s / 4000) * (1 + rng.gauss(0, 0.01))) for s in range(0, 4001)]
+    r = evaluate_check(TREND, RunContext(running=True, command="x", metrics={"loss": pts}))
+    assert r["status"] == "fail" and "plateau" in r["detail"]
+
+
+# ---------------------------------------------------------------- divergence (QA audit)
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), None])
+def test_divergence_fails_instead_of_grading_stale_values(bad):
+    good = [(s, 0.25 * math.exp(-s / 500)) for s in range(0, 3000, 50)]  # would pass both checks
+    diverged = good + [(3000, bad)]
+    thr = {"id": "c3", "type": "metric_threshold", "label": "loss small", "metric": "loss", "op": "<", "value": 0.01}
+    for c in (TREND, thr):
+        assert status(c, RunContext(running=True, command="x", metrics={"loss": good})) == "pass"
+        r = evaluate_check(c, RunContext(running=True, command="x", metrics={"loss": diverged}))
+        assert r["status"] == "fail" and "diverged" in r["detail"], r
+
+
+def test_divergence_from_screen_text():
+    c = {"id": "m", "type": "metric_trend", "label": "loss dropping", "trend": "not_flat", "window": 1000,
+         "metric_pattern": r"it (?P<step>\d+) loss (?P<value>\S+)"}
+    lines = [f"it {s} loss {0.25 * 0.99 ** (s / 10):.5f}" for s in range(0, 2000, 50)] + ["it 2000 loss nan"]
+    r = evaluate_check(c, RunContext(output_tail=lines, running=True, command="x"))
+    assert r["status"] == "fail" and "diverged" in r["detail"]

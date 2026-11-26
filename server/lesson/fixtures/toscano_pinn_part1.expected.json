@@ -1,0 +1,519 @@
+{
+  "_notes": "Hand-written expected graph for precision reports (screen-first contract). Step bounds = the video's chapter marks (chapter start -> next chapter start); the 0:00-2:23 theory intro is not a step. `checks` are graded from the screen; `precision_checks` target fixtures/diffusion_workdir/pinn_diffusion.py. `solution` = code a correct learner has after the step; `sample_output` = terminal lines the metric_pattern must parse.",
+  "lesson": {
+    "id": "expected-toscano-pinn-part1",
+    "title": "Learning Physics Informed Machine Learning Part 1 - PINNs",
+    "goal": "train a physics-informed neural network in PyTorch",
+    "workdir": "server/lesson/fixtures/diffusion_workdir",
+    "libraries": {
+      "torch": "1.x",
+      "numpy": "",
+      "matplotlib": "",
+      "pyDOE": "",
+      "scipy": ""
+    }
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Learning Physics Informed Machine Learning Part 1- Physics Informed Neural Networks (PINNs)",
+      "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+      "videoId": "AXXnSzmpyoI"
+    },
+    {
+      "id": "src2",
+      "kind": "repo",
+      "title": "NABLA-SciML / Learning-PIML-in-Python",
+      "url": "https://github.com/jdtoscano94/NABLA-SciML/tree/main/Learning-PIML-in-Python-PINNs-DeepONets-RBA"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Import libraries and seed",
+      "instructions": "Import torch, autograd, numpy and pyDOE's lhs, then fix the random seeds.",
+      "video": {
+        "sourceId": "src1",
+        "start": 143,
+        "end": 173
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "imports autograd",
+          "app": "Code",
+          "pattern": "torch\\.autograd|import\\s+autograd",
+          "id": "s1c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "seeds fixed",
+          "app": "Code",
+          "pattern": "manual_seed\\(",
+          "id": "s1c2"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "imports torch autograd",
+          "file": "pinn_diffusion.py",
+          "pattern": "import\\s+torch\\.autograd|from\\s+torch\\s+import\\s+autograd",
+          "id": "s1p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "seeds fixed",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch\\.manual_seed\\(",
+          "id": "s1p2"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "import torch",
+          "caption": "imports"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "import argparse\nimport time\n\nimport numpy as np\nimport torch\nimport torch.autograd as autograd\nimport torch.nn as nn\ntry:\n    from pyDOE import lhs  # Latin hypercube sampling (as in the video)\nexcept ImportError:  # pyDOE >= 1.6 renamed the module\n    from pydoe import lhs\n\ntorch.set_default_dtype(torch.float)\ntorch.manual_seed(1234)\nnp.random.seed(1234)\ndevice = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n\n\n"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Generate the exact solution",
+      "instructions": "Set the domain/grid parameters and evaluate the exact solution e^-t sin(pi x) on a meshgrid.",
+      "video": {
+        "sourceId": "src1",
+        "start": 173,
+        "end": 311
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "exact solution defined",
+          "app": "Code",
+          "pattern": "exp\\(\\s*-\\s*t\\s*\\)\\s*\\*\\s*torch\\.sin",
+          "id": "s2c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "meshgrid built",
+          "app": "Code",
+          "pattern": "meshgrid\\(",
+          "id": "s2c2"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "exact solution defined",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch\\.exp\\(\\s*-\\s*t\\s*\\)\\s*\\*\\s*torch\\.sin\\(\\s*np\\.pi\\s*\\*\\s*x",
+          "id": "s2p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "meshgrid built",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch\\.meshgrid\\(",
+          "id": "s2p2"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "def f_real",
+          "caption": "exact solution"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- tuning parameters -------------------------------------------------------\nap = argparse.ArgumentParser()\nap.add_argument(\"--steps\", type=int, default=20000)\nap.add_argument(\"--lr\", type=float, default=1e-3)\nargs = ap.parse_args()\nsteps, lr = args.steps, args.lr\nlayers = np.array([2, 32, 32, 1])\nx_min, x_max, t_min, t_max = -1, 1, 0, 1\ntotal_points_x, total_points_t = 200, 100\nNu, Nf = 100, 10000\n\n\ndef f_real(x, t):\n    return torch.exp(-t) * torch.sin(np.pi * x)\n\n\n# --- data generation -----------------------------------------------------------\nx = torch.linspace(x_min, x_max, total_points_x).view(-1, 1)\nt = torch.linspace(t_min, t_max, total_points_t).view(-1, 1)\nX, T = torch.meshgrid(x.squeeze(1), t.squeeze(1), indexing=\"ij\")\ny_real = f_real(X, T)\n\n"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Flatten the test grid",
+      "instructions": "Flatten the (x, t) mesh into a 2-column test set and record the domain bounds lb, ub.",
+      "video": {
+        "sourceId": "src1",
+        "start": 311,
+        "end": 446
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "test set stacked",
+          "app": "Code",
+          "pattern": "x_test\\s*=\\s*torch\\.hstack",
+          "id": "s3c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "bounds recorded",
+          "app": "Code",
+          "pattern": "lb\\s*,\\s*ub\\s*=|ub\\s*=\\s*x_test\\[",
+          "id": "s3c2"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "test set stacked",
+          "file": "pinn_diffusion.py",
+          "pattern": "x_test\\s*=\\s*torch\\.hstack\\(",
+          "id": "s3p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "bounds recorded",
+          "file": "pinn_diffusion.py",
+          "pattern": "lb\\s*,\\s*ub\\s*=|ub\\s*=\\s*x_test\\[-1\\]",
+          "id": "s3p2"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "x_test = torch.hstack",
+          "caption": "test set"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- data preparation ----------------------------------------------------------\nx_test = torch.hstack((X.transpose(1, 0).flatten()[:, None], T.transpose(1, 0).flatten()[:, None]))\ny_test = y_real.transpose(1, 0).flatten()[:, None]\nlb, ub = x_test[0], x_test[-1]\n\n"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Build IC and BC points",
+      "instructions": "Build initial-condition points (t=0, y=sin(pi x)) and boundary points (x=\u00b11, y=0), then sample Nu of them.",
+      "video": {
+        "sourceId": "src1",
+        "start": 446,
+        "end": 772
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "initial condition sin(pi x)",
+          "app": "Code",
+          "pattern": "sin\\(\\s*np\\.pi\\s*\\*\\s*left_X",
+          "id": "s4c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "boundary values zero",
+          "app": "Code",
+          "pattern": "zeros\\(\\s*(bottom|top)_X",
+          "id": "s4c2"
+        },
+        {
+          "type": "screen_contains",
+          "label": "sample Nu points",
+          "app": "Code",
+          "pattern": "random\\.choice\\(",
+          "id": "s4c3"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "initial condition sin(pi x)",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch\\.sin\\(\\s*np\\.pi\\s*\\*\\s*left_X",
+          "id": "s4p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "boundary values zero",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch\\.zeros\\(\\s*(bottom|top)_X",
+          "id": "s4p2"
+        },
+        {
+          "type": "file_contains",
+          "label": "sample Nu points",
+          "file": "pinn_diffusion.py",
+          "pattern": "np\\.random\\.choice\\(",
+          "id": "s4p3"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "left_X =",
+          "caption": "initial condition"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- training data: initial + boundary conditions -----------------------------\nleft_X = torch.hstack((X[:, 0][:, None], T[:, 0][:, None]))  # t = 0\nleft_Y = torch.sin(np.pi * left_X[:, 0]).unsqueeze(1)\nbottom_X = torch.hstack((X[0, :][:, None], T[0, :][:, None]))  # x = -1\nbottom_Y = torch.zeros(bottom_X.shape[0], 1)\ntop_X = torch.hstack((X[-1, :][:, None], T[-1, :][:, None]))  # x = 1\ntop_Y = torch.zeros(top_X.shape[0], 1)\nX_train = torch.vstack([left_X, bottom_X, top_X])\nY_train = torch.vstack([left_Y, bottom_Y, top_Y])\nidx = np.random.choice(X_train.shape[0], Nu, replace=False)\nX_train_Nu, Y_train_Nu = X_train[idx, :], Y_train[idx, :]\n\n"
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Sample collocation points",
+      "instructions": "Sample Nf collocation points inside the domain with Latin hypercube sampling and add the boundary points.",
+      "video": {
+        "sourceId": "src1",
+        "start": 772,
+        "end": 902
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "LHS collocation points",
+          "app": "Code",
+          "pattern": "lhs\\(\\s*2\\s*,\\s*Nf",
+          "id": "s5c1"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "LHS collocation points",
+          "file": "pinn_diffusion.py",
+          "pattern": "lhs\\(\\s*2\\s*,\\s*Nf\\s*\\)",
+          "id": "s5p1"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "X_train_Nf = lb",
+          "caption": "collocation points"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- collocation points ------------------------------------------------------\nX_train_Nf = lb + (ub - lb) * torch.from_numpy(lhs(2, Nf)).float()\nX_train_Nf = torch.vstack((X_train_Nf, X_train_Nu))\n\n\n"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Code the PINN",
+      "instructions": "Write the FCN network (tanh MLP, Xavier init) with lossBC, lossPDE (autograd residual f_t - f_xx + source) and total loss.",
+      "video": {
+        "sourceId": "src1",
+        "start": 902,
+        "end": 1096
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "MLP of Linear layers",
+          "app": "Code",
+          "pattern": "nn\\.Linear\\(",
+          "id": "s6c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "autograd with create_graph",
+          "app": "Code",
+          "pattern": "create_graph\\s*=\\s*True",
+          "id": "s6c2"
+        },
+        {
+          "type": "screen_contains",
+          "label": "residual f_t - f_xx",
+          "app": "Code",
+          "pattern": "f_t\\s*-\\s*f_xx",
+          "id": "s6c3"
+        },
+        {
+          "type": "screen_absent",
+          "label": "no traceback",
+          "app": "Terminal",
+          "pattern": "Traceback|Error:",
+          "id": "s6c4"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "MLP of Linear layers",
+          "file": "pinn_diffusion.py",
+          "pattern": "nn\\.ModuleList\\(|nn\\.Linear\\(",
+          "id": "s6p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "autograd with create_graph",
+          "file": "pinn_diffusion.py",
+          "pattern": "autograd\\.grad\\(.*create_graph\\s*=\\s*True",
+          "id": "s6p2"
+        },
+        {
+          "type": "file_contains",
+          "label": "residual f_t - f_xx",
+          "file": "pinn_diffusion.py",
+          "pattern": "f_t\\s*-\\s*f_xx",
+          "id": "s6p3"
+        },
+        {
+          "type": "command_exit_ok",
+          "label": "script runs",
+          "command": "python pinn_diffusion.py --steps 1",
+          "id": "s6p4"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "def lossPDE",
+          "caption": "PDE residual"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- the PINN ------------------------------------------------------------------\nclass FCN(nn.Module):\n    def __init__(self, layers):\n        super().__init__()\n        self.activation = nn.Tanh()\n        self.loss_function = nn.MSELoss(reduction=\"mean\")\n        self.linears = nn.ModuleList([nn.Linear(layers[i], layers[i + 1]) for i in range(len(layers) - 1)])\n        for lin in self.linears:\n            nn.init.xavier_normal_(lin.weight.data, gain=1.0)\n            nn.init.zeros_(lin.bias.data)\n\n    def forward(self, x):\n        a = x.float()\n        for lin in self.linears[:-1]:\n            a = self.activation(lin(a))\n        return self.linears[-1](a)\n\n    def lossBC(self, x_BC, y_BC):\n        return self.loss_function(self.forward(x_BC), y_BC)\n\n    def lossPDE(self, x_PDE):\n        g = x_PDE.clone()\n        g.requires_grad = True\n        f = self.forward(g)\n        f_x_t = autograd.grad(f, g, torch.ones([g.shape[0], 1]).to(device), retain_graph=True, create_graph=True)[0]\n        f_xx_tt = autograd.grad(f_x_t, g, torch.ones(g.shape).to(device), create_graph=True)[0]\n        f_t = f_x_t[:, [1]]\n        f_xx = f_xx_tt[:, [0]]\n        f = f_t - f_xx + torch.exp(-g[:, 1:]) * (torch.sin(np.pi * g[:, 0:1]) - np.pi**2 * torch.sin(np.pi * g[:, 0:1]))\n        return self.loss_function(f, torch.zeros_like(f))\n\n    def loss(self, x_BC, y_BC, x_PDE):\n        return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE)\n\n\n"
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Train the PINN",
+      "instructions": "Train with Adam, logging the loss; the loss should fall below 1e-2.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1096,
+        "end": 1414
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Adam optimizer",
+          "app": "Code",
+          "pattern": "optim\\.Adam\\(",
+          "id": "s7c1"
+        },
+        {
+          "type": "metric_trend",
+          "label": "loss decreasing",
+          "metric": "loss",
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)",
+          "trend": "decreasing",
+          "window": 500,
+          "id": "s7c2"
+        },
+        {
+          "type": "metric_threshold",
+          "label": "loss < 1e-2",
+          "metric": "loss",
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)",
+          "op": "<",
+          "value": 0.01,
+          "by_step": 2000,
+          "id": "s7c3"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "Adam optimizer",
+          "file": "pinn_diffusion.py",
+          "pattern": "optim\\.Adam\\(",
+          "id": "s7p1"
+        },
+        {
+          "type": "file_contains",
+          "label": "backprop step",
+          "file": "pinn_diffusion.py",
+          "pattern": "loss\\.backward\\(\\)",
+          "id": "s7p2"
+        },
+        {
+          "type": "metric_threshold",
+          "label": "loss < 1e-2",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.01,
+          "by_step": 2000,
+          "id": "s7p3"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "for i in range(steps)",
+          "caption": "training loop"
+        },
+        {
+          "app": "Terminal",
+          "file": "pinn_diffusion.py",
+          "match": "loss",
+          "caption": "training loss"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- training data: initial + boundary conditions -----------------------------\nleft_X = torch.hstack((X[:, 0][:, None], T[:, 0][:, None]))  # t = 0\nleft_Y = torch.sin(np.pi * left_X[:, 0]).unsqueeze(1)\nbottom_X = torch.hstack((X[0, :][:, None], T[0, :][:, None]))  # x = -1\nbottom_Y = torch.zeros(bottom_X.shape[0], 1)\ntop_X = torch.hstack((X[-1, :][:, None], T[-1, :][:, None]))  # x = 1\ntop_Y = torch.zeros(top_X.shape[0], 1)\nX_train = torch.vstack([left_X, bottom_X, top_X])\nY_train = torch.vstack([left_Y, bottom_Y, top_Y])\nidx = np.random.choice(X_train.shape[0], Nu, replace=False)\nX_train_Nu, Y_train_Nu = X_train[idx, :], Y_train[idx, :]\n\n# --- collocation points ------------------------------------------------------\nX_train_Nf = lb + (ub - lb) * torch.from_numpy(lhs(2, Nf)).float()\nX_train_Nf = torch.vstack((X_train_Nf, X_train_Nu))\n\n\n# --- the PINN ------------------------------------------------------------------\nclass FCN(nn.Module):\n    def __init__(self, layers):\n        super().__init__()\n        self.activation = nn.Tanh()\n        self.loss_function = nn.MSELoss(reduction=\"mean\")\n        self.linears = nn.ModuleList([nn.Linear(layers[i], layers[i + 1]) for i in range(len(layers) - 1)])\n        for lin in self.linears:\n            nn.init.xavier_normal_(lin.weight.data, gain=1.0)\n            nn.init.zeros_(lin.bias.data)\n\n    def forward(self, x):\n        a = x.float()\n        for lin in self.linears[:-1]:\n            a = self.activation(lin(a))\n        return self.linears[-1](a)\n\n    def lossBC(self, x_BC, y_BC):\n        return self.loss_function(self.forward(x_BC), y_BC)\n\n    def lossPDE(self, x_PDE):\n        g = x_PDE.clone()\n        g.requires_grad = True\n        f = self.forward(g)\n        f_x_t = autograd.grad(f, g, torch.ones([g.shape[0], 1]).to(device), retain_graph=True, create_graph=True)[0]\n        f_xx_tt = autograd.grad(f_x_t, g, torch.ones(g.shape).to(device), create_graph=True)[0]\n        f_t = f_x_t[:, [1]]\n        f_xx = f_xx_tt[:, [0]]\n        f = f_t - f_xx + torch.exp(-g[:, 1:]) * (torch.sin(np.pi * g[:, 0:1]) - np.pi**2 * torch.sin(np.pi * g[:, 0:1]))\n        return self.loss_function(f, torch.zeros_like(f))\n\n    def loss(self, x_BC, y_BC, x_PDE):\n        return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE)\n\n\n# --- training ------------------------------------------------------------------\nX_train_Nu, Y_train_Nu, X_train_Nf = X_train_Nu.to(device), Y_train_Nu.to(device), X_train_Nf.to(device)\nX_test, Y_test = x_test.to(device), y_test.to(device)\nPINN = FCN(layers).to(device)\noptimizer = torch.optim.Adam(PINN.parameters(), lr=lr, amsgrad=False)\nstart_time = time.time()\nfor i in range(steps):\n    loss = PINN.loss(X_train_Nu, Y_train_Nu, X_train_Nf)\n    optimizer.zero_grad()\n    loss.backward()\n    optimizer.step()\n    if i % max(1, steps // 100) == 0 or i == steps - 1:\n        with torch.no_grad():\n            test_loss = PINN.lossBC(X_test, Y_test)\n        log_metric(i, \"loss\", loss.item())\n        log_metric(i, \"test_loss\", test_loss.item())\nprint(f\"trained {steps} steps in {time.time() - start_time:.1f}s\")\n\n",
+      "sample_output": "::metric:: {\"step\": 0, \"name\": \"loss\", \"value\": 18.11347770690918}\n::metric:: {\"step\": 0, \"name\": \"test_loss\", \"value\": 0.4171}\n::metric:: {\"step\": 800, \"name\": \"loss\", \"value\": 0.018362239003181458}\n::metric:: {\"step\": 1999, \"name\": \"loss\", \"value\": 0.0030632733833044767}\ntrained 2000 steps in 29.8s"
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Plot the results",
+      "instructions": "Plot the PINN prediction next to the exact solution.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1414,
+        "end": 1460
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "contour plot",
+          "app": "Code",
+          "pattern": "contourf\\(",
+          "id": "s8c1"
+        },
+        {
+          "type": "screen_absent",
+          "label": "no traceback",
+          "app": "Terminal",
+          "pattern": "Traceback|Error:",
+          "id": "s8c2"
+        }
+      ],
+      "precision_checks": [
+        {
+          "type": "file_contains",
+          "label": "contour plot",
+          "file": "pinn_diffusion.py",
+          "pattern": "contourf\\(",
+          "id": "s8p1"
+        },
+        {
+          "type": "file_exists",
+          "label": "results figure saved",
+          "file": "results.png",
+          "id": "s8p2"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "contourf",
+          "caption": "results plot"
+        }
+      ],
+      "hints": [],
+      "common_mistakes": [],
+      "solution": "# --- results -------------------------------------------------------------------\nif steps >= 1000:\n    import matplotlib.pyplot as plt\n\n    y1 = PINN(X_test).detach().cpu().reshape(100, 200).T\n    fig, ax = plt.subplots(1, 2, figsize=(10, 4))\n    ax[0].contourf(T, X, y1, 20, cmap=\"rainbow\")\n    ax[0].set_title(\"PINN\")\n    ax[1].contourf(T, X, y_real, 20, cmap=\"rainbow\")\n    ax[1].set_title(\"exact\")\n    plt.savefig(\"results.png\")\n"
+    }
+  ]
+}

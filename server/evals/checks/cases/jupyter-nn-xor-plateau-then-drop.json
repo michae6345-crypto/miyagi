@@ -1,0 +1,99 @@
+{
+ "id": "jupyter-nn-xor-plateau-then-drop",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Neural networks plan, 'Train a tiny network on XOR' (outputs round to 0, 1, 1, 0 after training). Done, the way XOR usually trains: the loss sits at 0.2500 (every output near 0.5) for the first 5000 epochs, then the hidden layer breaks symmetry and it drops to 0.0051 by epoch 9000. Half the printed points are flat, but the loss ends 50 times lower than it began and the outputs print [[0.] [1.] [1.] [0.]].",
+ "step": {
+  "id": "nn9s5",
+  "title": "Train the network on XOR",
+  "instructions": "In xor.ipynb, run 10000 epochs of forward, loss, backward and update with lr = 0.5. Print 'epoch N loss L' every 1000 epochs, then print forward(X).round(). The loss should fall and the four outputs should round to 0, 1, 1, 0.",
+  "file": "xor.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "xor.ipynb",
+    "match": "g = backward(X, y, out)",
+    "caption": "Forward, loss, backward, update"
+   }
+  ],
+  "code": "lr = 0.5\nfor epoch in range(10000):\n    out = forward(X)\n    loss = mse(out, y)\n    g = backward(X, y, out)\n    W1 -= lr * g['W1']; b1 -= lr * g['b1']\n    W2 -= lr * g['W2']; b2 -= lr * g['b2']\n    if epoch % 1000 == 0:\n        print(f'epoch {epoch} loss {loss:.4f}')\n\nprint(forward(X).round())",
+  "checks": [
+   {
+    "id": "nn9s5c1",
+    "type": "metric_trend",
+    "label": "The printed loss falls",
+    "metric": "loss",
+    "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
+    "trend": "decreasing",
+    "window": 10000
+   },
+   {
+    "id": "nn9s5c2",
+    "type": "screen_contains",
+    "label": "Outputs round to 0, 1, 1, 0",
+    "app": "Code",
+    "output": true,
+    "pattern": "\\[\\[0\\.\\]\\s*\\[1\\.\\]\\s*\\[1\\.\\]\\s*\\[0\\.\\]\\]"
+   },
+   {
+    "id": "nn9s5c3",
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "xor.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\n\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([[0], [1], [1], [0]])\n\nrng = np.random.default_rng(1)\nW1 = rng.normal(size=(2, 4))\nb1 = np.zeros((1, 4))\nW2 = rng.normal(size=(4, 1))\nb2 = np.zeros((1, 1))",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "def sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef forward(X):\n    global h\n    h = np.tanh(X @ W1 + b1)\n    return sigmoid(h @ W2 + b2)\n\ndef mse(out, y):\n    return np.mean((out - y) ** 2)\n\ndef backward(X, y, out):\n    d2 = 2 * (out - y) / len(X) * out * (1 - out)\n    d1 = d2 @ W2.T * (1 - h ** 2)\n    return {'W1': X.T @ d1, 'b1': d1.sum(0, keepdims=True), 'W2': h.T @ d2, 'b2': d2.sum(0, keepdims=True)}",
+       "run": true,
+       "count": 2
+      },
+      {
+       "source": "lr = 0.5\nfor epoch in range(10000):\n    out = forward(X)\n    loss = mse(out, y)\n    g = backward(X, y, out)\n    W1 -= lr * g['W1']; b1 -= lr * g['b1']\n    W2 -= lr * g['W2']; b2 -= lr * g['b2']\n    if epoch % 1000 == 0:\n        print(f'epoch {epoch} loss {loss:.4f}')\n\nprint(forward(X).round())",
+       "stdout": "epoch 0 loss 0.2513\nepoch 1000 loss 0.2500\nepoch 2000 loss 0.2500\nepoch 3000 loss 0.2499\nepoch 4000 loss 0.2497\nepoch 5000 loss 0.2481\nepoch 6000 loss 0.1982\nepoch 7000 loss 0.0614\nepoch 8000 loss 0.0123\nepoch 9000 loss 0.0051\n[[0.]\n [1.]\n [1.]\n [0.]]\n",
+       "count": 3
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "xor.ipynb",
+    "[3]",
+    "lr = 0.5",
+    "for epoch in range(10000):",
+    "out = forward(X)",
+    "loss = mse(out, y)",
+    "g = backward(X, y, out)",
+    "epoch 0 loss 0.2513",
+    "epoch 1000 loss 0.2500",
+    "epoch 2000 loss 0.2500",
+    "epoch 3000 loss 0.2499",
+    "epoch 4000 loss 0.2497",
+    "epoch 5000 loss 0.2481",
+    "epoch 6000 loss 0.1982",
+    "epoch 7000 loss 0.0614",
+    "epoch 8000 loss 0.0123",
+    "epoch 9000 loss 0.0051",
+    "[[0.]",
+    "[1.]",
+    "[1.]",
+    "[0.]]"
+   ]
+  }
+ }
+}

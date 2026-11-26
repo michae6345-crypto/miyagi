@@ -1,0 +1,50 @@
+{
+ "id": "jupyter-mnist-s2-normalize-cell-rerun",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "MNIST s2 (import, load MNIST, divide both arrays by 255). The learner split the step into a load cell ([1]) and a normalise cell, and ran the normalise cell three times ([2], [3], [4]) without re-running the load: each run divides the already-divided arrays again. Its own print shows the max pixel is 1.53787e-05 (1/255^3) instead of 1.0. The code on screen is exactly the step's and there is no error, but the data in the kernel is wrong and training on it will crawl. Re-run the load cell, then the normalise cell once.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s2"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import tensorflow as tf\nfrom tensorflow.keras import layers, models\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "train_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255\nprint(train_images.max(), test_images.max())",
+       "stdout": "1.53787e-05 1.53787e-05\n",
+       "count": 4
+      }
+     ],
+     "kernel": ".venv (3.12.16)",
+     "kernel_version": "3.12.16"
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[1]",
+    "import tensorflow as tf",
+    "from tensorflow.keras import layers, models",
+    "import matplotlib.pyplot as plt",
+    "import numpy as np",
+    "(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()",
+    "[4]",
+    "train_images = train_images.astype('float32') / 255",
+    "test_images = test_images.astype('float32') / 255",
+    "print(train_images.max(), test_images.max())",
+    "1.53787e-05 1.53787e-05"
+   ]
+  }
+ }
+}

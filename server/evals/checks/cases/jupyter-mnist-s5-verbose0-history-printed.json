@@ -1,0 +1,46 @@
+{
+ "id": "jupyter-mnist-s5-verbose0-history-printed",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": false,
+ "expected": "pass",
+ "why": "MNIST s5. The learner found the progress bars noisy and passed verbose=0 to fit, then printed the last epoch's training accuracy from the history: 0.9858000040054321. There are no 'accuracy: ...' epoch lines, but the number printed is the same final training accuracy, above 0.95, from a fit of 5 epochs with no error. Done.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s5"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 3,
+     "counts": [
+      1,
+      2,
+      3
+     ],
+     "append": [
+      {
+       "source": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(train_images, train_labels, epochs=5, verbose=0)\nprint(history.history['accuracy'][-1])",
+       "stdout": "0.9858000040054321\n",
+       "count": 4
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "[4]",
+    "model.compile(optimizer='adam',",
+    "loss='sparse_categorical_crossentropy',",
+    "metrics=['accuracy'])",
+    "history = model.fit(train_images, train_labels, epochs=5, verbose=0)",
+    "print(history.history['accuracy'][-1])",
+    "0.9858000040054321"
+   ]
+  }
+ }
+}

@@ -1,0 +1,143 @@
+{
+ "id": "fusion-cable-hole-extrude-cut-one-wall",
+ "kind": "cad",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done but odd: Intro to Fusion lesson 7 (\"An 8 mm hole goes through one short wall of the box\"). The learner did not use the Hole command: they sketched an 8 mm circle centred on the outside of the +X short wall (50 mm wide) and Extrude-cut it 2 mm, the wall's thickness. The body now has one 8 mm through hole along X in that wall and the opposite wall is intact (walls_cut 1). There is no Hole feature in the timeline, but the cable hole is there, the right size and in the right wall.",
+ "step": {
+  "id": "s3",
+  "index": 3,
+  "title": "Place the cable hole",
+  "file": "box.design.json",
+  "instructions": "Click Hole and pick the outside face of one short wall (a 50 mm wide end of the box). Center it on that wall, set the diameter to 8 mm and the extent to the wall's 2 mm, then OK.",
+  "checks": [
+   {
+    "id": "s3c1",
+    "type": "file_contains",
+    "label": "Hole feature added",
+    "file": "box.design.json",
+    "pattern": "\"type\":\\s*\"Hole\""
+   },
+   {
+    "id": "s3c2",
+    "type": "file_contains",
+    "label": "8 mm across",
+    "file": "box.design.json",
+    "pattern": "\"diameter\":\\s*8(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Base",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          30.0
+         ],
+         "volume": 27811.4,
+         "solid": true,
+         "open_faces": 1,
+         "through_holes": [
+          {
+           "diameter": 8.0,
+           "axis": [
+            1.0,
+            0.0,
+            0.0
+           ],
+           "center": [
+            40.0,
+            0.0,
+            15.0
+           ],
+           "walls_cut": 1
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 6,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       },
+       {
+        "name": "Sketch2",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude2",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch2",
+       "type": "Sketch",
+       "plane": "Body1 face (normal 1, 0, 0)",
+       "profiles": 1,
+       "fully_constrained": true,
+       "curves": [
+        {
+         "type": "circle",
+         "center": [
+          0.0,
+          15.0
+         ],
+         "diameter": 8.0
+        }
+       ]
+      },
+      {
+       "name": "Extrude2",
+       "type": "Extrude",
+       "operation": "Cut",
+       "profile": "Sketch2",
+       "extent": "one_side",
+       "distance": 2.0,
+       "direction": [
+        -1.0,
+        0.0,
+        0.0
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

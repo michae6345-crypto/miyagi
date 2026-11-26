@@ -1,0 +1,138 @@
+{
+ "id": "freecad-enclosure-thickness-outward",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: CAD for 3D printing lesson 7 (\"The base body is 60 by 40 by 20 mm outside with 2 mm walls and a 2 mm floor\"). The learner unticked Make thickness inwards (Reversed false), so the 2 mm walls grew outward: the cavity is the 60 x 40 x 20 block and the outside is 64 x 44 x 22. The sketch says 60 and 40, the pad 20 and the Thickness 2, while the shape's bound box shows the enclosure is 4 mm too big each way.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Hollow the base",
+  "file": "enclosure.FCStd",
+  "instructions": "Select the top face of the 60 x 40 x 20 block and click Thickness. Set Thickness to 2 mm and keep Make thickness inwards ticked so the outside stays 60 x 40 x 20. OK, then save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Thickness added",
+    "file": "enclosure.scene.json",
+    "pattern": "\"type\":\\s*\"PartDesign::Thickness\""
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "2 mm walls and floor",
+    "file": "enclosure.scene.json",
+    "pattern": "\"Value\":\\s*2(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_contains",
+    "label": "60 mm long outside",
+    "file": "enclosure.scene.json",
+    "pattern": "\"value\":\\s*60(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c4",
+    "type": "file_contains",
+    "label": "20 mm tall",
+    "file": "enclosure.scene.json",
+    "pattern": "\"Length\":\\s*20(?:\\.0+)?\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "enclosure.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "enclosure.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "enclosure.FCStd",
+     "bodies": [
+      {
+       "name": "Base",
+       "tip": "Thickness",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 60.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Symmetric"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 20.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Thickness",
+         "type": "PartDesign::Thickness",
+         "base": "Pad",
+         "faces": [
+          "Face6"
+         ],
+         "Value": 2.0,
+         "Reversed": false,
+         "Mode": "Skin",
+         "Join": "Arc",
+         "valid": true
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 14000.0,
+        "bound_box": [
+         64.0,
+         44.0,
+         22.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": []
+    }
+   }
+  }
+ }
+}

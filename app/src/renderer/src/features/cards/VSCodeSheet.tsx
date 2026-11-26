@@ -108,7 +108,7 @@ function SheetClose({ skip }: { skip: boolean }): ReactNode {
   if (!skip) return <CloseButton />
   return (
     <button
-      className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+      className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
       style={{ background: fill.key }}
       onClick={() => cardAct('skip_setup')}
       aria-label="Skip setup"

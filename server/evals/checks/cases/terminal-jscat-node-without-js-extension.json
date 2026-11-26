@@ -1,0 +1,55 @@
+{
+ "id": "terminal-jscat-node-without-js-extension",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "heldOut": true,
+ "why": "Intro to JavaScript plan (docs/ui-next/catalog/plans/intro-javascript.json), 'Run your first JavaScript file' (passes: hello.js runs and prints both lines). The learner ran `node hello`; Node resolves a bare path to hello.js, so this is the same script. Both lines printed and it exited 0.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Run hello.js",
+  "instructions": "Open VS Code's terminal and run the file with node hello.js. Both lines should print.",
+  "run_command": "node hello.js",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "node hello.js",
+    "caption": "Run the file"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "output_contains",
+    "label": "First line printed",
+    "pattern": "Hello from JavaScript!"
+   },
+   {
+    "id": "s4c2",
+    "type": "output_contains",
+    "label": "Second line printed",
+    "pattern": "learning\\s+to\\s+code"
+   },
+   {
+    "id": "s4c3",
+    "type": "command_exit_ok",
+    "label": "hello.js runs without errors",
+    "command": "node hello.js"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hello.js": "console.log(\"Hello from JavaScript!\");\nconsole.log(\"I am learning to code.\");\n"
+  },
+  "run": {
+   "command": "node hello",
+   "exit_code": 0,
+   "output_tail": [
+    "Hello from JavaScript!",
+    "I am learning to code."
+   ]
+  }
+ }
+}

@@ -1,0 +1,21 @@
+{
+ "id": "terminal-git-s1-alias-typed-not-run",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "user.name and user.email were set (each row is followed by a new prompt), but `git config --global alias.i init` is still sitting at the prompt: Enter was never pressed, so the alias does not exist.",
+ "step": {
+  "lesson": "demo/cache/lessons/8b6203eb5ec8c6f6.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {},
+  "screen": {
+   "Terminal": [
+    "tripi@mac ~ % git config --global user.name \"Ada Learner\"",
+    "tripi@mac ~ % git config --global user.email ada@example.com",
+    "tripi@mac ~ % git config --global alias.i init"
+   ]
+  }
+ }
+}

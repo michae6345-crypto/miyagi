@@ -15,7 +15,7 @@
  *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
- *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
+ *  - App text in Bricolage Grotesque (bundled, styles.css @font-face; Michael's call, Nov 24), system font as fallback. No Inter.
  */
 /**
  * Motion tokens (the springs, fades, beat, press and stagger) live in core/ui/motionTokens.ts (helpers beside them in core/ui/motion.ts), the single source of truth
@@ -63,18 +63,12 @@ export const hud = {
    * The notch black: the island, its cards and the pill-to-sheet morphs. Pure #000 because that is what the notch's
    * hardware is (the display is off there), so the pill fuses with it. Opaque, never translucent or vibrant (nothing
    * of the desktop may show through), and the same in the light and dark app themes: the island pins data-theme="dark".
-   * Relation to the app's dark windows: the windows are system gray rgb(28,28,30), a deliberate step lighter, one
-   * notch up (raised rgb(37,37,39), sheet rgb(44,44,46)). So black = the island and nothing else; every window, panel
-   * and sheet is gray, never #000, and no surface inside the island may paint a gray fill (use white alphas on it).
+   * Relation to the app's dark windows: they are one warm-neutral ramp a few steps above black (layout lane, Nov 22:
+   * chrome #141413, content #1B1B1A, card #222221, popover #2C2B2A; R−B ≤ 1 so nothing reads blue or brown). So black =
+   * the island and nothing else; every window, panel and sheet is gray, never #000, and no surface inside the island
+   * may paint a gray fill (use white alphas on it).
    */
   notch: '#000000',
-  /**
-   * The open notch panel's glow: black at the notch, deep green at the bottom (Michael, Nov 22: Clicky does a blue that
-   * fades into black; ours is green). A try-out: tune or drop it here only.
-   */
-  // Nov 22, round 2: the brand mint (pastel.mint #BFE6DA) as a soft glow rising from the bottom edge, so it fits the
-  // app's pastels and melts into the black instead of banding.
-  notchGlow: 'radial-gradient(130% 100% at 50% 130%, rgba(150,228,200,.62) 0%, rgba(150,228,200,.26) 42%, rgba(0,0,0,0) 80%)',
   dark: { glass: 'rgba(28,28,30,0.72)', text: '#F4F4F5', muted: 'rgba(255,255,255,0.6)', hairline: 'rgba(255,255,255,0.12)', button: '#F4F4F5', buttonText: '#141414' },
   light: { glass: 'rgba(255,255,255,0.78)', text: '#141414', muted: 'rgba(0,0,0,0.55)', hairline: 'rgba(0,0,0,0.10)', button: '#141414', buttonText: '#F6F6F3' }
 } as const
@@ -93,12 +87,19 @@ function alphaHex(hex: string, a: number): string {
  * ink at low alpha. Not an inversion: shadows are warm and wide, highlights are white edges, and the greens are deeper.
  */
 const INK = '20,20,20'
+/** Text in the app windows' dark theme (the island's pinned scope keeps `hud.dark`; see themeCss). */
+const APP_DARK = { text: '#ECEBE8', label: '#A3A29E' } as const
 const SHADOW = '24,22,16'
 const palette: Record<string, readonly [string, string]> = {
   // ---- text and status ----
-  'c-text': [hud.dark.text, brand.ink],
-  'c-label': [hud.dark.muted, `rgba(${INK},.68)`],
-  'c-faint': ['rgba(255,255,255,.42)', `rgba(${INK},.6)`],
+  // The app windows' own text pair (layout lane, Nov 22): dark #ECEBE8 / #A3A29E, light the website's ink and muted.
+  // The island keeps hud.dark.text / hud.dark.muted: themeCss() pins those two back inside [data-theme="dark"].
+  'c-text': [APP_DARK.text, brand.ink],
+  'c-label': [APP_DARK.label, brand.inkMuted],
+  // Dark faint is a solid warm gray (layout lane, Nov 22): white .42 was about 4.1:1 on the #1B1B1A pane and 3.8:1 on
+  // #222221 cards, under 4.5:1 for the 12 px meta (durations, step counts); #858480 is about 4.8:1 on the pane.
+  // Light faint: the website's #8F8F88 is 3.0:1 on the cream pane, so the app uses #6F6F68 (4.7:1 on #F6F6F3, test/lightContrast.test.ts).
+  'c-faint': ['#858480', '#6F6F68'],
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
@@ -112,17 +113,46 @@ const palette: Record<string, readonly [string, string]> = {
   'c-green-text': [brand.pass, '#187A37'],
   'c-green-tint': [brand.passTint, 'rgba(31,155,69,.12)'],
   'c-on-green': [brand.ink, brand.ink],
-  'c-glass': ['rgb(28,28,30)', 'rgb(252,251,249)'],
-  'c-window': ['rgb(28,28,30)', 'rgb(243,242,238)'],
+  // Glass (launcher, lesson panel, account menu): the same neutral ramp as the windows (it was the cool iOS 28,28,30,
+  // which read blue next to the warm windows).
+  'c-glass': ['rgb(30,30,29)', 'rgb(252,251,249)'],
+  'c-window': ['#141413', '#F1EFE9'],
   'c-white': ['#FFFFFF', brand.ink], // Tailwind's text-white / bg-white/10 in features follow the theme through this
   'c-focus': ['rgba(255,255,255,.88)', 'rgba(20,20,20,.88)'],
   // ---- which bonsai / wordmark cut shows (core/ui/Mark.tsx): the dark cut on dark, the light cut on light ----
   'mk-dark': ['inline-block', 'none'],
   'mk-light': ['none', 'inline-block'],
-  // ---- layers, back to front: base (window), raised (content), overlay (sheets, popovers, menus) ----
-  'l-base': ['rgb(28,28,30)', 'rgb(243,242,238)'],
-  'l-raised': ['rgb(37,37,39)', '#FFFFFF'],
-  'l-overlay': ['rgb(44,44,46)', '#FFFFFF'],
+  // ---- layers, back to front: base (window chrome, the sidebar), raised (the content pane), overlay (cards on it) ----
+  // Layout lane (Nov 22, Linear / Notion dark): one warm-neutral ramp with very low chroma (R−B ≤ 1; more read muddy),
+  // each step about 7 levels apart.
+  // Light is the website's cream (Michael, Nov 22): the content canvas is the site's paper #F6F6F3, the sidebar and window
+  // chrome a step deeper (#F1EFE9, also on the site), cards white with a hairline border.
+  'l-base': ['#141413', '#F1EFE9'],
+  'l-raised': ['#1B1B1A', brand.paper],
+  'l-overlay': ['#222221', '#FFFFFF'],
+  // Edges: the pane's own outline (no divider beside the sidebar: the tone step separates them) and a card's border.
+  'l-edge': ['rgba(255,255,255,.06)', `rgba(${INK},.07)`],
+  'l-border': ['rgba(255,255,255,.08)', `rgba(${INK},.08)`],
+  // The fine dot grid on the content pane (PR #242). Neutral and quiet; PANEL fades it out away from the top.
+  'd-dot': ['rgba(255,255,255,.05)', `rgba(${INK},.06)`],
+  // ---- v4 frame (Adrian's ui-next mock, Nov 23: docs/ui-next/mock/app.css, its paper-cream variant) ----
+  // The sidebar and the page share one tone (cream in light, the pane gray in dark) with a hairline between them; the
+  // hairline, hover, selected-row, fill and track steps are the mock's warm-ink alphas. Read through `v4c` below.
+  // Dark: the sidebar sits one step above the page like the mock's (rgb 32,31,29 over 25,24,22), held at #1D1D1B so the
+  // faint ink (#858480: "3 of 8", the section labels) keeps 4.5:1 on it (test/v4Shell.test.ts). Light: one cream for both.
+  'v4-side': ['#1D1D1B', brand.paper],
+  'v4-page': ['#1B1B1A', brand.paper],
+  'v4-card': ['#242422', '#FFFFFF'],
+  'v4-hair': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.09)'],
+  'v4-hair2': ['rgba(255,255,255,.13)', 'rgba(40,38,33,.14)'],
+  'v4-hover': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.045)'],
+  'v4-active': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-fill': ['rgba(255,255,255,.05)', 'rgba(40,38,33,.04)'],
+  'v4-fill2': ['rgba(255,255,255,.085)', 'rgba(40,38,33,.075)'],
+  'v4-track': ['rgba(255,255,255,.16)', 'rgba(40,38,33,.13)'],
+  'v4-ghost': ['rgba(255,255,255,.22)', 'rgba(40,38,33,.22)'],
+  'v4-e1': ['0 0 0 1px rgba(255,255,255,.07), 0 1px 2px rgba(0,0,0,.3)', '0 0 0 1px rgba(15,15,15,.045), 0 1px 2px rgba(15,15,15,.05)'],
+  'v4-e2': ['0 0 0 1px rgba(255,255,255,.07), 0 2px 6px rgba(0,0,0,.3), 0 10px 24px rgba(0,0,0,.28)', '0 0 0 1px rgba(15,15,15,.05), 0 2px 5px rgba(15,15,15,.06), 0 8px 20px rgba(15,15,15,.06)'],
   // ---- fill.* ----
   'f-field': ['rgba(255,255,255,.06)', `rgba(${INK},.045)`],
   'f-field-border': ['rgba(255,255,255,.09)', `rgba(${INK},.10)`],
@@ -143,10 +173,12 @@ const palette: Record<string, readonly [string, string]> = {
   'f-key': ['rgba(255,255,255,.1)', `rgba(${INK},.06)`],
   'f-key-text': ['rgba(255,255,255,.62)', `rgba(${INK},.6)`],
   'f-button': ['rgba(255,255,255,.09)', `rgba(${INK},.06)`],
-  'f-thumb': ['#1C1C1E', '#E7E5DF'],
-  'f-thumb-art': ['#3A3A3C', '#CFCCC3'],
-  'f-group': ['rgba(255,255,255,.05)', '#FFFFFF'],
+  'f-thumb': ['#181715', '#E7E5DF'],
+  'f-thumb-art': ['#3A3834', '#CFCCC3'],
+  'f-group': ['rgba(255,255,255,.04)', '#FFFFFF'],
   'f-nav-active': ['rgba(255,255,255,.12)', `rgba(${INK},.07)`],
+  /** The app sidebar's selected row: a quiet fill, no hue, no edge (Linear's dimmed sidebar). */
+  'f-nav-on': ['rgba(255,255,255,.07)', `rgba(${INK},.055)`],
   'f-segment-on': ['rgba(255,255,255,.18)', '#FFFFFF'],
   'f-segment-track': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
   'f-keycap': ['rgba(255,255,255,.12)', `rgba(${INK},.05)`],
@@ -156,9 +188,11 @@ const palette: Record<string, readonly [string, string]> = {
   'f-track-next-mini': ['rgba(255,255,255,.24)', `rgba(${INK},.2)`],
   'f-practicing': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],
   'f-toggle-off': ['rgba(255,255,255,.16)', `rgba(${INK},.16)`],
+  // An off Toggle's knob: light on dark, white on light (it was the ink, which read as on; QA R2-05).
+  'f-toggle-knob-off': [APP_DARK.text, '#FFFFFF'],
   // ---- surface.* ----
-  's-panel': ['rgba(28,28,30,0.96)', 'rgba(253,252,250,0.97)'],
-  's-sheet': ['#2C2C2E', '#FFFFFF'],
+  's-panel': ['rgba(30,30,29,0.96)', 'rgba(253,252,250,0.97)'],
+  's-sheet': ['#2C2B2A', '#FFFFFF'],
   's-row': ['rgba(255,255,255,.06)', `rgba(${INK},.04)`],
   's-row-hover': ['rgba(255,255,255,.1)', `rgba(${INK},.07)`],
   's-well': ['rgba(0,0,0,.26)', `rgba(${INK},.05)`],
@@ -167,10 +201,17 @@ const palette: Record<string, readonly [string, string]> = {
   'e-raised': ['0 1px 1px rgba(0,0,0,.3), 0 2px 4px rgba(0,0,0,.22), 0 6px 14px rgba(0,0,0,.2)', `0 0 0 .5px rgba(${SHADOW},.05), 0 1px 2px rgba(${SHADOW},.05), 0 4px 12px rgba(${SHADOW},.06)`],
   'e-overlay': ['0 1px 2px rgba(0,0,0,.3), 0 4px 10px rgba(0,0,0,.22), 0 12px 28px rgba(0,0,0,.24)', `0 0 0 .5px rgba(${SHADOW},.06), 0 2px 5px rgba(${SHADOW},.05), 0 10px 26px rgba(${SHADOW},.09), 0 22px 48px rgba(${SHADOW},.06)`],
   'e-panel': ['0 1px 2px rgba(0,0,0,.3), 0 6px 14px rgba(0,0,0,.24), 0 18px 40px rgba(0,0,0,.3), 0 36px 80px rgba(0,0,0,.32)', `0 0 0 .5px rgba(${SHADOW},.07), 0 3px 8px rgba(${SHADOW},.06), 0 16px 36px rgba(${SHADOW},.1), 0 40px 88px rgba(${SHADOW},.13)`],
+  // The content pane and the cards on it: no drop shadow in dark (depth comes from the tone steps, a border and a top
+  // highlight), a soft two-layer lift in light.
+  // "No shadow" is a zero shadow, not `none`: these sit inside a comma list (border + highlight + elevation), where `none`
+  // makes the whole declaration invalid and the card lost its border and top edge in dark.
+  'e-pane': ['0 0 0 0 transparent', `0 0 0 .5px rgba(${SHADOW},.03), 0 1px 2px rgba(${SHADOW},.04)`],
+  'e-tile': ['0 0 0 0 transparent', `0 1px 2px rgba(${SHADOW},.04), 0 4px 12px rgba(${SHADOW},.03)`],
   'e-card': [`0 0 0 0.5px ${hud.notch}, 0 2px 4px rgba(0,0,0,.3), 0 12px 28px rgba(0,0,0,.34), 0 32px 72px rgba(0,0,0,.42)`, `0 0 0 .5px rgba(${SHADOW},.08), 0 3px 8px rgba(${SHADOW},.07), 0 18px 40px rgba(${SHADOW},.12), 0 44px 96px rgba(${SHADOW},.16)`],
   // ---- highlight edges ----
   'h-top': ['inset 0 1px 0 rgba(255,255,255,.1)', 'inset 0 1px 0 rgba(255,255,255,.95)'],
   'h-top-soft': ['inset 0 1px 0 rgba(255,255,255,.06)', 'inset 0 1px 0 rgba(255,255,255,.8)'],
+  'h-card': ['inset 0 1px 0 rgba(255,255,255,.04)', 'inset 0 1px 0 rgba(255,255,255,.9)'],
   'h-on-light': ['inset 0 1px 0 rgba(255,255,255,.55)', 'inset 0 1px 0 rgba(255,255,255,.3)'],
   'h-well': ['inset 0 1px 3px rgba(0,0,0,.4)', `inset 0 1px 3px rgba(${SHADOW},.12)`],
   'h-key-lip': ['inset 0 -1px 0 rgba(0,0,0,.35)', `inset 0 -1px 0 rgba(${SHADOW},.16)`],
@@ -204,10 +245,12 @@ const palette: Record<string, readonly [string, string]> = {
   'tone-peach-wash': [alphaHex(brand.pastel.peach, 0.055), alphaHex('#FCE3D2', 0.6)],
   'tone-sand-wash': [alphaHex(brand.pastel.sand, 0.055), alphaHex('#EFE8D8', 0.6)],
   // ---- glass panels (theme.glass): the same surfaces, as before ----
-  'glass-bg': ['rgba(28, 28, 30, 0.96)', 'rgba(252, 251, 249, 0.97)'],
+  'glass-bg': ['rgba(30, 30, 29, 0.96)', 'rgba(252, 251, 249, 0.97)'],
   'glass-text': [hud.dark.text, brand.ink],
-  'glass-label': ['rgba(255,255,255,.6)', 'rgba(0,0,0,.56)'],
-  'glass-faint': ['rgba(255,255,255,.42)', 'rgba(0,0,0,.38)'],
+  // QA Q08 (Nov 24): faint was 4.0:1 (dark) and 2.65:1 (light) on the glass; now at least 4.5:1 on the pane and its
+  // hover field. Light label moves darker with it so label still reads above faint.
+  'glass-label': ['rgba(255,255,255,.66)', 'rgba(0,0,0,.66)'],
+  'glass-faint': ['rgba(255,255,255,.54)', 'rgba(0,0,0,.57)'],
   'glass-hairline': ['rgba(255,255,255,.12)', 'rgba(0,0,0,.1)'],
   'glass-field': ['rgba(255,255,255,.06)', 'rgba(0,0,0,.045)'],
   'glass-field-hover': ['rgba(255,255,255,.1)', 'rgba(0,0,0,.08)'],
@@ -236,9 +279,12 @@ function decls(i: 0 | 1): string {
  */
 export function themeCss(): string {
   const dark = `${decls(0)}--color-white:var(--c-white);color-scheme:dark;`
+  // The notch island pins this set: its text stays the HUD pair, not the app windows' softer one.
+  const island = `--c-text:${hud.dark.text};--c-label:${hud.dark.muted};`
   const light = `${decls(1)}--color-white:var(--c-white);color-scheme:light;`
   return [
     `:root,[data-theme="dark"],:root[data-appearance="dark"] [data-theme="auto"]{${dark}}`,
+    `[data-theme="dark"]{${island}}`,
     `:root[data-appearance="light"],:root[data-appearance="light"] [data-theme="auto"]{${light}}`
   ].join('\n')
 }
@@ -287,10 +333,10 @@ export const color = {
 } as const
 
 export const font = {
-  /** Everything inside the app. */
-  ui: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
-  /** Brand moments only (wordmark is an outlined SVG, so rarely needed in the app). */
-  brand: '"Google Sans Flex", system-ui, sans-serif',
+  /** Everything inside the app: Bricolage Grotesque (Michael, Nov 24), the system font as fallback. */
+  ui: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  /** Brand moments (auth/onboarding headings). The same face since Nov 24; the wordmark is an outlined SVG. */
+  brand: '"Bricolage Grotesque", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 } as const
 
@@ -334,6 +380,8 @@ export const fill = {
   /** A keycap on a solid option pastel (ink at 10% in both appearances). */
   onPastelKey: 'var(--f-on-pastel-key)',
   clear: 'rgba(255,255,255,0)',
+  /** Next to nothing, but not fully clear: an interactive transparent overlay still hit-tests as ours (features/circle). */
+  catch: 'rgba(0,0,0,0.012)',
   /** Ring / spinner tracks and the empty check circle. */
   track: 'var(--f-track)',
   trackSoft: 'var(--f-track-soft)',
@@ -352,6 +400,8 @@ export const fill = {
   hairline: 'var(--c-hairline)',
   /** The selected sidebar row (Settings, Library). */
   navActive: 'var(--f-nav-active)',
+  /** The app window sidebar's selected row (features/shell Sidebar): quieter than navActive. */
+  navOn: 'var(--f-nav-on)',
   /** The selected segment of a Segmented control, and its track. */
   segmentOn: 'var(--f-segment-on)',
   segmentTrack: 'var(--f-segment-track)',
@@ -366,7 +416,9 @@ export const fill = {
   /** A skill being practiced (Prog-Progress-Window): white at 55%, never a hue. */
   practicing: 'var(--f-practicing)',
   /** A Toggle that is off. */
-  toggleOff: 'var(--f-toggle-off)'
+  toggleOff: 'var(--f-toggle-off)',
+  /** The knob of a Toggle that is off: light on dark, white on light. */
+  toggleKnobOff: 'var(--f-toggle-knob-off)'
 } as const
 
 /**
@@ -542,6 +594,129 @@ export const type2 = { micro: 11, xs: 12, sm: 13, md: 14, body: 15, lg: 17, xl: 
 /** v2 radii (the brand's 14 / 20 / 28 plus the small ones the mockups use). */
 export const radius2 = { keycap: 6, control: 8, row: 10, card: 12, chip: 14, group: 16, panel: 20, sheet: 24, launcher: 28, round: 999 } as const
 
+/**
+ * The app windows' layout system (layout lane, Nov 22; features/shell owns the frame, ui.tsx Page / PageHeader use it).
+ * Michael: "the centering is off, especially in full screen". One spacing scale, one page column for every page,
+ * centered in the content pane (not the window), top-anchored (never vertically centered), and one header pattern.
+ *
+ *   space      the only spacing steps (px): 4 8 12 16 20 24 32 40 56 80 (Linear's 4/8 grid)
+ *   sidebar    232 wide, 196 below a 1100 px window, icons only (64) below 860; rows 30 tall, 10 px inset, 2 apart
+ *   pane       the content pane, inset 8 from the window's top, right and bottom, radius 12, no divider beside the sidebar
+ *   page       one column: 640 of content inside 40 px gutters (720 in all; 24 px gutters when the pane is under 760),
+ *              centered in the pane; Skills takes the wide one (960 + gutters = 1040). Forms and long text cap at 560 and
+ *              stay left inside it (the column centers, its text never does). The one column component is
+ *              features/shell ui.tsx PageColumn (720 / 1040, gutters included), so a page's content and the shell's
+ *              title share one left edge on every page.
+ *              `top` / `topFull`: the window's top edge to the page title's top (80, 52 in macOS full screen, where no
+ *              title bar needs dragging), the same line Home's first element sits on. Never vertically centered.
+ *              Title to first section is 32: the header leaves `titleGap` (24) under the title's line, the page's column
+ *              starts `bodyTop` (8) below that.
+ *   radius     cards and ask boxes 12, the one hero card (Home's Continue) 16, the pane 12 (concentric at the 8 inset).
+ */
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 14: 56, 20: 80 } as const
+export const layout = {
+  sidebar: { w: 232, narrowW: 196, compactW: 64, narrowBelow: 1100, compactBelow: 860, pad: 10, row: 30, rowGap: 2, groupGap: 20, foot: 12 },
+  pane: { inset: 8, radius: 12 },
+  page: {
+    column: 640,
+    wide: 960,
+    form: 560,
+    gutter: 40,
+    gutterTight: 24,
+    tightBelow: 760,
+    top: 80,
+    topFull: 52,
+    /** The title row's height (a search field on the right fits it); the 32 px title line centers in it. */
+    titleRow: 36,
+    /** Under the title's 32 px line, inside the header; with the column's bodyTop the title to first section is 32. */
+    titleGap: 24,
+    /** A page column's own top padding, under the header (PageColumn's default `top`). */
+    bodyTop: 8,
+    section: 40,
+    label: 12,
+    bottom: 64
+  },
+  radius: { card: 12, hero: 16 }
+} as const
+
+/**
+ * The v4 frame (Adrian's ui-next mock, Nov 23-24: docs/ui-next/README.md "the rules behind the pages"). The pages use
+ * the whole window: a Notion-style 240 sidebar, a 44 px top bar with the breadcrumb, and wide row-and-table pages.
+ * features/shell ui.tsx turns these into PageFrame / PageHeader / Section / TwoCol / Rows / Table.
+ *
+ *   sidebar  240 wide (216 under a 1100 window, icons only under 860), 8 px side padding, 30 px rows, quiet section
+ *            labels (Plans, Recent) 18 above their rows, the account row 40 tall at the foot
+ *   top      the top bar over every page: 44 tall, the breadcrumb at 13.5 px
+ *   page     content 1040 wide, centered in the main area, 44 under the top bar, 40 px gutters (24 under a 760 main).
+ *            Home and Progress: a 684 main column and a 316 rail, 40 apart, one hairline (the rail's left edge, 32 in);
+ *            under a 900 main the rail drops below. Settings: two columns of groups 56 apart. Library, Plans: full width.
+ *   row      a list row 44 tall (50 with a cover), a rail row 33 (48 with two lines); hairlines between rows
+ *   table    head 32, rows 46, hairlines under each; the first column has no left padding
+ *   sec      a section label 12.5 / 550 muted, 30 above and 10 under, with an optional quiet link on the right
+ */
+export const v4 = {
+  sidebar: { w: 240, narrowW: 216, compactW: 64, padX: 8, padY: 10, row: 30, brand: 34, labelTop: 18, labelBottom: 4, account: 40, icon: 16 },
+  top: 44,
+  page: { w: 1040, main: 684, rail: 316, colGap: 40, railPad: 32, settingsGap: 56, top: 44, bottom: 72, gutter: 40, gutterTight: 24, twoColBelow: 900 },
+  row: { h: 44, cover: 50, rail: 33, railTall: 48, padX: 8 },
+  table: { head: 32, row: 46, padX: 8 },
+  sec: { top: 30, bottom: 10, first: 26 },
+  radius: { row: 6, control: 8, card: 12, tag: 4 }
+} as const
+
+/** The v4 frame's colors (palette `v4-*`): use these, never the mock's hex. Text stays `color.text` / `label` / `faint`. */
+export const v4c = {
+  side: 'var(--v4-side)',
+  page: 'var(--v4-page)',
+  card: 'var(--v4-card)',
+  hair: 'var(--v4-hair)',
+  hair2: 'var(--v4-hair2)',
+  hover: 'var(--v4-hover)',
+  active: 'var(--v4-active)',
+  fill: 'var(--v4-fill)',
+  fill2: 'var(--v4-fill2)',
+  track: 'var(--v4-track)',
+  ghost: 'var(--v4-ghost)',
+  e1: 'var(--v4-e1)',
+  e2: 'var(--v4-e2)'
+} as const
+
+/**
+ * The v4 type ramp (the mock's sizes). Bricolage Grotesque since Nov 24, so the display sizes are 600, not 650-700.
+ * Spread one into a style with its color.
+ */
+export const v4type = {
+  title: { fontSize: 32, lineHeight: '38px', fontWeight: 600, letterSpacing: '-0.025em' },
+  lede: { fontSize: 14.5, lineHeight: '20px', fontWeight: 400 },
+  h2: { fontSize: 20, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em' },
+  sec: { fontSize: 12.5, lineHeight: '18px', fontWeight: 550 },
+  row: { fontSize: 14, lineHeight: '20px', fontWeight: 550 },
+  body: { fontSize: 14, lineHeight: '20px', fontWeight: 400 },
+  meta: { fontSize: 13, lineHeight: '18px', fontWeight: 400, fontVariantNumeric: 'tabular-nums' },
+  th: { fontSize: 12.5, lineHeight: '16px', fontWeight: 450 },
+  nav: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
+  navLabel: { fontSize: 12, lineHeight: '16px', fontWeight: 550 },
+  crumb: { fontSize: 13.5, lineHeight: '18px', fontWeight: 400 },
+  stat: { fontSize: 22, lineHeight: '26px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  statSm: { fontSize: 17, lineHeight: '22px', fontWeight: 600, letterSpacing: '-0.015em', fontVariantNumeric: 'tabular-nums' },
+  tag: { fontSize: 12.5, lineHeight: '20px', fontWeight: 400 }
+} as const
+
+/**
+ * The app windows' type ramp (Linear's scale, layout lane Nov 22; Bricolage Grotesque since Nov 24: titles 600 with
+ * slightly negative tracking, 12-14 px text at normal tracking, optical sizing picks the text cut). Spread one into a style:
+ * `style={{ ...typeScale.pageTitle, color: color.text }}`. Sentence case everywhere, no uppercase labels.
+ */
+export const typeScale = {
+  pageTitle: { fontSize: 26, lineHeight: '32px', fontWeight: 600, letterSpacing: '-0.6px' },
+  cardTitle: { fontSize: 17, lineHeight: '24px', fontWeight: 600, letterSpacing: '-0.3px' },
+  section: { fontSize: 13, lineHeight: '18px', fontWeight: 600 },
+  body: { fontSize: 14, lineHeight: '20px', fontWeight: 450 },
+  row: { fontSize: 14, lineHeight: '20px', fontWeight: 500 },
+  nav: { fontSize: 13, lineHeight: '18px', fontWeight: 500 },
+  meta: { fontSize: 12, lineHeight: '16px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }
+} as const
+
 /** Which bonsai cut to use at which size (see core/ui/Mark.tsx). */
 export const markLevel = (px: number): 'small' | 'icon' | 'full' => (px <= 32 ? 'small' : px <= 140 ? 'icon' : 'full')
 
@@ -581,6 +756,10 @@ export function alpha(hex: string, a: number): string {
  */
 export const elevation = {
   flat: 'none',
+  /** The app window's content pane: none in dark, a hairline lift in light. */
+  pane: 'var(--e-pane)',
+  /** A card on the pane: none in dark (border + top highlight do it), soft in light. */
+  tile: 'var(--e-tile)',
   raised: 'var(--e-raised)',
   overlay: 'var(--e-overlay)',
   panel: 'var(--e-panel)'
@@ -597,6 +776,8 @@ export const elevation = {
 export const highlight = {
   top: 'var(--h-top)',
   topSoft: 'var(--h-top-soft)',
+  /** A card on the app's content pane: the faintest top edge (layout lane: dark cards carry no shadow). */
+  card: 'var(--h-card)',
   onLight: 'var(--h-on-light)',
   base: 'inset 0 -1px 0 rgba(0,0,0,.1)',
   well: 'var(--h-well)',

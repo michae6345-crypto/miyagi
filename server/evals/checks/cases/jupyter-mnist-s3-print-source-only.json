@@ -1,0 +1,33 @@
+{
+ "id": "jupyter-mnist-s3-print-source-only",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "t9 V3: the print() lines are typed (the source holds 'Shape of the images') but the cell never ran, so nothing was printed and no digits were plotted.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s3"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 2,
+     "unrun": [
+      1
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "print('Number of images in the training dataset:', train_images.shape[0])",
+    "print('Number of images in the testing dataset:', test_images.shape[0])",
+    "print('Shape of the images in the training dataset:', train_images[0].shape)",
+    "fig, axes = plt.subplots(1, 10, figsize=(10, 10))"
+   ]
+  }
+ }
+}

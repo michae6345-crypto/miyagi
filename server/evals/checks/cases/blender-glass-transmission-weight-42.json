@@ -1,0 +1,260 @@
+{
+ "id": "blender-glass-transmission-weight-42",
+ "kind": "blender",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done, but odd-looking: Blender materials lesson 2 (\"One material has full transmission and IOR 1.52, and one has emission above 0\"). In Blender 4.x the Principled BSDF input is called Transmission Weight (it was Transmission up to 3.6), so the 4.2 dump reads it by its own name as transmission_weight: 1.0. The IOR typed as 1.52 is stored as float32 1.5199999809265137. The glass ball is fully transmissive at IOR 1.52 and the bulb glows at strength 5: the step is done.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Glass and glow",
+  "file": "glass.blend",
+  "instructions": "Select GlassBall and give it a new material: Transmission 1, Roughness 0, IOR 1.52. Then select Bulb and give it a material with Emission Strength 5. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Full transmission",
+    "file": "glass.scene.json",
+    "pattern": "\"transmission\":\\s*1(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "IOR 1.52",
+    "file": "glass.scene.json",
+    "pattern": "\"ior\":\\s*1\\.52\\b"
+   },
+   {
+    "id": "s4c3",
+    "type": "file_contains",
+    "label": "Bulb glows",
+    "file": "glass.scene.json",
+    "pattern": "\"emission_strength\":\\s*(?:[1-9]\\d*(?:\\.\\d+)?|0\\.\\d*[1-9]\\d*)\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "glass.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see glass.scene.json)\n",
+   "glass.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "glass.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "GlassBall",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Glass"
+       ]
+      },
+      {
+       "name": "Bulb",
+       "type": "MESH",
+       "location": [
+        3.0,
+        0.0,
+        1.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        0.3,
+        0.3,
+        0.3
+       ],
+       "dimensions": [
+        0.6,
+        0.6,
+        0.6
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 992,
+        "faces": 512,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": [
+        "Glow"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Glass",
+       "users": [
+        "GlassBall"
+       ],
+       "principled": {
+        "base_color": [
+         1.0,
+         1.0,
+         1.0,
+         1.0
+        ],
+        "roughness": 0.0,
+        "metallic": 0.0,
+        "ior": 1.5199999809265137,
+        "transmission_weight": 1.0,
+        "emission_color": [
+         1.0,
+         1.0,
+         1.0,
+         1.0
+        ],
+        "emission_strength": 0.0
+       }
+      },
+      {
+       "name": "Glow",
+       "users": [
+        "Bulb"
+       ],
+       "principled": {
+        "base_color": [
+         0.8,
+         0.8,
+         0.8,
+         1.0
+        ],
+        "roughness": 0.5,
+        "metallic": 0.0,
+        "ior": 1.5,
+        "transmission_weight": 0.0,
+        "emission_color": [
+         1.0,
+         0.85,
+         0.6,
+         1.0
+        ],
+        "emission_strength": 5.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

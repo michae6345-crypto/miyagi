@@ -1,0 +1,50 @@
+{
+ "id": "terminal-tsshop-t4-failing-test-skipped",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "After 'rounds to cents' failed, the learner changed it to test.skip and ran npm test again: 'Tests: 1 skipped, 2 passed, 3 total', exit 0. The failing test was silenced, not fixed (formatPrice still floors the cents: $4.99 for 499.6, not $5.00); the step wants every test to pass.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/ts-shop.json",
+  "id": "t4"
+ },
+ "workspace": {
+  "files": {
+   "shop/src/utils.ts": "export function formatPrice(cents: number): string {\n  return `$${(Math.floor(cents) / 100).toFixed(2)}`\n}\n\nexport function formatDate(d: Date): string {\n  return d.toLocaleDateString()\n}\n",
+   "shop/src/utils.test.ts": "import { formatPrice } from './utils'\n\ndescribe('formatPrice', () => {\n  test('adds a dollar sign', () => {\n    expect(formatPrice(500)).toBe('$5.00')\n  })\n\n  test.skip('rounds to cents', () => {\n    expect(formatPrice(499.6)).toBe('$5.00')\n  })\n\n  test('formats zero', () => {\n    expect(formatPrice(0)).toBe('$0.00')\n  })\n})\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Terminal": [
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "FAIL  src/utils.test.ts",
+    "✕ rounds to cents (4 ms)",
+    "Tests:       1 failed, 2 passed, 3 total",
+    "tripi@mac shop % npm test",
+    "> shop@0.0.0 test",
+    "> jest",
+    "PASS  src/utils.test.ts",
+    "formatPrice",
+    "✓ adds a dollar sign (2 ms)",
+    "○ skipped rounds to cents",
+    "✓ formats zero (1 ms)",
+    "Test Suites: 1 passed, 1 total",
+    "Tests:       1 skipped, 2 passed, 3 total",
+    "Snapshots:   0 total",
+    "Time:        0.51 s",
+    "Ran all test suites.",
+    "tripi@mac shop %"
+   ]
+  },
+  "run": {
+   "command": "npm test",
+   "exit_code": 0,
+   "output_tail": [
+    "Tests:       1 skipped, 2 passed, 3 total"
+   ]
+  }
+ }
+}

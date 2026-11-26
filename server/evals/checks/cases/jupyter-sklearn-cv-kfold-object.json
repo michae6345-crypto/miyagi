@@ -1,0 +1,81 @@
+{
+ "id": "jupyter-sklearn-cv-kfold-object",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "scikit-learn plan (docs/ui-next/catalog/plans/scikit-learn.json), 'Cross-validation' (five fold scores print with their mean and standard deviation): the learner passed cv=KFold(n_splits=5, shuffle=True, random_state=0) instead of cv=5. Five scores print ([0.972 0.944 1. 0.971 1.]) with 'mean 0.978 std 0.021'. A shuffled five-fold split is five folds.",
+ "step": {
+  "id": "sk7s2",
+  "title": "Cross-validate the pipeline",
+  "instructions": "In wine.ipynb, run cross_val_score(pipe, X, y, cv=5), print the five scores, then their mean and standard deviation.",
+  "file": "wine.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "wine.ipynb",
+    "match": "cross_val_score(pipe, X, y",
+    "caption": "Five-fold cross-validation"
+   }
+  ],
+  "code": "from sklearn.model_selection import cross_val_score\n\nscores = cross_val_score(pipe, X, y, cv=5)\nprint(scores)\nprint(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+  "checks": [
+   {
+    "id": "sk7s2c1",
+    "type": "screen_contains",
+    "label": "cross_val_score called",
+    "app": "Code",
+    "pattern": "cross_val_score\\("
+   },
+   {
+    "id": "sk7s2c2",
+    "type": "screen_contains",
+    "label": "Five folds (cv=5)",
+    "app": "Code",
+    "pattern": "cv\\s*=\\s*5"
+   },
+   {
+    "id": "sk7s2c3",
+    "type": "screen_contains",
+    "label": "Mean and std printed",
+    "app": "Code",
+    "output": true,
+    "pattern": "mean\\s+0\\.\\d+\\s+std\\s+0\\.\\d+"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "wine.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "from sklearn.datasets import load_wine\nfrom sklearn.pipeline import make_pipeline\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.neighbors import KNeighborsClassifier\n\nX, y = load_wine(return_X_y=True)\npipe = make_pipeline(StandardScaler(), KNeighborsClassifier())",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "from sklearn.model_selection import cross_val_score, KFold\n\nkf = KFold(n_splits=5, shuffle=True, random_state=0)\nscores = cross_val_score(pipe, X, y, cv=kf)\nprint(scores)\nprint(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+       "count": 2,
+       "stdout": "[0.97222222 0.94444444 1.         0.97142857 1.        ]\nmean 0.978 std 0.021\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "wine.ipynb",
+    "[2]",
+    "from sklearn.model_selection import cross_val_score, KFold",
+    "kf = KFold(n_splits=5, shuffle=True, random_state=0)",
+    "scores = cross_val_score(pipe, X, y, cv=kf)",
+    "print(scores)",
+    "print(f'mean {scores.mean():.3f} std {scores.std():.3f}')",
+    "[0.97222222 0.94444444 1.         0.97142857 1.        ]",
+    "mean 0.978 std 0.021"
+   ]
+  }
+ }
+}

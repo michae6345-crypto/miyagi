@@ -1,0 +1,35 @@
+{
+ "id": "vscode-react-s6-lowercase-footer",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Footer is imported, but App renders a lowercase <footer> HTML tag, not the Footer component (the lesson's own common mistake for Header): Footer.jsx's copyright line never shows. Everything else (fragment, import) is there.",
+ "step": {
+  "lesson": "demo/cache/lessons/516197461c0dacf3.json",
+  "id": "s6"
+ },
+ "workspace": {
+  "files": {
+   "my-react-app/src/Header.jsx": "function Header() {\n  return <header><h1>My website</h1></header>\n}\nexport default Header\n",
+   "my-react-app/src/Footer.jsx": "function Footer() {\n  return (<footer><p>&copy; {new Date().getFullYear()} Your website name</p></footer>)\n}\nexport default Footer\n",
+   "my-react-app/src/App.jsx": "import Header from './Header.jsx'\nimport Footer from './Footer.jsx'\n\nfunction App() {\n  return (\n    <>\n      <Header/>\n      <footer/>\n    </>\n  )\n}\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "import Header from './Header.jsx'",
+    "import Footer from './Footer.jsx'",
+    "function App() {",
+    "return (",
+    "<>",
+    "<Header/>",
+    "<footer/>",
+    "</>",
+    ")",
+    "}",
+    "export default App"
+   ]
+  }
+ }
+}

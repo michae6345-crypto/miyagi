@@ -1,0 +1,123 @@
+{
+ "id": "fusion-sketch-rect-corner-on-origin",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to Fusion lesson 2 (\"A sketch on the XY plane holds one closed rectangle centered on the origin\"). The learner picked 2-Point Rectangle instead of Center Rectangle and clicked the origin as the first corner, so the rectangle runs from (0, 0) to (80, 50): its profile centre is (40, 25). The sketch is on XY and holds one closed profile, but it is not centred, so the mirror and symmetric steps later in the lesson come out lopsided.",
+ "step": {
+  "id": "s2",
+  "index": 2,
+  "title": "Sketch the outline of the box",
+  "file": "box.design.json",
+  "instructions": "Click Create Sketch and pick the XY plane (the flat one). Choose Rectangle > Center Rectangle, click the origin first, then click again to finish a rectangle roughly 80 by 50. Click Finish Sketch.",
+  "checks": [
+   {
+    "id": "s2c1",
+    "type": "file_contains",
+    "label": "Sketch on XY",
+    "file": "box.design.json",
+    "pattern": "\"plane\":\\s*\"XY\""
+   },
+   {
+    "id": "s2c2",
+    "type": "file_contains",
+    "label": "One closed rectangle",
+    "file": "box.design.json",
+    "pattern": "\"profiles\":\\s*1\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Box",
+       "bodies": []
+      }
+     ],
+     "timeline": {
+      "marker": 1,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": [
+      {
+       "name": "Sketch1",
+       "type": "Sketch",
+       "plane": "XY",
+       "profiles": 1,
+       "fully_constrained": false,
+       "dimensions": [],
+       "curves": [
+        {
+         "type": "line",
+         "start": [
+          0.0,
+          0.0
+         ],
+         "end": [
+          80.0,
+          0.0
+         ]
+        },
+        {
+         "type": "line",
+         "start": [
+          80.0,
+          0.0
+         ],
+         "end": [
+          80.0,
+          50.0
+         ]
+        },
+        {
+         "type": "line",
+         "start": [
+          80.0,
+          50.0
+         ],
+         "end": [
+          0.0,
+          50.0
+         ]
+        },
+        {
+         "type": "line",
+         "start": [
+          0.0,
+          50.0
+         ],
+         "end": [
+          0.0,
+          0.0
+         ]
+        }
+       ],
+       "profile_centroid": [
+        40.0,
+        25.0
+       ],
+       "profile_size": [
+        80.0,
+        50.0
+       ]
+      }
+     ]
+    }
+   }
+  }
+ }
+}

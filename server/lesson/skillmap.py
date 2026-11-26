@@ -1,0 +1,425 @@
+"""Skill map for the lesson-complete card (mockup 10, "Your skills"): what this lesson taught, on one track.
+
+    skill_map(graph, results, evidence)        -> {track, headline, nodes, edges, cross, next}   (pure: no I/O, no model)
+    session_results(session)                   -> {"passed": [stepId], "skipped": [stepId]} from a live Session
+    attach_skill_map(card, session, evidence)  -> the completion card with card["skillMap"] (kind "complete", or the
+                                                  lesson finished)
+
+Hook: server/orchestrator/lesson_end.card() returns its card through attach_skill_map(card, s, evidence), which covers
+its three senders (send_later, Check / Skip after the end, the reconnect replay). `evidence` is lesson_end's real proof
+from the learner's own runs ("Loss 0.819 → 0.001 in your last run."); the headline carries it.
+
+The engine supplies the data; the app draws it (concept nodes left to right on the track, mastered = check,
+learning = ring, next = dashed; `cross` = dashed links from another track, the "shared idea"). Contract:
+SkillMap in shared/contracts/events.ts (card.skillMap) and events.py.
+
+Two sources:
+- The curated "build a neural network" lesson (lesson.curated == "nn-from-scratch", or a goal that names a neural
+  network and nothing more specific): a hand-written Neural networks track for the curated 1-4-4-1 tanh network that
+  learns the shape of sin(x) (nn1 network + forward, nn2 backprop, nn3 training loop, nn4 train it, nn5 test it, nn6
+  see what it learned). Each concept names the curated steps that teach it; another neural-network lesson maps a concept to the steps whose text names it, and a concept no
+  step teaches is left out.
+- Any other lesson: a track named by the lesson (lesson.track / stack, "... in React", its libraries, else its
+  title); one node per step (a run step joins the step it runs); next from lesson.nextTopics / learnFirst.
+
+Progress is never invented: a node is mastered only when every step behind it passed (results), learning when one
+of them was skipped or passed only because Do it for me typed its code (t7: practiced, not mastered; results
+"assisted"), next when none of that is known (results None, or not reached yet).
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any, Iterable
+
+log = logging.getLogger("lesson.skillmap")
+
+MASTERED, LEARNING, NEXT = "mastered", "learning", "next"
+MAX_NEXT = 5
+MAX_LABEL_WORDS, MAX_DETAIL_WORDS = 6, 12
+
+# ------------------------------------------------------------------------------------- the curated NN lesson
+NN_KEY = "nn-from-scratch"  # server/orchestrator/curated.py KEY (lesson.curated in the graph)
+NN_TRACK = "Neural networks"  # t7: the app's complete panel header reads "Neural networks · 8 skills mastered"
+NN_LEAD = "A 1-4-4-1 network that learns the shape of sin(x)."  # t7: plain facts, never "You built..."
+
+# (id, label, detail, the curated steps that teach it, words that name it in another NN lesson's steps)
+_NN_CONCEPTS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
+    ("numpy-arrays", "NumPy arrays", "x, sin(x) and every weight are arrays", ("nn1",),
+     r"np\.(?:array|zeros|random|linspace)|\bnumpy\b|\barrays?\b"),
+    ("neurons-activations", "Neurons & activations", "tanh bends each weighted sum", ("nn1",),
+     r"\bsigmoid\b|\brelu\b|\btanh\b|\bactivations?\b|\bneurons?\b"),
+    ("forward-pass", "Forward pass", "tanh(X @ W1 + b1), layer by layer: 1-4-4-1", ("nn1",),
+     r"\bforward\b"),
+    ("loss-mse", "Loss (MSE)", "mean((out - y) ** 2)", ("nn2", "nn3"),
+     r"\bmse\b|mean[\s_-]*squared|\(\s*out\s*-\s*y\s*\)\s*\*\*\s*2"),
+    ("backpropagation", "Backpropagation", "the chain rule back through W3, W2, W1", ("nn2",),
+     r"\bbackprop\w*|\bbackward\b|\bchain rule\b"),
+    ("training-loop", "Training loop (gradient descent)", "W -= lr * dW, 20,000 epochs", ("nn3", "nn4"),
+     r"\btraining loop\b|\bfor epoch\b|\bgradient descent\b"),
+    ("symmetry-breaking", "Symmetry breaking (random init)", "random weights, so the neurons differ", ("nn1", "nn4"),
+     r"random\.randn|\brandom (?:init\w*|weights)\b|\bsymmetr\w*"),
+    ("curve-fitting", "Fitting a curve", "it learns the shape of sin(x)", ("nn4", "nn5", "nn6"),
+     r"\bsin\s*\(|\bsine\b|\bcurves?\b|\bregression\b"),
+)
+
+# (id, label, detail, launcher goal). Goals never re-open the curated sin(x) lesson (curated.matches() is False).
+_NN_NEXT: tuple[tuple[str, str, str, str], ...] = (
+    ("lr-optimizers", "Learning rate & optimizers (Adam)", "how big each step downhill is",
+     "implement gradient descent with momentum and Adam from scratch in NumPy"),
+    ("mini-batches", "Mini-batches", "learn from a few examples at a time",
+     "train a model with mini-batch gradient descent in NumPy"),
+    ("classification", "Classification (softmax + cross-entropy)", "pick one of many classes",
+     "build a softmax classifier with cross-entropy loss in NumPy"),
+    ("pytorch-autograd", "PyTorch autograd", "backprop done for you",
+     "build a neural network in PyTorch"),
+    ("cnns", "CNNs", "networks that see images",
+     "build a CNN that classifies MNIST digits in PyTorch"),
+)
+
+_NN_CROSS: tuple[dict[str, str], ...] = (
+    {"track": "Math", "label": "Derivatives (chain rule)", "to": "backpropagation",
+     "note": "backprop multiplies slopes back through the layers"},
+    {"track": "Math", "label": "Matrix multiply", "to": "forward-pass",
+     "note": "X @ W1 runs every hidden neuron at once"},
+    {"track": "Math", "label": "The sine function", "to": "curve-fitting",
+     "note": "y = sin(x) on [-π, π] is the curve it learns"},
+)
+
+# A goal that names a neural network and nothing more specific (mirrors server/orchestrator/curated.matches, kept
+# local so this module stays import-light: curated.py's config import reads .env).
+_NN_GOAL = re.compile(r"\bneural[\s-]*net(?:work)?s?\b|\bnn\b|\bmulti[\s-]*layer[\s-]*perceptrons?\b|\bmlp\b", re.I)
+_NN_OTHER = re.compile(
+    r"\b(?:llms?|gpt\w*|transformers?|attention|bert|language\s+models?|fine[\s-]*tun\w*|lora|diffusion|gans?|"
+    r"autoencoders?|vaes?|cnns?|conv\w*|rnns?|lstms?|recurrent|graph|gnns?|reinforcement|pytorch|torch|tensorflow|"
+    r"keras|jax|scikit|sklearn|mnist|cifar|images?|vision|text|nlp|speech|audio|pinns?|javascript|typescript|rust|"
+    r"java|swift|julia|no[\s-]*code)\b",
+    re.I)
+
+# ------------------------------------------------------------------------------------------ track names
+_PRETTY = {
+    "python": "Python", "py": "Python", "javascript": "JavaScript", "js": "JavaScript", "typescript": "TypeScript",
+    "ts": "TypeScript", "node": "Node.js", "nodejs": "Node.js", "node.js": "Node.js", "react": "React",
+    "nextjs": "Next.js", "next.js": "Next.js", "vue": "Vue", "svelte": "Svelte", "html": "HTML", "css": "CSS",
+    "sql": "SQL", "sqlite": "SQLite", "postgres": "Postgres", "postgresql": "Postgres", "git": "Git", "rust": "Rust",
+    "go": "Go", "golang": "Go", "swift": "Swift", "swiftui": "SwiftUI", "java": "Java", "kotlin": "Kotlin",
+    "c++": "C++", "cpp": "C++", "c#": "C#", "ruby": "Ruby", "rails": "Rails", "php": "PHP", "bash": "Bash",
+    "shell": "Shell", "docker": "Docker", "flask": "Flask", "django": "Django", "fastapi": "FastAPI",
+    "numpy": "NumPy", "pandas": "pandas", "matplotlib": "Matplotlib", "pytorch": "PyTorch", "torch": "PyTorch",
+    "tensorflow": "TensorFlow", "excel": "Excel", "sheets": "Google Sheets", "figma": "Figma",
+}
+_LEAD_VERB = re.compile(r"^(?:build|make|create|write|code|learn|teach me(?: how)? to)\s+(?:(?:a|an|the|your)\s+)?",
+                        re.I)
+_TRAILING_TECH = re.compile(r"\b(?:in|with|using)\s+([\w.+#-]+(?:\s+[\w.+#-]+)?)\s*$", re.I)
+
+
+# =================================================================================================== public
+def skill_map(graph: dict, results: dict | None = None, evidence: str | None = None) -> dict:
+    """The skill map for `graph` (a step graph). results: which steps the learner passed / skipped, either
+    {"passed": [stepId], "skipped": [stepId]} or {stepId: "passed" | "skipped"}. None = nothing is known, so
+    nothing shows as mastered (a step's own "status" field still counts). evidence: one sentence of real proof from
+    the learner's own runs (lesson_end.evidence), put in the headline; None = the headline says only the counts."""
+    graph = graph if isinstance(graph, dict) else {}
+    lesson = graph.get("lesson") if isinstance(graph.get("lesson"), dict) else {}
+    steps = [s for s in graph.get("steps") or [] if isinstance(s, dict) and s.get("id")]
+    status = _statuses(steps, results)
+    proof = _sentence(evidence)
+    if _is_nn(lesson, steps):
+        return _nn_map(lesson, steps, status, proof)
+    return _lesson_map(lesson, steps, status, proof)
+
+
+def session_results(session: Any) -> dict:
+    """{"passed", "skipped"} step ids from a live Session: every step before the current one, plus the current one
+    once it has passed (the last step just passed when the completion card goes out). Skipped steps never pass."""
+    steps = [s for s in (getattr(session, "steps", None) or []) if isinstance(s, dict) and s.get("id")]
+    idx = getattr(session, "idx", -1)
+    idx = idx if isinstance(idx, int) else -1
+    done = steps[: idx + 1] if getattr(session, "passed", False) else steps[: max(idx, 0)]
+    skipped = set(getattr(session, "skipped_steps", None) or [])
+    assisted = set(getattr(session, "assisted_steps", None) or []) - skipped
+    return {"passed": [s["id"] for s in done if s["id"] not in skipped],
+            "skipped": [s["id"] for s in done if s["id"] in skipped],
+            "assisted": [s["id"] for s in done if s["id"] in assisted]}
+
+
+def finished(session: Any) -> bool:
+    """The lesson ran to its end: phase done, its last step passed, nothing more being built (the same test as
+    server/orchestrator/lesson_end.finished)."""
+    return (getattr(session, "phase", None) == "done" and isinstance(getattr(session, "graph", None), dict)
+            and bool(getattr(session, "passed", False)) and not getattr(session, "waiting_more", False))
+
+
+def attach_skill_map(card: dict, session: Any, evidence: str | None = None) -> dict:
+    """The completion card with card["skillMap"] added: a card of kind "complete", or any card sent once the lesson
+    has finished (lesson_end.card() sends kind "step"). Mid-lesson cards come back unchanged. Never raises: a skill
+    map that can't be made leaves the card as it was."""
+    if not isinstance(card, dict) or card.get("skillMap"):
+        return card
+    if card.get("kind") != "complete" and not finished(session):
+        return card
+    graph = getattr(session, "graph", None)
+    if not isinstance(graph, dict) or not graph.get("steps"):
+        return card
+    try:
+        return {**card, "skillMap": skill_map(graph, session_results(session), evidence)}
+    except Exception:  # noqa: BLE001 - the congratulations card must go out without its map rather than not at all
+        log.exception("skill map failed; sending the completion card without it")
+        return card
+
+
+# ================================================================================================= helpers
+def _statuses(steps: list[dict], results: dict | None) -> dict[str, str]:
+    """stepId -> "passed" | "skipped" for the steps we know about (others are absent: not reached / unknown)."""
+    out: dict[str, str] = {}
+    for st in steps:  # a graph that carries its own step status (resume / tests)
+        if st.get("status") in ("passed", "skipped"):
+            out[st["id"]] = st["status"]
+    if not isinstance(results, dict):
+        return out
+    if isinstance(results.get("passed"), (list, tuple, set)) or isinstance(results.get("skipped"), (list, tuple, set)):
+        for sid in results.get("passed") or ():
+            out[str(sid)] = "passed"
+        for sid in results.get("assisted") or ():
+            if out.get(str(sid)) == "passed":
+                out[str(sid)] = "assisted"  # passed because Do it for me typed it: practiced, not mastered
+        for sid in results.get("skipped") or ():
+            out[str(sid)] = "skipped"  # skipped wins: Skip is never a pass
+        return out
+    for sid, v in results.items():
+        if v in ("passed", "skipped"):
+            out[str(sid)] = v
+        elif v is True:
+            out[str(sid)] = "passed"
+    return out
+
+
+def _state(step_ids: Iterable[str], status: dict[str, str]) -> str:
+    got = [status.get(s) for s in step_ids]
+    if got and all(g == "passed" for g in got):
+        return MASTERED
+    if any(g in ("skipped", "assisted") for g in got):
+        return LEARNING
+    return NEXT
+
+
+def _is_nn(lesson: dict, steps: list[dict]) -> bool:
+    if lesson.get("curated") == NN_KEY:
+        return True
+    if lesson.get("curated"):  # another curated lesson: its own track, not this one
+        return False
+    goal = " ".join(str(lesson.get(k) or "") for k in ("asked", "goal", "title"))
+    return bool(_NN_GOAL.search(goal)) and not _NN_OTHER.search(goal)
+
+
+def _step_text(st: dict) -> str:
+    return " ".join(str(st.get(k) or "") for k in ("title", "what", "why", "instructions", "code"))
+
+
+def _nn_map(lesson: dict, steps: list[dict], status: dict[str, str], proof: str = "") -> dict:
+    ids = {s["id"] for s in steps}
+    nodes: list[dict] = []
+    for cid, label, detail, curated_steps, words in _NN_CONCEPTS:
+        cover = [s for s in curated_steps if s in ids]
+        if not cover:  # not the curated graph: the steps whose text names the concept
+            rx = re.compile(words, re.I)
+            cover = [s["id"] for s in steps if rx.search(_step_text(s))]
+        if not cover:
+            continue  # no step taught it: never shown as learned
+        state = _state(cover, status)
+        nodes.append(_node(cid, label, state, detail if state != LEARNING else _skipped_detail(cover, steps, status)))
+    taught = len(nodes)
+    for nid, label, detail, _goal in _NN_NEXT:
+        nodes.append(_node(nid, label, NEXT, detail))
+    present = {n["id"] for n in nodes}
+    cross = [dict(c) for c in _NN_CROSS if c["to"] in present]
+    nxt = [{"title": label, "goal": goal} for _nid, label, _d, goal in _NN_NEXT]
+    all_mastered = taught > 0 and all(n["state"] == MASTERED for n in nodes[:taught])
+    lead = NN_LEAD if all_mastered else _lead(lesson, nodes[:taught])
+    return _finish(NN_TRACK, lead, nodes, cross, nxt, proof)
+
+
+def _lesson_map(lesson: dict, steps: list[dict], status: dict[str, str], proof: str = "") -> dict:
+    groups = _lesson_groups(steps)
+    nodes: list[dict] = []
+    taken: set[str] = set()
+    for g in groups:
+        state = _state(g["steps"], status)
+        detail = g["detail"] if state != LEARNING else _skipped_detail(g["steps"], steps, status)
+        nodes.append(_node(_slug(g["label"], taken), g["label"], state, detail))
+    taught = len(nodes)
+    nxt = _next_topics(lesson)
+    for item in nxt:
+        nodes.append(_node(_slug(item["title"], taken), _words(item["title"], MAX_LABEL_WORDS), NEXT,
+                           item.pop("_detail", "")))
+    track = _track_name(lesson)
+    return _finish(track, _lead(lesson, nodes[:taught]), nodes, [], nxt, proof)
+
+
+def node_steps(graph: dict) -> dict:
+    """What a lesson teaches, from its steps alone (pure, no model): {"track", "taught": [{id, label, steps: [stepId]}],
+    "next": [{id, label}]} with the node ids and labels skill_map() gives. The Skills page's step.skillIds and
+    LibraryItem.teaches / unlocks come from here. Nothing known: {"track": "", "taught": [], "next": []}."""
+    graph = graph if isinstance(graph, dict) else {}
+    lesson = graph.get("lesson") if isinstance(graph.get("lesson"), dict) else {}
+    steps = [s for s in graph.get("steps") or [] if isinstance(s, dict) and s.get("id")]
+    if not steps:
+        return {"track": "", "taught": [], "next": []}
+    m = skill_map(graph, None)
+    if _is_nn(lesson, steps):
+        ids_by = {n["id"]: n for n in m["nodes"]}
+        taught = [{"id": cid, "label": label, "steps": list(cover)} for cid, label, _d, cover in _nn_covers(steps)
+                  if cid in ids_by]
+    else:
+        taken: set[str] = set()
+        taught = [{"id": _slug(g["label"], taken), "label": g["label"], "steps": list(g["steps"])}
+                  for g in _lesson_groups(steps)]
+    have = {t["id"] for t in taught}
+    return {"track": m["track"], "taught": taught,
+            "next": [{"id": n["id"], "label": n["label"]} for n in m["nodes"] if n["id"] not in have]}
+
+
+def _nn_covers(steps: list[dict]) -> list[tuple[str, str, str, list[str]]]:
+    """(id, label, detail, the step ids behind it) for each NN concept some step teaches."""
+    ids = {s["id"] for s in steps}
+    out: list[tuple[str, str, str, list[str]]] = []
+    for cid, label, detail, curated_steps, words in _NN_CONCEPTS:
+        cover = [s for s in curated_steps if s in ids]
+        if not cover:  # not the curated graph: the steps whose text names the concept
+            rx = re.compile(words, re.I)
+            cover = [s["id"] for s in steps if rx.search(_step_text(s))]
+        if cover:
+            out.append((cid, label, detail, cover))
+    return out
+
+
+def _lesson_groups(steps: list[dict]) -> list[dict]:
+    """One group per idea: {label, detail, steps}. A run step joins the step it runs; the same idea twice is one group."""
+    groups: list[dict] = []  # {label, detail, steps}
+    for i, st in enumerate(steps):
+        if st.get("kind") == "run" and groups:
+            groups[-1]["steps"].append(st["id"])  # "Run it" proves the step before it
+            continue
+        label = _words(str(st.get("keyIdea") or st.get("concept") or st.get("title") or st.get("what")
+                           or f"Step {i + 1}"), MAX_LABEL_WORDS)
+        same = next((g for g in groups if g["label"].lower() == label.lower()), None)
+        if same is not None:
+            same["steps"].append(st["id"])
+            continue
+        what = _words(str(st.get("what") or ""), MAX_DETAIL_WORDS)
+        groups.append({"label": label, "detail": what if what and what.lower() != label.lower() else "",
+                       "steps": [st["id"]]})
+    return groups
+
+
+def _next_topics(lesson: dict) -> list[dict]:
+    """lesson.nextTopics (strings or {title, goal}) then lesson.learnFirst (gaps not covered yet), at most MAX_NEXT."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(title: Any, goal: Any = None, detail: str = "") -> None:
+        t = " ".join(str(title or "").split())
+        if not t or t.lower() in seen or len(out) >= MAX_NEXT:
+            return
+        seen.add(t.lower())
+        out.append({"title": t, "goal": " ".join(str(goal or t).split()), "_detail": detail})
+
+    for item in lesson.get("nextTopics") or []:
+        if isinstance(item, str):
+            add(item)
+        elif isinstance(item, dict):
+            add(item.get("title") or item.get("goal"), item.get("goal") or item.get("query"),
+                _words(str(item.get("why") or item.get("detail") or ""), MAX_DETAIL_WORDS))
+    passed = {p.get("id") for p in lesson.get("prerequisites") or [] if isinstance(p, dict) and p.get("status") == "passed"}
+    for item in lesson.get("learnFirst") or []:
+        if isinstance(item, dict) and item.get("covers") not in passed:
+            mins = item.get("minutes")
+            add(item.get("title"), item.get("title"), f"{mins} min" if isinstance(mins, int) and mins > 0 else "")
+    return out
+
+
+def _track_name(lesson: dict) -> str:
+    for key in ("track", "stack"):
+        v = lesson.get(key)
+        if isinstance(v, str) and v.strip():
+            return _pretty(v.strip().split("/")[-1].strip())
+    title = " ".join(str(lesson.get("title") or lesson.get("goal") or "").split())
+    m = _TRAILING_TECH.search(title)
+    if m:
+        return _pretty(m.group(1))
+    libs = lesson.get("libraries")
+    names = list(libs) if isinstance(libs, (dict, list)) else []
+    for name in names:
+        if isinstance(name, str) and name.lower() in _PRETTY:
+            return _PRETTY[name.lower()]
+    name = _LEAD_VERB.sub("", title).strip()
+    return (name[:1].upper() + name[1:]) if name else "This lesson"
+
+
+def _pretty(name: str) -> str:
+    key = name.strip().lower()
+    if key in _PRETTY:
+        return _PRETTY[key]
+    if " " in key and key.split()[0] in _PRETTY:  # "react hooks" -> React
+        return _PRETTY[key.split()[0]]
+    return name[:1].upper() + name[1:]
+
+
+def _lead(lesson: dict, taught: list[dict]) -> str:
+    """The lesson's own title as a plain sentence ("A to-do app in React."); t7: never "You finished ..." """
+    title = " ".join(str(lesson.get("title") or lesson.get("goal") or "This lesson").split()).rstrip(".!?")
+    return f"{title[:1].upper()}{title[1:]}."
+
+
+def _finish(track: str, lead: str, nodes: list[dict], cross: list[dict], nxt: list[dict], proof: str = "") -> dict:
+    counts = [(sum(n["state"] == s for n in nodes), word)
+              for s, word in ((MASTERED, "mastered"), (LEARNING, "learning"), (NEXT, "up next"))]
+    tally = ", ".join(f"{c} {w}" for c, w in counts if c)
+    where = "" if track.lower() in lead.lower() else f" in {track}"  # "...a to-do app in React. 3 mastered." once
+    # "A 1-4-4-1 network that learns the shape of sin(x). Loss 0.819 → 0.001 in your last run. 8 mastered, 5 up next
+    # in Neural networks." (the proof only when the learner's own run gave one)
+    headline = " ".join(x for x in (lead, proof, f"{tally}{where}." if tally else "") if x)
+    edges = [{"from": a["id"], "to": b["id"]} for a, b in zip(nodes, nodes[1:])]
+    return {"track": track, "headline": headline, "nodes": nodes, "edges": edges, "cross": cross,
+            "next": [{"title": n["title"], "goal": n["goal"]} for n in nxt]}
+
+
+def _sentence(text: Any) -> str:
+    """One sentence of evidence for the headline: whitespace squeezed, ends with a full stop; "" when there is none."""
+    t = " ".join(str(text or "").split())
+    return "" if not t else t if t[-1] in ".!?" else t + "."
+
+
+def _node(nid: str, label: str, state: str, detail: str = "") -> dict:
+    n = {"id": nid, "label": label, "state": state}
+    if detail:
+        n["detail"] = detail
+    return n
+
+
+def _skipped_detail(step_ids: list[str], steps: list[dict], status: dict[str, str]) -> str:
+    pos = {s["id"]: i + 1 for i, s in enumerate(steps)}
+    nums = [str(pos[s]) for s in step_ids if status.get(s) == "skipped" and s in pos]
+    if not nums:
+        done = [str(pos[s]) for s in step_ids if status.get(s) == "assisted" and s in pos]
+        if not done:
+            return ""
+        return (f"Step {done[0]} typed by Do it for me" if len(done) == 1
+                else f"Steps {', '.join(done)} typed by Do it for me")
+    return f"Step {nums[0]} skipped" if len(nums) == 1 else f"Steps {', '.join(nums)} skipped"
+
+
+def _words(text: str, n: int) -> str:
+    w = " ".join(text.split()).split(" ")
+    out = " ".join(w[:n]).rstrip(".,;:")
+    return out if len(w) <= n else out + "…"
+
+
+def _slug(text: str, taken: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40].strip("-") or "node"
+    sid, k = base, 2
+    while sid in taken:
+        sid, k = f"{base}-{k}", k + 1
+    taken.add(sid)
+    return sid

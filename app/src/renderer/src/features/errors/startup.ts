@@ -34,6 +34,7 @@ import { useOnboarding, type CloudView } from '../onboarding/store'
 import { copyDetails } from './cards'
 import { restartEngine, TRIES, useErrors } from './store'
 import { shellName, thisDevice } from '../onboarding/device'
+import { REGION_LINE } from '../signincard/notice'
 
 const capFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -63,6 +64,8 @@ export type BootInput = {
   local?: string
   localLine?: string
   cloud?: CloudView['state']
+  /** main/features/cloud.ts: POST /v1/install answered 451 region_unavailable. */
+  cloudRegion?: boolean
   cloudStatus?: string
   /** The engine was up at least once this launch. */
   everOpen: boolean
@@ -108,6 +111,7 @@ export function bootOf(i: BootInput): Boot {
       detail: i.local === 'installing' ? 'Setting up the engine. The first time takes a minute.' : `Starting the engine on ${thisDevice()}.`
     }
   }
+  if (i.cloud === 'failed' && i.cloudRegion) return { phase: 'limited', line: 'Not available here yet', detail: REGION_LINE }
   if (i.cloud === 'failed' && !i.retryHold) return failed(i, 'cloud', `Couldn't set up access for ${thisDevice()}.`)
   if (i.cloud === 'minting' || (i.cloud === 'failed' && i.retryHold)) {
     if (i.timedOut) return failed(i, 'cloud', `Couldn't set up access for ${thisDevice()}.`)
@@ -257,6 +261,7 @@ function inputNow(): BootInput {
     local: l.localEngine?.state,
     localLine: l.localEngine?.line,
     cloud: o.cloud?.state,
+    cloudRegion: o.cloud?.region,
     cloudStatus: l.keyStatus?.cloud,
     everOpen: e.everOpen,
     stopped: e.everOpen && !!e.link && !e.link.open && e.link.failures >= TRIES,
@@ -271,9 +276,10 @@ function inputNow(): BootInput {
 export function useBootInput(): BootInput {
   const l = useLesson(useShallow((s) => ({ connected: s.connected, local: s.localEngine?.state, localLine: s.localEngine?.line, cloudStatus: s.keyStatus?.cloud })))
   const cloud = useOnboarding((s) => s.cloud?.state)
+  const cloudRegion = useOnboarding((s) => s.cloud?.region)
   const e = useErrors(useShallow((s) => ({ everOpen: s.everOpen, stopped: s.everOpen && !!s.link && !s.link.open && s.link.failures >= TRIES })))
   const c = useBootClock(useShallow((s) => ({ timedOut: s.timedOut, shown: s.shown, retryHold: s.retryHold, stage: s.stage })))
-  const live: BootInput = { ...l, cloud, ...e, timedOut: c.timedOut, shown: c.shown, retryHold: c.retryHold }
+  const live: BootInput = { ...l, cloud, cloudRegion, ...e, timedOut: c.timedOut, shown: c.shown, retryHold: c.retryHold }
   return c.stage ? { ...live, ...c.stage } : live
 }
 

@@ -11,14 +11,16 @@
  * Side effects in main: appearance → nativeTheme.themeSource (so vibrancy and prefers-color-scheme follow),
  * launchAtLogin → app.setLoginItemSettings.
  *
- * v2 (W0-5): panelCollapsed, onboarded, crashReports ('ask' by default), usageCounts (off), shortcuts. They are only
- * stored here (no side effect yet): `shortcuts` is validated as Electron accelerators and kept for wave 2's live
- * rebinding; a patch's `shortcuts` replaces the whole map, so send all of it.
+ * v2 (W0-5): panelCollapsed, onboarded, crashReports ('ask' by default), usageCounts (off): stored only.
+ * `shortcuts` is live: validated as Electron accelerators (common/prefs isAccelerator), then checked by main
+ * (setShortcutCheck → main/shortcutKeys.ts accept), which registers the new keys and drops any override another
+ * shortcut or another app already owns, so the saved map is what works. A patch's `shortcuts` replaces the whole map,
+ * so send all of it; the prefs:set result shows which overrides were kept.
  */
 import { app, ipcMain, nativeTheme, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_PREFS, sanitizePrefs, type Prefs } from '../common/prefs'
+import { DEFAULT_PREFS, sanitizePrefs, type Prefs, type ShortcutPrefs } from '../common/prefs'
 import { rawBg } from '../renderer/src/core/theme'
 
 /** The opaque window color for the theme in effect (nativeTheme follows Settings > Appearance and the OS). */
@@ -61,6 +63,17 @@ export function fromRenderer(patch: unknown): Partial<Prefs> {
   return rest
 }
 
+/**
+ * Main's say on a new shortcuts map before it is saved (main/index.ts hands in main/shortcutKeys.ts accept): returns the
+ * map to keep (a refused override goes back to what it was). Unset: kept as sent.
+ */
+let shortcutCheck: ((next: ShortcutPrefs, prev: ShortcutPrefs) => ShortcutPrefs) | undefined
+export function setShortcutCheck(fn: ((next: ShortcutPrefs, prev: ShortcutPrefs) => ShortcutPrefs) | undefined): void {
+  shortcutCheck = fn
+}
+const checked = (clean: Partial<Prefs>, prev: Prefs): Partial<Prefs> =>
+  clean.shortcuts && shortcutCheck ? { ...clean, shortcuts: shortcutCheck(clean.shortcuts, prev.shortcuts) } : clean
+
 /** setupPrefs's writer (merge, save, apply, broadcast, listeners). Unset before setupPrefs runs (tests). */
 let write: ((clean: Partial<Prefs>) => Prefs) | undefined
 
@@ -71,7 +84,7 @@ let write: ((clean: Partial<Prefs>) => Prefs) | undefined
 export function patchPrefs(patch: Partial<Prefs>): Prefs {
   const clean = sanitizePrefs(patch)
   if (write) return write(clean)
-  current = { ...current, ...clean }
+  current = { ...current, ...checked(clean, current) }
   listeners.forEach((fn) => fn(current))
   return current
 }
@@ -81,6 +94,7 @@ export function resetPrefsForTests(): void {
   current = DEFAULT_PREFS
   listeners.clear()
   write = undefined
+  shortcutCheck = undefined
 }
 
 /** `trusted`: main's sender check (index.ts trustedSender); an untrusted sender reads nothing and changes nothing. */
@@ -105,7 +119,7 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
   apply()
 
   write = (clean: Partial<Prefs>): Prefs => {
-    prefs = { ...prefs, ...clean }
+    prefs = { ...prefs, ...checked(clean, prefs) }
     try {
       writeFileSync(file, JSON.stringify(prefs, null, 2))
     } catch (err) {

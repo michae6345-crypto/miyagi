@@ -1,0 +1,103 @@
+{
+ "id": "vscode-react-card-runtime-error-blank-page",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The terminal is clean (Vite ready, then 'hmr update /src/App.jsx') because the error is at run time, not compile time: the learner wrote const weightKg = '5' and {weightKg.toFixed(1)}, and a string has no toFixed. In the browser the page is blank and DevTools shows 'Uncaught TypeError: weightKg.toFixed is not a function'. The step is the card showing in the browser; it does not.",
+ "step": {
+  "id": "re2s4",
+  "title": "Show the fact card in the browser",
+  "kind": "run",
+  "instructions": "Save src/App.jsx with the animal card (a div with className=\"card\", the name in an h2 and the weight in a p). With npm run dev still running, check the browser shows the card and the terminal shows no errors.",
+  "file": "src/App.jsx",
+  "code": "function App() {\n  const name = 'Red panda'\n  const weightKg = 5\n  return (\n    <div className=\"card\">\n      <h2>{name}</h2>\n      <p>{weightKg} kg</p>\n    </div>\n  )\n}\n\nexport default App",
+  "run_command": "npm run dev",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "src/App.jsx",
+    "match": "className=\"card\"",
+    "caption": "The card's root"
+   }
+  ],
+  "checks": [
+   {
+    "id": "re2s4c1",
+    "type": "screen_contains",
+    "label": "Vite dev server is running",
+    "app": "Terminal",
+    "pattern": "ready\\s+in|hmr\\s+update"
+   },
+   {
+    "id": "re2s4c2",
+    "type": "screen_absent",
+    "label": "No compile errors in the terminal",
+    "app": "Terminal",
+    "pattern": "ERR!|Failed\\s+to\\s+compile"
+   },
+   {
+    "id": "re2s4c3",
+    "type": "screen_contains",
+    "label": "App uses className",
+    "app": "Code",
+    "pattern": "className=[\"']card[\"']"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "re2s4p1",
+    "type": "file_contains",
+    "label": "The card is in App.jsx",
+    "file": "animal-card/src/App.jsx",
+    "pattern": "className=[\"']card[\"']"
+   }
+  ],
+  "hints": [
+   "JSX uses className, not class."
+  ],
+  "common_mistakes": [
+   "Two root elements side by side; wrap them in one div."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "animal-card/package.json": "{\n  \"name\": \"animal-card\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"vite build\",\n    \"preview\": \"vite preview\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  },\n  \"devDependencies\": {\n    \"@vitejs/plugin-react\": \"^4.3.3\",\n    \"vite\": \"^5.4.10\"\n  }\n}\n",
+   "animal-card/src/App.jsx": "function App() {\n  const name = 'Red panda'\n  const weightKg = '5'\n  return (\n    <div className=\"card\">\n      <h2>{name}</h2>\n      <p>{weightKg.toFixed(1)} kg</p>\n    </div>\n  )\n}\n\nexport default App\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "App.jsx",
+    "function App() {",
+    "const name = 'Red panda'",
+    "const weightKg = '5'",
+    "return (",
+    "<div className=\"card\">",
+    "<h2>{name}</h2>",
+    "<p>{weightKg.toFixed(1)} kg</p>",
+    "</div>"
+   ],
+   "Terminal": [
+    "tripi@mac animal-card % npm run dev",
+    "VITE v5.4.10  ready in 296 ms",
+    "➜  Local:   http://localhost:5173/",
+    "4:48:20 PM [vite] hmr update /src/App.jsx"
+   ],
+   "Google Chrome": [
+    "localhost:5173",
+    "Elements  Console  Sources  Network",
+    "Uncaught TypeError: weightKg.toFixed is not a function",
+    "at App (App.jsx:7:22)",
+    "The above error occurred in the <App> component."
+   ]
+  },
+  "run": {
+   "command": "npm run dev",
+   "exit_code": null,
+   "running": true,
+   "output_tail": [
+    "4:48:20 PM [vite] hmr update /src/App.jsx"
+   ]
+  }
+ }
+}

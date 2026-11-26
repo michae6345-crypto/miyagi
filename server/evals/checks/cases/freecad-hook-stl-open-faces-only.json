@@ -1,0 +1,35 @@
+{
+ "id": "freecad-hook-stl-open-faces-only",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 10 (\"A watertight STL of the hook is saved\"). The learner still had five faces of the hook selected in the 3D view (not the Body in the tree), so File > Export wrote just those faces: 10 triangles with the top face missing. The file has real facets, but it is an open shell, not watertight: the 4 top edges each belong to one triangle, and a slicer reports it as broken.",
+ "step": {
+  "id": "s10",
+  "index": 10,
+  "title": "Export an STL to print",
+  "file": "hook.FCStd",
+  "instructions": "Click empty space to clear the selection, select the Body in the tree, choose File > Export, pick STL Mesh (*.stl) and save it as hook.stl next to hook.FCStd.",
+  "checks": [
+   {
+    "id": "s10c1",
+    "type": "file_exists",
+    "label": "hook.stl saved",
+    "file": "hook.stl"
+   },
+   {
+    "id": "s10c2",
+    "type": "file_contains",
+    "label": "STL mesh inside",
+    "file": "hook.stl",
+    "pattern": "^solid\\b"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "hook.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "hook.stl": "solid Mesh\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 10 0\n      vertex 40 10 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 40 10 0\n      vertex 40 0 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 40 0 0\n      vertex 40 0 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 40 0 30\n      vertex 0 0 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 10 0\n      vertex 0 10 30\n      vertex 40 10 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 10 0\n      vertex 40 10 30\n      vertex 40 10 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 0 30\n      vertex 0 10 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 0 0 0\n      vertex 0 10 30\n      vertex 0 10 0\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 40 0 0\n      vertex 40 10 0\n      vertex 40 10 30\n    endloop\n  endfacet\n  facet normal 0 0 0\n    outer loop\n      vertex 40 0 0\n      vertex 40 10 30\n      vertex 40 0 30\n    endloop\n  endfacet\nendsolid Mesh\n"
+  }
+ }
+}

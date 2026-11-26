@@ -1,0 +1,114 @@
+{
+ "id": "fusion-timeline-lid-stayed-80",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss: Intro to Fusion lesson 9 (\"The base and lid are both 100 mm long and the Timeline shows no errors\"). The base rebuilt to 100 mm, but the learner had drawn the lid's sketch as a typed 80 x 50 rectangle instead of projecting the base outline, so it did not follow the change: the lid is still 80 mm long and no longer fits. Every feature is healthy; a 100 is in the design, on the base only.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Check the rebuild",
+  "file": "box.design.json",
+  "instructions": "Double-click Sketch1 in the Timeline, change the 80 mm dimension to 100 and Finish Sketch. Check that the base and the lid both grow to 100 mm long and that no Timeline feature turns red.",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Base and lid are 100 mm long",
+    "file": "box.design.json",
+    "pattern": "\"bound_box\":\\s*\\[\\s*100(?:\\.0+)?,"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "Every feature rebuilds",
+    "file": "box.design.json",
+    "pattern": "\"health\":\\s*\"healthy\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "box.design.json": {
+    "json": {
+     "dump": "miyagi_fusion_addin 1",
+     "fusion": "2.0.20460",
+     "design": "Box",
+     "units": "mm",
+     "components": [
+      {
+       "name": "Base",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          100.0,
+          50.0,
+          30.0
+         ],
+         "volume": 34452.4
+        }
+       ]
+      },
+      {
+       "name": "Lid",
+       "bodies": [
+        {
+         "name": "Body1",
+         "bound_box": [
+          80.0,
+          50.0,
+          3.0
+         ],
+         "volume": 11899.1
+        }
+       ]
+      }
+     ],
+     "timeline": {
+      "marker": 7,
+      "items": [
+       {
+        "name": "Sketch1",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude1",
+        "type": "Extrude",
+        "health": "healthy"
+       },
+       {
+        "name": "Fillet1",
+        "type": "Fillet",
+        "health": "healthy"
+       },
+       {
+        "name": "Shell1",
+        "type": "Shell",
+        "health": "healthy"
+       },
+       {
+        "name": "Hole1",
+        "type": "Hole",
+        "health": "healthy"
+       },
+       {
+        "name": "Sketch2",
+        "type": "Sketch",
+        "health": "healthy"
+       },
+       {
+        "name": "Extrude2",
+        "type": "Extrude",
+        "health": "healthy"
+       }
+      ]
+     },
+     "features": []
+    }
+   }
+  }
+ }
+}

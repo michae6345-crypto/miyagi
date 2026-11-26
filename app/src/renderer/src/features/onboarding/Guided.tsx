@@ -3,9 +3,13 @@
  *
  *   header   the tree (it travels here from the intro: shared layoutId) and the wordmark; "1 of 4" and four bars
  *            (green = done, white = this step, the track = not reached; done and earlier bars jump back)
- *   body     the step's icon, a big title, one line of why, the live status (glyph + word + sentence) and, when the
- *            window is wide enough, a picture of what the learner will see (Illustration.tsx)
- *   footer   Back (chrome), an optional quiet second action (Skip for now, Open System Settings), the ONE primary
+ *   body     v4 (Adrian's ui-next onboard-2, Nov 24; v4.tsx SetupPage): the title and one line of why, then a group of
+ *            live rows (both macOS grants side by side on either grant step, each with its check mark; the step's own
+ *            row elsewhere), the step's row saying where it stands with the ONE primary on its right when it is the
+ *            row's own fix (Allow, Open System Settings, Install in VS Code, Retry; Continue and the waits sit under
+ *            the group instead); under it a quiet second action (Skip for now, Open System Settings) and Back at the
+ *            far right. A quiet rail on the right says how, in
+ *            numbered lines (dropped under 860). Top-anchored, never centered vertically.
  *
  * Moving: a step that turns green while it is on screen shows Done for ~1 s (a thin bar fills under the status), then
  * the walk moves to the next step not done. Steps already done are skipped when the walk starts (a reopen). Back
@@ -21,21 +25,18 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
-import { ChevronLeft } from 'lucide-react'
 import { useCapability } from '../../core/lesson'
-import { brand, color, elevation, fill, font, highlight, radius2, spring, status as tone, surface, type2 } from '../../core/theme'
+import { color, fill, radius2, spring, status as tone, v4c } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
-import { StatusGlyph } from '../../core/ui/status'
 import { Dots } from './Dots'
-import { Illustration } from './Illustration'
 import { MARK_ID } from './Intro'
-import { EASE_OUT, rise } from './parts'
-import { wordColor } from './Row'
 import type { Row } from './rows'
+import { stepGroup, stepRail } from './setupRail'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
 import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
 import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
+import { Actions, BackLink, FLOW_TOP, LiveState, RailRow, RailSection, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
 
 /** How long a step that just turned green stays up before the walk moves on. */
 export const ADVANCE_MS = 1100
@@ -46,8 +47,6 @@ const SETTLE_MS = 900
 const SKELETON_WAIT = 0.3
 
 type Button = { label: string; onClick: () => void; busy?: boolean; disabled?: boolean }
-
-// ---- header --------------------------------------------------------------------------------------------------------
 
 // ---- one step ------------------------------------------------------------------------------------------------------
 
@@ -85,42 +84,6 @@ function SoftProgress(): ReactNode {
   )
 }
 
-function Status({ row, advancing }: { row: Row; advancing: boolean }): ReactNode {
-  return (
-    <div
-      data-onb-status={row.state}
-      aria-live="polite"
-      className="relative mx-auto flex min-h-[44px] max-w-full items-center justify-center gap-[10px] overflow-hidden px-[4px] py-[10px]"
-      // As wide as its words: the soft progress and the moving-on hairline run under the line, not across the window.
-      style={{ width: 'fit-content' }}
-    >
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.span key={row.state} className="flex" initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, transition: fade.instant }} transition={spring}>
-          <StatusGlyph state={row.state} size={20} />
-        </motion.span>
-      </AnimatePresence>
-      <span className="shrink-0 whitespace-nowrap" style={{ fontSize: type2.sm, fontWeight: 600, color: wordColor(row.state) }}>
-        {row.state === 'passed' ? 'Done' : row.word}
-      </span>
-      <span className="min-w-0 flex-1" style={{ fontSize: type2.sm, lineHeight: '18px', color: color.label }}>
-        {statusLine(row)}
-      </span>
-      {settling(row) && <SoftProgress />}
-      {/* Moving on: a hairline fills under the status while the done step waits its second (transform only). */}
-      {advancing && (
-        <motion.span
-          aria-hidden
-          className="absolute bottom-0 left-0 right-0 block h-[2px]"
-          style={{ background: tone.passed, originX: 0 }}
-          initial={{ scaleX: 0 }}
-          animate={{ scaleX: 1 }}
-          transition={{ duration: ADVANCE_MS / 1000, ease: 'linear' }}
-        />
-      )}
-    </div>
-  )
-}
-
 /** How long a grant the learner asked for may stay missing before miyagi says what to try (the re-grant case). */
 export const REGRANT_MS = 7000
 
@@ -130,51 +93,86 @@ export function regrantLines(id: StepId): string[] {
   return ['Already on? Switch miyagi off and on again.', 'Still stuck? Remove it with the minus, then add it back.']
 }
 
-/**
- * The picture's stage: the live picture floating on the window, nothing behind it (redraft, Adrian Nov 21: the tinted
- * floor per step read as decoration; the picture already has its own surface and shadow).
- */
-function Stage({ row }: { row: Row }): ReactNode {
-  return (
-    <div data-onb-stage className="relative flex w-full items-center justify-center px-[24px] py-[8px]">
-      <div className="w-full max-w-[320px] text-left">
-        <Illustration row={row} />
-      </div>
-    </div>
-  )
-}
-
-function StepScreen({ row, picture, advancing, stuck }: { row: Row; picture: boolean; advancing: boolean; stuck: boolean }): ReactNode {
+function StepPage({
+  row,
+  steps,
+  advancing,
+  stuck,
+  top,
+  enterDelay,
+  actions,
+  inRow
+}: {
+  row: Row
+  steps: Row[]
+  advancing: boolean
+  stuck: boolean
+  top?: string
+  enterDelay: number
+  actions: ReactNode
+  /** The ONE primary, when it is this row's own fix (Allow, Open System Settings, Install in VS Code, Retry): it sits
+   * in the row, on the right, as in the mock; otherwise (Continue, a wait) it leads the actions under the group. */
+  inRow?: ReactNode
+}): ReactNode {
   const c = STEP_COPY[row.id]
+  const how = stepRail(row)
+  const group = stepGroup(row, steps)
   return (
-    <div className="mx-auto flex h-full w-full max-w-[520px] flex-col items-center justify-center px-[32px] text-center">
-      {picture && (
-        <motion.div variants={rise} className="w-full">
-          <Stage row={row} />
-        </motion.div>
-      )}
-      <motion.h1
-        id="onb-title"
-        variants={rise}
-        className="m-0"
-        style={{ marginTop: picture ? 28 : 0, fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}
-      >
-        {c.title}
-      </motion.h1>
-      <motion.p variants={rise} className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label, maxWidth: 400 }}>
-        {c.body}
-      </motion.p>
-      <motion.div variants={rise} className="mt-[22px] w-full text-left" style={{ maxWidth: 400 }}>
-        <Status row={row} advancing={advancing} />
-        {stuck && (
-          <div data-onb-regrant={row.id} role="note" className="mt-[10px] flex flex-col gap-[2px] px-[4px]" style={{ fontSize: type2.sm, lineHeight: '20px', color: color.label }}>
+    <SetupPage
+      top={top}
+      enterDelay={enterDelay}
+      rail={
+        how && (
+          <RailSection first title={how.title}>
+            {how.lines.map(([t, d], i) => (
+              <RailRow key={t} n={i + 1} title={t} detail={d} />
+            ))}
+          </RailSection>
+        )
+      }
+    >
+      <SetupTitle title={c.title} lede={c.body} />
+      <Rise style={{ marginTop: 26 }}>
+        <SetupGroup label="Setup">
+          {group.map((r) => {
+            const on = r.id === row.id
+            return (
+              <SetupRow
+                key={r.id}
+                current={on && group.length > 1}
+                name={r.label}
+                line={on ? statusLine(r) : r.why}
+                right={on && inRow ? inRow : <LiveState state={r.state} word={on && r.state === 'passed' ? 'Done' : r.word} />}
+                data={{ 'data-onb-row': r.id, 'data-state': r.state, ...(on ? { 'data-onb-status': r.state } : {}) }}
+              >
+                {on && settling(r) && <SoftProgress />}
+                {/* Moving on: a hairline fills along the row's foot while the done step waits its second (transform only). */}
+                {on && advancing && (
+                  <motion.span
+                    aria-hidden
+                    className="absolute bottom-0 left-0 right-0 block h-[2px]"
+                    style={{ background: tone.passed, originX: 0 }}
+                    initial={{ scaleX: 0 }}
+                    animate={{ scaleX: 1 }}
+                    transition={{ duration: ADVANCE_MS / 1000, ease: 'linear' }}
+                  />
+                )}
+              </SetupRow>
+            )
+          })}
+        </SetupGroup>
+      </Rise>
+      {stuck && (
+        <Rise style={{ marginTop: 12 }} data={{ 'data-onb-regrant': row.id }}>
+          <div role="note" className="flex flex-col gap-[2px]" style={{ fontSize: 13, lineHeight: '19px', color: color.label }}>
             {regrantLines(row.id).map((l) => (
               <span key={l}>{l}</span>
             ))}
           </div>
-        )}
-      </motion.div>
-    </div>
+        </Rise>
+      )}
+      {actions}
+    </SetupPage>
   )
 }
 
@@ -182,7 +180,6 @@ function StepScreen({ row, picture, advancing, stuck }: { row: Row; picture: boo
 
 export function Guided({
   rows,
-  height,
   enterDelay = 0,
   onFinish,
   chrome = 'window',
@@ -246,7 +243,8 @@ export function Guided({
   useEffect(() => setGuidedStep(row?.id), [row?.id])
   // The learner asked for a grant, and after REGRANT_MS macOS still does not report it. After an update macOS can drop
   // the grant while System Settings still shows miyagi on: tell them plainly to switch it off and on (or remove and add).
-  const stuckId = row && (row.id === 'screen' || row.id === 'accessibility') && row.state === 'watching' ? row.id : undefined
+  // Not when main saw the switch on and only a restart is left (row.restart): that row says so itself.
+  const stuckId = row && (row.id === 'screen' || row.id === 'accessibility') && row.state === 'watching' && !row.restart ? row.id : undefined
   useEffect(() => {
     setStuck(false)
     if (!stuckId) return
@@ -296,7 +294,7 @@ export function Guided({
     if (row.state === 'unknown') return { label: 'Continue', onClick: moveOn }
     const a = row.action
     if (a) {
-      const label = a.id === 'relaunch' ? 'Relaunch miyagi' : row.state === 'checking' ? row.word : a.label
+      const label = a.id === 'relaunch' ? 'Restart miyagi' : row.state === 'checking' ? row.word : a.label
       return { label, onClick: () => void runAction(a.id, a.item), busy: row.state === 'checking', disabled: row.state === 'checking' }
     }
     // Nothing to click: the step finishes on its own (the engine starting, access being set up, VS Code checked).
@@ -317,8 +315,10 @@ export function Guided({
           if (idx !== undefined) go(nextOpen(steps, idx, new Set(done).add(row.id)), idx)
         }
       }
-    // Screen Recording after the click: the primary is Relaunch; the pane can be opened again from here.
-    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('allow-screen') }
+    // Screen Recording after the click (or a grant only a restart picks up): the primary is Restart; the pane can be
+    // opened again from here.
+    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction(row.restart ? 'open-screen-pane' : 'allow-screen') }
+    if (row.id === 'accessibility' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('open-accessibility-pane') }
     return undefined
   }, [row, idx, steps, done, go])
 
@@ -342,10 +342,34 @@ export function Guided({
     if (row) first.current = false
   }, [row])
   const custom: Slide = { d: dir, delay: first.current ? enterDelay : 0 }
-  const picture = height >= 520
+  const top = chrome === 'flow' ? FLOW_TOP : undefined
+
+  // The primary goes in the step's row when it is that row's own fix (row.action, not yet done), like the mock's
+  // "Open System Settings" beside Accessibility; Continue and the waits lead the actions under the group.
+  const primaryInRow = !!row?.action && row.state !== 'passed' && row.state !== 'unknown'
+  const primaryNode = primary && (
+    <span data-onb-primary data-label={primary.label}>
+      <PrimaryButton label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
+    </span>
+  )
+  const hasBack = idx !== undefined && idx > 0
+  const actions = (primaryNode && !primaryInRow) || secondary || hasBack ? (
+    <Actions end={hasBack ? <span data-onb-back><BackLink onClick={back} /></span> : undefined}>
+      {primary && !primaryInRow && (
+        <span data-onb-primary data-label={primary.label}>
+          <PrimaryButton label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
+        </span>
+      )}
+      {secondary && (
+        <span data-onb-secondary>
+          <QuietButton label={secondary.label} onClick={secondary.onClick} />
+        </span>
+      )}
+    </Actions>
+  ) : null
 
   return (
-    <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col">
+    <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col" style={{ background: v4c.page }}>
       {chrome === 'window' && <header data-drag className="mg-flow-head mg-lights-pad flex shrink-0 items-center justify-between pr-[28px]">
         <div className="flex items-center gap-[10px]">
           <motion.div layoutId={MARK_ID} className="relative" style={{ width: 22, height: 22 }} transition={{ layout: spring }}>
@@ -362,6 +386,8 @@ export function Guided({
         )}
       </header>}
 
+      {/* v4 (Nov 24): the step, its live rows and its one primary on the left, how to do it in a quiet rail on the right,
+          top-anchored under the header (SetupPage). Steps slide 24 px on the spring; the page scrolls if a window is short. */}
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {row ? (
           <AnimatePresence custom={custom} initial={true} mode="popLayout">
@@ -375,7 +401,7 @@ export function Guided({
               className="absolute inset-0"
               aria-label={`Step ${(idx ?? 0) + 1} of ${steps.length}: ${STEP_COPY[row.id].short}`}
             >
-              <StepScreen row={row} picture={picture} advancing={advancing} stuck={stuck} />
+              <StepPage row={row} steps={steps} advancing={advancing} stuck={stuck} top={top} enterDelay={custom.delay} actions={actions} inRow={primaryInRow ? primaryNode : undefined} />
             </motion.section>
           </AnimatePresence>
         ) : (
@@ -383,40 +409,19 @@ export function Guided({
           // fades in only after the screen before it (the login) is gone, so two screens are never drawn over each other.
           <motion.div
             aria-hidden
-            className="mx-auto flex h-full w-full max-w-[860px] flex-col justify-center gap-[16px] px-[56px]"
+            className="absolute inset-0"
             initial={chrome === 'flow' ? { opacity: 0 } : false}
             animate={{ opacity: 0.6 }}
             transition={{ ...fade.slow, delay: chrome === 'flow' ? enterDelay + SKELETON_WAIT : 0 }}
           >
-            <span className="block h-[56px] w-[56px]" style={{ borderRadius: radius2.group, background: fill.skeleton }} />
-            <span className="mt-[8px] block h-[24px] w-[320px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
-            <span className="block h-[14px] w-[260px]" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
+            <SetupPage top={top} animate={false} labelledBy="">
+              <span className="block h-[32px] w-[340px] max-w-full" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
+              <span className="mt-[10px] block h-[14px] w-[260px] max-w-full" style={{ borderRadius: radius2.control, background: fill.skeleton }} />
+              <span className="mt-[26px] block h-[120px] w-full" style={{ borderRadius: 10, background: fill.skeleton }} />
+            </SetupPage>
           </motion.div>
         )}
       </main>
-
-      <motion.footer
-        className="flex h-[84px] shrink-0 items-center justify-between px-[40px]"
-
-        initial={{ opacity: 0 }}
-        animate={{ opacity: row ? 1 : 0 }}
-        transition={{ ...fade.slow, delay: enterDelay }}
-      >
-        <div data-onb-back>{idx !== undefined && idx > 0 && <QuietButton size="lg" icon={ChevronLeft} label="Back" onClick={back} />}</div>
-        <div className="flex items-center gap-[12px]">
-          {secondary && (
-            <span data-onb-secondary>
-              <QuietButton size="lg" label={secondary.label} onClick={secondary.onClick} />
-            </span>
-          )}
-          {primary && (
-            <span data-onb-primary data-label={primary.label}>
-              <PrimaryButton size="lg" label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
-            </span>
-          )}
-        </div>
-      </motion.footer>
     </div>
   )
 }
-

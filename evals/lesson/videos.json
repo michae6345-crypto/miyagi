@@ -1,0 +1,66 @@
+{
+  "note": "Non-PINN eval set for server.lesson.build_lesson. Each URL checked with YouTube oEmbed (HTTP 200) and the watch page (length, publish date, captions) on 2026-11-14.",
+  "videos": [
+    {
+      "id": "react-useeffect",
+      "stack": "React (Vite, VS Code, browser)",
+      "url": "https://www.youtube.com/watch?v=L-1sP3Ljhsg",
+      "title": "React useEffect() hook introduction",
+      "channel": "Bro Code",
+      "published": "2024-01-06",
+      "length_s": 1192,
+      "views_at_pick": 95096,
+      "captions": "en (auto)",
+      "goal": "learn the React useEffect hook: run side effects on mount and on state changes, and clean them up"
+    },
+    {
+      "id": "git-rebase",
+      "stack": "git (terminal)",
+      "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+      "title": "git rebase - Why, When & How to fix conflicts",
+      "channel": "Philomatics",
+      "published": "2024-06-10",
+      "length_s": 585,
+      "views_at_pick": 256866,
+      "captions": "en (auto)",
+      "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+      "pick_note": "9:45, 15 s under the 10-minute floor: no hands-on terminal rebase/branching tutorial from 2023+ in the 10-40 min range had comparable reach (CodeWithChris 15 min uses GitHub Desktop, TechWorld with Nana 31 min is conceptual)."
+    },
+    {
+      "id": "pandas-30min",
+      "stack": "pandas (Python, Jupyter/VS Code)",
+      "url": "https://www.youtube.com/watch?v=EXIgjIBu4EU",
+      "title": "Learn Pandas in 30 Minutes - Python Pandas Tutorial",
+      "channel": "Tech With Tim",
+      "published": "2025-08-06",
+      "length_s": 1837,
+      "views_at_pick": 393966,
+      "captions": "en (auto), en-CA (manual)",
+      "goal": "load a CSV with pandas, then select, filter, clean and group the data"
+    },
+    {
+      "id": "rust-cli",
+      "stack": "Rust CLI (cargo, terminal)",
+      "url": "https://www.youtube.com/watch?v=5UA9UWWAagc",
+      "title": "Code Your Own CLI With Rust",
+      "channel": "Jonkero",
+      "published": "2025-06-13",
+      "length_s": 1690,
+      "views_at_pick": 29678,
+      "captions": "en (auto); no chapters",
+      "goal": "build a command-line tool in Rust with cargo that parses arguments"
+    },
+    {
+      "id": "fastapi-rest",
+      "stack": "FastAPI (Python, uvicorn, browser /docs)",
+      "url": "https://www.youtube.com/watch?v=iWS9ogMPOI0",
+      "title": "Python FastAPI Tutorial: Build a REST API in 15 Minutes",
+      "channel": "pixegami",
+      "published": "2023-09-11",
+      "length_s": 916,
+      "views_at_pick": 639683,
+      "captions": "en (manual + auto)",
+      "goal": "build a REST API with FastAPI: GET and POST endpoints with Pydantic models, run with uvicorn"
+    }
+  ]
+}

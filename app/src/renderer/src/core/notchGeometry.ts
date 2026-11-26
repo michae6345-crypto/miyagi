@@ -9,9 +9,16 @@ import { pill } from './theme'
 
 type Box = { x: number; y: number; w: number; h: number }
 
-/** The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them. */
-export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 19, bottom: 24, taper: 16 }, peek: { top: 10, bottom: 18, taper: 5 } } as const
-/** An open shape shorter than this uses the peek radii: the big top flare on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
+/**
+ * The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them.
+ * Open shapes have straight sides and a small flare (Adrian's pick, Nov 24, MIC-83; on main since Nov 25). They leaned
+ * in 16 px a side under a 19 px flare from Nov 22, and 18 px for a day on Nov 25. A card's content is a rectangle, so in
+ * the leaning shape it had 35 px of side room at the top and 19 at the bottom, and the same cards below the menu bar
+ * are plain rounded rectangles. `taper` stays in the path (notchPath) so a lean is one number away; it is 0 everywhere
+ * now.
+ */
+export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 12, bottom: 24, taper: 0 }, peek: { top: 8, bottom: 18, taper: 0 } } as const
+/** An open shape shorter than this uses the gentler peek radii: the big radii on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
 export const SHORT_OPEN_H = 120
 /** `taper`: how far each side leans in from top to bottom (0 = straight sides, like the hardware notch). */
 export type Radii = { top: number; bottom: number; taper: number }

@@ -1,0 +1,53 @@
+{
+ "id": "terminal-shell-chmod-checked-with-stat",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "heldOut": true,
+ "expected": "pass",
+ "why": "Intro to the terminal plan (docs/ui-next/catalog/plans/intro-terminal.json), 'Permissions and chmod' (passes: private.txt has mode 600, read and write for the owner only). The learner set it symbolically (`chmod u=rw,go= private.txt`, the same 600) and checked it with `stat -f '%Lp %N'` instead of `ls -l`: '600 private.txt'. The mode is right; there is just no '-rw-------' column on screen. Done.",
+ "step": {
+  "id": "s8",
+  "index": 8,
+  "title": "Lock down private.txt",
+  "instructions": "Make private.txt readable and writable by you only with chmod 600 private.txt. Check it with ls -l private.txt: the line should start with -rw-------.",
+  "run_command": "chmod 600 private.txt",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "chmod 600",
+    "caption": "Owner only"
+   }
+  ],
+  "checks": [
+   {
+    "id": "s8c1",
+    "type": "screen_contains",
+    "label": "ls -l shows read and write for the owner only",
+    "app": "Terminal",
+    "pattern": "-rw-------"
+   },
+   {
+    "id": "s8c2",
+    "type": "file_exists",
+    "label": "private.txt exists",
+    "file": "trail-log/private.txt"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "trail-log/notes/day1.txt": "Woke to rain on the tent\nAfternoon rain, trail muddy\nCamp by the river\n",
+   "trail-log/notes/day2.txt": "Light rain\nSun by noon\nSaw a heron\n",
+   "trail-log/notes/summit.txt": "Reached the summit\nRain cloud below us\nCold wind\n",
+   "trail-log/private.txt": "locker code 4417\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac trail-log % chmod u=rw,go= private.txt",
+    "tripi@mac trail-log % stat -f '%Lp %N' private.txt",
+    "600 private.txt",
+    "tripi@mac trail-log % "
+   ]
+  }
+ }
+}

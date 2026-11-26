@@ -33,6 +33,7 @@ import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
+import { useBeforeStart } from '../before-start/store'
 import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
 import { Flyout } from './Flyout'
@@ -56,11 +57,19 @@ const STEPS_HANDLE_WHEN_COLLAPSED = false
 /** A "Just teach me" lesson gets the v2 lesson panel; a video lesson keeps the drawer below. */
 function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const v2 = useLesson((s) => s.lesson?.mode === 'lesson') && LESSON_PANEL_V2
-  return v2 ? <PanelLayer layout={layout} /> : <LegacyLayer layout={layout} />
+  // The overlay root pins the island's dark set (data-theme="dark", core/Overlay.tsx). The drawer is a glass panel like
+  // the player window, so it follows Settings > Appearance (Michael, Nov 22: dark steps beside a light player).
+  // display: contents keeps every child placed against the overlay, as before.
+  return (
+    <div data-theme="auto" className="contents">
+      {v2 ? <PanelLayer layout={layout} /> : <LegacyLayer layout={layout} />}
+    </div>
+  )
 }
 
 /**
- * The docked lesson panel (v2/LessonPanel.tsx). It shows from the first step.started on; collapsed it goes back into
+ * The docked lesson panel (v2/LessonPanel.tsx). It shows from the first step.started on, once "Before you start" has
+ * closed; collapsed it goes back into
  * the island (the Mini pill, A2). It never yields to the spotlight, flips edges or tucks for a run step: the engine
  * fits VS Code beside it (panel.state), so nothing it points at sits under it. The Diagram flyout slides out of its
  * inner edge as before.
@@ -70,10 +79,15 @@ function PanelLayer({ layout }: { layout: Layout }): ReactNode {
   const open = useDrawer((s) => s.open)
   // Where the panel leaves to (LessonPanel's exit reads it): into the Mini pill on a collapse, off the edge otherwise.
   const via = useDrawer((s) => s.via ?? 'edge')
-  const shown = stepOn && open
+  // "Before you start" first, alone (1517 demo, Nov 24): the sheet and the docked step 1 showed together, two big boxes
+  // before the learner pressed anything. The panel waits for the sheet to close (Start the lesson, Esc, a resume or a
+  // step pass); the engine's step 1 runs underneath meanwhile. A resumed lesson never opens the sheet, so it shows at once.
+  const sheet = useBeforeStart((s) => s.open)
+  const shown = stepOn && open && !sheet
   const docked = useDock((d) => d.rect)
   const rect = lessonPanelRect(layout)
-  const anchor: Rect = docked ? { ...rect, h: docked.h } : rect
+  // Where the panel really is (the learner can drag it off the dock, v2/drag.ts): the dock rect is in screen points.
+  const anchor: Rect = docked ? { x: docked.x - layout.origin.x, y: docked.y - layout.origin.y, w: docked.w, h: docked.h } : rect
   const completing = useComplete((c) => !!c.card)
   const flyout = useDiagram((s) => s.open && !!s.diagram) && !completing
   useEffect(() => setDrawerAt('right'), [])

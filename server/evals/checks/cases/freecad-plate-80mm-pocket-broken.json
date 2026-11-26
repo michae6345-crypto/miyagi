@@ -1,0 +1,142 @@
+{
+ "id": "freecad-plate-80mm-pocket-broken",
+ "kind": "cad",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Intro to CAD lesson 9 (\"The plate is 80 mm long and every feature still rebuilds\"). The length constraint is 80 mm, but the holes' sketch lost its face when the plate grew (topological naming), so Sketch001 and the Pocket fail to recompute. Sketch and Pad are still valid, which is what a \"valid\": true pattern finds.",
+ "step": {
+  "id": "s9",
+  "index": 9,
+  "title": "Change a dimension",
+  "file": "plate.FCStd",
+  "instructions": "Double-click the first Sketch, change the 60 mm length to 80 mm, close the sketch and fix any feature that turns red. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s9c1",
+    "type": "file_contains",
+    "label": "Plate is 80 mm long",
+    "file": "plate.scene.json",
+    "pattern": "\"value\":\\s*80(?:\\.0+)?\\b"
+   },
+   {
+    "id": "s9c2",
+    "type": "file_contains",
+    "label": "Every feature rebuilds",
+    "file": "plate.scene.json",
+    "pattern": "\"valid\":\\s*true"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "plate.FCStd": "PK (zip: Document.xml, GuiDocument.xml)\n",
+   "plate.scene.json": {
+    "json": {
+     "dump": "dump_fcstd.py 1",
+     "freecad": "1.0.0",
+     "file": "plate.FCStd",
+     "bodies": [
+      {
+       "name": "Body",
+       "tip": "Pocket",
+       "features": [
+        {
+         "name": "Sketch",
+         "type": "Sketcher::SketchObject",
+         "support": "XY_Plane",
+         "constraints": [
+          {
+           "name": "Length",
+           "type": "DistanceX",
+           "value": 80.0
+          },
+          {
+           "name": "Width",
+           "type": "DistanceY",
+           "value": 40.0
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Horizontal"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Vertical"
+          },
+          {
+           "name": "",
+           "type": "Coincident"
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 1,
+         "open_wires": 0,
+         "valid": true
+        },
+        {
+         "name": "Pad",
+         "type": "PartDesign::Pad",
+         "profile": "Sketch",
+         "Length": 5.0,
+         "Reversed": false,
+         "valid": true
+        },
+        {
+         "name": "Sketch001",
+         "type": "Sketcher::SketchObject",
+         "support": "Pad:Face6",
+         "constraints": [
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          },
+          {
+           "name": "",
+           "type": "Diameter",
+           "value": 4.0
+          }
+         ],
+         "dof": 0,
+         "closed_wires": 2,
+         "open_wires": 0,
+         "valid": false
+        },
+        {
+         "name": "Pocket",
+         "type": "PartDesign::Pocket",
+         "profile": "Sketch001",
+         "Type": "ThroughAll",
+         "valid": false,
+         "error": "Pocket: Resulting shape is not a solid"
+        }
+       ],
+       "shape": {
+        "valid": true,
+        "solids": 1,
+        "volume": 16000.0,
+        "bound_box": [
+         80.0,
+         40.0,
+         5.0
+        ]
+       }
+      }
+     ],
+     "recompute_errors": [
+      "Sketch001: Attachment broken: Pad:Face6 no longer exists",
+      "Pocket: Resulting shape is not a solid"
+     ]
+    }
+   }
+  }
+ }
+}

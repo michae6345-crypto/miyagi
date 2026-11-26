@@ -1,0 +1,66 @@
+{
+ "id": "terminal-pkg-npm-install-outside-project",
+ "kind": "terminal",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "A dependency step in the shop app (the ts-shop lesson's project). The learner opened a new terminal tab, which starts in projects/, not projects/shop, and ran `npm install date-fns` there: npm made a new package.json and node_modules in projects/ ('added 1 package ... found 0 vulnerabilities'). shop/package.json has no date-fns, so `import { format } from 'date-fns'` in the shop still fails. Clean npm output, wrong folder.",
+ "step": {
+  "id": "t5",
+  "index": 5,
+  "title": "Add date-fns to the shop",
+  "instructions": "In the shop folder, add the date library: npm install date-fns. It should appear under dependencies in shop/package.json.",
+  "run_command": "npm install date-fns",
+  "targets": [
+   {
+    "app": "Terminal",
+    "match": "npm install date-fns",
+    "caption": "Install date-fns"
+   }
+  ],
+  "checks": [
+   {
+    "id": "t5c1",
+    "type": "screen_contains",
+    "label": "date-fns installed",
+    "app": "Terminal",
+    "pattern": "added\\s+\\d+\\s+packages?"
+   },
+   {
+    "id": "t5c2",
+    "type": "screen_absent",
+    "label": "No npm errors",
+    "app": "Terminal",
+    "pattern": "ERR!"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "t5p1",
+    "type": "file_contains",
+    "label": "date-fns in shop/package.json",
+    "file": "shop/package.json",
+    "pattern": "\"date-fns\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "shop/package.json": "{\n  \"name\": \"shop\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"dev\": \"vite\",\n    \"build\": \"tsc -b && vite build\"\n  },\n  \"dependencies\": {\n    \"react\": \"^18.3.1\",\n    \"react-dom\": \"^18.3.1\"\n  }\n}\n",
+   "package.json": "{\n  \"dependencies\": {\n    \"date-fns\": \"^4.1.0\"\n  }\n}\n",
+   "node_modules/date-fns/package.json": "{\n  \"name\": \"date-fns\",\n  \"version\": \"4.1.0\"\n}\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac projects % npm install date-fns",
+    "",
+    "added 1 package, and audited 2 packages in 1s",
+    "",
+    "1 package is looking for funding",
+    "  run `npm fund` for details",
+    "",
+    "found 0 vulnerabilities",
+    "tripi@mac projects % "
+   ]
+  }
+ }
+}

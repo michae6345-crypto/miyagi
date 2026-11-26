@@ -1,0 +1,9 @@
+{
+  "id": "paywall-pandas",
+  "url": "https://dataweekly.example.com/advanced-pandas-ten-tricks-3f9a2c",
+  "page": "paywall-pandas.html",
+  "notes": "A members-only article: a teaser paragraph, then a paywall box.",
+  "expect": {
+    "refusal": "blocked"
+  }
+}

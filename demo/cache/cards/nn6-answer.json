@@ -1,0 +1,6 @@
+{
+ "stepId": "nn6",
+ "kind": "answer",
+ "title": "What next?",
+ "body": "Swap np.sin for another curve, like np.cos, and train again: the same network and the same four pieces learn it."
+}

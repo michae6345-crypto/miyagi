@@ -1,0 +1,72 @@
+{
+ "id": "typescript-basics",
+ "topic": "typescript",
+ "stack": "TypeScript 5 with tsc and Node (VS Code + its terminal)",
+ "tutorial": {"kind": "text", "goal": "learn TypeScript basics: tsc setup, interfaces, type errors, generics, an npm build script",
+              "video_query": "TypeScript tutorial for beginners tsc"},
+ "lesson": null,
+ "learner": {
+  "folder": "ts-lab",
+  "notes": "npm, tsc and node output in their verbatim formats; tsc's emitted JS is written as the side effect of the scripted run."
+ },
+ "outline": [
+  {
+   "about": "npm init, install typescript, tsc --init", "match": "install|tsconfig|setup",
+   "expect_checks": [
+    {"type": "file_exists", "file": "tsconfig.json"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "Created a new tsconfig\\.json"}
+   ],
+   "actions": [
+    {"do": "run", "cmd": "npm init -y", "output": ["Wrote to /Users/me/ts-lab/package.json:", "", "{", "  \"name\": \"ts-lab\",", "  \"version\": \"1.0.0\",", "  \"main\": \"index.js\"", "}"],
+     "creates": {"package.json": "{\n  \"name\": \"ts-lab\",\n  \"version\": \"1.0.0\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"test\": \"echo \\\"Error: no test specified\\\" && exit 1\"\n  }\n}\n"}},
+    {"do": "run", "cmd": "npm install --save-dev typescript", "output": ["", "added 1 package, and audited 2 packages in 2s", "", "found 0 vulnerabilities"]},
+    {"do": "run", "cmd": "npx tsc --init", "output": ["", "Created a new tsconfig.json with:", "                                                                                                                     TS ",
+     "  target: es2016", "  module: commonjs", "  strict: true", "  esModuleInterop: true", "  skipLibCheck: true", "  forceConsistentCasingInFileNames: true", "",
+     "You can learn more at https://aka.ms/tsconfig"],
+     "creates": {"tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"es2016\",\n    \"module\": \"commonjs\",\n    // \"outDir\": \"./\",\n    \"esModuleInterop\": true,\n    \"forceConsistentCasingInFileNames\": true,\n    \"strict\": true,\n    \"skipLibCheck\": true\n  }\n}\n"}}
+   ]
+  },
+  {
+   "about": "an interface and a typed function; compile and run", "match": "interface|type",
+   "expect_checks": [
+    {"type": "file_contains", "file": "src/index.ts", "pattern": "function greet\\(user: User\\): string"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^Hello, Ada \\(36\\)$"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "tsconfig.json", "find": "    // \"outDir\": \"./\",", "replace": "    \"outDir\": \"./dist\",\n    \"rootDir\": \"./src\","},
+    {"do": "mistake", "note": "calls greet with an object missing age (TS2345)", "caught_by_spec_rows": ["x1"], "actions": [
+     {"do": "write", "file": "src/index.ts", "text": "interface User {\n  name: string;\n  age: number;\n}\n\nfunction greet(user: User): string {\n  return `Hello, ${user.name} (${user.age})`;\n}\n\nconsole.log(greet({ name: \"Ada\" }));\n"},
+     {"do": "run", "cmd": "npx tsc", "exit": 2, "output": ["src/index.ts:10:19 - error TS2345: Argument of type '{ name: string; }' is not assignable to parameter of type 'User'.",
+      "  Property 'age' is missing in type '{ name: string; }' but required in type 'User'.", "", "10 console.log(greet({ name: \"Ada\" }));",
+      "                     ~~~~~~~~~~~~~~~", "", "  src/index.ts:3:3", "    3   age: number;", "        ~~~", "    'age' is declared here.", "", "", "Found 1 error in src/index.ts:10", ""]}
+    ]},
+    {"do": "edit", "file": "src/index.ts", "find": "greet({ name: \"Ada\" })", "replace": "greet({ name: \"Ada\", age: 36 })"},
+    {"do": "run", "cmd": "npx tsc", "output": [], "creates": {"dist/index.js": "\"use strict\";\nfunction greet(user) {\n    return `Hello, ${user.name} (${user.age})`;\n}\nconsole.log(greet({ name: \"Ada\", age: 36 }));\n"}},
+    {"do": "run", "cmd": "node dist/index.js", "output": ["Hello, Ada (36)"]}
+   ]
+  },
+  {
+   "about": "a generic first<T>() that may return undefined", "match": "generic",
+   "expect_checks": [
+    {"type": "file_contains", "file": "src/index.ts", "pattern": "function first<T>\\(items: T\\[\\]\\): T \\| undefined"},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^first: 3$"}
+   ],
+   "actions": [
+    {"do": "append", "file": "src/index.ts", "text": "\nfunction first<T>(items: T[]): T | undefined {\n  return items[0];\n}\n\nconsole.log(`first: ${first([3, 1, 2])}`);\n"},
+    {"do": "run", "cmd": "npx tsc", "output": []},
+    {"do": "run", "cmd": "node dist/index.js", "output": ["Hello, Ada (36)", "first: 3"]}
+   ]
+  },
+  {
+   "about": "an npm build script", "match": "script|build",
+   "expect_checks": [
+    {"type": "file_contains", "file": "package.json", "pattern": "\"build\": \"tsc\""},
+    {"type": "screen_contains", "app": "Terminal", "pattern": "^> tsc$"}
+   ],
+   "actions": [
+    {"do": "edit", "file": "package.json", "find": "  \"scripts\": {\n", "replace": "  \"scripts\": {\n    \"build\": \"tsc\",\n"},
+    {"do": "run", "cmd": "npm run build", "output": ["", "> ts-lab@1.0.0 build", "> tsc", ""]}
+   ]
+  }
+ ]
+}

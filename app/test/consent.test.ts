@@ -220,7 +220,11 @@ describe('the first run asks for consent before setup (shell/flow/phases.ts)', (
   test("the renderer's row buttons ask for nothing before consent (onboarding/store.ts runAction)", () => {
     const store = readFileSync(join(__dirname, '../src/renderer/src/features/onboarding/store.ts'), 'utf8')
     const body = store.slice(store.indexOf('export async function runAction'), store.indexOf('switch (a)', store.indexOf('export async function runAction')))
-    assert.match(body, /\(a === 'allow-screen' \|\| a === 'open-accessibility'\) && !get\(\)\.consent\) return/)
+    // Every action that prompts macOS or opens a System Settings pane is refused before consent.
+    const guard = body.match(/if \(\(([^)]*)\) && !get\(\)\.consent\) return/)
+    assert.ok(guard, 'runAction keeps a consent guard')
+    for (const a of ['allow-screen', 'open-accessibility', 'open-screen-pane', 'open-accessibility-pane', 'reset-screen', 'reset-accessibility'])
+      assert.ok(guard![1].includes(`a === '${a}'`), `consent guard covers ${a}`)
   })
 })
 
@@ -290,6 +294,6 @@ describe('links (R06): every miyagi.study page the app opens exists or is about 
     walk(src)
     for (const path of found) assert.ok(['/', '/privacy', '/terms'].includes(path), `a link to https://miyagi.study${path}`)
     assert.ok(found.has('/privacy') && found.has('/terms'))
-    assert.equal(CONTACT_EMAIL, 'hello@miyagi.study')
+    assert.equal(CONTACT_EMAIL, 'support@miyagi.study')
   })
 })

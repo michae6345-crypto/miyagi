@@ -1,0 +1,486 @@
+{
+ "meta": {
+  "id": "git-rebase",
+  "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+  "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src7",
+  "engine_env": "auto",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for DkWDHzmMvyg: scraping-service captions: empty body; timedtext: Client error '429 Too Many Requests' for url 'https://www.you",
+  "wall_s": 45.1,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "gemini-4-hydrogen (watched the video)",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "gemini",
+  "fallback_notes": [],
+  "length_s": 584
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-3402d809",
+   "title": "Git Rebase and Conflict Resolution",
+   "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+   "libraries": {
+    "git": "2.x",
+    "express": "4.17.1",
+    "node": "20.x"
+   },
+   "builtBy": "gemini",
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-git-rebase-0cc7b9f1"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Git Rebase and Conflict Resolution",
+    "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+    "videoId": "DkWDHzmMvyg"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Set up repo and check branches",
+    "instructions": "Initialize a git repo with a main branch and a local feature branch (e.g. feature/login) whose commits change index.js and package.json differently from main. Check out the feature branch and run git branch -a to confirm it has no remote counterpart.",
+    "video": {
+     "sourceId": "src1",
+     "start": 262.0,
+     "end": 357.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Branch list shows main",
+      "app": "Terminal",
+      "pattern": "\\*?\\s*main\\b|\\*\\s*\\S*feature"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_absent",
+      "label": "No git errors in terminal",
+      "app": "Terminal",
+      "pattern": "fatal:|error:"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "command_exit_ok",
+      "label": "Repo is a git repository",
+      "command": "git rev-parse --git-dir"
+     },
+     {
+      "id": "s1p2",
+      "type": "output_contains",
+      "label": "Main branch exists",
+      "pattern": "main"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "git branch -a",
+      "caption": "Verify the feature branch is local before rebasing"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Why you should never rebase pushed commits",
+      "t": 210.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Checking remote tracking branches with git branch -a",
+      "t": 263.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "How conflicts happen commit by commit during rebase",
+      "t": 314.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Make sure you are working on your feature branch and not main before checking branches.",
+     "Run git branch -a in the terminal to list both local and remote branches.",
+     "Confirm that your feature branch does not appear under remotes/origin/ so it is safe to rebase."
+    ],
+    "common_mistakes": [
+     "Rebasing a branch that has already been pushed and pulled by teammates",
+     "Running git branch without -a and missing remote tracking branches"
+    ],
+    "run_command": "git branch -a"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Start rebase and inspect conflict status",
+    "instructions": "From your feature branch, run git rebase main to replay your commits onto the latest main commit. When git stops on a conflict, run git status to see the conflicted file.",
+    "video": {
+     "sourceId": "src1",
+     "start": 358.0,
+     "end": 378.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "Merge conflict reported",
+      "app": "Terminal",
+      "pattern": "CONFLICT\\s*\\(content\\)"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_contains",
+      "label": "Status shows rebase in progress",
+      "app": "Terminal",
+      "pattern": "rebase\\s*in\\s*progress|both\\s*modified"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "command_exit_ok",
+      "label": "Rebase directory exists",
+      "command": "test -d .git/rebase-merge -o -d .git/rebase-apply"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "git rebase",
+      "caption": "Start rebasing the feature branch onto main"
+     },
+     {
+      "app": "Terminal",
+      "match": "git status",
+      "caption": "Inspect the conflicted files"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Why git pauses rebase when a commit conflicts",
+      "t": 368.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Make sure you are checked out on the feature branch, then specify the target base branch in the rebase command.",
+     "Run git rebase main, and after it pauses, run git status.",
+     "Look at the Last command done and Next commands to do sections in git status."
+    ],
+    "common_mistakes": [
+     "Running git rebase feature/login while on main instead of rebasing onto main from the feature branch",
+     "Panicking at the conflict message and running git commit instead of resolving and continuing"
+    ],
+    "run_command": "git rebase main && git status"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Resolve first conflict and continue rebase",
+    "instructions": "Open the conflicted file (index.js in the tutorial), remove the conflict markers, and keep the combined code you want. Stage it with git add, then run git rebase --continue.",
+    "video": {
+     "sourceId": "src1",
+     "start": 379.0,
+     "end": 416.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_absent",
+      "label": "No conflict markers in editor",
+      "app": "Code",
+      "pattern": "<<<<<<<|>>>>>>>"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Conflicts fixed or rebase done",
+      "app": "Terminal",
+      "pattern": "All\\s*conflicts\\s*fixed|enter\\s*the\\s*commit\\s*message|Successfully\\s*rebased"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "command_exit_ok",
+      "label": "No markers left in repo",
+      "command": "! git grep -n -e '^<<<<<<<' -e '^>>>>>>>'"
+     },
+     {
+      "id": "s3p2",
+      "type": "file_contains",
+      "label": "index.js keeps DEFAULT_USER",
+      "file": "index.js",
+      "pattern": "DEFAULT_USER"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "index.js",
+      "match": "<<<<<<<",
+      "caption": "Remove the conflict markers and keep the lines you want"
+     },
+     {
+      "app": "Terminal",
+      "match": "git rebase --continue",
+      "caption": "Stage the file, then continue the rebase"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Fixing conflicts during rebase vs merge",
+      "t": 379.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Search index.js for <<<<<<<, =======, and >>>>>>> markers and delete them while preserving the valid JavaScript code.",
+     "After saving index.js, stage it with git add index.js.",
+     "Run git rebase --continue instead of git commit to proceed."
+    ],
+    "common_mistakes": [
+     "Running git commit instead of git rebase --continue after staging",
+     "Leaving ======= or >>>>>>> markers inside index.js",
+     "Running git rebase --continue before staging the resolved file with git add"
+    ],
+    "run_command": "git add index.js && git status && git rebase --continue",
+    "code": "const DEFAULT_USER = \"admin\"; app.get('/profile', (req, res) => { if (req.body === DEFAULT_USER) { res.send('John Smith, the third'); } else { res.send('User not found'); } }); app.post('/login', (req, res) => { const { username, password } = req.body; if (username === DEFAULT_USER && password === 'pass') { res.send('Login successful'); } else { res.send('Login failed'); } });"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Save commit message and advance rebase",
+    "instructions": "Save and close the commit message editor (in Vim: Escape, :wq, Enter) to keep the message. Git applies the commit and pauses at the next conflict, if any.",
+    "video": {
+     "sourceId": "src1",
+     "start": 417.0,
+     "end": 470.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Commit applied on detached HEAD",
+      "app": "Terminal",
+      "pattern": "detached\\s*HEAD\\s*[0-9a-f]{5,}"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_contains",
+      "label": "Next conflict or rebase done",
+      "app": "Terminal",
+      "pattern": "CONFLICT|Merge\\s*conflict\\s*in|Successfully\\s*rebased"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "command_exit_ok",
+      "label": "Repo still valid",
+      "command": "git rev-parse HEAD"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": ":wq",
+      "caption": "Write and quit Vim to keep the commit message and continue"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "How to exit Vim when editing rebase commit messages",
+      "t": 422.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Changing git default editor to VS Code",
+      "t": 445.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Git opened Vim so you can edit or confirm the replayed commit message.",
+     "Press the Escape key to ensure you are in normal mode.",
+     "Type :wq and press Enter to save and quit Vim."
+    ],
+    "common_mistakes": [
+     "Deleting all text in the commit message editor, which aborts the commit",
+     "Typing :wq while still in insert mode without pressing Escape first"
+    ],
+    "run_command": ":wq"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Resolve final conflict and verify completion",
+    "instructions": "Remove the conflict markers in package.json, git add it, run git rebase --continue and save the commit message. Run git status to confirm the rebase finished with a clean working tree.",
+    "video": {
+     "sourceId": "src1",
+     "start": 471.0,
+     "end": 493.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_absent",
+      "label": "No conflict markers in editor",
+      "app": "Code",
+      "pattern": "<<<<<<<|>>>>>>>"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Successfully rebased printed",
+      "app": "Terminal",
+      "pattern": "Successfully\\s*rebased\\s*and\\s*updated"
+     },
+     {
+      "id": "s5c3",
+      "type": "screen_contains",
+      "label": "Working tree clean",
+      "app": "Terminal",
+      "pattern": "working\\s*tree\\s*clean"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "command_exit_ok",
+      "label": "No rebase in progress",
+      "command": "test ! -d .git/rebase-merge && test ! -d .git/rebase-apply"
+     },
+     {
+      "id": "s5p2",
+      "type": "command_exit_ok",
+      "label": "package.json has no markers",
+      "command": "! grep -rqE '^(<<<<<<<|>>>>>>>)' package.json"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "package.json",
+      "match": "scripts",
+      "caption": "Resolve the conflicting scripts in package.json"
+     },
+     {
+      "app": "Terminal",
+      "match": "Successfully rebased",
+      "caption": "Confirm the rebase finished cleanly"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Checking git status to confirm rebase completion",
+      "t": 485.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Open package.json and keep only one valid JSON entry for the check script without conflict markers.",
+     "Stage package.json with git add package.json and run git rebase --continue, then close the editor with :wq.",
+     "Run git status and look for nothing to commit, working tree clean."
+    ],
+    "common_mistakes": [
+     "Leaving a trailing comma or invalid JSON syntax when resolving package.json",
+     "Forgetting to check git status to verify you are no longer in a detached or rebasing state"
+    ],
+    "run_command": "git add package.json && git rebase --continue && git status",
+    "code": "\"scripts\": { \"start\": \"node index.js\", \"check\": \"node --check index.js\" }"
+   },
+   {
+    "id": "s6",
+    "index": 6,
+    "title": "Open interactive rebase todo list",
+    "instructions": "Run git rebase --interactive HEAD~3 to open the todo list for the last three commits. Practice changing pick to edit or squash and reordering lines in git-rebase-todo before closing or aborting.",
+    "video": {
+     "sourceId": "src1",
+     "start": 494.0,
+     "end": 515.0
+    },
+    "checks": [
+     {
+      "id": "s6c1",
+      "type": "screen_contains",
+      "label": "Terminal waiting for editor",
+      "app": "Terminal",
+      "pattern": "Waiting\\s*for\\s*your\\s*editor"
+     },
+     {
+      "id": "s6c2",
+      "type": "screen_contains",
+      "label": "Todo list shows commits",
+      "app": "Code",
+      "pattern": "(pick|edit|squash)\\s+[0-9a-f]{7,}"
+     },
+     {
+      "id": "s6c3",
+      "type": "screen_contains",
+      "label": "Rebase todo header visible",
+      "app": "Code",
+      "pattern": "Rebase\\s+[0-9a-f]{7,}\\.\\.[0-9a-f]{7,}"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s6p1",
+      "type": "command_exit_ok",
+      "label": "At least three commits",
+      "command": "git rev-parse HEAD~3"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "git rebase --interactive HEAD~3",
+      "caption": "Start an interactive rebase over the last 3 commits"
+     },
+     {
+      "app": "Code",
+      "file": "git-rebase-todo",
+      "match": "pick ",
+      "caption": "Change pick to edit or squash, or reorder commits"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "What interactive rebase lets you do (edit, squash, reorder)",
+      "t": 495.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Use the --interactive flag with HEAD~3 to inspect the most recent three commits.",
+     "In the opened git-rebase-todo file, replace pick with edit or squash on a commit line.",
+     "If you configured VS Code as your git editor (git config --global core.editor \"code --wait\"), the todo list opens directly in VS Code."
+    ],
+    "common_mistakes": [
+     "Forgetting --wait when configuring VS Code as core.editor, causing git to exit immediately without waiting for edits",
+     "Deleting a commit line when you meant to squash it, which drops the commit completely"
+    ],
+    "run_command": "git rebase --interactive HEAD~3",
+    "code": "edit 11751e7 Add user profile endpoint; pick 2014b07 Add login feature (#2); squash 8cfe02f Add request logging middleware"
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "gemini-4-hydrogen (watched the video)",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 45.1,
+   "workdir_metrics": [],
+   "workdir_fp": "c4858a241018",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}

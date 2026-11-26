@@ -9,8 +9,12 @@
  * pieces only, so the walkthrough shows what the first lesson will look like, on a Mac or a PC (keys from
  * bridge.platform.keys).
  *
- * Starts from startTour() (tourStore.ts). Skip, Done and Esc end it for good. A real lesson on screen ends it (the
- * real panel is the thing to learn then). Overlay clicks stay with the sample's own marks (data-hit).
+ * Starts from startTour() (tourStore.ts). Skip, Done and Esc end it for good. A real lesson on screen closes it (the
+ * real panel is the thing to learn then; the tour stays owed). Overlay clicks stay with the sample's own marks (data-hit).
+ *
+ * Resilient (Nov 25, a fresh install: "Show me around" did nothing): the sample's parts are measured for as long as the
+ * tour is open (not twice right after it opens), and a mark whose target isn't on screen is waited for
+ * TARGET_GRACE_MS, then skipped (tourMarks.ts planMark); with nothing left to point at the tour ends instead of stalling.
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
@@ -23,15 +27,29 @@ import { PrimaryButton } from '../../core/ui/buttons'
 import { GlassCard } from '../../core/ui/GlassCard'
 import { HelpRow } from '../../core/ui/HelpRow'
 import { Keycap, keyLabel, type KeyName } from '../../core/ui/Keycap'
+import { useKey } from '../../core/keys'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { enter, fade, springOut } from '../../core/ui/motion'
 import { StepDots } from '../../core/ui/StepDots'
 import { CoachMark, MARK_W } from './CoachMark'
 import { place, type Rect } from './place'
-import { endTour, nextMark, useTour } from './tourStore'
-import { SAMPLE, TOUR, type TourTarget } from './tourMarks'
+import { endTour, goToMark, nextMark, useTour } from './tourStore'
+import { planMark, SAMPLE, TOUR, type TourTarget } from './tourMarks'
 
 const TARGETS = ['steps', 'check', 'help', 'keys'] as const
+/** How often the sample's parts are measured while the tour is open (they move as the panel springs in). */
+const MEASURE_MS = 250
+
+type Rects = Partial<Record<TourTarget | 'panel', Rect>>
+const sameRects = (a: Rects, b: Rects): boolean => {
+  const ka = Object.keys(a) as (keyof Rects)[]
+  if (ka.length !== Object.keys(b).length) return false
+  return ka.every((k) => {
+    const x = a[k]
+    const y = b[k]
+    return !!x && !!y && Math.abs(x.x - y.x) < 0.5 && Math.abs(x.y - y.y) < 0.5 && Math.abs(x.w - y.w) < 0.5 && Math.abs(x.h - y.h) < 0.5
+  })
+}
 const noop = (): void => undefined
 
 function Rule(): ReactNode {
@@ -52,7 +70,7 @@ function KeyItem({ k, label, keyFirst = true }: { k: KeyName; label: string; key
 
 /** The sample lesson panel: the real one's shape and spacing, every part inert. */
 function SamplePanel({ x, y }: { x: number; y: number }): ReactNode {
-  const launch = keyLabel('launcher')
+  const launch = useKey('launcher')
   // Same rule as the real keys line (drawer/v2/KeysRow): a long launcher key leaves room for "ask miyagi" only.
   const askLabel = launch && launch.length > 3 ? copy.ask : copy.launcherPlaceholder
   return (
@@ -140,12 +158,12 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
   const island = useIslandBox()
   const root = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
-  const [rects, setRects] = useState<Partial<Record<TourTarget | 'panel', Rect>>>({})
+  const [rects, setRects] = useState<Rects>({})
   const [size, setSize] = useState({ w: MARK_W, h: 150 })
 
-  // A real lesson is the real thing to learn: the sample steps aside.
+  // A real lesson is the real thing to learn: the sample steps aside (still owed: it isn't marked seen).
   useEffect(() => {
-    if (open && lessonOn) endTour()
+    if (open && lessonOn) endTour({ seen: false })
   }, [open, lessonOn])
 
   // Esc ends it (the overlay can't take focus in Electron: there, Skip is the way out).
@@ -166,13 +184,13 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
 
   // Read where the sample's parts are (overlay coordinates; the stage scales the overlay with CSS).
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open) return setRects((cur) => (Object.keys(cur).length ? {} : cur))
     const measure = (): void => {
       const el = root.current
       if (!el) return
       const box = el.getBoundingClientRect()
       const k = el.offsetWidth ? box.width / el.offsetWidth : 1
-      const next: Partial<Record<TourTarget | 'panel', Rect>> = {}
+      const next: Rects = {}
       for (const t of TARGETS) {
         const n = el.querySelector(`[data-tour="${t}"]`)
         if (!n) continue
@@ -184,15 +202,34 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
         const r = p.getBoundingClientRect()
         next.panel = { x: (r.left - box.left) / k, y: (r.top - box.top) / k, w: r.width / k, h: r.height / k }
       }
-      setRects(next)
+      setRects((cur) => (sameRects(cur, next) ? cur : next))
     }
+    // At once, then all the while the tour is open: the panel springs in, and a hidden window may paint late.
     const t1 = setTimeout(measure, 60)
-    const t2 = setTimeout(measure, 450) // after the panel's spring settles
+    const id = setInterval(measure, MEASURE_MS)
     return () => {
       clearTimeout(t1)
-      clearTimeout(t2)
+      clearInterval(id)
     }
   }, [open, layout.width, layout.height])
+
+  // When the current mark came up, and a clock while it waits for its target (planMark's grace).
+  // Keyed by the mark itself, so a new mark never inherits the last one's wait.
+  const markKey = open ? index : -1
+  const since = useRef({ key: markKey, at: Date.now() })
+  if (since.current.key !== markKey) since.current = { key: markKey, at: Date.now() }
+  const [now, setNow] = useState(() => Date.now())
+  const plan = open ? planMark(index, (t) => !!rects[t], now - since.current.at) : undefined
+  const waiting = plan?.kind === 'wait'
+  useEffect(() => {
+    if (!waiting) return
+    const id = setInterval(() => setNow(Date.now()), MEASURE_MS)
+    return () => clearInterval(id)
+  }, [waiting])
+  useEffect(() => {
+    if (plan?.kind === 'skip') goToMark(plan.to)
+    else if (plan?.kind === 'end') endTour({ seen: false }) // nothing could be shown: still owed
+  }, [plan?.kind, plan?.kind === 'skip' ? plan.to : -1]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     const el = card.current
@@ -204,7 +241,7 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
     return () => ro.disconnect()
   }, [open, index])
 
-  const mark = TOUR[index]
+  const mark = plan?.kind === 'show' ? TOUR[index] : undefined
   const pillRect: Rect = island.visible && island.w > 0 ? { x: island.x, y: island.y, w: island.w, h: island.h } : { x: layout.width / 2 - 100, y: 8, w: 200, h: 34 }
   const panel = rects.panel
   const target = mark ? (mark.target === 'island' ? pillRect : rects[mark.target]) : undefined
@@ -225,8 +262,8 @@ export function TourLayer({ layout }: { layout: Layout }): ReactNode {
               menu={false}
               onMenu={() => undefined}
               onGotIt={nextMark}
-              onOff={endTour}
-              tour={{ progress: `${index + 1} of ${TOUR.length}`, last: index === TOUR.length - 1, onNext: nextMark, onSkip: endTour }}
+              onOff={() => endTour()}
+              tour={{ progress: `${index + 1} of ${TOUR.length}`, last: index === TOUR.length - 1, onNext: nextMark, onSkip: () => endTour() }}
             />
           </div>
         )}

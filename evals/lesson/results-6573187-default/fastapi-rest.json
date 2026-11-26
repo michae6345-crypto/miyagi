@@ -1,0 +1,752 @@
+{
+ "meta": {
+  "id": "fastapi-rest",
+  "url": "https://www.youtube.com/watch?v=iWS9ogMPOI0",
+  "goal": "build a REST API with FastAPI: GET and POST endpoints with Pydantic models, run with uvicorn",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src6",
+  "engine_env": "auto",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for iWS9ogMPOI0: scraping-service watch page: empty body; scraping-service captions: empty body; timedtext: Cl",
+  "wall_s": 54.9,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "gemini-4-hydrogen (watched the video)",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "gemini",
+  "fallback_notes": [
+   "s6: runs `curl -X GET 'http://127.0.0.1:8000/items?limit=3'` but has no check on its output (what it prints, a count, a metric)"
+  ],
+  "length_s": 916
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-6d1e5876",
+   "title": "Python FastAPI Tutorial: Build a REST API in 15 Minutes",
+   "goal": "build a REST API with FastAPI: GET and POST endpoints with Pydantic models, run with uvicorn",
+   "libraries": {
+    "fastapi": "0.94.0",
+    "uvicorn": "0.21.x",
+    "pydantic": "1.10.5"
+   },
+   "builtBy": "gemini",
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-fastapi-rest-j4i5k7or"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Python FastAPI Tutorial: Build a REST API in 15 Minutes",
+    "url": "https://www.youtube.com/watch?v=iWS9ogMPOI0",
+    "videoId": "iWS9ogMPOI0"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Install FastAPI and create root endpoint",
+    "instructions": "Run pip install fastapi uvicorn in your terminal, then create main.py in your project directory. Import FastAPI, create app = FastAPI(), and define a GET / route that returns Hello World.",
+    "video": {
+     "sourceId": "src1",
+     "start": 49.0,
+     "end": 96.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Import FastAPI in main.py",
+      "app": "Code",
+      "pattern": "from\\s+fastapi\\s+import\\s+FastAPI"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "Instantiate FastAPI app",
+      "app": "Code",
+      "pattern": "=\\s*FastAPI\\(\\)"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "pip install succeeded",
+      "app": "Terminal",
+      "pattern": "Successfully\\s+installed|Requirement\\s+already\\s+satisfied"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "file_exists",
+      "label": "main.py exists",
+      "file": "main.py"
+     },
+     {
+      "id": "s1p2",
+      "type": "file_contains",
+      "label": "FastAPI imported",
+      "file": "main.py",
+      "pattern": "from\\s+fastapi\\s+import\\s+FastAPI"
+     },
+     {
+      "id": "s1p3",
+      "type": "command_exit_ok",
+      "label": "FastAPI installed",
+      "command": "python -c \"import fastapi, uvicorn\""
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "pip install fastapi",
+      "caption": "Install FastAPI and Uvicorn in the terminal"
+     },
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "FastAPI()",
+      "caption": "Create the app and root GET route in main.py"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Installing FastAPI and Uvicorn server",
+      "t": 49.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Path decorator and root route handler",
+      "t": 78.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which two packages do you need to install before creating main.py?",
+     "Import FastAPI from fastapi and assign FastAPI() to app.",
+     "Decorate def root(): with @app.get(\"/\") and return {\"Hello\": \"World\"}."
+    ],
+    "common_mistakes": [
+     "Forgetting to install uvicorn alongside fastapi.",
+     "Naming the FastAPI instance something other than app when planning to run uvicorn main:app.",
+     "Omitting the leading slash in @app.get(\"/\")."
+    ],
+    "run_command": "pip install fastapi uvicorn",
+    "code": "from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get(\"/\")\ndef root():\n    return {\"Hello\": \"World\"}"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Run server and verify root route",
+    "instructions": "Start the server with uvicorn main:app --reload. Open the printed local URL in your browser to confirm the JSON response.",
+    "video": {
+     "sourceId": "src1",
+     "start": 97.0,
+     "end": 141.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "Uvicorn server running",
+      "app": "Terminal",
+      "pattern": "Uvicorn\\s*running\\s*on|Application\\s+startup\\s+complete"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_absent",
+      "label": "No startup errors",
+      "app": "Terminal",
+      "pattern": "Traceback|Error:"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "file_contains",
+      "label": "Root returns Hello World",
+      "file": "main.py",
+      "pattern": "Hello"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "Application startup complete",
+      "caption": "Verify Uvicorn starts and prints the local URL"
+     },
+     {
+      "match": "Hello",
+      "caption": "Confirm the root endpoint returns JSON in the browser"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Uvicorn command syntax and --reload flag",
+      "t": 101.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which CLI tool runs the FastAPI application?",
+     "Pass the module and app object as main:app to uvicorn.",
+     "Run uvicorn main:app --reload and open http://127.0.0.1:8000 in Chrome."
+    ],
+    "common_mistakes": [
+     "Running uvicorn from outside the directory containing main.py.",
+     "Forgetting --reload so file edits do not restart the server.",
+     "Including .py in main:app (using main.py:app instead of main:app)."
+    ],
+    "run_command": "uvicorn main:app --reload"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Create POST endpoint to add items",
+    "instructions": "In main.py, add an empty items list and a POST /items endpoint that appends the item query parameter and returns the list. With uvicorn running, POST an item using curl from another terminal.",
+    "video": {
+     "sourceId": "src1",
+     "start": 142.0,
+     "end": 220.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_contains",
+      "label": "Define POST /items route",
+      "app": "Code",
+      "pattern": "\\.post\\(\\s*\\S?/items"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Append item to list",
+      "app": "Code",
+      "pattern": "\\.append\\("
+     },
+     {
+      "id": "s3c3",
+      "type": "screen_contains",
+      "label": "Server logs POST request",
+      "app": "Terminal",
+      "pattern": "POST\\s*/items\\S*\\s*HTTP/1\\.1\\S*\\s*200"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "file_contains",
+      "label": "POST route in file",
+      "file": "main.py",
+      "pattern": "@\\w+\\.post\\(\\s*[\"']/items"
+     },
+     {
+      "id": "s3p2",
+      "type": "file_contains",
+      "label": "append call in file",
+      "file": "main.py",
+      "pattern": "\\.append\\("
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": ".post(",
+      "caption": "Add the POST /items endpoint"
+     },
+     {
+      "app": "Terminal",
+      "match": "POST /items",
+      "caption": "Server log shows the POST request"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Creating routes and query parameters",
+      "t": 142.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "POST /items handler and in-memory list",
+      "t": 165.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Where will the to-do items be stored in memory?",
+     "Define items = [] above the routes and decorate create_item with @app.post(\"/items\").",
+     "In create_item(item: str): call items.append(item) and return items, then test with curl -X POST."
+    ],
+    "common_mistakes": [
+     "Using @app.get instead of @app.post for create_item.",
+     "Returning item instead of items and wondering why earlier items do not appear in the response."
+    ],
+    "run_command": "curl -X POST -H \"Content-Type: application/json\" 'http://127.0.0.1:8000/items?item=apple'",
+    "code": "items = []\n\n@app.post(\"/items\")\ndef create_item(item: str):\n    items.append(item)\n    return items"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Add GET endpoint for single item",
+    "instructions": "Add a GET /items/{item_id} endpoint taking item_id: int that returns items[item_id]. After the reload, re-add items via POST and fetch one by index with curl.",
+    "video": {
+     "sourceId": "src1",
+     "start": 221.0,
+     "end": 297.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Define GET item route",
+      "app": "Code",
+      "pattern": "/items/\\{\\w+\\}"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_contains",
+      "label": "Server logs GET request",
+      "app": "Terminal",
+      "pattern": "GET\\s*/items/\\d+\\S*\\s*HTTP/1\\.1\\S*\\s*200"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "file_contains",
+      "label": "GET item route in file",
+      "file": "main.py",
+      "pattern": "\\.get\\(\\s*[\"']/items/\\{\\w+\\}"
+     },
+     {
+      "id": "s4p2",
+      "type": "command_exit_ok",
+      "label": "main.py imports cleanly",
+      "command": "python -c \"import main\""
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "/items/{",
+      "caption": "Define path parameter route to fetch an item"
+     },
+     {
+      "app": "Terminal",
+      "match": "GET /items/",
+      "caption": "Server log shows the item fetch"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Path parameters and automatic int conversion",
+      "t": 227.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "In-memory list reset on server reload",
+      "t": 247.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "How do you capture a dynamic segment in a FastAPI route path?",
+     "Put {item_id} in the route string and match the parameter name item_id: int in get_item.",
+     "Because --reload clears the in-memory items list on save, POST an item again before running curl -X GET http://127.0.0.1:8000/items/0."
+    ],
+    "common_mistakes": [
+     "Omitting the : int type hint on item_id, which leaves it as a string and causes a list indexing TypeError.",
+     "Calling GET /items/0 immediately after saving main.py without re-populating the reset items list."
+    ],
+    "run_command": "curl -X GET http://127.0.0.1:8000/items/0",
+    "code": "@app.get(\"/items/{item_id}\")\ndef get_item(item_id: int) -> str:\n    item = items[item_id]\n    return item"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Raise 404 HTTPException for missing items",
+    "instructions": "Import HTTPException from fastapi and, in get_item, return the item only if item_id < len(items). Otherwise raise HTTPException(status_code=404, detail=...) and test with curl on a missing index.",
+    "video": {
+     "sourceId": "src1",
+     "start": 298.0,
+     "end": 407.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "Raise HTTPException",
+      "app": "Code",
+      "pattern": "raise\\s+HTTPException"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Raise 404 status code",
+      "app": "Code",
+      "pattern": "status_code\\s*=\\s*404"
+     },
+     {
+      "id": "s5c3",
+      "type": "screen_contains",
+      "label": "Terminal shows 404 detail",
+      "app": "Terminal",
+      "pattern": "detail.{0,4}:|404\\s*Not\\s*Found"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "file_contains",
+      "label": "HTTPException imported",
+      "file": "main.py",
+      "pattern": "import.*HTTPException"
+     },
+     {
+      "id": "s5p2",
+      "type": "file_contains",
+      "label": "404 raised in code",
+      "file": "main.py",
+      "pattern": "status_code\\s*=\\s*404"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "raise HTTPException",
+      "caption": "Return a 404 HTTPException instead of an unhandled IndexError"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "HTTP response status codes and 404 Not Found",
+      "t": 341.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Raising HTTPException in FastAPI",
+      "t": 368.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Why does requesting a missing index currently return Internal Server Error?",
+     "Import HTTPException from fastapi and guard items[item_id] with if item_id < len(items):.",
+     "In the else branch, raise HTTPException(status_code=404, detail=f\"Item {item_id} not found\")."
+    ],
+    "common_mistakes": [
+     "Returning HTTPException instead of raising it with raise.",
+     "Forgetting to import HTTPException from fastapi."
+    ],
+    "run_command": "curl -X GET http://127.0.0.1:8000/items/3",
+    "code": "from fastapi import FastAPI, HTTPException\n\n@app.get(\"/items/{item_id}\")\ndef get_item(item_id: int) -> str:\n    if item_id < len(items):\n        return items[item_id]\n    else:\n        raise HTTPException(status_code=404, detail=f\"Item {item_id} not found\")"
+   },
+   {
+    "id": "s6",
+    "index": 6,
+    "title": "List items with limit query parameter",
+    "instructions": "In main.py add an @app.get(\"/items\") endpoint list_items(limit: int = 10) that returns items[0:limit]. Add a few items, then run curl against /items with and without ?limit=3 and read the JSON list it returns.",
+    "video": {
+     "sourceId": "src1",
+     "start": 408.0,
+     "end": 503.0
+    },
+    "checks": [
+     {
+      "id": "s6c1",
+      "type": "screen_contains",
+      "label": "GET /items route defined",
+      "app": "Code",
+      "pattern": "@app\\.get\\(.{0,2}/items"
+     },
+     {
+      "id": "s6c2",
+      "type": "screen_contains",
+      "label": "limit query parameter declared",
+      "app": "Code",
+      "pattern": "limit:\\s*int\\s*=\\s*\\d+"
+     },
+     {
+      "id": "s6c3",
+      "type": "screen_absent",
+      "label": "No server error in terminal",
+      "app": "Terminal",
+      "pattern": "Traceback|Internal Server Error|Not Found"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s6p1",
+      "type": "file_contains",
+      "label": "main.py has /items route",
+      "file": "main.py",
+      "pattern": "@app\\.get\\(.{0,2}/items"
+     },
+     {
+      "id": "s6p2",
+      "type": "file_contains",
+      "label": "main.py slices by limit",
+      "file": "main.py",
+      "pattern": "\\[\\s*0?\\s*:\\s*limit\\s*\\]"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "def list_items(limit: int = 10):",
+      "caption": "Add list_items GET route with default query limit"
+     },
+     {
+      "app": "Terminal",
+      "match": "[",
+      "caption": "curl returns the JSON list of items"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Query parameters with default values and type conversion",
+      "t": 437.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "How do you add an optional query parameter with a default value in FastAPI?",
+     "Define limit: int = 10 in def list_items(limit: int = 10): under @app.get(\"/items\").",
+     "Slice the list with return items[0:limit] and test ?limit=3 with curl."
+    ],
+    "common_mistakes": [
+     "Forgetting quotes around the URL when testing ?limit=3 in zsh/bash.",
+     "Confusing GET /items with POST /items in curl."
+    ],
+    "run_command": "curl -X GET 'http://127.0.0.1:8000/items?limit=3'",
+    "code": "@app.get(\"/items\")\ndef list_items(limit: int = 10):\n    return items[0:limit]"
+   },
+   {
+    "id": "s7",
+    "index": 7,
+    "title": "Validate payloads with Pydantic Item model",
+    "instructions": "In main.py, import BaseModel from pydantic, define class Item(BaseModel) with text: str and is_done: bool = False, and make create_item take item: Item. With uvicorn running, POST a JSON body via curl -d to /items.",
+    "video": {
+     "sourceId": "src1",
+     "start": 504.0,
+     "end": 637.0
+    },
+    "checks": [
+     {
+      "id": "s7c1",
+      "type": "screen_contains",
+      "label": "Import BaseModel",
+      "app": "Code",
+      "pattern": "from\\s+pydantic\\s+import\\s+BaseModel"
+     },
+     {
+      "id": "s7c2",
+      "type": "screen_contains",
+      "label": "Define BaseModel subclass",
+      "app": "Code",
+      "pattern": "class\\s+\\w+\\(BaseModel\\)"
+     },
+     {
+      "id": "s7c3",
+      "type": "screen_contains",
+      "label": "POST returns is_done field",
+      "app": "Terminal",
+      "pattern": "is_done\\.\\{0,4\\}false"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s7p1",
+      "type": "file_contains",
+      "label": "Item model in main.py",
+      "file": "main.py",
+      "pattern": "class\\s+Item\\(BaseModel\\)"
+     },
+     {
+      "id": "s7p2",
+      "type": "file_contains",
+      "label": "create_item uses Item",
+      "file": "main.py",
+      "pattern": "def\\s+create_item\\(item:\\s*Item\\)"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "(BaseModel):",
+      "caption": "Define the Pydantic model for JSON body validation"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Pydantic BaseModel for data structure and validation",
+      "t": 512.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "JSON request payload vs query parameter",
+      "t": 560.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Required fields by removing default values",
+      "t": 607.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "How do you define a structured JSON request body in FastAPI?",
+     "Subclass BaseModel in class Item(BaseModel): with text: str and is_done: bool = False.",
+     "Update create_item(item: Item) and send JSON in curl using -d '{\"text\":\"apple\"}' without ?item=."
+    ],
+    "common_mistakes": [
+     "Still sending ?item=apple as a query parameter after switching item: Item, which triggers a body field required error.",
+     "Leaving text: str = None when you want text to be a required field."
+    ],
+    "run_command": "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"apple\"}' 'http://127.0.0.1:8000/items'",
+    "code": "from pydantic import BaseModel\n\nclass Item(BaseModel):\n    text: str\n    is_done: bool = False\n\n@app.post(\"/items\")\ndef create_item(item: Item):\n    items.append(item)\n    return items\n\n@app.get(\"/items/{item_id}\")\ndef get_item(item_id: int) -> Item:"
+   },
+   {
+    "id": "s8",
+    "index": 8,
+    "title": "Add response_model to GET endpoints",
+    "instructions": "In main.py, add response_model=list[Item] to the @app.get(\"/items\") decorator and response_model=Item to @app.get(\"/items/{item_id}\").",
+    "video": {
+     "sourceId": "src1",
+     "start": 638.0,
+     "end": 701.0
+    },
+    "checks": [
+     {
+      "id": "s8c1",
+      "type": "screen_contains",
+      "label": "response_model list added",
+      "app": "Code",
+      "pattern": "response_model\\s*=\\s*(list|List)\\["
+     },
+     {
+      "id": "s8c2",
+      "type": "screen_absent",
+      "label": "Server reloads without errors",
+      "app": "Terminal",
+      "pattern": "Traceback|NameError|SyntaxError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s8p1",
+      "type": "file_contains",
+      "label": "list response_model in file",
+      "file": "main.py",
+      "pattern": "response_model\\s*=\\s*(list|List)\\[Item\\]"
+     },
+     {
+      "id": "s8p2",
+      "type": "file_contains",
+      "label": "Item response_model in file",
+      "file": "main.py",
+      "pattern": "response_model\\s*=\\s*Item\\b"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "response_model=",
+      "caption": "Declare response_model on GET decorators"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Modeling responses with response_model",
+      "t": 638.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which keyword argument on the route decorator defines the output schema?",
+     "Add response_model=Item to @app.get(\"/items/{item_id}\", ...).",
+     "Add response_model=list[Item] to @app.get(\"/items\", ...)."
+    ],
+    "common_mistakes": [
+     "Using response_model=Item instead of response_model=list[Item] on list_items."
+    ],
+    "code": "@app.get(\"/items\", response_model=list[Item])\ndef list_items(limit: int = 10):\n    return items[0:limit]\n\n@app.get(\"/items/{item_id}\", response_model=Item)\ndef get_item(item_id: int) -> Item:"
+   },
+   {
+    "id": "s9",
+    "index": 9,
+    "title": "Test endpoints in interactive Swagger docs",
+    "instructions": "Open http://127.0.0.1:8000/docs in your browser, expand POST /items, click Try it out, edit the request body JSON, and click Execute.",
+    "video": {
+     "sourceId": "src1",
+     "start": 702.0,
+     "end": 810.0
+    },
+    "checks": [
+     {
+      "id": "s9c1",
+      "type": "screen_contains",
+      "label": "Swagger UI open",
+      "pattern": "FastAPI|/openapi\\.json"
+     },
+     {
+      "id": "s9c2",
+      "type": "screen_contains",
+      "label": "Response body shown",
+      "pattern": "Response\\s*body"
+     },
+     {
+      "id": "s9c3",
+      "type": "screen_contains",
+      "label": "Docs request served",
+      "app": "Terminal",
+      "pattern": "GET\\s*/docs\\s*HTTP/1\\.1.{0,4}200"
+     }
+    ],
+    "precision_checks": [],
+    "targets": [
+     {
+      "match": "Try it out",
+      "caption": "Use Swagger UI at /docs to execute API requests interactively"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Interactive Swagger UI (/docs), ReDoc (/redoc), and openapi.json",
+      "t": 728.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which URL path serves FastAPI's built-in interactive Swagger UI?",
+     "Open http://127.0.0.1:8000/docs in your browser.",
+     "Expand POST /items, click Try it out, fill in the text field, and click Execute."
+    ],
+    "common_mistakes": [
+     "Visiting / instead of /docs when looking for Swagger UI.",
+     "Forgetting to click Execute after clicking Try it out and editing the JSON body."
+    ]
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "gemini-4-hydrogen (watched the video)",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 54.9,
+   "workdir_metrics": [],
+   "workdir_fp": "0edb4c739377",
+   "community_signals": 0,
+   "warnings": [
+    "s6: runs `curl -X GET 'http://127.0.0.1:8000/items?limit=3'` but has no check on its output (what it prints, a count, a metric)"
+   ]
+  }
+ },
+ "error": null
+}

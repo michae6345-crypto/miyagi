@@ -1,0 +1,25 @@
+{
+  "id": "flask-quickstart",
+  "url": "https://flask.palletsprojects.com/en/stable/quickstart/",
+  "page": "flask-quickstart.html",
+  "notes": "Flask docs: install, a minimal hello.py, `flask --app hello run` (output under a '$' prompt in a text block), then two more routes in the same file.",
+  "expect": {
+    "refusal": null,
+    "steps": [
+      3,
+      8
+    ],
+    "title": "Quickstart",
+    "site": "flask.palletsprojects.com",
+    "code": [
+      "pip install Flask",
+      "def hello_world():",
+      "flask --app hello run",
+      "@app.route(\"/hello\")",
+      "def show_user_profile(username):"
+    ],
+    "absent": [
+      "Created using Sphinx"
+    ]
+  }
+}

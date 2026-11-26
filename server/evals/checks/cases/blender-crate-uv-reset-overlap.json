@@ -1,0 +1,192 @@
+{
+ "id": "blender-crate-uv-reset-overlap",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "Near miss: Blender materials lesson 4 (\"The crate has marked seams and a UV map whose islands do not overlap\"). The learner marked 7 seams, then pressed U and picked Reset instead of Unwrap: every face is stretched over the whole 0-1 square, so all 6 islands sit on top of each other (overlapping_islands 6). Seams and a UV map named UVMap are both there; the texture would repeat the same image on every side.",
+ "step": {
+  "id": "s4",
+  "index": 4,
+  "title": "Unwrap a crate",
+  "file": "crate.blend",
+  "instructions": "Tab into Edit mode, switch to Edge select, pick the edges where the crate should split and press Ctrl+E > Mark Seam. Select all (A) and press U > Unwrap. Check the UV Editor: no island should overlap another. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s4c1",
+    "type": "file_contains",
+    "label": "Seams marked",
+    "file": "crate.scene.json",
+    "pattern": "\\\"seams\\\":\\s*[1-9]"
+   },
+   {
+    "id": "s4c2",
+    "type": "file_contains",
+    "label": "UV map",
+    "file": "crate.scene.json",
+    "pattern": "\\\"uv_layers\\\":\\s*\\[\\s*\\\"UVMap\\\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "crate.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see crate.scene.json)\n",
+   "crate.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "crate.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 250,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      }
+     },
+     "objects": [
+      {
+       "name": "Crate",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        2.0,
+        2.0,
+        2.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 8,
+        "edges": 12,
+        "faces": 6,
+        "smooth": false,
+        "islands": 1,
+        "seams": 7,
+        "uv_layers": [
+         "UVMap"
+        ],
+        "uv": {
+         "layer": "UVMap",
+         "islands": 6,
+         "overlapping_islands": 6,
+         "coverage": 1.0
+        }
+       },
+       "modifiers": [],
+       "materials": [
+        "Wood"
+       ]
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        7.36,
+        -6.93,
+        4.96
+       ],
+       "rotation_deg": [
+        63.6,
+        0.0,
+        46.7
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [
+      {
+       "name": "Wood",
+       "users": [
+        "Crate"
+       ],
+       "principled": {
+        "base_color": [
+         0.6,
+         0.4,
+         0.2,
+         1.0
+        ],
+        "roughness": 0.7,
+        "metallic": 0.0
+       }
+      }
+     ],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

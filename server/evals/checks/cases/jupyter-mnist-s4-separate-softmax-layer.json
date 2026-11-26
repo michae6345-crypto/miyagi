@@ -1,0 +1,41 @@
+{
+ "id": "jupyter-mnist-s4-separate-softmax-layer",
+ "kind": "jupyter",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Done another way: the output is layers.Dense(10) followed by a layers.Softmax() layer, the same network as Dense(10, activation='softmax'). The cell ran with only Keras's input_shape UserWarning.",
+ "heldOut": true,
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "from": "server/tests/fixtures/t10_mnist.ipynb",
+     "keep_cells": 2,
+     "append": [
+      {
+       "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10),\n    layers.Softmax()\n])",
+       "stdout": "/Users/tripi/miyagi/mnist/.venv/lib/python3.12/site-packages/keras/src/layers/reshaping/flatten.py:37: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.\n  super().__init__(**kwargs)\n"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model = models.Sequential([",
+    "layers.Flatten(input_shape=(28, 28, 1)),",
+    "layers.Dense(128, activation='relu'),",
+    "layers.Dense(64, activation='relu'),",
+    "layers.Dense(10),",
+    "layers.Softmax()",
+    "])",
+    "UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer."
+   ]
+  }
+ }
+}

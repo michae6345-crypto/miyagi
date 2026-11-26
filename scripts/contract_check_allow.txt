@@ -1,0 +1,26 @@
+# Deliberate gaps for scripts/check_contract.py: one `category:name  # reason` per line.
+# Categories: event, card.kind, card.action, offtrack.action, action.kind, command, diagram.kind.
+# An entry only silences a finding while the gap exists; the check tells you when an entry is stale.
+# Example:
+#   card.action:open_in_browser  # web_app items open through shell.openExternal, no action is sent
+
+event:speak  # voice is app-local (the computer's own voice, features/voice/store.ts): the app claims voice_toggle so the engine never speaks, and ignores `speak`
+offtrack.action:explain  # the off-track card always shows Explain / Show me / Hint (cards/index.tsx OFFTRACK_OPTIONS); it does not gate them on offtrack.actions
+offtrack.action:show_me  # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
+offtrack.action:hint     # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
+
+# ui-v4 (Nov 24, shared/contracts/UI-V4.md): contract first, so the app and engine lanes build in parallel. Each entry goes
+# when its lane lands the handler (app) or starts sending the command; the mock (app/mock/scenarios/ui-v4.json) has them all.
+
+# ambient help (Nov 24, shared/contracts/AMBIENT-HELP.md): contract first, so the app and engine lanes build in parallel. Each
+# entry goes when the app lane (features/ambient) lands its handler or starts sending the command; the mock
+# (app/mock/scenarios/ambient-help.json) has them all.
+
+# MIC-88 (Nov 25): gaps found when the check first ran against the real app on main. Each goes when its handler lands.
+event:screen.avoid          # MIC-88: no onMessage('screen.avoid') handler yet
+event:answer.done           # MIC-88: not in wire.ts KNOWN yet
+event:cloud.token_invalid   # MIC-88 (do first): not in wire.ts KNOWN; the app can't tell the user their cloud token went bad
+event:library.item          # MIC-88: no onMessage('library.item') handler yet
+card.action:install_all     # MIC-88: the setup card has no Install all button yet
+action.kind:install_all     # MIC-88: nothing sends action install_all yet
+command:card.shown          # MIC-88: the app never sends card.shown yet

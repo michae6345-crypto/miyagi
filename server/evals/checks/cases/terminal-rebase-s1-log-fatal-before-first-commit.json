@@ -1,0 +1,44 @@
+{
+ "id": "terminal-rebase-s1-log-fatal-before-first-commit",
+ "kind": "terminal",
+ "trap": "false_fail",
+ "expected": "pass",
+ "why": "Rebase lesson s1. Right after `git init -b main` the learner ran `git log` and got 'fatal: your current branch 'main' does not have any commits yet' (true for any new repository). They then committed index.js on main, made feature/login with its commits (the last one --allow-empty) and `git branch -a` lists '* feature/login' and 'main' with no remote branch. The fatal is from before the first commit and changed nothing: done.",
+ "step": {
+  "lesson": "evals/coach/lessons/git-interactive-rebase.json",
+  "id": "s1"
+ },
+ "workspace": {
+  "files": {
+   "login-app/index.js": "const express = require('express')\nconst app = express()\napp.use(express.json())\n\napp.post('/login', (req, res) => {\n  console.log('DEBUG login body', req.body)\n  res.json({ ok: true })\n})\n\napp.post('/logout', (req, res) => {\n  res.json({ ok: true })\n})\n\napp.listen(3000)\n",
+   "login-app/README.md": "# login-app\n"
+  },
+  "screen": {
+   "Terminal": [
+    "tripi@mac login-app % git init -b main",
+    "Initialized empty Git repository in /Users/tripi/login-app/.git/",
+    "tripi@mac login-app % git log",
+    "fatal: your current branch 'main' does not have any commits yet",
+    "tripi@mac login-app % git add index.js && git commit -m \"Add index.js\"",
+    "[main (root-commit) 1b2c3d4] Add index.js",
+    " 1 file changed, 3 insertions(+)",
+    " create mode 100644 index.js",
+    "tripi@mac login-app % git switch -c feature/login",
+    "Switched to a new branch 'feature/login'",
+    "tripi@mac login-app % git add . && git commit -m \"Add README and login endpoint\"",
+    "[feature/login a7d22de] Add README and login endpoint",
+    " 2 files changed, 9 insertions(+)",
+    "tripi@mac login-app % git commit -am \"Add logout endpoint\"",
+    "[feature/login e2d3c4b] Add logout endpoint",
+    "tripi@mac login-app % git commit -am \"Cleanup\"",
+    "[feature/login f3e4d5c] Cleanup",
+    "tripi@mac login-app % git commit --allow-empty -m \"Add middleware\"",
+    "[feature/login 8e9f0a1] Add middleware",
+    "tripi@mac login-app % git branch -a",
+    "* feature/login",
+    "  main",
+    "tripi@mac login-app % "
+   ]
+  }
+ }
+}

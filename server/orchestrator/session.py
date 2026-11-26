@@ -1,0 +1,8786 @@
+"""The lesson state machine (one learner, one lesson at a time).
+
+Flow:
+  learn -> search.result* -> search.done
+  build_lesson / learn_url -> lesson.building* -> lesson.ready -> step 0
+  step start -> step.started, check.updated(pending)*, video.seek(play) + video.play, status watching
+  segment end (video.state reaches step.video.end) -> pass if checks already pass,
+                                                       else video.pause + spotlight
+  file save / run end / metrics / screen frames -> checks.evaluate_gate -> check.updated (changes only)
+     PASS needs the checks AND a learner action this step (save, run, keystroke/click); checks
+     passing with no action -> a "Looks done? Confirm" card (step confirm = action + screen).
+     FAILING -> speak only at breakpoints or when stuck (docs/research/screen-understanding.md):
+       breakpoints: a run ends failing; the same failure on two saves in a row
+       stuck: no check progress for STUCK_S, or IDLE_AFTER_ACTION_S idle after the learner acted
+       never within TYPING_GUARD_S of a keystroke (retried on the next tick)
+     Hint ladder per step: 0 title (step.started) -> 1 spotlight (clip ends) -> 2 concept card
+     (offtrack, no fix) -> 3 exact fix + "Do it for me" (offtrack with diff + apply_fix), the last
+     only on a repeat/stuck >= LADDER_MIN_S after level 2. A failing check shows as `pending`
+     until a learner-driven evaluation (save/run/metrics) or the coach has surfaced it.
+  apply_fix ("Do it for me"): refuses while VS Code shows the file unsaved, backs it up, writes the
+     coach's patch (only if it compiles), jumps VS Code there, spotlights it; `undo` restores it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextvars
+import copy
+import hashlib
+import itertools
+import logging
+import math
+import os
+import re
+import textwrap
+import time
+import types
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import Any
+
+from . import config, curated, editor_text, lesson_notebook, missing_module, perf, scene_watch, stage, where_row
+from .context import RunContext, RunInfo, metrics_summary
+from .modules import Modules
+from .captions import short_caption
+from . import captions  # V9: a box's caption never restates the code it sits on
+from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not "Ran .venv/bin/python nn.py")
+from . import spot_lines  # t5: which editor line a lesson box goes on
+from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
+from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
+from . import onscreen_coach  # Nov 24: an app lesson's step circled on screen, its words beside it (free)
+from . import skill_hooks  # skill tree (server/skilltree): assisted steps, passes, proofs; never breaks the lesson
+from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
+from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
+from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
+from .lesson_boxes import LessonBoxes
+from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
+from . import box_fit  # t8: row boxes as wide as their text, so the caption beside them fits
+from . import build_metrics  # lane build-metrics: command -> lesson.ready -> step 1, by stage (engine log + jsonl)
+from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is about changed
+from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
+from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
+from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
+from . import setup_apps  # Nov 22: licensed apps (AutoCAD): I have it / Get it / free alternative, noticed when in front
+from . import open_in_app  # Nov 24: a Blender lesson's setup card opens its scene in Blender, the bridge loaded
+from . import context_memory  # Nov 22: short local notes of what the lesson saw and did, for context-aware coaching
+from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
+
+
+async def _kill_shell(proc: asyncio.subprocess.Process) -> None:
+    """Stop a timed-out Run it for me. On Windows a kill leaves anything the program started running and holding the
+    output pipe, so the read after it would wait for that child: taskkill /T stops the whole tree first."""
+    if os.name == "nt":
+        import subprocess
+
+        try:
+            await asyncio.to_thread(subprocess.run, ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+
+
+log = logging.getLogger("orchestrator.session")
+
+Emit = Callable[[str, dict], Awaitable[None]]
+
+DIAGRAM_KINDS = ("network", "gradients", "heatmap")
+
+# The lesson "epoch" a piece of work belongs to. Every spawned task and every app action captures it when it
+# starts; the session's emit drops events from work whose epoch is no longer current (e.g. a coach card or a
+# diagram that finishes after end_lesson). Unset (None) = not tied to a lesson (end_lesson itself, search...).
+_EPOCH: contextvars.ContextVar[int | None] = contextvars.ContextVar("lesson_epoch", default=None)
+ALWAYS_SENT = {"lesson.ended"}
+# The step generation an app action started under. An answer card (explain / hint / answer) that lands after the learner
+# moved on to another step belongs to the old step and is dropped, never shown as the current one.
+_GEN: contextvars.ContextVar[int | None] = contextvars.ContextVar("action_gen", default=None)
+_SESSION_SERIAL = itertools.count(1)  # each LessonSession's regex budget key (never a reused id())
+TAGGED_EVENTS = {"status", "error", "card", "offtrack", "check.updated"}  # carry optional epoch / gen (contract: additive)
+ANSWER_CARD_KINDS = {"explain", "hint", "answer"}
+THINKING_MAX_S = 60.0  # a "thinking" status that nothing resolved by then is ended with an error (never an endless spinner)
+# The event types an app action has sent so far (set by action(); None outside one). An action that ends without
+# any ANSWER_EVENTS looks dead on screen (status / check.updated alone), so it gets a short notice card instead.
+_ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("action_answered", default=None)
+ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
+                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress", "lesson.paused", "blocker",
+                 "annotate"}
+# their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
+QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser",
+                 "have_it", "get_it", "alternative", "open_in_app"}
+# t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
+# position in an older read, then jumped 454 pt to where it was on screen)
+OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "1.0"))
+# t10: an automatic VS Code open this soon after the learner's own Build click skips the "Miyagi is in front" grace
+# (Miyagi is in front because they just clicked Build); keystrokes still hold it
+BUILD_OPEN_FOLLOW_S = float(os.environ.get("ORCH_BUILD_OPEN_FOLLOW_S", "3"))
+
+
+def _run_copy(r: RunInfo) -> RunInfo:
+    """A run's state as of now (its output and metrics copied): what a check grades in a worker thread."""
+    import dataclasses
+
+    try:
+        return dataclasses.replace(r, output_tail=list(r.output_tail),
+                                   metrics={k: list(v) for k, v in dict(r.metrics).items()})
+    except (TypeError, AttributeError):  # not a RunInfo (a test's stand-in): as it is
+        return copy.copy(r)
+
+
+def video_id_from_url(url: str) -> str | None:
+    m = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{6,})", url or "")
+    return m.group(1) if m else None
+
+
+class BuildStage(logging.Handler):
+    """Turns the lesson builder's own log lines (server.lesson) into an honest stage label."""
+
+    RULES = [
+        ("lesson cache hit", "Loading the saved lesson"),
+        ("daily quota exhausted", "Gemini is at its limit; trying another model"),
+        ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
+        ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
+        ("video pass:", "Writing the steps"),
+        ("claude adapt pass", "Fitting the checks to your project"),
+        ("adapt attempt", "Fitting the checks to your project"),
+        ("lesson built", "Finishing up"),
+    ]
+
+    STAGE_LABELS = {  # E2's build_lesson(on_progress=...) stage ids (server.lesson.builder.STAGES)
+        "cache_hit": "Loading the saved lesson",
+        "watching": "Watching the video",
+        "reading_transcript": "Reading the transcript",
+        "writing_steps": "Writing the steps",
+        "steps_ready": "Writing the steps",
+        "adapting": "Fitting the checks to your project",
+        "done": "Finishing up",
+    }
+    SWITCH_LABELS = {
+        "quota": "Gemini is rate-limited; using the transcript",
+        "slow": "Gemini is slow; using the transcript",
+        "key": "No Gemini key; using the transcript",
+        "error": "Couldn't watch the video; using the transcript",
+        "budget": "Today's Gemini budget is used up — reading the transcript instead",
+        "off": "Reading the transcript",  # 403 gemini_disabled (D1: Claude only); nothing failed from the learner's view
+    }
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.text = "Watching the video"
+        self.structured = False  # once the builder reports stages, ignore log matching
+        self.cache_hit = False  # E2 answered from its lesson cache (nothing was built: no "ready" moment to linger on)
+        self.transcript_only = False  # "Try transcript only": the status line says so for the whole build
+
+    TRANSCRIPT_ONLY_TEXT = "Building from the transcript only"
+
+    def on_progress(self, stage: str, message: str = "") -> None:
+        """E2's progress callback: honest, stable stage ids."""
+        self.structured = True
+        msg = (message or "").strip()
+        if stage == "transcript_only":
+            self.transcript_only = True
+        if self.transcript_only and stage in ("transcript_only", "reading_transcript", "writing_steps"):
+            self.text = self.TRANSCRIPT_ONLY_TEXT
+            return
+        if stage == "cache_hit":
+            self.cache_hit = True
+        if stage == "engine_switch":
+            self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
+        elif stage == "steps_ready":
+            self.text = "Fitting the checks to your project"
+        elif stage == "adapting":
+            self.text = "Fitting the checks to your project"
+        elif stage in self.STAGE_LABELS:
+            self.text = self.STAGE_LABELS[stage]
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API (fallback for older builders)
+        if self.structured:
+            return
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        for needle, label in self.RULES:
+            if needle in msg:
+                self.text = label
+                return
+
+    def listening(self):
+        import contextlib
+
+        lg = logging.getLogger("server.lesson")
+
+        @contextlib.contextmanager
+        def cm():
+            old = lg.level
+            if lg.getEffectiveLevel() > logging.INFO:
+                lg.setLevel(logging.INFO)
+            lg.addHandler(self)
+            try:
+                yield self
+            finally:
+                lg.removeHandler(self)
+                lg.setLevel(old)
+
+        return cm()
+
+
+def human_build_error(e: BaseException) -> str:
+    """A message the learner can act on (the raw reason stays in the engine log)."""
+    # strip our own wrapper ("lesson.build_lesson failed: RuntimeError: ...") so only the builder's words remain
+    raw = re.sub(r"^\s*[\w.]+ failed: [\w.]+: ", "", str(e))
+    first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+    if first.lower().startswith(("couldn't read this video", "couldn't build", "couldn't watch")) and len(first) < 400:
+        return first  # E2's learner-facing sentence (e.g. Gemini credits used up + YouTube blocking transcripts)
+    if ("no engine could build the lesson" in raw.lower() and "no engine could build" not in first.lower()
+            and len(first) < 300):
+        return first  # E2: a learner-facing first line, then the raw detail (which stays in the log)
+    low = raw.lower()
+    if "gemini budget" in low:  # E2's daily cap (LESSON_GEMINI_DAILY_CAP) and the transcript path failed too
+        return "Today's Gemini budget is used up, and I couldn't read this video's transcript. Try another video."
+    quota = "quota" in low or "resource_exhausted" in low
+    yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
+    if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
+        return ("Couldn't watch this video: Gemini is rate-limited and YouTube is rate-limiting this network. "
+                "Try again in a minute, a lesson that's already built, or another network (hotspot).")
+    if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
+        return "Building this lesson is taking too long. Try again, or pick another video."
+    if "quota" in low or "resource_exhausted" in low:
+        return "Gemini is rate-limited right now, so I couldn't watch this video. Try again in a minute or pick another video."
+    if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
+        if "transcript" in low or "caption" in low or "youtube" in low:
+            return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "
+                    "Try another video or the hotspot.")
+        return "The video service is rate-limiting us right now. Try again in a minute, or pick another video."
+    if "only youtube" in low or "youtube sources" in low:
+        return "I can only build lessons from YouTube videos for now. Pick a video result."
+    if "api key" in low or "api_key" in low or "authentication" in low or "401" in low:
+        return "A model API key is missing or invalid. Add it in Settings and try again."
+    if "transcript" in low:
+        return "Couldn't get this video's transcript. Try another video."
+    return f"Couldn't build this lesson: {raw[:160]}"
+
+
+# ================================================================================ v2 lesson panel (BUILD-PLAN E3)
+# Pure helpers for the v2 fields (shared/contracts events.py, W0-1). Every field is optional and additive: an app that
+# ignores them keeps today's behaviour. New event types (lesson.paused / lesson.resumed / blocker) and card kind
+# "complete" go out only once the app has sent a v2 command (LessonSession.app_v2), so an older app never sees them.
+# Copy rules (app/brand/BRAND.md): plain sentences, lowercase miyagi, no em dashes, no keycaps.
+
+V2_COMMANDS = frozenset({"health.get", "permission.open", "library.list", "library.get", "library.start", "progress.get",
+                         "panel.state", "review.start", "set_goal", "skills.ack"})
+STATUS_DETAIL_WORDS = 6  # status.detail: what the engine does right now, <= 6 words
+SUMMARY_WORDS = 12  # step.passed.summary, <= 12 words
+MAX_MISSING_LINES = 8  # a Not yet lists the step's lines only when they fit the panel
+EDITOR_POLL_S = 3.0  # lesson.paused "editor_closed": how often the lesson's VS Code window is looked for
+EDITOR_GONE_POLLS = 2  # ... and how many sure misses in a row pause the lesson (one closed-and-reopened tab: no pause)
+EDITOR_OPEN_GRACE_S = 30.0  # ... never this soon after the engine opened VS Code (a cold start takes up to 20 s)
+NO_EDITOR_POLL_S = 10.0  # "VS Code not found": how often to look for it again (a Spotlight lookup)
+KERNEL_POLL_S = 2.0  # blocker "kernel": how often the frame is read for VS Code's "Select Kernel"
+KERNEL_CLEAR_POLLS = 2  # ... and how many frames without it clear the blocker
+_SELECT_KERNEL = re.compile(r"^\W{0,3}select\s+kernel\W{0,3}$", re.I)
+PAUSED_ANSWERS = frozenset({"check_step", "confirm", "hint", "show_me"})  # while paused: lesson.paused again
+
+BUILD_PHASES_VIDEO = (("watching", "Watching the video"), ("steps", "Finding the steps"),
+                      ("checks", "Writing the checks"), ("ready", "Ready to start"))
+BUILD_PHASES_TEXT = (("steps", "Planning the steps"), ("checks", "Writing the checks"), ("ready", "Ready to start"))
+_BUILD_STAGE_WORDS = (  # lesson.building.message (BuildStage / the text build's labels) -> its v2 stage
+    ("ready", ("setting up your project folder", "lesson ready", "first steps ready", "loading the lesson")),
+    ("checks", ("fitting the checks", "writing the next steps", "finishing up", "writing the checks")),
+    ("steps", ("writing the steps", "writing the first step", "planning your lesson", "loading the saved lesson")),
+    ("watching", ("watching", "transcript", "gemini", "switching", "starting the lesson builder", "couldn't watch")),
+)
+
+
+def words_ok(text: Any, limit: int) -> str | None:
+    """`text` as one line when it has at most `limit` words (and no em dash: BRAND.md), else None."""
+    t = " ".join(str(text or "").split())
+    if not t or len(t.split()) > limit:
+        return None
+    return t.replace(" — ", ", ").replace("—", ", ")
+
+
+def build_stage_of(message: str | None, progress: float | None = None, text_lesson: bool = False) -> str:
+    """The v2 build stage (watching / steps / checks / ready) a lesson.building message stands for."""
+    low = str(message or "").lower()
+    stage_id = next((sid for sid, keys in _BUILD_STAGE_WORDS if any(k in low for k in keys)), None)
+    if stage_id is None:
+        stage_id = "ready" if (progress or 0) >= 0.97 else ("steps" if text_lesson else "watching")
+    if text_lesson and stage_id == "watching":
+        stage_id = "steps"  # a "Just teach me" lesson has no video to watch
+    return stage_id
+
+
+def build_phases(stage_id: str, text_lesson: bool = False, done: bool = False, watch_label: str | None = None) -> list[dict]:
+    """Home-Building's checklist: the phases before `stage_id` done, it active, the rest next (all done when done)."""
+    rows = BUILD_PHASES_TEXT if text_lesson else BUILD_PHASES_VIDEO
+    ids = [r[0] for r in rows]
+    at = ids.index(stage_id) if stage_id in ids else 0
+    out = []
+    for i, (pid, label) in enumerate(rows):
+        if pid == "watching" and watch_label:
+            label = watch_label
+        state = "done" if done or i < at else ("active" if i == at else "next")
+        out.append({"id": pid, "label": label, "state": state})
+    return out
+
+
+def build_fail_code(error: BaseException | str | None) -> str:
+    """lesson.building.failCode (v2 BuildFailCode) from the builder's error (or its human message)."""
+    low = str(error or "").lower()  # status codes and "ssl" as words: never inside a video id, URL or "classless"
+    if isinstance(error, TimeoutError) or "took over" in low or "no answer within" in low or "taking too long" in low \
+            or "too long" in low:
+        return "too_long"
+    if any(k in low for k in ("connection", "network", "offline", "getaddrinfo", "name resolution", "unreachable",
+                              "timed out connecting")) or re.search(r"\bssl", low):
+        return "network"
+    if any(k in low for k in ("quota", "resource_exhausted", "budget", "credits")):
+        return "provider"  # Gemini's cap or quota (human_build_error checks these first too)
+    if re.search(r"(?<![\w-])429(?![\w-])", low) or any(k in low for k in ("too many requests", "rate-limit", "rate limit")):
+        # a rate limit before any transcript test: YouTube throttling its transcript endpoint is this network
+        # ("YouTube is rate-limiting this network"), not a video without captions
+        return "network" if any(k in low for k in ("transcript", "caption", "youtube")) else "provider"
+    if any(k in low for k in ("overloaded", "api key", "api_key", "authentication")) or re.search(r"(?<![\w-])401(?![\w-])", low):
+        return "provider"
+    if "transcript" in low or "caption" in low:
+        return "no_captions"
+    if any(k in low for k in ("no steps", "couldn't find any steps", "no hands-on", "nothing to build", "empty lesson")):
+        return "no_steps"
+    if any(k in low for k in ("couldn't read this video", "unreadable", "too small to read", "can't read the code",
+                              "couldn't read the code")):
+        return "unreadable_code"
+    return "unknown"
+
+
+def fail_reason(message: str | None) -> str | None:
+    """lesson.building.failReason: the human message's first sentence (one plain sentence)."""
+    t = " ".join(str(message or "").split())
+    if not t:
+        return None
+    first = re.split(r"(?<=[.!?])\s+", t, maxsplit=1)[0]
+    return first.replace(" — ", ", ").replace("—", ", ")[:200]
+
+
+def library_alternatives(exclude_ids: set[str] | None = None, limit: int = 2) -> list[dict]:
+    """Err-LessonBuildFailed's "Or start a library lesson": up to `limit` ready lessons already built on this Mac
+    (server.lesson.library, E1; [] until it is there). Started with library.start: zero model calls. Blocking (reads
+    the cache): call it in a thread."""
+    try:
+        from server.lesson import library  # E1 (claude/eng-modules)
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        items = library.items()
+    except Exception:  # noqa: BLE001
+        log.exception("library listing failed")
+        return []
+    out = []
+    for it in items or []:
+        if not isinstance(it, dict) or not it.get("id") or not it.get("title") or it.get("ready") is False:
+            continue
+        if exclude_ids and it["id"] in exclude_ids:
+            continue
+        tools = it.get("tools") or []
+        where = "Jupyter in VS Code" if "jupyter" in tools else ("VS Code" if "vscode" in tools else None)
+        steps = it.get("steps") if isinstance(it.get("steps"), int) else None
+        meta = ", ".join(x for x in (where, f"{steps} steps" if steps else None) if x) or None
+        out.append({"kind": "library", "title": str(it["title"]), "id": str(it["id"]), **({"meta": meta} if meta else {})})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def where_then(*, code: str | None, run_command: bool, notebook: bool, file: str | None) -> dict:
+    """step.started.where / then (Les-Working): the line above the step's code and the one under it. {} when the step
+    has nothing to type or run."""
+    if not (code or "").strip():
+        return {}
+    if run_command:
+        return {"where": "Run this in the terminal"}
+    if notebook:
+        return {"where": "Type this in the new cell", "then": "Then run it with the arrow beside the cell."}
+    name = Path(file).name if file else None
+    return {"where": f"Type this in {name}" if name else "Type this"}
+
+
+def _strip_comment(line: str) -> str:
+    """The line without a trailing `# ...` comment: cut at the first `#` outside quotes that follows whitespace.
+    `"a # b"`, `'#'` and `x#y` stay as they are; a backslash escapes the next character inside a string."""
+    quote, i = None, 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\":
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and i > 0 and line[i - 1].isspace():
+            return line[:i]
+        i += 1
+    return line
+
+
+def _norm_line(line: str) -> str:
+    """Compare form: trailing comment dropped, all whitespace removed (the displayed text stays as written)."""
+    return re.sub(r"\s+", "", _strip_comment(line))
+
+
+def code_lines(code: str | None) -> list[str]:
+    """The step's lines that count (no blanks, no comment-only lines), as written: the block's common indent removed,
+    each line's own indent kept (a for loop's body stays indented)."""
+    out = []
+    for ln in textwrap.dedent(str(code or "").expandtabs(4)).splitlines():
+        s = ln.strip()
+        if s and not s.startswith("#"):
+            out.append(ln.rstrip())
+    return out
+
+
+def missing_lines(code: str | None, have: str | None) -> list[dict] | None:
+    """card.missingLines (Les-NotYet): the step's lines in order, each "ok" when the learner's text has it (spaces and
+    trailing comments ignored, on both sides) or "missing". None when it can't say (no code, no text, too many
+    lines) or nothing is missing."""
+    lines = code_lines(code)
+    if not lines or have is None or len(lines) > MAX_MISSING_LINES:
+        return None
+    present = {_norm_line(x) for x in str(have).splitlines() if x.strip()}
+    rows = [{"text": ln, "state": "ok" if _norm_line(ln) in present else "missing"} for ln in lines]
+    return rows if any(r["state"] == "missing" for r in rows) else None
+
+
+_ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth")
+
+
+def fix_caption(rows: list[dict] | None, *, notebook: bool = False) -> str | None:
+    """card.fixCaption: what to do about the missing lines ("Add the first line, then run the cell")."""
+    if not rows:
+        return None
+    miss = [i for i, r in enumerate(rows) if r.get("state") == "missing"]
+    if not miss:
+        return None
+    if len(miss) == 1:
+        what = f"Add the {_ORDINALS[miss[0]]} line" if miss[0] < len(_ORDINALS) else f"Add line {miss[0] + 1}"
+    elif len(miss) == len(rows):
+        what = "Add these lines"
+    else:
+        what = "Add the missing lines"
+    return f"{what}, then run the cell" if notebook else f"{what}, then check again"
+
+
+def hint_step(card: dict, *, curated_of: int | None = None, curated_n: int | None = None) -> dict | None:
+    """card.hintStep {n, of} (Les-Hint "Hint 1 of 2") for a hint card, from the ladder that made it: the curated
+    lesson's cached ladder, the diagnosed two-rung hint (card_copy: look, then fix), or the coach's four levels
+    (coach/hints.py LEVELS). None when the rung can't be told."""
+    if isinstance(card.get("hintStep"), dict):
+        return card["hintStep"]
+    title = str(card.get("title") or "")
+    if card.get("levelName") in ("question", "diff") and re.match(r"^(Look at|Fix) line \d+$", title):
+        return {"n": 1 if title.startswith("Look") else 2, "of": 2}
+    if curated_of and curated_n and 1 <= curated_n <= curated_of:
+        return {"n": curated_n, "of": curated_of}
+    level = card.get("level")
+    if isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 3:
+        return {"n": level + 1, "of": 4}
+    return None  # (hint_level alone can't say how long the ladder is: no "of" rather than a wrong one)
+
+
+def _for_coach(code: str, file: str | None) -> str:
+    """The step file's text as a coach request may carry it (server.workspace.core.text_for_model): a secret file
+    (.env, .env.local, .npmrc ...) keeps its names with every value hidden, so `DB_PASSWORD=hunter2` never leaves, and
+    any other file has its key-shaped values redacted (the diagrams call does not go through coach.llm)."""
+    from server.workspace.core import text_for_model
+
+    return text_for_model(file, code) if code else code
+
+
+def notebook_sources(text: str) -> str | None:
+    """A Jupyter notebook's JSON -> its code cells' source with `# %% [cell N]` markers (N = index among all
+    cells, E5's numbering), outputs dropped. Cutting the raw JSON leaves invalid JSON and mostly outputs, so
+    excerpts are cut after this. None if the text isn't valid notebook JSON."""
+    import json
+
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+        return None
+    out = []
+    for i, c in enumerate(nb["cells"]):
+        if not isinstance(c, dict) or c.get("cell_type") != "code":
+            continue
+        src = c.get("source") or ""
+        src = "".join(src) if isinstance(src, list) else str(src)
+        out.append(f"# %% [cell {i}]\n" + src.rstrip("\n"))
+    return "\n".join(out) if out else "# (notebook: no code cells)"
+
+
+def _has_parts(graph: dict | None) -> bool:
+    parts = ((graph or {}).get("lesson") or {}).get("parts") or {}
+    return bool(parts.get("total") or parts.get("list"))
+
+
+def is_provisional(graph: dict | None) -> bool:
+    """E2's quick-start placeholder (built from the chapter list after 8 s): replaced, never extended."""
+    if not graph:
+        return False
+    lesson = graph.get("lesson") or {}
+    return bool(lesson.get("provisional") or lesson.get("builtBy") == "chapters"
+                or any(st.get("provisional") for st in graph.get("steps") or []))
+
+
+CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
+
+
+def is_notebook_lesson(graph: dict) -> bool:
+    """A lesson done in a notebook (Colab / Jupyter), often in a browser rather than an editor."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]).lower()
+    if "colab" in blob or "jupyter" in blob:
+        return True
+    for st in graph.get("steps", []):
+        text = f"{st.get('title', '')} {st.get('instructions', '')}".lower()
+        if "colab" in text or "jupyter" in text:
+            return True
+        for x in (st.get("targets") or []) + (st.get("checks") or []) + (st.get("precision_checks") or []):
+            if str(x.get("file") or "").endswith(".ipynb"):
+                return True
+    return False
+
+
+def is_colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser), never in VS Code."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps", [])]).lower()
+    return "colab" in blob
+
+
+def _use_lesson_venv(graph: dict) -> None:
+    """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
+    lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
+    try:
+        from server.lesson.venv_steps import use_lesson_venv
+
+        if changed := use_lesson_venv(graph):
+            log.info("lesson .venv: step(s) %s now use the lesson's .venv (no second venv, no reinstall)", ", ".join(changed))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson .venv normalisation failed")
+    try:  # t10: a Jupyter lesson runs in the lesson's own notebook in VS Code (server/lesson/notebook_steps.py)
+        from server.lesson.notebook_steps import use_lesson_notebook
+
+        if changed := use_lesson_notebook(graph):
+            log.info("lesson notebook: step(s) %s now use %s in VS Code", ", ".join(changed),
+                     (graph.get("lesson") or {}).get("notebook"))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson notebook normalisation failed")
+
+
+_PCT_LABEL = re.compile(r"\s*(?:reaches|is at least|at least|>=|≥|above|over)\s*(?P<v>\d+(?:\.\d+)?)\s*%?\s*$", re.I)
+
+
+METRIC_EMIT_CAP = 20  # live-curve points per metric name emitted per ingest batch (the run keeps them all)
+
+
+def _app_lesson(graph: dict) -> None:
+    """Nov 22: server.lesson.app_lesson.adapt on every lesson loaded (a cached one built before it existed too): an app
+    lesson (AutoCAD...) reads "in AutoCAD", never "in your editor", and its checks look at the app. Code lessons are
+    untouched. Never raises."""
+    try:
+        from server.lesson import app_lesson
+
+        if (graph.get("build") or {}).get("firstStep"):
+            return  # built step 1 first: the builder chose app or code on the whole lesson and adapted it; never on step 1 alone
+        app_lesson.adapt(graph)
+    except Exception:  # noqa: BLE001 - wording and check scope are a refinement; the lesson runs without them
+        log.exception("app lesson adapt failed")
+
+
+def _metric_labels(graph: dict) -> None:
+    """t10: one style for an accuracy check's label: "Training accuracy reaches 0.95" / "Test accuracy at least 95" ->
+    "… at least 95%". In place; only `>=` accuracy checks whose label ends in their own threshold."""
+    for st in graph.get("steps") or []:
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []) if isinstance(st, dict) else []:
+            label, v = str(c.get("label") or ""), c.get("value")
+            if (c.get("type") != "metric_threshold" or c.get("op") not in (">=", ">") or not isinstance(v, (int, float))
+                    or "acc" not in f"{c.get('metric') or ''} {label}".lower()):
+                continue
+            m = _PCT_LABEL.search(label)
+            if not m or abs(float(m.group("v")) - float(v)) > 1e-9:
+                continue
+            pct = float(v) * 100 if 0 < float(v) <= 1 else float(v)
+            c["label"] = f"{label[:m.start()].rstrip()} at least {pct:g}%"
+
+
+def _refresh_readme(folder: str, graph: dict) -> None:
+    try:
+        from server.workspace.core import refresh_readme
+
+        refresh_readme(folder, graph)
+    except Exception:  # noqa: BLE001
+        log.exception("README refresh failed")
+
+
+def unscope_editor_apps(graph: dict) -> None:
+    """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
+    for st in graph.get("steps", []):
+        for x in (st.get("targets") or []) + (st.get("checks") or []):
+            if str(x.get("app") or "").strip().lower() in CODE_APP_NAMES:
+                x.pop("app", None)
+
+
+def _session_cost_start(graph: dict) -> None:
+    try:
+        from server.lesson import cost
+
+        cost.session_start(str((graph.get("lesson") or {}).get("id") or "") or None)
+    except Exception:  # noqa: BLE001 - cost accounting never blocks a lesson
+        log.debug("session cost start failed", exc_info=True)
+
+
+def _session_cost_end(reason: str) -> None:
+    try:
+        from server.lesson import cost
+
+        cost.session_end(reason)
+    except Exception:  # noqa: BLE001
+        log.debug("session cost end failed", exc_info=True)
+
+
+class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line that matters
+    def __init__(
+        self,
+        emit: Emit,
+        modules: Modules | None = None,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        idle_gate_s: float | None = None,
+        advance_delay_s: float | None = None,
+        metric_eval_s: float | None = None,
+        result_stagger_s: float = 0.06,
+        build_tick_s: float = 1.0,
+        screen: Any = None,
+        seen_interval_s: float = 5.0,
+        workspace: Any = None,
+        inputs: Any = None,
+    ):
+        self.inputs = inputs  # inputs.Inputs (cursor, last key/click) or None
+        self.last_obs: Any = None
+        self.undo: tuple[Path, str] | None = None
+        self.pending_patch: dict | None = None  # "Do it for me" preview awaiting confirm
+        self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
+        self._emit_raw = emit
+        self.lesson_epoch = 0  # bumped by load_graph and end_lesson
+        self._regex_serial = next(_SESSION_SERIAL)
+        from server.safety import regex_worker
+
+        # a lesson pattern searched on the event loop (a run's metric, code_gate, the notebook coach, the lesson-end
+        # summary, a target's match) counts against this lesson's regex budget too (regex_worker.set_fallback)
+        regex_worker.set_fallback(self._regex_key)
+        self.screen = screen  # ScreenBridge / FakeScreen / None
+        self.seen_interval_s = seen_interval_s
+        self._last_seen = -1e9
+        self.m = modules or Modules()
+        self.clock = clock
+        self.build_metrics = build_metrics.BuildMetrics(clock=lambda: self.clock())  # a test's clock swap counts too
+        self.idle_gate_s = config.IDLE_GATE_S if idle_gate_s is None else idle_gate_s
+        self.advance_delay_s = config.ADVANCE_DELAY_S if advance_delay_s is None else advance_delay_s
+        self.metric_eval_s = config.METRIC_EVAL_INTERVAL_S if metric_eval_s is None else metric_eval_s
+        self.result_stagger_s = result_stagger_s
+        self.build_tick_s = build_tick_s
+        self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
+        self.offtrack_grace_s = float(os.environ.get("ORCH_OFFTRACK_GRACE_S", "20"))  # no offtrack this early in a step
+        self.video_offtrack_hold = True  # T11: no unasked off-track while the video still teaches the step
+        self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
+        self.has_python: bool | None = None  # is `python` on PATH? None = look (tests pin it)
+
+        self.phase = "idle"  # idle | searching | building | active | done
+        self.query = ""
+        self.results: dict[str, dict] = {}
+        self.build_progress: dict | None = None  # last lesson.building payload while a build runs
+        self.notebook_lesson = False  # Colab / Jupyter lesson: the browser counts as the workspace
+        self._build_task: asyncio.Task | None = None
+        self._quiet_cancel = False
+        self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
+        self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
+        self.reqs: list[dict] | None = None  # S2's setup items for this lesson
+        self.resources: list[dict] = []  # S2: files the video links (download button)
+        self.waiting_more = False  # passed the last built step of a long video that's still building
+        self.skipped_steps: list[str] = []
+        self.assisted_steps: list[str] = []  # t7: steps whose code Do it for me typed (the skill map: practiced)
+        self._run_redirected: set[str] = set()
+        self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
+        self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
+        self._extend_failed = False  # extend raised for this lesson: don't retry on every step
+        self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
+        self._installing: set[str] = set()  # tools being installed right now (one install per tool)
+        self._deferred_installs: list[dict] = []  # pip installs chosen before the lesson folder existed
+        self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
+        self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
+        self.graph: dict | None = None
+        self.skill_events: list[dict] = []  # skill tree: what the last pass changed (skill_hooks.on_pass)
+        self.workdir = str(config.default_workdir())
+        self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
+        self.idx = -1
+        self.runs: dict[str, RunInfo] = {}
+        self.video_t: float | None = None  # last position the player reported
+        self.video_playing = False
+        self._play_at: tuple[float, float] | None = None  # t10: (video t, clock) the player last played from; None paused
+        self.judge: Any = None  # E5's StepJudge (made per lesson in load_graph), None without the coach
+        # VS Code's exact text of the lesson files (companion extension; never in tests: no real screen reader)
+        self._buffers = editor_text.EditorBuffers(lambda: getattr(self.screen, "reader", None) is not None)
+        self._screen_down_since: float | None = None
+        self._screen_notice_sent = False
+        self.voice = False
+        self.status = "idle"
+        self.status_detail: str | None = None  # v2 status.detail (<= 6 words), sent with the state
+        # v2 (BUILD-PLAN E3): the app said it is a v2 app (it sent a v2 command: panel.state, health.get, ...): only
+        # then lesson.paused / lesson.resumed / blocker and card kind "complete" go out. MIYAGI_APP_V2=1 forces it.
+        self.app_v2 = os.environ.get("MIYAGI_APP_V2", "").strip() == "1"
+        if self.app_v2:
+            self._editor_v2_room()
+        self.paused: dict | None = None  # the lesson.paused payload while the lesson waits (VS Code closed)
+        self.blockers: dict[str, dict] = {}  # kind -> the blocker payload on screen (kernel / editor_closed)
+        self._editor_poll_t = -1e9
+        self._editor_misses = 0
+        self._kernel_poll_t = -1e9
+        self._kernel_misses = 0
+        self._build_v2: dict | None = None  # the build in progress: {text, t0, source, expected, url}
+        self.lesson_wall_t0: float | None = None  # wall clock of step 1's start (0.0: started later; no minutes)
+        self._entered_steps: set[int] = set()  # step indexes started in this session (first visit: _step_first_visit)
+        self._step_first_visit = False
+        self._lock = asyncio.Lock()
+        self._tasks: set[asyncio.Task] = set()
+        self._timers: set[asyncio.Task] = set()
+        self._metric_eval_pending = False
+        self._reset_step_state()
+
+    # ------------------------------------------------------------------ basics
+    def _reset_step_state(self) -> None:
+        self._placeholder_hold = False
+        self.check_state: dict[str, dict] = {}  # what the app was last told, per checkId
+        self.last_results: list[dict] = []
+        self.last_failed: list[dict] = []
+        self._recent_cards: dict[tuple, float] = {}
+        self._recent_slot: dict[tuple, int] = {}  # card sig -> _slot_n right after it went out
+        self._slot_n = 0  # cards / off-tracks / diagrams sent: the app's one card slot changed this many times
+        self._offtrack_key: tuple | None = None  # (step, level, title) of the last offtrack sent
+        self._action_spot = False  # a spotlight from show_me / hint / explain is up
+        self._coach_error_sent = False  # "Coach unavailable" at most once per step
+        self._coach_backoff = 0.0
+        self._coach_retry_at = 0.0
+        self._eval_error_sent = False
+        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the editor lacks it
+        self._latch_t: dict[str, float] = {}  # checkId -> wall clock of its last real pass (a save after it may un-pass)
+        self._unsaved_holds: set[str] = set()  # latched checks held this evaluation that the file on disk lacks
+        self._save_file: str | None = None  # every check green, only the save missing: the "Save to finish" file
+        self._save_card_sent = False  # that card went out in this unsaved stretch (once per step per dirty episode)
+        self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
+        self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
+        self._ext_run_t = 0.0  # wall clock of the last Run it for me typed into VS Code's terminal by the companion
+        self._file_hits: dict[str, tuple[float, Path | None]] = {}  # lesson file -> (when looked up, where it is)
+        self.engaged = False  # learner touched files / ran something during this step
+        self.gate_open = False  # failing checks are shown as fail (else pending)
+        self.screen_gate_open = False  # unmatched screen_contains checks are shown as fail too (else "watching")
+        self.step_t0 = self.clock()
+        self.last_action_t = -1e9  # last save / run start / explicit action (session clock)
+        self.best_pass = 0
+        self.last_progress_t = self.clock()
+        self.last_bp_sig: tuple | None = None
+        self.pending_speak: str | None = None  # deferred by the typing guard
+        self.ladder = 1  # 0 title, 1 spotlight; 2 concept card; 3 exact fix
+        self.spoken_sig: tuple | None = None
+        self.spoken_t = -1e9
+        self.full_card: dict | None = None
+        self.confirm_pending = False
+        self.confirm_check_ids: list[str] = []  # E5 judge's "Looks done?": the checks `confirm` passes
+        self._step_wall_t0 = time.time()  # wall clock at step start (file mtimes compare against it)
+        self._term_at_start: tuple = ()
+        self.judged_pass: set[str] = set()  # checks E5's judge saw done on screen (count as passed)
+        self._carded_checks: set[str] = set()  # checks a hint / "Not yet" card already covers (no offtrack too)
+        self._last_card_t = -1e9
+        self._offtracked_checks: set[str] = set()  # checks an offtrack already covers (no "Not yet" card too)
+        self._judging = False
+        self._stuck_card_sent = False
+        self.segment_end_t: float | None = None
+        self.segment_done = False
+        self.video_reports = 0
+        self.coached_key: Any = None
+        self.coaching = False
+        self.hint_level = 0
+        self.step_runs: list[RunInfo] = []
+        self.last_activity = self.clock()
+        self.passed = False
+        self.last_offtrack: dict | None = None
+        self.spot_track: tuple[str, str | None, str] | None = None  # (match, app, caption) to follow on screen
+        self.spot_rect: dict | None = None
+        self._spot_app: str | None = None  # the app the box points into (cleared when the learner leaves it)
+        self._spot_away = False  # the box was cleared because the learner left VS Code
+        self._wrong_folder: dict | None = None  # S2's wrong_folder(): the learner edits the file in another folder
+        self._wf_t = -1e9
+        self._wf_since: float | None = None  # since when another folder's VS Code window has been the one on screen
+        self._wf_step: dict | None = None  # ... on this step
+        self._wf_recheck: int | None = None  # step_gen of the pending re-check (a still screen sends no frames)
+        self._spot_caption: str | None = None
+        self._spot_t = -1e9
+        self._spot_misses = 0
+        self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
+        from . import notebook_runs
+
+        notebook_runs.snapshot(self)  # t10 R1: the notebook's execution counts, the baseline a cell run is new against
+
+    async def emit(self, type_: str, payload: dict | None = None) -> None:
+        if type_.startswith("video.") and self.lesson_mode:
+            return  # "Just teach me": there is no player
+        if type_.startswith("video."):
+            self._track_play(type_, payload or {})
+        if type_ == "spotlight" and (payload or {}).get("clear"):
+            self.spot_rect, self._spot_caption = None, None  # the next target box goes out again
+        elif type_ == "spotlight" and self.awaiting_resume:
+            # E7: no box (or dim / code popup) behind the "Continue?" card; the same box goes out again once the lesson
+            # runs (spot_rect forgotten, so it isn't taken as already shown). t6: under "Before you start" it does go
+            # out (start_hold.py: the hold gates checks / judge / coaching, not where to type)
+            self.spot_rect, self._spot_caption = None, None
+            log.info("no box while Continue? is up: %r", (payload or {}).get("caption"))
+            return
+        ep = _EPOCH.get()
+        if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
+            log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
+            return
+        g = _GEN.get()
+        if (g is not None and g != self.step_gen and type_ == "card"
+                and (payload or {}).get("kind") in ANSWER_CARD_KINDS):
+            log.info("dropped stale %s card (step gen %s, now %s)", (payload or {}).get("kind"), g, self.step_gen)
+            return
+        if type_ in ("lesson.ready", "lesson.ended"):  # a new / ended lesson: nothing waits, nothing blocks
+            if getattr(self, "app_v2", False):  # the v2 app drops each blocker it shows (raw: no re-entry here)
+                for kind in list(getattr(self, "blockers", None) or {}):
+                    await self._emit_raw("blocker", {"kind": kind, "clear": True})
+            self.paused, self.blockers, self._editor_misses, self._kernel_misses = None, {}, 0, 0
+        elif getattr(self, "paused", None) is not None and self._held_by_pause(type_, payload or {}):
+            log.info("lesson paused (%s): no %s %r", self.paused.get("reason"), type_, (payload or {}).get("title"))
+            return
+        if type_ == "lesson.ready" and self._ask_hook(self.has_clients, True):  # no app gets it: no sheet, no hold
+            self._hold_for_sheet((payload or {}).get("lesson"))  # E4: the app opens "Before you start" on it
+        elif type_ in ("card", "offtrack"):
+            self._last_shown_t = self.clock()  # E4: the stuck card keeps a minute away from any other card
+        if type_ in ("card", "offtrack") and payload:  # t5: no OCR / internals, no false "add the code" Not yet
+            from . import card_copy
+
+            payload = card_copy.learner_text(self, type_, payload)
+            payload = lesson_notebook.learner_card(self, payload)  # t10: mnist.ipynb in VS Code, never Untitled / Colab
+        if type_ == "card" and payload:
+            payload = missing_module.setup_without_open(self, payload)  # editor open: Install is the setup card's button
+        if self.lesson_mode and type_ in ("card", "offtrack") and payload:
+            payload = self._one_box(type_, payload)  # t5 (a): the engine's spotlight is the one box (no card targets)
+            if type_ == "offtrack":  # t8: but the off-track names its culprit lines (the app's card steps off them)
+                payload = await offtrack_targets.attach(self, payload)
+        if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
+            payload = await where_row.filter_card(self, payload)
+            if payload is None:
+                return
+        if (answered := _ANSWERED.get()) is not None and not (payload or {}).get("clear"):
+            answered.add(type_)  # a spotlight clear is not an answer
+        if type_ == "offtrack" and payload:  # t7: the card's "expected" column: the curated lesson's own run first
+            await curated.send_reference(self)
+        elif type_ == "card":
+            offtrack_targets.carded(self)  # it takes the off-track card's place: no off-track re-send on top of it
+        if type_ in ("card", "offtrack", "diagram"):
+            self._slot_n += 1
+        if type_ in ("card", "step.passed", "lesson.building"):
+            try:  # v2 fields (optional, additive); a failure here never costs the event itself
+                payload = await self._v2_shape(type_, dict(payload or {}))
+            except Exception:  # noqa: BLE001
+                log.exception("v2 fields for %s failed; sending it without them", type_)
+        context_memory.observe(self, type_, payload)  # never raises; a no-op when memory is off (and under pytest)
+        skill_hooks.note_card(self, type_, payload)  # a level-3 card (the exact fix) shown: its step's pass is assisted
+        await self._emit_raw(type_, payload or {})
+
+    def _tagged(self, type_: str, payload: dict) -> dict:
+        """Optional epoch / gen on the events the island and cards act on: the app can tell which lesson and step a
+        reply was made for. Never overrides a field the payload already carries."""
+        if type_ not in TAGGED_EVENTS:
+            return payload
+        ep = _EPOCH.get()
+        g = _GEN.get()
+        return {"epoch": self.lesson_epoch if ep is None else ep,
+                "gen": self.step_gen if g is None else g, **payload}
+
+    def _bind_epoch(self) -> None:
+        """Tie the current task's later emits to the current lesson."""
+        _EPOCH.set(self.lesson_epoch)
+
+    def _spawn(self, coro, *, timer: bool = False) -> asyncio.Task:
+        """Background work, tied to the current lesson epoch. `timer` tasks (long sleeps) are not awaited by drain()."""
+        ep = self.lesson_epoch
+
+        async def bound():
+            _EPOCH.set(ep)
+            return await coro
+
+        t = asyncio.create_task(bound())
+        (self._timers if timer else self._tasks).add(t)
+        t.add_done_callback(self._task_done)
+        return t
+
+    def _task_done(self, t: asyncio.Task) -> None:
+        self._tasks.discard(t)
+        self._timers.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            log.error("background task failed", exc_info=t.exception())
+
+    async def drain(self) -> None:
+        """Wait for background work (tests)."""
+        while True:
+            pending = [t for t in self._tasks if not t.done()]
+            if not pending:
+                await asyncio.sleep(0)  # let done-callbacks run; they may have spawned more
+                if not [t for t in self._tasks if not t.done()]:
+                    return
+                continue
+            await asyncio.wait(pending)
+
+    async def _offer_editor(self, graph: dict, folder: str) -> None:
+        """Ask before opening VS Code or installing anything (S2's setup card), in the background so the
+        first step isn't delayed. Lessons that don't happen in an editor never get an open_editor button."""
+        self.reqs = None
+        self._setup_card = None
+        if self.workspace is None or not getattr(self.workspace, "enabled", False):
+            return
+        self._spawn(self._setup_card_task(graph, folder))
+
+    async def _setup_card_task(self, graph: dict, folder: str) -> None:
+        from . import workspace as wsmod
+
+        cached, self._build_cached = getattr(self, "_build_cached", False), False
+        if stage.on_graph(graph):  # a Demo lesson: "Missing: numpy" on every take, no Claude call (stage.requirements)
+            items, found = await asyncio.to_thread(stage.requirements, folder), []
+        else:
+            if cached and not self.lesson_mode and self._opens_editor(graph):  # t10: a lesson built before: VS Code
+                self._spawn(self._auto_open_editor(folder))  # opens now, not after the setup check (~2.2 s)
+            items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
+                asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
+        self.resources = found
+        if any(it.get("tool") == "python" and it.get("needed") for it in items or []) \
+                and getattr(self.workspace, "editor_check", None) is not None:  # real windows only (never in tests)
+            self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
+        if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
+            self.reqs = items or None
+            await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
+            # no VS Code at all: its row stays. A remembered "I have it" / FreeCAD choice is not missing (fix round 2:
+            # it made a "Ready to go" card with Skip, which the app holds the video under)
+            miss = wsmod.lesson_mode_rows(items or [])
+            card = setup_rows.with_install_all(wsmod.setup_card(miss)) if miss else None
+            if card:
+                card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
+                self._setup_card = card
+                await self.emit("card", card)
+            elif offer := await asyncio.to_thread(open_in_app.open_card, self, items or []):  # Nov 24: Blender
+                await self.emit("card", offer)  # lesson, nothing missing: Open in Blender
+            await self._maybe_pass_setup_step()
+            return
+        coding = self._editor_lesson(graph, items)
+        # Nov 22: setup never gates watching, unless the step the learner is on is the install step for a missing tool
+        hold = list((self.step or {}).get("requires") or []) if (self.step or {}).get("setup") else None
+        if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
+            self.reqs = items
+            await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
+            missing = wsmod.missing(items)  # fix round 2: a remembered "I have it" / FreeCAD choice is not missing
+            if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
+                # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
+                if missing:
+                    card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
+                    if card:
+                        self._setup_card = card = wsmod.editor_opens(card, items)
+                        await self.emit("card", card)
+                await self._auto_open_editor(folder)
+                if found and not missing and (card := self._tutorial_files_card(found, folder)):
+                    await self.emit("card", card)  # keep the video's files one tap away
+            elif not missing and not found and setup_apps.app_lesson(items):
+                # fix round 2: an app lesson with nothing missing (AutoCAD found, or "I have it" / FreeCAD remembered)
+                # gets no waiting card: the app holds the video under any setup card with actions, Skip included.
+                # Nov 24: a Blender lesson's card offers Open in Blender instead (setup.holdVideo false: never held)
+                if offer := await asyncio.to_thread(open_in_app.offer_card, self, items):
+                    await self.emit("card", offer)
+                elif note := setup_apps.ready_note(items):
+                    await self.emit("card", setup_apps.note_card(note))
+            else:  # something is missing: the setup card (install buttons)
+                card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found, **({"hold_for": hold} if hold else {})))
+                if card:
+                    self._setup_card = card
+                    await self.emit("card", card)
+            await self._maybe_pass_setup_step()  # an install step for tools that are already here
+            return
+        if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
+            await self._auto_open_editor(folder)
+
+    TUTORIAL_CARD_MS = 8000  # t10: the Tutorial files card closes itself: it never holds the slot over the step card
+
+    def _tutorial_files_card(self, found: list[dict], folder: str) -> dict | None:
+        """t10: an information card (not a Hint) that names the video's files and where they come from ("The video
+        links its notebook mnist.ipynb (github.com/…)."), only for files the lesson folder doesn't hold yet (tutorial/
+        or the folder itself), once per lesson, gone after 8 s. None: nothing new to offer."""
+        root = Path(folder or self.workdir or "")
+
+        def have(name: str) -> bool:
+            return bool(name) and any((d / name).exists() for d in (root / "tutorial", root))
+
+        new = [r for r in found if isinstance(r, dict) and not have(str(r.get("name") or ""))]
+        key = (self.lesson_epoch, tuple(sorted(str(r.get("url") or r.get("name")) for r in new)))
+        if not new or getattr(self, "_tutorial_card_key", None) == key:
+            return None
+        self._tutorial_card_key = key
+
+        def where(url: str) -> str:
+            m = re.match(r"https?://(?:www\.)?([^/?#]+)(/[^?#]*)?", url or "")
+            if not m:
+                return ""
+            parts = [p for p in (m.group(2) or "").split("/") if p][:2]
+            return "/".join([m.group(1), *parts])
+
+        n = len(new)
+        if n == 1:
+            r = new[0]
+            what = {"notebook": "its finished notebook", "repo": "its finished code", "gist": "its finished code"}.get(
+                str(r.get("kind") or ""), "a file")
+            src = where(str(r.get("url") or ""))
+            body = (f"The video links {what}, {r.get('name')}" + (f" ({src})" if src else "")
+                    + ". Save it to tutorial/ to compare with yours.")
+        else:
+            names = ", ".join(str(r.get("name")) for r in new[:3]) + (" …" if n > 3 else "")
+            src = where(str(new[0].get("url") or ""))
+            body = (f"The video links {n} files: {names}" + (f" ({src})" if src else "")
+                    + ". Save them to tutorial/ to compare with yours.")
+        res = [{"name": str(r.get("name") or ""), "url": str(r.get("url") or ""), "kind": r.get("kind")}
+               for r in new if r.get("kind") in ("repo", "notebook", "gist", "file") and r.get("url")]
+        card: dict[str, Any] = {"kind": "setup", "title": "Tutorial files", "body": body, "actions": ["download"],
+                                "dismissAfterMs": self.TUTORIAL_CARD_MS}
+        if res:
+            card["setup"] = {"editorNeeded": False, "items": [], "resources": res}
+        return card
+
+    def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
+        """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
+        too when the setup check says it needs the editor (test 9: mnist.ipynb in VS Code); a Colab one stays in the
+        browser."""
+        from . import workspace as wsmod
+
+        if self.notebook_lesson:
+            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
+
+    def _opens_editor(self, graph: dict) -> bool:
+        """t10: will this lesson open VS Code, told from the lesson alone (before the setup check answers)?"""
+        from . import workspace as wsmod
+
+        return not is_colab_lesson(graph) if self.notebook_lesson else bool(wsmod.needs_editor(graph))
+
+    async def _auto_open_editor(self, folder: str) -> None:
+        """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
+        left part of the screen so the player docked on the right stays visible). Runs after lesson.ready and
+        waits out typing, so it never steals focus mid-keystroke."""
+        if self.workspace is None or self.editor_open or getattr(self, "_auto_opening", None) == folder:
+            return  # (t10: an early open for a lesson built before is already on its way)
+        if self._editor_waits_for_learner():
+            return
+        self._auto_opening = folder
+        try:
+            await self._auto_open_editor_now(folder)
+        finally:
+            self._auto_opening = None
+
+    async def _auto_open_editor_now(self, folder: str) -> None:
+        if await self._editor_missing():
+            return
+        for _ in range(20):  # up to ~10 s
+            if not self.typing():
+                break
+            await asyncio.sleep(0.5)
+        from . import workspace as wsmod
+
+        # Miyagi's player / overlay stay in front during a video lesson: hold only a short grace, not until the learner
+        # leaves Miyagi (Michael, Nov 15 7:19: VS Code came 30 s late). Typing still holds it (_open_holds' busy).
+        # t10: right after the learner's own Build click, no grace (Miyagi is in front because of that click: Build ->
+        # VS Code took 4.7 s), and only keystrokes hold it (the click itself isn't typing)
+        follows_build = self.clock() - getattr(self, "_build_t0", -1e9) < BUILD_OPEN_FOLLOW_S
+        file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
+        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: `code -g` is for text files
+        await asyncio.to_thread(self.workspace.open, folder, True, file=None if nb else file,
+                                miyagi_wait_s=0.0 if follows_build else wsmod.VIDEO_MIYAGI_WAIT_S,
+                                **self._open_holds(keys_only=follows_build))
+        self.editor_open = True
+        if nb:  # the companion extension opens it in the notebook editor once the lesson's window is up
+            self._spawn(lesson_notebook.open_when_up(self, nb), timer=True)
+        self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
+        if self.step is not None:
+            await asyncio.to_thread(self.workspace.goto_target, self.workdir, self.step)
+
+    def _editor_waits_for_learner(self, note: bool = True) -> bool:
+        """Nov 21 (launch-quiet): "Before you start" is up and the learner has not asked for this lesson on this
+        connection (learn / pick / library.start / action start or resume: main.py sets learner_asked). Then VS Code
+        does not open by itself (a reloaded / replayed lesson used to open it on launch); Start opens it (_begin)."""
+        if self.learner_asked or not self.awaiting_start:
+            return False
+        if note:
+            self._editor_deferred = self.lesson_epoch
+            log.info("VS Code waits for Start (Before you start is up, nothing asked on this connection)")
+        return True
+
+    async def _open_in_browser(self, tool: str) -> None:
+        """Open a no-code lesson's web app (the learner pressed its button). Only https URLs on a host the setup
+        catalog or the docs allowlist knows (server.safety.browser_url_allowed); any other link is shown as text."""
+        item = next((it for it in self.reqs or [] if it.get("tool") == tool), None)
+        url = ((item or {}).get("install") or {}).get("url") or ""
+        if not url.startswith("https://"):
+            await self.emit("error", {"message": f"No link to open for {tool or 'that app'}."})
+            return
+        from server.safety import browser_url_allowed
+        from server.safety.commands import visible  # a hidden character in the link is written out, never hidden
+
+        if not browser_url_allowed(url):  # a model-made link to an unknown site: shown, never opened for them
+            log.info("open_in_browser: %s is not a known host; shown as text", url[:120])
+            await self.emit("card", {**({"stepId": self.step["id"]} if self.step else {}), "kind": "answer",
+                                     "title": "From the tutorial: check it before opening",
+                                     "body": "I only open sites I know. If this is the right page for "
+                                             f"{(item or {}).get('label') or tool or 'the app'}, copy the link into "
+                                             "your browser yourself.", "output": visible(url)})
+            return
+        if self.workspace is not None:
+            if os.name == "nt" and self.workspace.run == getattr(self.workspace, "_spawn", None):  # Windows has no `open`
+                try:
+                    os.startfile(url)  # the default browser (an https URL only, checked above)
+                except OSError as e:
+                    log.warning("could not open %s: %s", url, e)
+            else:
+                self.workspace.run(["open", url])  # macOS: the default browser
+
+    async def _install(self, tool: str, item: dict | None = None) -> None:
+        """Install one setup item (the learner pressed Install). One install per tool at a time. Progress goes
+        out as setup.progress AND as the (re-sent) setup/preflight card's body, so it's visible either way.
+        pip installs go into the LESSON's own .venv (S2: <lesson folder>/.venv), never the engine's or the
+        system's Python; on the preflight card (no lesson folder yet) they wait until the lesson exists."""
+        from . import workspace as wsmod
+
+        if stage.on(self):  # a Demo lesson: the same cards, and it always ends "installed" (stage.install)
+            await stage.install(self, tool, item)
+            return
+        if item is None:
+            items = list(self.reqs or []) + list(((self.pending_pick or {}).get("card") or {}).get("items") or [])
+            item = next((it for it in items if it.get("tool") == tool), None)
+        if item is None:
+            await self.emit("setup.progress", {"tool": tool or "?", "done": True, "ok": False,
+                                               "error": "Unknown tool for this lesson"})
+            return
+        label = item.get("label") or tool
+        if tool in self._installing:
+            log.info("install %s already running; ignoring the repeat", tool)
+            return
+        if (item.get("install") or {}).get("method") == "pip" and self.graph is None:
+            if all(d.get("tool") != tool for d in self._deferred_installs):
+                self._deferred_installs.append(item)
+            await self._install_status(f"{label} will be installed into this lesson's own Python environment "
+                                       "as soon as the lesson is built.")
+            return
+        self._installing.add(tool)
+        try:
+            loop = asyncio.get_running_loop()
+            ep = self.lesson_epoch
+            last_shown = [0.0]
+
+            def on_line(line: str) -> None:  # installer thread -> loop
+                if ep != self.lesson_epoch:
+                    return
+                text = str(line).strip()[:300]
+
+                def deliver() -> None:
+                    self._spawn(self.emit("setup.progress", {"tool": tool, "line": text}))
+                    now = self.clock()
+                    if text and now - last_shown[0] >= 1.0:  # the card body: at most one update a second
+                        last_shown[0] = now
+                        self._spawn(self._install_status(f"Installing {label}… {text[:120]}"))
+
+                loop.call_soon_threadsafe(deliver)
+
+            await self.emit("setup.progress", {"tool": tool, "line": f"Installing {label}…"})
+            await self._install_status(f"Installing {label}…")
+            res = await asyncio.to_thread(wsmod.install, item, self.workdir, on_line)
+            done = {"tool": tool, "done": True, "ok": bool(res.get("ok"))}
+            for k in ("error", "url", "version"):
+                if res.get(k):
+                    done[k] = str(res[k])
+            await self.emit("setup.progress", done)
+            if res.get("ok"):
+                status = f"{label} installed ✓"
+            else:
+                reason = (str(res.get("error") or "unknown error").strip().splitlines() or ["unknown error"])[-1]
+                status = f"{label} failed: {reason[:160]}"
+            # E27: VS Code is already open (a lesson-mode lesson, or the learner opened it): the rebuilt card never offers
+            # "Open Visual Studio Code" again (_setup_card_task's lesson-mode filter), and when nothing is left to
+            # install the success is one short line that closes itself, with no buttons (no Skip).
+            opened = self.lesson_mode or self.editor_open
+            # fix round 2: FreeCAD's own row (offered beside AutoCAD) installed: the learner chose it
+            chose = res.get("ok") and setup_apps.after_install(self, tool)
+            if self.graph is not None:  # re-check so the row flips to installed
+                fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
+                if fresh:
+                    self.reqs = full = fresh
+                    if self.lesson_mode:  # _setup_card_task's lesson-mode card: tools really missing, never the editor
+                        fresh = wsmod.lesson_mode_rows(fresh)
+                    old = self._setup_card
+                    new = wsmod.setup_card(fresh, resources=None if self.lesson_mode else self.resources) if fresh else None
+                    if old and not fresh:  # lesson mode, nothing missing any more: the rows flip, none vanish
+                        new = wsmod.setup_card([it for it in full if it.get("kind") != "editor"])
+                    # t9 V12: the rows it was first sent with, each flipped in place; while Install is left, its body
+                    self._setup_card = setup_rows.with_install_all(setup_rows.carry(old, new, full))
+                    if self._setup_card and opened:
+                        wsmod.editor_opens(self._setup_card, fresh)
+            if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
+                    and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
+                # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
+                # VS Code window selects <folder>/.venv and restarts its Python language server (companion extension)
+                self._spawn(asyncio.to_thread(wsmod.refresh_python, self.workdir), timer=True)
+            if chose:  # the lesson's AutoCAD checks look at FreeCAD now, and its steps say "in FreeCAD"
+                await setup_apps.repin_and_tell(self)
+            if await missing_module.after_install(self, tool, res):  # a run stopped on it: rerun / "Run it again."
+                return
+            # fix round 2: an app lesson with nothing left to wait on closes the card too (no "Ready to go" with Skip,
+            # which the app holds the video under)
+            settled = opened or (setup_apps.app_lesson(self.reqs or []) and not wsmod.missing(self.reqs or []))
+            if res.get("ok") and settled and not self.pending_pick \
+                    and "install" not in ((self._setup_card or {}).get("actions") or []):
+                self._setup_card = None  # nothing pending any more
+                # Nov 24: Blender just installed for a Blender lesson: Open in Blender instead of the passing line
+                offer = await asyncio.to_thread(open_in_app.open_card, self, self.reqs or [])
+                await self.emit("card", offer or {"kind": "setup", "title": status, "body": "", "actions": [],
+                                                  "dismissAfterMs": 4000})  # the app closes it after 4 s (or the learner does)
+            elif self._setup_rows_card():  # t9 V12: more to install: the same card, this row flipped (or its error)
+                await self.emit("card", self._setup_card)
+            else:
+                await self._install_status(status)
+        finally:
+            self._installing.discard(tool)
+
+    async def _install_status(self, text: str) -> None:
+        """Re-send the card the learner is looking at (setup or preflight) with the install status as its body."""
+        base = (self.pending_pick or {}).get("card") if self.pending_pick else self._setup_card
+        if not base or self._setup_rows_card():
+            return  # t9 V12: a setup card with Install left shows progress on its rows (setup.progress); nothing moves
+        await self.emit("card", {**base, "body": text})
+
+    def _setup_rows_card(self) -> bool:
+        """t9 V12: the setup card is up and still offers Install (its rows carry the install progress)."""
+        return (not self.pending_pick and self._setup_card is not None
+                and "install" in (self._setup_card.get("actions") or []))
+
+    async def _run_deferred_installs(self) -> None:
+        items, self._deferred_installs = self._deferred_installs, []
+        for it in items:
+            await self._install(it.get("tool", ""), item=it)
+
+    @property
+    def editor_open(self) -> bool:
+        """VS Code was opened on this lesson's folder (lesson mode always; a video lesson after Open / auto-open). While
+        True the lesson is bound to ITS window: E6 leaves other folders' VS Code windows out of the screen (text,
+        boxes, screenshots) and another folder's window on screen counts as "Wrong folder?"."""
+        return self._editor_open
+
+    @editor_open.setter
+    def editor_open(self, value: bool) -> None:
+        if value and not getattr(self, "_editor_open", False):
+            self._editor_open_t = self.clock()  # v2: a cold-starting VS Code is never "closed" (EDITOR_OPEN_GRACE_S)
+        self._editor_open = bool(value)
+        self._bind_lesson_window()
+
+    def _bind_lesson_window(self) -> None:
+        """Tell E6 which folder's VS Code window is the lesson's (None: every window counts)."""
+        reader = getattr(getattr(self, "screen", None), "reader", None)
+        bind = getattr(reader, "set_lesson_folder", None)
+        if bind is not None:
+            try:
+                bind(getattr(self, "workdir", None) if self._editor_open else None)
+            except Exception:  # noqa: BLE001 - binding is a refinement; the lesson runs without it
+                log.exception("set_lesson_folder failed")
+
+    async def _open_editor(self) -> None:
+        if self.workspace is None or self.graph is None:
+            log.info("open_editor ignored: %s", "no workspace" if self.workspace is None else "no lesson")
+            return
+        from . import workspace as wsmod
+
+        if self.reqs is not None and not wsmod.editor_needed(self.reqs):
+            log.info("open_editor ignored: this lesson doesn't use an editor")
+            return  # e.g. a Blender/Figma lesson: never open VS Code
+        if await self._editor_missing(explicit=True):
+            return
+        log.info("open_editor: bringing %s forward", Path(self.workdir).name)
+        file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
+        loc = wsmod.target_location(self.workdir, self.step) if self.step is not None and file else None
+        line = loc[1] if loc and str(loc[0]) == file else None
+        real = getattr(self.screen, "reader", None) is not None  # real windows only (never in tests)
+        if real and await asyncio.to_thread(where_row.reveal, self.workdir, file, line):
+            self.editor_open = True  # shown in the lesson's existing window (companion extension): no `code` CLI
+            return
+        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: the companion opens a notebook
+        await asyncio.to_thread(lambda: self.workspace.open(self.workdir, force=True, explicit=True,  # pressed Open
+                                                            file=None if nb else file))  # L2: the step's file
+        self.editor_open = True
+        if nb:
+            self._spawn(lesson_notebook.open_when_up(self, nb), timer=True)
+        if self.step is not None:
+            self.workspace.goto_target(self.workdir, self.step, explicit=True)
+        if getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
+            self._spawn(self._confirm_lesson_window(self.workdir), timer=True)
+
+    async def _start_editor(self, step: dict | None) -> None:
+        """Start pressed: the step's file in the lesson's VS Code window. Shown in the window already up when the
+        companion has the folder (no `code` CLI: never a second window or older windows restored), else one
+        `code <folder> -g <file>`."""
+        ws, folder = self.workspace, self.workdir
+        if ws is None or not folder:
+            return
+        from . import workspace as wsmod
+
+        file = self._editor_file(step)
+        loc = wsmod.target_location(folder, step) if step is not None and file else None
+        line = loc[1] if loc and Path(loc[0]).resolve() == Path(file).resolve() else None
+        show = getattr(ws, "show_in_lesson_window", None)
+        if show is not None and await asyncio.to_thread(show, folder, file, line):
+            log.info("Start: %s shown in the lesson's open window", file)
+            return
+        await asyncio.to_thread(ws.open, folder, True, True, explicit=True, file=file)
+
+    async def _confirm_lesson_window(self, folder: str) -> None:
+        """After Open: did a VS Code window of the lesson folder come forward on this Space? Logged either way (the QA
+        run couldn't tell 'never sent' from 'sent, nothing came forward'); once more `code <folder>` if it didn't."""
+        from . import workspace as wsmod
+
+        fn = getattr(wsmod._s2(), "folder_on_screen", None)
+        if fn is None:
+            return
+        for attempt in (1, 2):
+            await asyncio.sleep(2.0)
+            if await asyncio.to_thread(fn, folder):
+                log.info("open_editor: %s is on screen", Path(folder).name)
+                return
+            if attempt == 1 and self.workspace is not None and folder == self.workdir:
+                log.warning("open_editor: %s didn't come forward; asking VS Code again", Path(folder).name)
+                await asyncio.to_thread(self.workspace.open, folder, True, False, True, file=self._editor_file(self.step))
+        log.warning("open_editor: %s still isn't on screen", Path(folder).name)
+
+    async def _open_editor_answered(self) -> None:
+        """Open on a setup / where card: bring the lesson's window forward, then ANSWER the press (t5 02:11:33: "Ready
+        to go"'s Open spun ~10 s with VS Code already in front, because nothing came back). The app ends a pressed
+        button on thinking -> not thinking (store.ts), which closes the card; a setup card that still has Install
+        rows comes back without Open instead."""
+        await self._status("thinking", detail="Opening VS Code")
+        try:
+            await self._open_editor()
+        finally:
+            card = self._setup_card
+            if card and "open_editor" in (card.get("actions") or []):
+                card = {**card, "actions": [a for a in card["actions"] if a != "open_editor"]}
+                self._setup_card = card if ("install" in card["actions"] or self._installing) else None
+                if self._setup_card is not None:
+                    await self.emit("card", card)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+
+    def _editor_file(self, step: dict | None) -> str | None:
+        """L2: the file the lesson's VS Code window opens on: the step's own file when it's in the lesson folder (the
+        live run opened README.md while step 1 said "In nn.py, type …"); None = S2's starter pick."""
+        from . import workspace as wsmod
+
+        rel = self._step_file(step) if step else None
+        if not rel and self.lesson_mode and step is not None and step is self.step:  # a run step: the file it runs
+            rel = next((f for st in reversed(self.steps[:self.idx]) if (f := self._step_file(st))), None)
+        if not rel or not self.workdir or not Path(self.workdir).is_dir():
+            return None
+        p = wsmod.resolve_file(self.workdir, rel)
+        return str(p) if p is not None and Path(self.workdir).resolve() in p.resolve().parents else None
+
+    def _open_holds(self, keys_only: bool = False) -> dict:
+        """L5: what holds an AUTOMATIC open of the lesson's editor (S2's waiter thread): a key or click in the last
+        TYPING_GUARD_S, Miyagi's own launcher / ask box included; another lesson (or end_lesson) drops it.
+        keys_only (t10, right after the Build click): a key only."""
+        lid, wd, inputs = ((self.graph or {}).get("lesson") or {}).get("id"), self.workdir, self.inputs
+
+        def busy() -> bool:
+            since = getattr(inputs, "seconds_since_key", None) if keys_only else None
+            since = since or (inputs.seconds_since_input if inputs is not None else None)
+            v = since() if since is not None else None
+            return v is not None and v < config.TYPING_GUARD_S
+
+        def cancelled() -> bool:
+            return (self.graph is None or (self.graph.get("lesson") or {}).get("id") != lid or self.workdir != wd
+                    or self._editor_waits_for_learner(note=False))  # Nov 21: a deferred open waits for Start too
+
+        return {"busy": busy, "cancelled": cancelled}
+
+    async def _show_step_file(self, step: dict, explicit: bool = False) -> bool:
+        """L2: the step's file in the lesson's OWN VS Code window (the companion extension; no focus change, never another
+        folder's window) when that window shows another file (README.md, the last step's file). start_step's `code -r
+        -g` jump only runs while VS Code is the active app, so a step started from Miyagi's drawer kept the old file.
+        explicit (Show me): at once; else after the learner's typing. True = it switched files."""
+        gen = self.step_gen
+        for _ in range(0 if explicit else 20):  # up to ~10 s: never switch tabs under a keystroke
+            if not self.typing():
+                break
+            await asyncio.sleep(0.5)
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "windows") or not hasattr(ext, "open_file"):
+            return False
+        if gen != self.step_gen or self.step is not step:  # the learner moved on meanwhile: not the old step's file
+            return False
+        from . import workspace as wsmod
+
+        def show() -> str | None:
+            path = self._editor_file(step)
+            if path is None:
+                return None
+            root = Path(self.workdir).resolve()
+            win = next((w for w in ext.windows() if any(Path(f).resolve() == root for f in w.get("folders") or [])), None)
+            if win is None or (win.get("file") and Path(str(win["file"])).resolve() == Path(path).resolve()):
+                return None  # no lesson window (yet), or it already shows the step's file
+            loc = wsmod.target_location(self.workdir, step, missing="end")
+            line = loc[1] if loc is not None and str(loc[0]) == path else None
+            res = ext.open_file(path, line, folder=self.workdir, preserve_focus=True, port=win.get("port"))
+            return path if isinstance(res, dict) and res.get("ok") else None
+
+        try:
+            shown = await asyncio.to_thread(show)
+        except Exception:  # noqa: BLE001 - showing the file is a convenience; the lesson runs without it
+            log.exception("showing the step's file failed")
+            return False
+        if shown:
+            log.info("showed %s in the lesson's VS Code window", Path(shown).name)
+        return bool(shown)
+
+    def _prefetch_voice(self) -> None:
+        """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
+        if not self.graph or not config.voice_enabled():
+            return
+        lines = [self.m.voice_line("step.started", self._step_started_payload(st)) for st in self.steps]
+        self._spawn(self.m.prefetch_voice([ln for ln in lines if ln]), timer=True)
+
+    def _record(self, kind: str, payload: dict | None = None, step: dict | None = None) -> None:
+        """A learning event for Tiger's stats (step_started, check_pass/fail, offtrack, fix_applied, question, step_passed)."""
+        step = step or self.step
+        seg = self._segment(step) if step else None
+        try:
+            self.m.record(kind, (self.graph or {}).get("lesson", {}).get("id"), step["id"] if step else None,
+                          self.video_t, payload or {}, source_id=(seg or {}).get("videoId") or None)
+        except Exception:  # noqa: BLE001 - stats must never break the lesson
+            log.exception("record %s failed", kind)
+
+    def _say(self, kind: str, payload: dict) -> None:
+        """Voice (when toggled on): speak this event in the background, never over the learner's typing.
+        Never while voice is off for the engine (config.voice_enabled, MIYAGI_VOICE; off by default)."""
+        if not config.voice_enabled():
+            return
+        if not self.voice or self.typing():
+            if self.voice:
+                log.info("voice: held %s (typing)", kind)
+            return
+        gen = self.step_gen
+
+        async def go() -> None:
+            s = await self.m.speak_event(kind, payload)
+            if s and (gen == self.step_gen or kind == "step.passed"):
+                await self.emit("speak", s)
+
+        self._spawn(go(), timer=True)
+
+    async def _status(self, state: str, *, check: bool = False, detail: str | None = None) -> None:
+        """The app's status pill, sent only when it changes (live test 3: "watching" x16 in 22 s). While Check runs
+        (_check_step: fresh frame, checks, judge) "thinking" stays up until its verdict lands: a cancelled diagnosis
+        or a tick can't flip it to "watching" mid-check (01:20:45: thinking -> watching 1 ms later, the card 4.5 s
+        after). Such a state is kept and applied when the check ends without setting one itself. check: the
+        check's own verdict state."""
+        if getattr(self, "_checking", 0) and not check and state not in ("thinking", "passed", "idle"):
+            self._status_after_check = state
+            return
+        ep = _EPOCH.get()
+        if ep is not None and ep != self.lesson_epoch:
+            return  # work of an ended lesson: emit would drop it, so it must not be recorded as sent either
+        detail = words_ok(detail, STATUS_DETAIL_WORDS) if detail else None
+        if state == self.status and detail == getattr(self, "status_detail", None):
+            if state == "thinking":
+                self._arm_thinking_watchdog()  # still busy: the clock runs from the latest thinking
+            return
+        self.status, self.status_detail = state, detail
+        if state == "thinking":
+            self._arm_thinking_watchdog()
+        else:
+            self._disarm_thinking_watchdog()
+        await self.emit("status", {"state": state, **({"detail": detail} if detail else {})})
+
+    def _disarm_thinking_watchdog(self) -> None:
+        t = getattr(self, "_think_task", None)
+        self._think_task = None
+        if t is not None and not t.done() and t is not asyncio.current_task():
+            t.cancel()
+
+    def _arm_thinking_watchdog(self) -> None:
+        """Every "thinking" ends: a verdict / answer / error resolves it, and if none does within THINKING_MAX_S the
+        watchdog sends an error and puts the pill back, so the app never spins forever."""
+        self._disarm_thinking_watchdog()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        ep = self.lesson_epoch
+        self._think_seq = getattr(self, "_think_seq", 0) + 1
+        seq = self._think_seq
+        limit = self.THINKING_MAX_S
+
+        async def watch() -> None:
+            await asyncio.sleep(limit)
+            for _ in range(4):  # a lesson build / search legitimately runs long (it reports its own errors): wait it out
+                if self.status == "thinking" and (self.building() or self.phase == "searching"):
+                    await asyncio.sleep(limit)
+            if self.status != "thinking" or getattr(self, "_think_seq", 0) != seq or ep != self.lesson_epoch:
+                return
+            log.warning("status 'thinking' unresolved after %.0f s: ending it", limit)
+            self._think_task = None
+            self._checking, self._status_after_check = 0, None
+            self.status = ""  # force the next state through the dedupe
+            to = ("offtrack" if self.last_offtrack and not self.passed else
+                  "passed" if self.passed else "watching" if self.step is not None else "idle")
+            await self._status(to)
+            await self.emit("error", {"message": "That's taking too long. Try again."})
+
+        self._think_task = loop.create_task(watch())
+
+    THINKING_MAX_S = THINKING_MAX_S
+
+    # ------------------------------------------------------------------ v2 (BUILD-PLAN E3)
+    def note_app_v2(self, type_: str | None = None) -> None:
+        """The app sent a v2 command (E2's dispatch calls this for each V2_COMMANDS type it receives; None = told
+        another way): it draws the v2 surfaces, so lesson.paused / lesson.resumed / blocker and card kind "complete"
+        go out from now on."""
+        if type_ is not None and type_ not in V2_COMMANDS:
+            return
+        if not self.app_v2:
+            log.info("v2 app (%s): lesson.paused, blocker and the complete card are on", type_ or "told")
+        self.app_v2 = True
+        self._editor_v2_room()
+
+    @staticmethod
+    def _editor_v2_room() -> None:
+        """The lesson's VS Code window keeps the v2 panel's 392 pt on the right, not the v1 drawer's 436."""
+        try:
+            from server.workspace import editor as editor_mod
+
+            editor_mod.note_app_v2()
+        except Exception:  # noqa: BLE001
+            log.debug("editor v2 room not set", exc_info=True)
+
+    async def panel_state(self, open_: bool, rect: dict | None = None) -> None:
+        """panel.state {open, rect} (v2): where the lesson panel is docked. The editor's room follows a moved panel
+        (fit_full: PANEL_GAP left of its left edge); a collapsed panel keeps the room as it was (no window jumps).
+        Only with the real screen reader (never in tests) and Accessibility; never raises."""
+        self.note_app_v2("panel.state")
+        try:
+            from server.workspace import editor as editor_mod
+
+            if not editor_mod.note_panel(bool(open_), rect if isinstance(rect, dict) else None):
+                return
+            if (not open_ or self.graph is None or self.workspace is None or not self.editor_open
+                    or getattr(self.screen, "reader", None) is None):
+                return
+            res = await asyncio.to_thread(editor_mod.fit_beside_drawer, self.workdir)
+            log.info("panel.state: lesson window beside the panel: %s", res)
+        except Exception:  # noqa: BLE001 - a layout refinement: the lesson runs without it
+            log.exception("panel.state failed")
+
+    def _held_by_pause(self, type_: str, payload: dict) -> bool:
+        """While the lesson is paused (VS Code closed) the app shows its own paused surface: the engine's screen
+        cards about the missing editor ("Open nn.py", a judge's step card), off-tracks and boxes would duplicate it
+        or point at nothing. What the learner asked for (Explain, Hint, an answer) still goes out."""
+        if type_ == "offtrack":
+            return True
+        if type_ == "spotlight":
+            return not payload.get("clear")
+        if type_ == "card":
+            return payload.get("kind") in ("where", "step")
+        return False
+
+    async def _v2_shape(self, type_: str, payload: dict) -> dict:
+        """The v2 fields on an outgoing event (all optional): hint rung and Not yet lines on cards, the step's summary
+        on step.passed, the build checklist on lesson.building."""
+        if type_ == "card":
+            step = self.step
+            if step is None or payload.get("stepId") not in (None, step.get("id")):
+                return payload
+            if payload.get("kind") == "hint" and "hintStep" not in payload:
+                rung = curated.hint_rung(self, step)
+                hs = hint_step(payload, curated_n=rung[0] if rung else None, curated_of=rung[1] if rung else None)
+                if hs:
+                    payload["hintStep"] = hs
+            elif (payload.get("title") == "Not yet" or payload.get("verdict") == "not_done") \
+                    and "missingLines" not in payload and not self._run_command(step):
+                rows = missing_lines(step.get("code"), await asyncio.to_thread(self._learner_text, step))
+                if rows:
+                    payload["missingLines"] = rows
+                    if cap := fix_caption(rows, notebook=bool(self.notebook_lesson)):
+                        payload.setdefault("fixCaption", cap)
+            if "kernel" in self.blockers and payload.get("kind") in ("step", "hint", "where") \
+                    and "waiting" not in payload:
+                payload["waiting"] = "Watching for a kernel to start"
+            return payload
+        if type_ == "step.passed":
+            if not payload.get("skipped") and "kernel" in self.blockers:
+                await self._set_blocker({"kind": "kernel", "clear": True})  # a notebook check that passed ran a kernel
+            if payload.get("skipped") or payload.get("summary"):
+                return payload  # a skip is not a pass: nothing to sum up
+            st = next((x for x in self.steps if x.get("id") == payload.get("stepId")), None)
+            if st is not None and (summary := self._passed_summary(st)):
+                payload["summary"] = summary
+            return payload
+        if type_ == "lesson.building":
+            return await self._building_v2(payload)
+        return payload
+
+    def _passed_summary(self, step: dict) -> str | None:
+        """step.passed.summary (<= 12 words): a run step's real numbers from the learner's own run ("Loss 0.49 → 0.0009
+        in your last run."), else what the step built, in the lesson's words. None rather than an invented line.
+        Only the newest run counts: it is the one that passed this step. An earlier step's run ("... when you ran it.")
+        is another step's number, so it falls through to the step's own words."""
+        if self._run_command(step):
+            from . import lesson_end
+
+            try:
+                line = words_ok(lesson_end.metric_line(self), SUMMARY_WORDS)
+                if line is not None and line.endswith("in your last run."):
+                    return line
+            except Exception:  # noqa: BLE001
+                log.exception("summary from the run failed")
+        for key in ("summary", "what"):
+            if (text := words_ok(step.get(key), SUMMARY_WORDS)) is not None:
+                return text[:1].upper() + text[1:]
+        return None
+
+    def _learner_text(self, step: dict) -> str | None:
+        """The learner's code for the step now: the notebook's cells, else VS Code's live buffer of the step's file,
+        else the file on disk. None when there is none to read. Blocking (disk): call it in a thread."""
+        file = self._step_file(step)
+        try:
+            if self.notebook_lesson or (file or "").lower().endswith(".ipynb"):
+                from server.checks.notebook import find_notebook, read_notebook
+
+                nb = read_notebook(find_notebook(self.workdir, [file] if file else []))
+                return "\n".join(nb.sources) if nb is not None else None
+            if not file or not self.workdir:
+                return None
+            path = Path(file) if Path(file).is_absolute() else Path(self.workdir) / file
+            live = self._buffers.text(path)
+            if live is not None:
+                return live
+            if path.is_file() and path.stat().st_size < 1_000_000:
+                return path.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - no lines rather than no card
+            log.debug("learner text for %s failed", step.get("id"), exc_info=True)
+        return None
+
+    def _build_start(self, *, text: bool, url: str = "", title: str | None = None) -> None:
+        """A build began: what Home-Building's card shows for it (source, phases, about how long)."""
+        src: dict[str, Any] | None = None
+        if text:
+            if t := " ".join(str(title or "").split()):
+                src = {"kind": "goal", "title": t[:200]}
+        elif url:
+            row = (self.pending_pick or {}).get("row") or next(
+                (r for r in self.results.values() if r.get("url") == url), None) or {}
+            src = {"kind": "youtube" if video_id_from_url(url) else "goal",
+                   "title": " ".join(str(row.get("title") or title or "YouTube video").split())[:200], "url": url,
+                   **({"channel": str(row["channel"])[:120]} if row.get("channel") else {})}
+            if isinstance(row.get("durationS"), (int, float)) and row["durationS"] > 0:
+                src["durationS"] = float(row["durationS"])
+        self._build_v2 = {"text": text, "t0": self.clock(), "url": url, "source": src,
+                          "expected": float(os.environ.get("ORCH_BUILD_EXPECTED_S", "45"))}
+
+    async def _building_v2(self, payload: dict) -> dict:
+        """lesson.building's v2 fields: stage + phases (+ etaS, source) while it builds; failCode / failReason /
+        alternatives once it failed (set by _build_failed)."""
+        info = getattr(self, "_build_v2", None)
+        if info is None or payload.get("failed"):
+            return payload
+        msg = str(payload.get("message") or "")
+        progress = payload.get("progress") if isinstance(payload.get("progress"), (int, float)) else None
+        stage_id = build_stage_of(msg, progress, info["text"])
+        done = bool(progress is not None and progress >= 1.0)
+        watch = "Reading the transcript" if "transcript" in msg.lower() else None
+        payload.setdefault("stage", stage_id)
+        payload.setdefault("phases", build_phases(stage_id, info["text"], done=done, watch_label=watch))
+        if info.get("source"):
+            payload.setdefault("source", dict(info["source"]))
+        if not done and stage_id != "ready" and not info["text"]:
+            left = info["expected"] - (self.clock() - info["t0"])
+            if left >= 30:  # "About N min left" only while the estimate still says something
+                payload.setdefault("etaS", float(round(left)))
+        return payload
+
+    async def _editor_missing(self, explicit: bool = False) -> bool:
+        """No VS Code on this Mac: the "VS Code not found" setup card (the v2 app draws it as its VS Code sheet: Get VS
+        Code / Install) instead of an open that does nothing and a lesson left with no editor. Once per lesson, again
+        when the learner presses Open. True while it's missing (the caller opens nothing); _v2_tick opens the lesson
+        once VS Code is there. A setup card already listing a missing editor row says it already: no second card."""
+        check = getattr(self.workspace, "editor_check", None) if self.workspace is not None else None
+        if check is None:
+            return False
+        found = await asyncio.to_thread(check)
+        if not found:
+            self._no_editor = False
+            return False
+        card, item = found
+        self._no_editor = True
+        self.reqs = [it for it in self.reqs or [] if it.get("kind") != "editor"] + [item]  # Install finds the row
+        pending = ((self._setup_card or {}).get("setup") or {}).get("items") or []
+        listed = any(r.get("kind") == "editor" and not r.get("ok") for r in pending)
+        if explicit and listed:  # the setup card on screen already has the VS Code row: that card again, rows kept
+            await self.emit("card", self._setup_card)
+            return True
+        if explicit or (getattr(self, "_no_editor_epoch", None) != self.lesson_epoch and not listed):
+            self._no_editor_epoch = self.lesson_epoch
+            self._setup_card = card
+            log.info("VS Code not found: setup card (%s)", item.get("install", {}).get("method"))
+            self._record("editor_missing", {"method": (item.get("install") or {}).get("method"), "explicit": explicit})
+            await self.emit("card", card)
+        return True
+
+    async def _editor_found_check(self) -> None:
+        """_v2_tick, while VS Code was missing: once it's installed (Homebrew from the card, or the learner's own
+        download), the card goes and the lesson opens in it."""
+        try:
+            found = await asyncio.to_thread(self.workspace.editor_check) if self.workspace is not None \
+                and getattr(self.workspace, "editor_check", None) else None
+        finally:
+            self._no_editor_poll_t = self.clock()  # the next look in NO_EDITOR_POLL_S
+        if found or self.graph is None or not self.workdir:
+            return
+        self._no_editor = False
+        from . import workspace as wsmod
+
+        if self.reqs is not None and not wsmod.editor_needed(self.reqs):
+            return  # a lesson without an editor (the one that asked has ended)
+        log.info("VS Code found: opening the lesson")
+        if self._setup_card is not None and all(r.get("kind") == "editor" for r in
+                                                (self._setup_card.get("setup") or {}).get("items") or []):
+            self._setup_card = None
+            await self.emit("card", {"kind": "setup", "title": "VS Code found", "body": "", "actions": [],
+                                     "dismissAfterMs": 3000})
+        if self.lesson_mode:
+            self._spawn(self._open_editor_full(self.workdir))
+        else:
+            self._spawn(self._auto_open_editor(self.workdir))
+
+    async def _pause(self, reason: str) -> None:
+        """The lesson waits for something outside it (v2 app only): no checks, judge or coach run, nothing counts as
+        Not yet. lesson.paused + the matching blocker; the place is kept (the step, its passed checks)."""
+        if self.paused is not None or not self.app_v2:
+            return
+        step = self.step
+        nb = lesson_notebook.name(self) if self.notebook_lesson else None
+        file = self._step_file(step) if step else None
+        what = "the notebook" if self.notebook_lesson else (Path(file).name if file else "the lesson folder")
+        title = "VS Code closed. Lesson paused."
+        body = f"Your place is saved. Reopen {what}" + (f" and pick up at {step['title']}." if step else ".")
+        self.paused = {"reason": reason, "title": title, "body": body, **({"stepId": step["id"]} if step else {})}
+        log.info("lesson paused: %s (%s)", reason, nb or file or self.workdir)
+        await self.emit("spotlight", {"clear": True})
+        await self.emit("lesson.paused", dict(self.paused))
+        await self._set_blocker({"kind": reason, "title": title, "body": body, "action": "open_editor"})
+
+    async def _unpause(self) -> None:
+        if self.paused is None:
+            return
+        reason, self.paused = self.paused.get("reason"), None
+        step = self.step
+        log.info("lesson resumed: %s", reason)
+        await self.emit("lesson.resumed", {"reason": reason, **({"stepId": step["id"]} if step else {})})
+        if reason in self.blockers:
+            await self._set_blocker({"kind": reason, "clear": True})
+        self._sync_screen_soon()
+        if step is not None and not self.passed:
+            self.spot_rect, self._spot_caption = None, None  # the step's box goes out again on the reopened window
+            self._spawn(self._show_where(step))
+
+    async def _set_blocker(self, payload: dict) -> None:
+        """blocker (v2 app only): one thing in the learner's way, or {kind, clear: true} once it is gone."""
+        if not self.app_v2:
+            return
+        kind = payload.get("kind")
+        if payload.get("clear"):
+            if self.blockers.pop(kind, None) is None:
+                return
+        elif self.blockers.get(kind) == payload:
+            return
+        else:
+            self.blockers[kind] = payload
+        await self.emit("blocker", payload)
+
+    async def _v2_tick(self) -> bool:
+        """~1/s (tick): VS Code's lesson window gone -> pause; back -> resume. A notebook step and VS Code shows
+        "Select Kernel" -> the kernel blocker (cleared once it's gone). v2 app, a running lesson and the real screen
+        reader only (never in tests). -> True while the lesson is paused (tick holds everything else)."""
+        if not self.app_v2 or self.graph is None or self.phase != "active" or self.step is None:
+            return self.paused is not None
+        if getattr(self.screen, "reader", None) is None:
+            return self.paused is not None
+        now = self.clock()
+        if getattr(self, "_no_editor", False) and now - getattr(self, "_no_editor_poll_t", -1e9) >= NO_EDITOR_POLL_S:
+            self._no_editor_poll_t = now + 3600.0  # one look at a time (Spotlight); _editor_found_check sets the next
+            self._spawn(self._editor_found_check())
+        settled = now - getattr(self, "_editor_open_t", -1e9) >= EDITOR_OPEN_GRACE_S
+        if self.editor_open and settled and self.workspace is not None and self.workdir \
+                and now - self._editor_poll_t >= EDITOR_POLL_S:
+            self._editor_poll_t = now
+            from server.workspace import editor as editor_mod
+
+            alive = await asyncio.to_thread(editor_mod.lesson_window_state, self.workdir)
+            if alive is False:
+                self._editor_misses += 1
+                if self._editor_misses >= EDITOR_GONE_POLLS and self.paused is None:
+                    await self._pause("editor_closed")
+            elif alive is True:
+                self._editor_misses = 0
+                if self.paused is not None and self.paused.get("reason") == "editor_closed":
+                    await self._unpause()
+        if self.paused is not None:
+            return True
+        if self.notebook_lesson and now - self._kernel_poll_t >= KERNEL_POLL_S:
+            self._kernel_poll_t = now
+            await self._kernel_check()
+        return False
+
+    def _select_kernel_rect(self) -> dict | None:
+        """VS Code's own "Select Kernel" control in the latest frame (screen points), when it shows one."""
+        for b in getattr(self.last_obs, "blocks", None) or []:
+            if (getattr(b, "app", "") or "").lower() not in CODE_APP_NAMES:
+                continue
+            if not _SELECT_KERNEL.match(str(getattr(b, "text", "") or "").strip()):
+                continue
+            r = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            try:
+                return {k: float(r[k]) for k in ("x", "y", "w", "h")}
+            except (KeyError, TypeError, ValueError):
+                return None
+        return None
+
+    async def _kernel_check(self) -> None:
+        step = self.step
+        if self.passed and "kernel" in self.blockers:
+            self._kernel_misses = 0
+            await self._set_blocker({"kind": "kernel", "clear": True})  # the step passed: a kernel ran
+            return
+        if step is None or self.passed or not (step.get("code") or "").strip() or self.last_obs is None:
+            return
+        rect = self._select_kernel_rect()
+        if rect is not None:
+            self._kernel_misses = 0
+            old = (self.blockers.get("kernel") or {}).get("rect")
+            if old and all(abs(old[k] - rect[k]) < 4 for k in ("x", "y", "w", "h")):
+                return  # the same control (OCR boxes move a point or two between frames): no re-send
+            rect = {k: float(round(v)) for k, v in rect.items()}
+            await self._set_blocker({"kind": "kernel", "title": "Pick a kernel so your cells can run",
+                                     "body": "No kernel is running, so I cannot check this cell.", "rect": rect})
+        elif "kernel" in self.blockers and self._editor_window() is not None:
+            self._kernel_misses += 1
+            if self._kernel_misses >= KERNEL_CLEAR_POLLS:
+                self._kernel_misses = 0
+                await self._set_blocker({"kind": "kernel", "clear": True})
+
+    def v2_snapshot(self) -> list[tuple[str, dict]]:
+        """A reconnecting v2 app gets the pause and the blockers again (after the step it belongs to)."""
+        if not self.app_v2 or self.graph is None:
+            return []
+        out: list[tuple[str, dict]] = []
+        if self.paused is not None:
+            out.append(("lesson.paused", dict(self.paused)))
+        out += [("blocker", dict(b)) for b in self.blockers.values()]
+        return out
+
+    @property
+    def steps(self) -> list[dict]:
+        return (self.graph or {}).get("steps", [])
+
+    @property
+    def lesson_mode(self) -> bool:
+        """A "Just teach me" lesson: no video, the editor full screen, each step spotlights where to type."""
+        return ((self.graph or {}).get("lesson") or {}).get("mode") == "lesson"
+
+    @property
+    def step(self) -> dict | None:
+        if self.phase in ("active", "done") and 0 <= self.idx < len(self.steps):
+            return self.steps[self.idx]
+        return None
+
+    def context(self) -> RunContext:
+        # a `tut run` (exact ::metric:: lines) beats the same curve read off the screen
+        tut = [r for r in self.step_runs if not r.run_id.startswith("screen-")]
+        last = (tut or self.step_runs or [None])[-1]
+        # when the lesson (step 1, in this session) and this step began: a file older than that was in the folder
+        # before, never the one the step exported under a name of its own (_claim_any_names). Not known for a lesson
+        # restored at a later step (lesson_wall_t0 0.0), and a step entered again keeps the lesson's start only.
+        lesson_t0 = getattr(self, "lesson_wall_t0", None) or None
+        step_t0 = self._step_wall_t0 if lesson_t0 and getattr(self, "_step_first_visit", False) else None
+        return RunContext(workdir=self.workdir, last_run=last, runs=list(self.step_runs),
+                          screen=self._screen_lines(),
+                          editor="Code" if self.lesson_mode and not self.notebook_lesson else None,
+                          step_started_at=step_t0, lesson_started_at=lesson_t0)
+
+    def _screen_lines(self) -> dict | None:
+        if self.screen is None:
+            return None
+        try:
+            lines = self.screen.lines()
+        except Exception:  # noqa: BLE001
+            log.exception("screen lines failed")
+            return None
+        panel = self._vscode_terminal_lines()
+        # checks with app "Terminal" also read VS Code's integrated terminal (where lessons say to run); an open but
+        # empty panel is on screen too ("not printed yet"), never "Open VS Code's terminal"
+        if panel or self._terminal_panel_open():
+            lines = dict(lines or {})
+            lines["Terminal"] = list(lines.get("Terminal") or []) + panel
+        return lines
+
+    def _vscode_terminal_lines(self) -> list[str]:
+        """The OCR lines inside VS Code's integrated terminal panel (E6's terminal region), top to bottom."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        blocks = getattr(self.last_obs, "blocks", None) or []
+        if region is None or not blocks:
+            return []
+        try:
+            r = region("terminal")
+        except Exception:  # noqa: BLE001
+            return []
+        if not r:
+            return []
+        out = []
+        for b in blocks:
+            br = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            cx, cy = br["x"] + br["w"] / 2, br["y"] + br["h"] / 2
+            if r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]:
+                out.append((br["y"], br["x"], str(getattr(b, "text", ""))))
+        return [t for _, _, t in sorted(out)]
+
+    def _terminal_panel_open(self) -> bool:
+        """Is VS Code's integrated terminal panel on screen (E6's terminal region), even with no text in it yet?"""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        try:
+            return bool(region and region("terminal"))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def screen_active(self) -> bool:
+        return self.screen is not None and bool(getattr(self.screen, "active", True))
+
+    def _precision_display(self, step: dict) -> bool:
+        """Without a screen reader the screen checks can never move, so the checklist the app
+        shows is the step's precision_checks (when it has them and we're in precision mode)."""
+        return not self.screen_active() and bool(step.get("precision_checks")) and self.precision_mode()
+
+    def display_checks(self, step: dict) -> list[dict]:
+        return (step.get("precision_checks") if self._precision_display(step) else step.get("checks")) or []
+
+    def precision_mode(self) -> bool:
+        """Known workdir on disk, or a `tut run` this step -> precision_checks may also pass the step.
+        ORCH_PRECISION=on/off overrides (off = screen checks only, e.g. live screen demos)."""
+        setting = config.precision_setting()
+        if setting != "auto":
+            return setting == "on"
+        if any(not r.run_id.startswith("screen-") for r in self.step_runs):
+            return True
+        return Path(self.workdir).is_dir()
+
+    def _touch(self) -> None:
+        self.last_activity = self.clock()
+
+    def _segment(self, step: dict) -> dict | None:
+        v = step.get("video")
+        if not v:
+            return None
+        vid = v.get("videoId")
+        if not vid:
+            src = next((s for s in (self.graph or {}).get("sources", []) if s.get("id") == v.get("sourceId")), None)
+            if src is None:
+                src = next((s for s in (self.graph or {}).get("sources", []) if s.get("kind") == "video"), {})
+            vid = src.get("videoId") or video_id_from_url(src.get("url", "")) or ""
+        return {"videoId": vid, "start": float(v.get("start", 0)), "end": float(v.get("end", 0))}
+
+    # ------------------------------------------------------------------ search + build
+    async def learn(self, query: str, mode: str | None = None) -> None:
+        if stage.wanted(mode):  # the launcher's Demo option (or MIYAGI_STAGE=1): the staged neural-net lesson
+            await self.learn_demo(query)
+            return
+        if mode == "lesson":  # "Just teach me": no video search, a text lesson for the goal
+            await self.learn_text(query)
+            return
+        if self.graph is not None or self.phase == "building":
+            await self.end_lesson("new lesson")  # a new search cleanly ends the current lesson
+        self.phase = "searching"
+        self.query = query
+        await self._status("thinking", detail="Finding a lesson")
+        self.results = {}
+        early: set[str] = set()
+        try:
+            async for r in self.m.search(query):  # streamed as the finder produces them
+                self.results[r["id"]] = r
+                await self.emit("search.result", r)
+                self._prefetch_early(r, early)
+                if self.result_stagger_s and self.m.demo:
+                    await asyncio.sleep(self.result_stagger_s)
+        except asyncio.CancelledError:  # a newer learn / pick replaced this search (main.py): not "searching" any more
+            self.phase = "idle" if self.graph is None else self.phase
+            raise
+        except Exception as e:
+            log.exception("search failed")
+            await self.emit("error", {"message": f"Search failed: {e}. Paste a YouTube link instead."})
+        await self.emit("search.done", {"total": len(self.results)})
+        if self.results and self.m.has_preflight():  # S8: preflight the top videos now, so the pick is instant
+            self.m.prefetch_preflight(list(self.results.values()), self.query)
+        self.phase = "idle" if self.graph is None else self.phase
+        await self._status("idle")
+
+    PREFETCH_EARLY = 3  # S8: video rows preflighted while the search still streams (preflight.prefetch's top=3)
+
+    def _prefetch_early(self, row: dict, early: set[str]) -> None:
+        """S8: the first few video rows get their preflight as they arrive, not at search.done. A live search streams
+        its first rows at ~5 s and ends at ~18 s; a pick before search.done cancels the search (main.py), so the
+        preflight only ran on the pick and its card waited ~3-5 s for Claude. search.done still prefetches the final
+        top 3 (preflight's memo / in-flight share makes a row prefetched here free there)."""
+        if len(early) >= self.PREFETCH_EARLY or row.get("id") in early or not video_id_from_url(row.get("url", "")):
+            return
+        if not self.m.has_preflight():
+            return
+        early.add(row.get("id"))
+        self.m.prefetch_preflight([row], self.query)
+
+    async def build_lesson(self, result_ids: list[str]) -> None:
+        picked = [self.results[i] for i in result_ids if i in self.results]
+        if not picked and self.results:
+            picked = [next(iter(self.results.values()))]
+        url = picked[0].get("url", "") if picked else ""
+        await self._pick(url, picked[0] if picked else None)
+
+    async def learn_url(self, url: str, skip_preflight: bool = False, transcript_only: bool = False) -> None:
+        if stage.forced():  # MIYAGI_STAGE=1: a pasted link starts the Demo lesson too
+            await self.learn_demo(stage.GOAL)
+            return
+        if transcript_only:  # Build failed card's "Try transcript only": the learner chose; no preflight card, no video model
+            await self._run_build(url, self.query, transcript_only=True)
+            return
+        if skip_preflight:  # e.g. the demo's autostart: no learner pick to confirm
+            await self._run_build(url, self.query)
+            return
+        await self._pick(url, None)
+
+    async def _pick(self, url: str, row: dict | None) -> None:
+        """S8 pipeline: pick -> PREFLIGHT card (kind, length, goal match, tools; <= 5 s) -> the learner presses
+        build (or pick_another). Without the preflight module: build right away, as before."""
+        if not self.m.has_preflight():
+            await self._run_build(url, self.query)
+            return
+        if self.graph is not None or self.building():
+            await self.end_lesson("new lesson")
+        self.pending_pick = {"url": url, "row": row}
+        self.phase = "preflight"
+        await self._status("thinking", detail="Looking at the video")
+        pick = self.pending_pick
+
+        def on_late(res: dict) -> None:  # the full answer after a partial card: replace it while still pending
+            if self.pending_pick is pick:
+                pick["preflight"] = res
+                self._spawn(self._show_preflight(pick, res))
+
+        try:
+            res = await self.m.preflight(url, self.query, row, on_late)
+        except Exception as e:  # preflight never raises by contract; if it does, don't block the learner
+            log.exception("preflight failed")
+            res = None
+            await self.emit("error", {"message": f"Couldn't check this video first ({e}); building it anyway."})
+        if self.pending_pick is not pick:
+            return  # ended / replaced meanwhile
+        if res is None:
+            self.pending_pick = None
+            await self._run_build(url, self.query)
+            return
+        pick["preflight"] = res
+        await self._show_preflight(pick, res)
+        await self._status("idle")
+
+    async def _show_preflight(self, pick: dict, res: dict) -> None:
+        if self.pending_pick is not pick:
+            return
+        card = self.m.preflight_card(res)
+        pick.pop("no_replay", None)  # a new card, sent now: a later quick reconnect may show it again
+        self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
+        pick["card"] = card
+        await self._sync_row_captions(res)
+        await self.emit("card", card)
+
+    async def _sync_row_captions(self, res: dict) -> None:
+        """V5: the app's preflight line says Captions / No captions from the picked video's search row, whose False only
+        meant "no CC badge" (test 9: "No captions" for a video built from a 181-line transcript). Re-send that row (same
+        id: the app updates it in place) with what preflight knows: True when known, else no claim at all."""
+        vid = res.get("videoId")
+        for row in self.results.values():
+            if not vid or row.get("videoId") != vid or row.get("captions") is (True if res.get("captions") else None):
+                continue
+            if res.get("captions"):
+                row["captions"] = True
+            elif "captions" in row:
+                row.pop("captions")
+            else:
+                continue
+            await self.emit("search.result", row)
+
+    async def _build_pick(self) -> None:
+        pick, self.pending_pick = self.pending_pick, None
+        if pick is None:
+            return
+        await self._run_build(pick["url"], self.query, video_meta=self.m.preflight_video_meta(pick.get("preflight")))
+
+    async def _pick_another(self) -> None:
+        """Back to the result list: re-send the last search's rows (never searches again), then idle."""
+        self.pending_pick = None
+        self.phase = "idle"
+        for r in self.results.values():
+            await self.emit("search.result", r)
+        if self.results:
+            await self.emit("search.done", {"total": len(self.results)})
+        await self._status("idle")  # the app reopens the launcher on the result list
+
+    async def _run_build(self, url: str, goal: str, video_meta: dict | None = None, *,
+                         factory: Callable[[], Awaitable[None]] | None = None, transcript_only: bool = False) -> None:
+        """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight. The command returns as
+        soon as the lesson is live (a progressive build's step 1): the rest builds on in the background, so the
+        learner's presses (Install, Diagram, Check) don't queue behind it (perf.until_loaded)."""
+        if self.graph is not None:
+            await self.end_lesson("new lesson")
+        await self.cancel_build()
+        self._loaded_evt = asyncio.Event()  # set by load_graph
+        self.build_metrics.begin("video" if factory is None else "loaded", source=video_id_from_url(url))
+        task = asyncio.ensure_future(
+            factory() if factory is not None else self._build(url, goal, video_meta, transcript_only=transcript_only))
+        self._build_task = task
+        task.add_done_callback(lambda t: setattr(self, "_build_task", None) if self._build_task is t else None)
+        if not await perf.until_loaded(task, self._loaded_evt):
+            return  # the lesson is running; cancel_build / end_lesson still stop the rest of the build
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass  # cancel_build (a new learn / end_lesson): they report what happens next
+
+    def building(self) -> bool:
+        return self._build_task is not None and not self._build_task.done()
+
+    async def cancel_build(self) -> None:
+        """Cancel an in-flight build quietly (the caller reports what happens next)."""
+        task = self._build_task
+        if task is None or task.done():
+            return
+        self._quiet_cancel = True
+        task.cancel()
+        try:
+            await task
+        except BaseException:  # noqa: BLE001 - cancelled on purpose
+            pass
+        finally:
+            self._quiet_cancel = False
+        self._metrics("cancel", "cancelled")  # its record (if it never reached step 1) is logged as cancelled
+
+    async def end_lesson(self, reason: str = "end_lesson") -> None:
+        """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
+        then `lesson.ended` + `status idle`. Safe to call when nothing is running."""
+        from . import lesson_end
+
+        reason = lesson_end.end_reason(self, reason)  # t5: End on a finished lesson = "completed" (no Undo / resume)
+        token = _EPOCH.set(None)  # end_lesson's own messages must always go out, whoever calls it
+        try:
+            await self._end_lesson(reason)
+        finally:
+            _EPOCH.reset(token)
+
+    async def _end_lesson(self, reason: str) -> None:
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id")
+        had_lesson = self.graph is not None
+        await self.cancel_build()
+        self._metrics("cancel", reason)  # a build still on its way to step 1: logged as cancelled
+        self.m.cancel_coach()
+        await onscreen_coach.clear(self)  # before the epoch moves on: the mark's clear still belongs to this lesson
+        if self.screen is not None:
+            self.screen.unwatch()
+        if had_lesson:
+            self._record("lesson_ended", {"reason": reason})
+            self.m.clear_diagrams()  # no diagram (or prefetch) may leak into the next lesson
+            _session_cost_end(reason)  # roadmap 3.8: log + emit this session's dollars, start a fresh tally
+        self.lesson_epoch += 1  # anything still running for the old lesson can no longer emit
+        me = asyncio.current_task()
+        for t in list(self._timers) + list(self._tasks):
+            if t is not me:
+                t.cancel()
+        self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
+        self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
+        self.pending_patch, self.undo, self.build_progress = None, None, None
+        self.pending_pick = None
+        self._deferred_installs, self._setup_card = [], None
+        if had_lesson and callable(getattr(self.workspace, "restore_layout", None)):
+            self.workspace.restore_layout()  # t12: VS Code back to its frame from before the lesson (End / stop)
+        self.editor_open = False
+        self.awaiting_resume = False
+        self.waiting_more = False
+        self._extend_task, self._extend_failed = None, False
+        self._download_after_build = False
+        if had_lesson:
+            await self.emit("spotlight", {"clear": True})
+            await self.emit("video.pause", {})
+        await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
+        await self._status("idle")
+
+    def _metrics(self, method: str, *args: Any, **kw: Any) -> Any:
+        """build_metrics.BuildMetrics.<method>(...) for the build in flight; never raises (a helper-only session made
+        with __new__ has no timer)."""
+        bm = getattr(self, "build_metrics", None)
+        if bm is None:
+            return None
+        try:
+            return getattr(bm, method)(*args, **kw)
+        except Exception:  # noqa: BLE001 - metrics never break a lesson
+            log.debug("build metrics %s failed", method, exc_info=True)
+            return None
+
+    def _build_record(self, kind: str, source: str | None = None) -> "build_metrics.BuildRecord":
+        """This build's metrics record: the one _run_build began (now with its real kind), or a new one when a build
+        runs without _run_build (tests)."""
+        bm = self.build_metrics
+        rec = bm.current if bm.current is not None and not bm.current.closed else bm.begin(kind, source)
+        rec.kind = kind
+        return rec
+
+    CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
+
+    async def _build(self, url: str, goal: str, video_meta: dict | None = None, *, transcript_only: bool = False) -> None:
+        """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
+        events). Any failure, timeout or cancellation ends with `error` (human wording), a final
+        `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
+        self.phase = "building"
+        self._build_start(text=False, url=url)  # v2: Home-Building's source and checklist
+        if transcript_only and getattr(self, "_build_v2", None) is not None:
+            self._build_v2["transcript_only"] = True  # a failure must not offer "Try transcript only" again
+        await self._status("thinking", detail="Building your lesson")
+        rec = self._build_record("video", video_id_from_url(url))
+        done = asyncio.Event()
+        t0 = self._build_t0 = self.clock()  # t10: the learner's Build click (_auto_open_editor skips its grace)
+        stage = BuildStage()
+        if transcript_only:
+            stage.transcript_only, stage.text = True, BuildStage.TRANSCRIPT_ONLY_TEXT  # the status line from the first tick
+        self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
+
+        async def ticker() -> None:
+            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "45"))  # E2: first steps ~25-58 s (long videos: part 1)
+            while not done.is_set():
+                el = self.clock() - t0
+                # message = the stage only (changes when the stage does); the timer travels in elapsedS
+                self.build_progress = {"message": stage.text, "progress": round(min(0.95, el / expected), 2),
+                                       "elapsedS": round(el, 1)}
+                await self.emit("lesson.building", self.build_progress)
+                try:
+                    await asyncio.wait_for(done.wait(), self.build_tick_s)
+                except TimeoutError:
+                    pass
+
+        tick = asyncio.create_task(ticker())
+        from . import workspace as wsmod
+
+        ok = False
+        progressive = {"loaded": False}
+        live = {"on": True}  # this build is still the session's: off once _build has ended (done, failed, cancelled)
+        updates = asyncio.Lock()  # E2's quick-start timer and the build call on_update from different tasks
+
+        async def on_update(g: dict, complete: bool) -> None:
+            if not live["on"]:  # a late update of an ended / replaced build (End, a new learn) never loads
+                log.info("a lesson update from a build that has ended: ignored")
+                return
+            async with updates:  # one at a time, in order: the real lesson must never overtake the placeholder
+                if live["on"]:
+                    await on_update_locked(g, complete)
+
+        async def on_update_locked(g: dict, complete: bool) -> None:
+            """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
+            later parts append steps -> lesson.updated. Quick start: a provisional placeholder is REPLACED."""
+            # a first load, or one that never finished (the placeholder's load was cut short): this one loads
+            if not progressive["loaded"] or self.graph is None:
+                progressive["loaded"] = True
+                done.set()
+                rec.progress("first_steps")  # the first part (or the quick-start placeholder) is the hand-off
+                self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+                await self.emit("lesson.building", self.build_progress)
+                rec.mark("workspace")
+                first = copy.deepcopy(g)
+                folder = await asyncio.to_thread(wsmod.prepare, first, goal)
+                if not self._continues_save(first):  # a fresh build: no step passes on the last run's files
+                    await asyncio.to_thread(wsmod.set_aside_previous, folder, first)
+                if folder:
+                    first.setdefault("lesson", {})["workdir"] = folder
+                if not live["on"]:  # the build ended while the folder was being prepared
+                    return
+                self.build_progress = None
+                await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
+                                                    "progress": 1.0})
+                rec.mark("hold")
+                await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
+                if live["on"]:
+                    await self.load_graph(first)
+                return
+            if is_provisional(self.graph) and not is_provisional(g):
+                await self._replace_provisional(g, complete)  # E2 quick start: the real lesson replaces s1
+                return
+            await self._extend_lesson(g, complete)
+
+        def on_progress(stage_id: str, message: str = "") -> None:  # E2's stage ids: the status line + the timer
+            stage.on_progress(stage_id, message)
+            rec.progress(stage_id, message)
+
+        try:
+            self._parts_building = True
+            try:
+                with stage.listening():
+                    graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
+                                                      on_progress=on_progress, on_update=on_update,
+                                                      video_meta=video_meta,
+                                                      **({"transcript_only": True} if transcript_only else {}))
+            finally:
+                self._parts_building = False
+            # E2 lazy parts: a long video comes back with complete=false and later parts "pending"
+            complete = (graph.get("lesson") or {}).get("complete") is not False
+            if progressive["loaded"]:  # already running: make sure every built part made it in
+                async with updates:
+                    if is_provisional(self.graph) and not is_provisional(graph):
+                        await self._replace_provisional(graph, complete)
+                    else:
+                        await self._extend_lesson(graph, complete)
+                self._maybe_extend()
+                ok = True
+                return
+            done.set()
+            rec.progress("done")  # a builder that never said "done" (a fake): it has returned
+            await tick
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+            await self.emit("lesson.building", self.build_progress)
+            rec.mark("workspace")
+            folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
+            if not self._continues_save(graph):  # a fresh build: no step passes on the last run's files (Nov 15 7:19)
+                await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
+            if folder:
+                graph.setdefault("lesson", {})["workdir"] = folder
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
+            # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
+            self._build_cached = stage.cache_hit  # t10: built before: VS Code opens alongside the setup check
+            rec.mark("hold")
+            await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
+            ok = True
+        except BaseException as e:
+            if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
+                log.exception("building the rest of the lesson failed")  # the lesson keeps its finished parts
+                await self.emit("error", {"message": "Couldn't build the rest of this lesson; you can finish the steps you have."})
+                await self._extend_lesson({**self.graph, "lesson": {**self.graph.get("lesson", {}), "complete": True}}, True)
+                ok = True
+                return
+            if isinstance(e, Exception):
+                log.exception("build_lesson failed")
+                await self._build_failed(human_build_error(e), e)
+                return
+            if self._quiet_cancel:  # end_lesson / a new learn: they report what happens next
+                raise
+            log.warning("lesson build interrupted")
+            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            raise
+        finally:
+            live["on"] = False
+            done.set()
+            if not tick.done():
+                tick.cancel()
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
+        await self.load_graph(graph)
+
+    @staticmethod
+    def _continues_save(graph: dict) -> bool:
+        """Will this build pick up a saved place (sessions.Resumer.load_graph: an engine restart's save of THIS lesson
+        that the learner never ended)? Then its files stay as they are. A save the learner ended (`stopped`: only the
+        resume card's Continue restores it, never a build) or none at all: a fresh build. Unknown: keep the files."""
+        lid = (graph.get("lesson") or {}).get("id")
+        if curated.is_curated(graph):  # its own rule: a save at step 1 (a restart right after Start) is a fresh start
+            return curated.resumable_save(graph) is not None
+        try:
+            from server.sessions import store
+            from server.sessions.resume import is_demo
+        except Exception:  # noqa: BLE001 - no saves at all: every build is fresh
+            return False
+        try:
+            saved = store.load()
+            return bool(lid and saved and saved.get("lessonId") == lid and not saved.get("stopped") and not is_demo(graph))
+        except Exception:  # noqa: BLE001
+            log.exception("reading the lesson save failed: keeping the lesson's files")
+            return True
+
+    # ---------------------------------------------------------- "Just teach me" (no video)
+    async def learn_text(self, goal: str) -> None:
+        graph = curated.lesson_for(goal)  # "build a neural network": the curated lesson, instantly (curated.py)
+        if graph is not None and self._same_lesson_running(graph):  # Nov 15: a re-sent learn never restarts it
+            log.info("curated lesson %s already running at step %d: continuing", self._lesson_id_of(graph), self.idx + 1)
+            for type_, payload in self.snapshot():
+                await self.emit(type_, payload)
+            return
+        if self.graph is not None or self.phase in ("building", "searching"):
+            await self.end_lesson("new lesson")
+        self.query = goal
+        self.results, self.pending_pick = {}, None
+        if graph is not None:
+            await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph))
+            return
+        await self._run_build("", goal, factory=lambda: self._build_text(goal))
+
+    async def learn_demo(self, goal: str, fresh: bool = False) -> None:
+        """The launcher's Demo option: the curated neural-net lesson for any goal, staged (stage.py: checks pass on
+        cue, runs are recorded, one planned "Not yet"). Every Demo start is a fresh take (Michael runs it many times
+        in a row): step 1 and the clean nn.py, also in a pinned folder (_load_curated), never a saved step."""
+        if self.graph is not None or self.phase in ("building", "searching"):
+            await self.end_lesson("new lesson")
+        self.query = goal
+        self.results, self.pending_pick = {}, None
+        graph = curated.lesson_for(goal, force=True)
+        if graph is None:  # the lesson file is missing: "Just teach me" as usual
+            await self._run_build("", goal, factory=lambda: self._build_text(goal))
+            return
+        stage.mark(graph)
+        await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph, fresh=fresh))
+
+    @staticmethod
+    def _lesson_id_of(graph: dict | None) -> str | None:
+        return ((graph or {}).get("lesson") or {}).get("id")
+
+    def _same_lesson_running(self, graph: dict) -> bool:
+        """This very lesson is loaded and not finished (a reconnecting launcher re-sent its learn). A Demo take of the
+        same lesson is not it ("Just teach me" during a Demo starts the real, graded lesson)."""
+        from . import lesson_end
+
+        return (self.graph is not None and self._lesson_id_of(self.graph) == self._lesson_id_of(graph)
+                and stage.on_graph(self.graph) == stage.on_graph(graph)
+                and self.step is not None and self.phase == "active" and not lesson_end.finished(self))
+
+    async def _curated_folder(self, graph: dict, fresh: bool = False) -> str | None:
+        """The curated lesson's folder for a start ("Just teach me", a Demo take, the library's cached copy).
+        A save the learner never ended at step 2 or later (an engine restart mid-lesson): that folder, its nn.py kept
+        byte for byte (the Resumer continues at the saved step). Anything else is a fresh start: step 1, the save
+        dropped, the clean starter in nn.py (the last attempt kept in .miyagi-state/attempts) and VS Code's open
+        nn.py reset to it too (never the last run's unsaved code). None: the folder failed (the caller's default)."""
+        demo = stage.on_graph(graph)  # a Demo take never continues a save: step 1, clean nn.py, every time
+        kept = None if demo else await asyncio.to_thread(curated.resumable_save, graph)  # Nov 15: an engine
+        if kept:  # restart / deploy mid-lesson: its nn.py stays and the Resumer continues at the saved step
+            return kept
+        await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
+        try:
+            folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh or demo)
+        except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
+            log.exception("curated lesson folder failed")
+            return None
+        if demo or await asyncio.to_thread(curated.has_starter, folder):  # the buffer too (stage.py)
+            await stage.reset_editor(self, folder)
+        return folder
+
+    async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
+        """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
+        self.phase = "building"
+        self._build_start(text=True, title=((graph.get("lesson") or {}).get("title") or goal))
+        await self._status("thinking", detail="Loading the lesson")
+        rec = self._build_record("curated")
+        ok = False
+        try:
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
+            await self.emit("lesson.building", self.build_progress)
+            rec.mark("workspace")
+            folder = await self._curated_folder(graph, fresh=fresh)
+            graph["lesson"]["workdir"] = folder or str(config.lesson_workdir("", goal))
+            log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            rec.mark("hold")
+            await asyncio.sleep(min(self.ready_hold_s, 0.6))
+            await self.load_graph(graph)
+            ok = True
+        except Exception:
+            log.exception("loading the curated lesson failed")
+            await self._build_failed("Couldn't start this lesson. Try again.")
+        finally:
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
+
+    @staticmethod
+    def _as_text_lesson(g: dict) -> dict:
+        new = copy.deepcopy(g)
+        new.setdefault("lesson", {})["mode"] = "lesson"
+        for st in new.get("steps", []):
+            st.pop("video", None)
+        return new
+
+    async def _build_text(self, goal: str) -> None:
+        """E2's build_text_lesson: step 1 arrives first (on_update) and the lesson starts on it; the rest are
+        appended (lesson.updated). Same progress / failure handling as a video build, minus the player."""
+        self.phase = "building"
+        self._build_start(text=True, title=goal)  # v2: Home-Building's source and checklist
+        await self._status("thinking", detail="Writing your lesson")
+        rec = self._build_record("text")
+        t0 = self.clock()
+        state = {"text": "Planning your lesson", "loaded": False}
+        done = asyncio.Event()
+
+        async def ticker() -> None:
+            p = 0.05
+            while not done.is_set():
+                p = min(0.9, p + 0.02)
+                self.build_progress = {"message": state["text"], "progress": round(p, 2),
+                                       "elapsedS": int(self.clock() - t0)}
+                await self.emit("lesson.building", self.build_progress)
+                try:
+                    await asyncio.wait_for(done.wait(), self.build_tick_s)
+                except TimeoutError:
+                    pass
+
+        tick = asyncio.create_task(ticker())
+        from . import workspace as wsmod
+
+        async def start(g: dict) -> None:
+            state["loaded"] = True
+            done.set()
+            rec.progress("first_steps")  # step 1 is written: the hand-off
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+            await self.emit("lesson.building", self.build_progress)
+            first = self._as_text_lesson(g)
+            folder = state.get("folder") or await asyncio.to_thread(wsmod.prepare, first, goal)  # S2: folder + starters
+            if folder:
+                first["lesson"]["workdir"] = folder
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            rec.mark("hold")
+            await asyncio.sleep(self.ready_hold_s)
+            await self.load_graph(first)
+
+        async def on_update(g: dict, complete: bool) -> None:
+            if not state["loaded"]:
+                state["text"] = "Writing the first step"
+                await start(g)
+                return
+            await self._extend_lesson(self._as_text_lesson(g), complete)
+
+        labels = {"planning": "Planning your lesson", "first_steps": "Writing the first step",
+                  "more_steps": "Writing the next steps", "cache_hit": "Loading the saved lesson"}
+
+        def on_progress(stage: str, message: str = "") -> None:  # E2's stage ids
+            if stage in labels and not state["loaded"]:
+                state["text"] = labels[stage]
+            rec.progress(stage, message)
+
+        ok = False
+        try:
+            state["text"] = "Setting up your project folder"
+            rec.mark("workspace")  # a text lesson's folder comes first (its stage sits between setup and plan)
+            # S2 first: the builder adapts the steps to the starter files it finds in the lesson folder
+            seed = {"lesson": {"id": "text-" + hashlib.sha1(goal.strip().lower().encode()).hexdigest()[:10],
+                               "title": goal, "goal": goal, "mode": "lesson"}, "steps": [], "sources": []}
+            state["folder"] = await asyncio.to_thread(wsmod.prepare, seed, goal)
+            state["text"] = "Planning your lesson"
+            graph = await self.m.build_text_lesson(goal, state["folder"] or wsmod.build_workdir("", goal),
+                                                   on_update=on_update, on_progress=on_progress)
+            if state["loaded"]:
+                await self._extend_lesson(self._as_text_lesson(graph), True)
+            else:
+                await start(graph)
+            ok = True
+        except BaseException as e:
+            if isinstance(e, Exception) and state["loaded"] and self.graph is not None:
+                log.exception("building the rest of the text lesson failed")
+                await self.emit("error", {"message": "Couldn't write the rest of this lesson; you can finish the steps you have."})
+                await self._extend_lesson({**self.graph, "lesson": {**self.graph.get("lesson", {}), "complete": True}}, True)
+                ok = True
+                return
+            if isinstance(e, Exception):
+                log.exception("build_text_lesson failed")
+                await self._build_failed(human_build_error(e).replace("this video", "this lesson"), e)
+                return
+            if self._quiet_cancel:
+                raise
+            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            raise
+        finally:
+            done.set()
+            if not tick.done():
+                tick.cancel()
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
+
+    async def _open_editor_full(self, folder: str) -> None:
+        """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
+        if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
+            return
+        if self._editor_waits_for_learner():
+            return
+        if await self._editor_missing():
+            return
+        first = self.steps[0] if self.steps else None  # L2: open ON step 1's file (start_step(0) comes next)
+        if first is not None:
+            self._ensure_step_file(first)
+        await asyncio.to_thread(self.workspace.open, folder, True, True, file=self._editor_file(first), **self._open_holds())
+        self.editor_open = True
+
+    def _snippet(self, step: dict | None) -> dict:
+        if self.lesson_mode and step and (cmd := self._run_command(step)):
+            return {"snippet": cmd[:300]}  # a run step's snippet is its command
+        code = (step or {}).get("code") or ""
+        if not code.strip():
+            return {}
+        # t10: a video lesson's step shows its code too (s2-s6 only said "Run the cell"), never a shell run step's
+        return {"snippet": code[:1200]} if (self.lesson_mode or self._notebook_cell(step)
+                                             or not self._run_command(step)) else {}
+
+    def _notebook_cell(self, step: dict | None) -> str | None:
+        """t10: a notebook step whose content is code for a cell ("Run the cell (Shift+Enter)" + its code) -> the
+        lesson's notebook name (mnist.ipynb), else None. Never a shell step."""
+        if not step:
+            return None
+        code = (step.get("code") or "").strip()
+        lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        if not lines or self._shell_code(lines):
+            return None
+        rc = (step.get("run_command") or "").strip()
+        file = (self._step_file(step) or "").strip()
+        if file.lower().endswith(".ipynb"):
+            return Path(file).name
+        if not (rc and not self.SHELL_CMD.match(rc) and self._NOTEBOOK_RUN.search(rc)):
+            return None
+        nb = str(((self.graph or {}).get("lesson") or {}).get("notebook") or "")
+        return Path(nb).name if nb.lower().endswith(".ipynb") else "your notebook"
+
+    TYPE_CAPTION = "Type it here"  # E5: lesson-mode captions are short pointers; the drawer says the whole action
+    RUN_CAPTION = "Run it here"
+
+    def _type_caption(self, step: dict, target: dict | None = None) -> str:
+        """Lesson mode: a short pointer ("Type it here"; the drawer shows the step's one action and the snippet its
+        code), never a target's own caption that may describe another action."""
+        if self.lesson_mode:
+            return self.TYPE_CAPTION
+        cap = (target or {}).get("caption") or ""
+        if cap:
+            return cap
+        file = self._step_file(step)
+        return f"Type this in {file}" if file else "Type this here"
+
+    def _typing_step_for_empty_run(self, idx: int) -> tuple[int, str] | None:
+        """A "run it" step must not start while the file it runs is empty: -> (the earlier step that types that
+        file's code, file name), once per run step; None when it's fine."""
+        step = self.steps[idx]
+        cmd = self._run_command(step)
+        if not cmd or step["id"] in self._run_redirected:
+            return None
+        from . import workspace as wsmod
+
+        m = re.search(r"([\w./-]+\.(?:py|js|mjs|ts|rb|go|sh|java))\b", cmd)
+        name = m.group(1) if m else (self._step_file(step) or step.get("file") or "")
+        if not name or not Path(self.workdir).is_dir():
+            return None
+        base, shown = Path(name).name, Path(name).name
+        if name.lower().endswith(".ipynb"):  # replay s5->s6: a video's Untitled.ipynb is the learner's mnist.ipynb
+            from server.checks.notebook import find_notebook, read_notebook
+
+            nb_path = find_notebook(self.workdir, [name])  # the step's notebook, else the newest .ipynb in the folder
+            nb = read_notebook(nb_path)
+            if nb is not None and nb.source_text.strip():
+                return None
+            shown = nb_path.name if nb_path is not None else base
+        else:
+            path = wsmod.resolve_file(self.workdir, name)
+            try:
+                if path is not None and path.read_text(errors="replace").strip():
+                    return None
+            except OSError:
+                return None
+        for j in range(idx - 1, -1, -1):
+            prev = self.steps[j]
+            pfile = Path(prev.get("file") or self._step_file(prev) or "").name
+            if pfile == base and (prev.get("code") or "").strip() and not self._run_command(prev):
+                self._run_redirected.add(step["id"])
+                log.info("step %s runs %s but it's empty: back to %s", step["id"], shown, prev["id"])
+                return j, shown
+        return None
+
+    SHELL_CMD = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
+                           r"make|pytest|flask|streamlit|jupyter)\b")
+
+    RUN_WORDS = re.compile(r"\b(run|execute|terminal)\b", re.I)
+
+    @staticmethod
+    def _shell_code(lines: list[str]) -> bool:
+        """A step's code lines are a shell command: the one rule the lesson filter uses too (server.untrusted
+        is_shell_code: every line starts like a command, and none is Python such as `node = Node(1)` or
+        `go = True`), so code that runs as shell is code strip_injection checked against the run allowlist."""
+        from server.untrusted import is_shell_code
+
+        return is_shell_code(lines)
+
+    def _run_command(self, step: dict) -> str:
+        """The shell command a "run it" step asks for ('' for a typing step). A step with BOTH code and a
+        run_command is a run step when its code is already in the file or its words say run / terminal."""
+        rc = (step.get("run_command") or "").strip()
+        code = (step.get("code") or "").strip()
+        lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        if lines and self._shell_code(lines):
+            return self._python3("\n".join(ln.strip().lstrip("$ ").strip() for ln in lines))
+        if rc and (not code or self._step_code_in_file(step)
+                   or self.RUN_WORDS.search(f"{step.get('title', '')} {step.get('details', '')} "
+                                            f"{step.get('instructions', '')}")):
+            return self._python3(rc)
+        return ""
+
+    def _python3(self, cmd: str) -> str:
+        """This Mac may have no `python` (only python3): say python3 unless `python` exists here or in the
+        lesson's .venv."""
+        import shutil
+
+        from server.workspace import paths
+
+        if os.name == "nt":  # the other way round: a Windows .venv has no python3.exe, and python3 on PATH is often
+            py3 = shutil.which("python3")  # only the Microsoft Store's stub (WindowsApps), which opens the Store
+            if not py3 or "windowsapps" in py3.lower() or paths.venv_python(Path(self.workdir) / ".venv").exists():
+                return re.sub(r"(^|\n|&&\s*|;\s*)python3(?=\s)", r"\1python", cmd)
+            return cmd
+        has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
+        if has or paths.venv_python(Path(self.workdir) / ".venv").exists():
+            return cmd
+        return re.sub(r"(^|\n|&&\s*|;\s*)python(?=\s)", r"\1python3", cmd)
+
+    def _editor_window(self) -> dict | None:
+        """The VS Code window's rect (screen points), from the latest observation."""
+        for w in getattr(self.last_obs, "windows", None) or []:
+            if (getattr(w, "app", "") or "").lower() in CODE_APP_NAMES:
+                r = w.rect.to_dict() if hasattr(w.rect, "to_dict") else w.rect
+                return {k: float(r[k]) for k in ("x", "y", "w", "h")}
+        return None
+
+    # Michael (Nov 15, nn4): "I want to click just the run button in the top-right corner." A run step that runs its own
+    # .py file boxes VS Code's editor-title Run ▷ (the Python extension's "Run Python File"); the terminal box is the
+    # fallback. Its run counts like a typed one (command_matches: any python invocation of the step's file).
+    RUN_BUTTON_CAPTION = "Click ▷ to run"
+
+    def _run_button_file(self, step: dict, cmd: str) -> str | None:
+        """The .py file a run step's command runs with nothing else (`python3 nn.py`, `.venv/bin/python nn.py`): what
+        VS Code's Run ▷ runs on its own. None for any other command (arguments, a module, several commands)."""
+        import shlex
+
+        lines = [ln.strip() for ln in (cmd or "").strip().splitlines() if ln.strip()]
+        if len(lines) != 1:
+            return None
+        try:
+            words = shlex.split(lines[0])
+        except ValueError:
+            return None
+        if len(words) != 2 or not re.fullmatch(r"python[\d.]*", Path(words[0]).name) or not words[1].endswith(".py"):
+            return None
+        name = Path(words[1]).name
+        f = self._step_file(step)
+        return name if not f or Path(f).name == name else None
+
+    def _active_editor_file(self) -> str | None:
+        """The lesson window's active editor's file name ("nn.py"; "" with no editor): the companion extension's /state,
+        else that window's title ("● nn.py — <folder>"). None when unknown. Blocking (<= 0.3 s): call it in a thread."""
+        mine = os.path.realpath(self.workdir)
+        if getattr(self.screen, "reader", None) is not None:  # never the real editor in tests
+            try:
+                from server.workspace import vscode_ext as vx
+
+                st = vx.state(folder=self.workdir)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st and any(os.path.realpath(str(f)) == mine for f in st.get("folders") or []):
+                return Path(str(st["file"])).name if st.get("file") else ""
+        from server.workspace.active import parse_title
+
+        for w in getattr(self.last_obs, "windows", None) or []:
+            if (getattr(w, "app", "") or "").lower() in CODE_APP_NAMES:
+                t = parse_title(getattr(w, "title", "") or "")
+                if t and t.get("folder_name") == Path(self.workdir).name:
+                    return t.get("file") or ""
+        return None
+
+    def _under_overlay(self, x: float, y: float) -> bool:
+        """Is screen point (x, y) under Miyagi's own UI (the drawer, a card, the bar: the app's overlay.bounds)?"""
+        fn = getattr(getattr(self.screen, "reader", None), "overlay_rects", None) if self.screen is not None else None
+        try:
+            for o in fn() if fn is not None else []:
+                d = o.to_dict() if hasattr(o, "to_dict") else dict(o)
+                if d["x"] <= x <= d["x"] + d["w"] and d["y"] <= y <= d["y"] + d["h"]:
+                    return True
+        except Exception:  # noqa: BLE001 - unknown: the box goes up
+            return False
+        return False
+
+    def _run_note(self, why: str) -> None:
+        """Log why a run step's box isn't on the Run ▷ (once per step and reason: the box loop retries every 2 s)."""
+        key = (self.step_gen, why)
+        if key != getattr(self, "_run_noted", None):
+            self._run_noted = key
+            log.info("run step %s: %s", (self.step or {}).get("id"), why)
+
+    async def _run_button_spot(self, step: dict, cmd: str) -> dict | None:
+        """VS Code's Run ▷ for a run step whose command is `python <its .py file>`, while that file is the lesson
+        window's active editor. Found (a) by Accessibility (the lesson window's AX tree: "Run Python File"), else
+        (b) by OCR (the ▷ on the editor's tab row): server.screen's "run_button" region. None (the caller boxes the
+        terminal instead): another command or file, no button found, or it's outside the lesson window's top band or
+        under Miyagi's drawer (a window maximized under it)."""
+        name = self._run_button_file(step, cmd)
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if not name or region is None or self._lesson_window_hidden():
+            return None
+        active = await asyncio.to_thread(self._active_editor_file)
+        if active is not None and active != name:
+            self._run_note(f"{active or 'no file'} is in front, not {name}: no Run ▷ box")
+            return None
+        r = await asyncio.to_thread(region, "run_button")  # AX: a bounded walk of VS Code's tree, never on the loop
+        win = self._editor_window()
+        if not r or win is None:  # t7: maybe VS Code is still filling its AX tree (run_pointing looks again)
+            self._run_note("VS Code's Run ▷ isn't found (yet): the terminal box for now")
+            return None
+        cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
+        if (not (win["x"] <= cx <= win["x"] + win["w"] and win["y"] <= cy <= win["y"] + min(160.0, win["h"] * 0.3))
+                or max(r["w"], r["h"]) > 64.0):
+            self._run_note(f"the Run ▷ found at {r} isn't on the lesson window's tab row: the terminal box instead")
+            return None
+        if self._under_overlay(cx, cy):
+            self._run_note("VS Code's Run ▷ is under Miyagi's drawer: the terminal box instead")
+            return None
+        s = max(28.0, r["w"], r["h"])
+        return {"rect": {"x": cx - s / 2, "y": cy - s / 2, "w": s, "h": s},
+                "caption": f"{self.RUN_BUTTON_CAPTION} {name}", "app": "Code", "kind": "run_button"}
+
+    async def _run_spot(self, step: dict, cmd: str) -> dict:
+        """A run step's box: VS Code's Run ▷ (_run_button_spot), else the terminal's prompt line, else where to open
+        the terminal (_terminal_spot). {} when none is on screen; "kind" says which."""
+        spot = await self._run_button_spot(step, cmd)
+        spot = spot if spot is not None else self._terminal_spot(step, cmd)
+        return await ui_targets.run_spot(self, step, cmd, spot)  # t6: save / open the terminal / ... by AX first
+
+    async def _ensure_terminal(self, step: dict) -> bool:
+        """Michael (Nov 15): "you're telling me to type in the terminal, but I can't open the terminal ... It needs to
+        either auto-open it or show me where to open it." A run step whose lesson window is on screen without its
+        terminal panel: the companion extension opens it (POST /terminal {show, cwd, preserveFocus}: the "Miyagi"
+        terminal, in the lesson folder; the focus stays put; the 0.0.3 extension has it). Real windows only.
+        -> opened now."""
+        if (not self.lesson_mode or getattr(self.screen, "reader", None) is None or self._lesson_window_hidden()
+                or self._editor_off_screen() or self._editor_window() is None):
+            return False
+        region = getattr(self.screen, "region", None)
+        if region is not None and await asyncio.to_thread(region, "terminal"):
+            return False  # the panel is on screen
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "show_terminal"):
+            self._run_note("VS Code's terminal is closed and the companion extension isn't up: Open the terminal box")
+            return False
+        try:
+            res = await asyncio.to_thread(ext.show_terminal, folder=self.workdir, cwd=self.workdir, preserve_focus=True)
+        except Exception:  # noqa: BLE001
+            log.exception("show_terminal failed")
+            return False
+        ok = bool(res and res.get("ok", True) and res.get("shown", True))
+        log.info("run step %s: VS Code's terminal panel %s (%s)", step.get("id"), "opened" if ok else "not opened", res)
+        return ok
+
+    def _ptr_runs_it(self, step: dict) -> bool:
+        """t8: a run step whose command VS Code's Run ▷ runs on its own (`python3 nn.py`): the ▷ box is the
+        instruction and the ▷'s run opens its own "Python" terminal, so no terminal is opened ahead of it (a zsh opened
+        first made two). When the ▷ isn't found, ui_targets.run_spot still opens the terminal for its box."""
+        cmd = self._run_command(step)
+        return bool(cmd) and self._run_button_file(step, cmd) is not None
+
+    async def _ready_run_step(self, gen: int, step: dict) -> None:
+        """A run step's start: the lesson window leaves room for Miyagi's drawer (workspace.fit_beside_drawer: its Run ▷
+        and VS Code's top-right buttons never under it; full screen / maximized: logged, left), then VS Code's terminal
+        panel opens if it's closed (_ensure_terminal), once the lesson window is on screen (<= ~6 s)."""
+        if getattr(self.screen, "reader", None) is None:  # tests: never the real editor
+            return
+        from . import workspace as wsmod
+
+        await asyncio.to_thread(wsmod.fit_beside_drawer, self.workdir)
+        if self._ptr_runs_it(step):
+            return
+        for _ in range(6):
+            if gen != self.step_gen or self.passed or self._spot_frozen():
+                return
+            if not self._lesson_window_hidden() and not self._editor_off_screen() and self._editor_window() is not None:
+                await self._ensure_terminal(step)
+                return
+            await asyncio.sleep(1.0)
+
+    # Nov 15 (nn4): the learner deleted the bad line in nn.py but didn't save; Run it for me ran the old file twice
+    # (SyntaxError, line 41) and the coach kept explaining that old run. Run it for me and Check save the step's file
+    # through the companion first, so what runs is what's in the editor.
+    async def _save_step_file(self, step: dict) -> bool:
+        """The step's file, saved in VS Code when it holds unsaved edits (the companion's /save; the 0.0.3 extension: a
+        no-op /apply that saves). Real windows only. -> saved now."""
+        from . import workspace as wsmod
+
+        f = self._step_file(step) or step.get("file") or ""
+        p = wsmod.resolve_file(self.workdir, f) if f else None
+        if p is None or getattr(self.screen, "reader", None) is None:
+            return False
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "save"):
+            return False
+        if not self._dirty_step_file(step):  # this tick's read may be old: ask VS Code (a clean file is never touched)
+            buf = (await asyncio.to_thread(ext.buffer_text, p, folder=self.workdir)
+                   if hasattr(ext, "buffer_text") else None)
+            if not (buf or {}).get("dirty"):
+                return False
+        try:
+            res = await asyncio.to_thread(ext.save, p, folder=self.workdir)
+        except Exception:  # noqa: BLE001
+            log.exception("saving %s failed", p.name)
+            return False
+        ok = bool(res and res.get("ok"))
+        log.info("saved %s before the run: %s", p.name, res)
+        if ok and res.get("pending") and hasattr(ext, "buffer_text"):  # VS Code answers after 250 ms: wait for the disk
+            for _ in range(6):
+                await asyncio.sleep(0.25)
+                buf = await asyncio.to_thread(ext.buffer_text, p, folder=self.workdir)
+                if not (buf or {}).get("dirty"):
+                    break
+        if ok:
+            self._buffers.clear()  # the next read sees it saved
+            await self._buffers.refresh([p], self.workdir)
+        return ok
+
+    def _save_then_run(self, step: dict, name: str | None = None) -> dict | None:
+        """A run step whose file holds unsaved edits: the one card that says so ({title, body}); None otherwise."""
+        if not (self.lesson_mode and self._run_command(step)):
+            return None
+        name = name or self._dirty_step_file(step)
+        return {"title": f"Save {name}", "body": f"Save {name} (⌘S), then run it."} if name else None
+
+    def _changed_since_run(self, step: dict) -> str | None:
+        """A run step whose last run failed, and its file changed since that run began (saved after it, or unsaved
+        edits now): that run, its errors and any diagnosis of them are about older code. -> the file name, else None."""
+        run = next((r for r in reversed(self.step_runs) if not r.running), None)
+        if not (self.lesson_mode and self._run_command(step)) or run is None or run.exit_code == 0:
+            return None
+        from . import workspace as wsmod
+
+        f = self._step_file(step) or step.get("file") or ""
+        if not f:
+            return None
+        if self._dirty_step_file(step):
+            return Path(f).name
+        p = wsmod.resolve_file(self.workdir, f)
+        try:
+            return Path(f).name if p is not None and p.stat().st_mtime > run.started_t + 0.05 else None
+        except OSError:
+            return None
+
+    def _terminal_spot(self, step: dict, cmd: str) -> dict:
+        """Run step: box the live prompt line of VS Code's integrated terminal (E8: one line inside the panel, never
+        the whole panel, the status bar or the Chat side bar; the panel only when no prompt is readable); if it
+        isn't open, box the editor area and say how to open it. Never the breadcrumb / tab bar."""
+        win = self._editor_window()
+        snip = {"snippet": cmd[:300]}
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if region is not None:  # E6: the panel / editor regions, stabilized (no jitter)
+            if term := region("terminal"):
+                term = region("terminal_prompt") or term  # E8: the live prompt line; the panel only without one
+                return {"rect": term, "caption": self.RUN_CAPTION, "app": "Code", **snip, "kind": "terminal"}
+        hit = None
+        app = "Code" if self.lesson_mode else None  # E6/E17: VS Code's own terminal, never a prompt in another app
+        if self.screen is not None:  # a shell prompt first: that's where the command goes, not the TERMINAL tab
+            for rx in (r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$", r"^\s*TERMINAL\b"):
+                hit = self.screen.locate(rx, app)
+                if hit and (win is None or hit["rect"]["y"] > win["y"] + win["h"] * 0.3):  # the panel is low
+                    break
+                hit = None
+        if hit:
+            t = hit["rect"]
+            if win:  # E8: that one line (room for the command after the prompt), inside the window
+                x = max(win["x"], t["x"])
+                rect = {"x": x, "y": t["y"], "w": min(max(t["w"] + 160.0, 420.0), win["x"] + win["w"] - x), "h": t["h"]}
+            else:  # E8: no window to clamp to: still the one line
+                rect = {"x": t["x"], "y": t["y"], "w": max(t["w"] + 160.0, 420.0), "h": t["h"]}
+            return {"rect": rect, "caption": self.RUN_CAPTION, "app": "Code", **snip, "kind": "terminal"}
+        return self._open_terminal_spot(win, snip)
+
+    def _open_terminal_spot(self, win: dict | None, snip: dict) -> dict:
+        """The terminal is closed: point at something real that opens it: VS Code's "Terminal" menu-bar item when
+        the screen shows it, else the editor's status bar. Never an empty rect."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if region is not None and (m := region("terminal_menu")):  # E6: the menu bar's Terminal item
+            return {"rect": m, "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "menu"}
+        menu = self.screen.locate(r"^\s*Terminal\s*$", None) if self.screen is not None else None
+        if menu and menu["rect"]["y"] < 40 and menu["rect"]["h"] < 40:  # the menu bar, top of the screen
+            return {"rect": menu["rect"], "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "menu"}
+        if win:
+            bar = {"x": win["x"], "y": win["y"] + win["h"] - 24.0, "w": win["w"], "h": 24.0}
+            return {"rect": bar, "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "status"}
+        return {}
+
+    SPOT_MOVE_PX = 12.0  # re-send only when the target really moved
+    SPOT_MIN_GAP_S = 2.0
+
+    async def _lesson_spot(self, gen: int, step: dict, tries: int = 8) -> None:
+        """Lesson mode, step start: box where to act and caption it. Run step -> VS Code's terminal panel (or
+        "Open the terminal: ⌃`" over the editor until it's open); type step -> the target line in the file.
+        ONE spotlight once found; the editor may still be opening, so it retries for a few seconds.
+        One placement per step at a time (E8: step start, the scene look, an app switch and the no-box retry all call
+        this); nothing while the lesson is paused (E7). t4: a type step's deterministic start box goes up at once
+        (_start_box; Haiku only refines it), and no box replaces the off-track card's box while that card is up."""
+        if getattr(self, "_lesson_spot_gen", None) == gen or self._spot_frozen():
+            return
+        if box_follow.hidden(self, getattr(self, "_insert_at", None)):
+            return  # t7: the learner scrolled the step's row away: it comes back with the row (box_follow), no jump
+        self._lesson_spot_gen = gen
+        try:
+            await self._lesson_spot_once(gen, step, tries)
+        finally:
+            if self._lesson_spot_gen == gen:
+                self._lesson_spot_gen = None
+
+    async def _lesson_spot_once(self, gen: int, step: dict, tries: int) -> None:
+        def gone() -> bool:
+            return gen != self.step_gen or self.passed or self._spot_frozen() or self._offtrack_box() == "up"
+
+        cmd = self._run_command(step)
+        if cmd:  # the Run ▷ / terminal / "open the terminal" box; t7: a terminal box becomes the ▷ once it's found
+            await run_pointing.place_run_box(self, gen, step, cmd, gone)
+            return
+        for i in range(max(1, tries)):
+            if gone():
+                return
+            if i == 0 and self._code_progress(step) is None and await self._start_box(gen, step):
+                return
+            if self._editor_off_screen():  # E6: VS Code isn't on screen: no box on another app, no targeter call
+                await asyncio.sleep(1.0)
+                continue
+            if await self._fix_box(gen, step):  # t5 (b): a fix / off-track / Not-yet line is up: never the step's box
+                return
+            prog = self._code_progress(step)
+            if prog is not None:  # E9: the step's code is (partly) in the file: never its "where to start" anchor
+                if prog["kind"] == "done":
+                    return  # all of it is typed: nothing to point at
+                spot = await self._progress_spot(step, prog)
+                if spot is not None:
+                    self._progress_at = (gen, prog["line"], prog["kind"])  # _progress_follow moves it as they type
+            elif (plan := self._insert_plan(step)) is not None:  # t5 (d): the file decides where new code goes (never
+                spot = await self._insert_spot(step, plan=plan)  # a fuzzy OCR match of the anchor: step 3's line 24)
+            elif await self._spotlight_target(step) or gone():
+                return
+            else:
+                spot = await self._editor_line_spot(step) or self._below_code_spot(step)  # E16: under the last line
+            if spot is not None:
+                if gone():  # E3: the step moved on during the line lookup
+                    return
+                # a progress box is the exact file line (Accessibility / gutter): no Haiku confirm. It moves with every
+                # typed line (_progress_follow), so verifying each one spent the 6/min budget and starved real picks.
+                await self._show_spot(spot, steady=True, verify=prog is None)
+                return
+            if i in (1, 4) and (spot := await self._vision_spot(step)) is not None:  # <= 2 Haiku calls per step
+                if gone():
+                    return
+                await self._show_spot(spot, steady=True)
+                return
+            await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
+        for _ in range(self.START_BOX_EXTRA_TRIES):  # t4: VS Code came up late (a save dialog, full screen): keep
+            await asyncio.sleep(1.0)  # trying the cheap deterministic box a while longer (no Haiku until it's found)
+            if gone() or self.spot_rect is not None or self._code_progress(step) is not None:
+                return
+            if await self._start_box(gen, step):
+                return
+
+    # t4 (live tests 3 + 4): no box at rest after step.started. Step 1's anchor is its own code (not in the file yet),
+    # the AX / gutter line lookup missed in a short file, both Haiku picks were unsure, and the loop gave up ~12 s in
+    # (once before a save dialog went away); a found box waited ~2 s for the Haiku check. The start box below is found
+    # from the files + OCR alone and shown at once; the targeter only refines it.
+    START_BOX_EXTRA_TRIES = 20
+    START_BELOW = "Type below this line"
+    _TYPE_WHERE = re.compile(r"type (below|above)\b", re.I)
+
+    def _start_where(self, step: dict) -> tuple[str, str] | None:
+        """Lesson code step: (text to find on screen, caption) for its start box, from the files alone. The first target
+        whose anchor is in its file (not the step's own code, e.g. step 1's "tasks = []"): captioned with the target's
+        own "Type below <anchor>" pointer, else "Type it here" (the anchor is the place, e.g. a "# add goes here" line).
+        Else the step file's last non-empty line, where new code goes: "Type below this line". None: no such line (an
+        empty file), or one too short / repeated / regex-like to find on screen for sure."""
+        from . import workspace as wsmod
+
+        code = step.get("code") or ""
+        for t in step.get("targets") or []:
+            match = (t.get("match") or "").strip()
+            if match and match not in code and self._anchor_in_file(t):
+                cap = short_caption(self._no_create(t.get("caption") or ""))
+                return t["match"], (cap if self._TYPE_WHERE.match(cap) else self.TYPE_CAPTION)
+        f = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, f) if f and not f.endswith(".ipynb") else None
+        try:
+            lines = [ln.strip() for ln in p.read_text(errors="replace").splitlines()] if p is not None else []
+        except OSError:
+            return None
+        tail = next((ln for ln in reversed(lines) if ln), "")
+        if len(tail.replace(" ", "")) < 4 or "|" in tail or sum(tail in ln for ln in lines) != 1:
+            return None  # ")" / "return" / a line seen twice: OCR could box another one
+        return tail, self.START_BELOW
+
+    async def _start_box(self, gen: int, step: dict) -> bool:
+        """t4: the type box right after step.started, within ~1 s of the editor showing: _start_where's line, found by
+        OCR inside the lesson's editor pane (never chrome, another app or Miyagi's drawer), shown now; THEN the Haiku
+        targeter refines it (_refine_start_box). The off-track card's box is never replaced.
+        -> placed (or already up)."""
+        if self._offtrack_box() == "up" or self._lesson_window_hidden():
+            return False
+        if self._fix_active():  # t5 (b): a fix / off-track / Not-yet line is up: _fix_box's box, never this one
+            return False
+        if (plan := self._insert_plan(step)) is not None:  # t5 (d): the file's row (test 5 step 3: a fuzzy OCR hit
+            return await self._start_line_box(gen, step, plan)  # of the anchor boxed line 24 inside sigmoid_slope)
+        where = self._start_where(step)
+        spot = self._locate(where[0], None, where[1]) if where else None
+        app = ((spot or {}).get("app") or "").lower()
+        if not spot or (app and app not in CODE_APP_NAMES):
+            return False  # not on screen yet, or only in another app's window
+        pane = await asyncio.to_thread(self._code_pane)
+        if gen != self.step_gen or self.passed or self._offtrack_box() == "up" or self._chrome_hit(spot, pane):
+            return False
+        r = spot["rect"]
+        if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
+            x, x2 = max(r["x"], pane["x"]), min(r["x"] + r["w"], pane["x"] + pane["w"])
+            r = {**r, "x": x, "w": max(8.0, x2 - x)}
+        spot = {**spot, "rect": r, **self._snippet(step)}
+        self.spot_track = (where[0], None, where[1])  # frames move it with its line (_follow_spot)
+        old = self.spot_rect
+        if old and self._spot_caption == where[1] and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in "xywh"):
+            return True  # the same box is already up: no re-send, no second Haiku question
+        await self._show_spot(spot, owner="step")  # at once: not after the ~2 s Haiku check
+        if self.spot_rect is not r:
+            return False
+        await self._refine_start_box(gen, spot, pane)
+        return True
+
+    async def _refine_start_box(self, gen: int, spot: dict, pane: dict | None) -> None:
+        """The Haiku targeter (_confirm_spot) checks the start box once it's up: keeps it, moves it (inside the editor
+        pane), or withdraws it when it's sure nothing on screen matches. Never over a box that went up meanwhile.
+        t5 (d): a row the file decided (_start_line_box, `_line`) moves only when LINE_MOVE_CONF sure and onto an empty
+        row outside every def / block (_line_move_ok); the line the code goes below is never asked about; Haiku's
+        "nothing matches" never withdraws it (test 5: moves at 0.8-0.85 onto W2's line / into sigmoid_slope)."""
+        line = spot.get("_line")
+        if line is not None and not line.get("move"):
+            return
+        confirmed = await self._confirm_spot(spot, move_conf=self.LINE_MOVE_CONF if line is not None else None)
+        if gen != self.step_gen or self.passed or self.spot_rect is not spot["rect"]:
+            return  # the step moved on, or another box (the off-track's, Show me, a re-place) is up now
+        if confirmed is None and line is not None:
+            log.info("targeter: no match for %r on line %s; the file's row stands (t5)",
+                     spot.get("caption"), line["line"])
+            return
+        if confirmed is None:
+            log.info("targeter: no real target for %r; start box withdrawn", spot.get("caption"))
+            self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+            await self.emit("spotlight", {"clear": True})
+            return
+        r = confirmed["rect"]
+        if all(abs(r[k] - spot["rect"][k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
+            return  # agreed (or unsure): the deterministic box stands
+        if pane is not None and not self._in_pane(r, pane):
+            log.info("targeter moved %r out of the editor pane; keeping the start box", spot.get("caption"))
+            return
+        if line is not None and not self._line_move_ok(line, spot["rect"], r):
+            log.info("targeter moved %r off line %s into a block / onto code; keeping the file's row (t5)",
+                     spot.get("caption"), line["line"])
+            return
+        await self._show_spot(confirmed, owner="step")
+
+    def _offtrack_box(self) -> str | None:
+        """t4, one box at a time. "up": the box the engine follows is the off-track card's own (the line to fix) and
+        the checks that card covers still fail: the type box waits and never replaces it. "done": those checks pass
+        now: the type box comes back (_follow_spot). None: the box isn't the off-track's. (The app's ✕ isn't sent.)"""
+        t, off, ids = self.spot_track, self.last_offtrack, self._offtracked_checks
+        if not (t and off and off.get("title") and t[2] == off["title"]) or self.passed:
+            return None
+        return "done" if ids and not ids & {r.get("checkId") for r in self.last_failed} else "up"
+
+    FINISH_CAPTIONS = ("Finish this function", "Finish this class", "Keep typing here")
+    CHANGE_CAPTION = "Change this line"  # t8: _code_progress's "change" row (the coach's own boxes say it too)
+
+    def _code_progress(self, step: dict | None) -> dict | None:
+        """E9: a lesson code step whose first code line (`def get_weather(city):`) is already in its file -> where the
+        learner is in typing the rest: {path, line (1-based file line to box), kind, expect (the step's line that
+        belongs there)}. kind "next": the code typed so far ends there, the rest goes on that line; "change": that line
+        differs from the step's code; "done": all of it is in the file. Spacing and line breaks are ignored (a call
+        typed on one line matches the step's wrapped one). None: the code's first line isn't in the file (its anchor
+        says where to start), or it isn't a lesson code step."""
+        if not self.lesson_mode or step is None or self._run_command(step):
+            return None
+        code = [ln.strip() for ln in (step.get("code") or "").splitlines()
+                if ln.strip() and not ln.strip().startswith("#")]
+        file = self._step_file(step)
+        if not code or not file:
+            return None
+        from . import workspace as wsmod
+
+        p = wsmod.resolve_file(self.workdir, file) if self._real_file(file) else None
+        try:  # VS Code's unsaved buffer when the companion extension has it: what's typed, saved or not
+            lines = (self._unsaved_texts([p])[0] or p.read_text(errors="replace")).splitlines() if p is not None else []
+        except OSError:
+            return None
+
+        def sq(s: str) -> str:
+            return re.sub(r"\s+", "", s)
+
+        def text(ln: str) -> bool:
+            return bool(ln.strip()) and not ln.strip().startswith("#")
+
+        head = sq(code[0]).rstrip(":")
+        start = next((i for i, ln in enumerate(lines) if head and text(ln) and head in sq(ln)), None)
+        if start is None:
+            return None
+        flat, ends = "", []  # the file from the head line on, squashed; ends[k]: offset where file line start+k ends
+        for ln in lines[start:]:
+            flat += sq(ln) if text(ln) else ""  # the learner's own comments are neither right nor wrong
+            ends.append(len(flat))
+        pos = flat.find(head) + len(head)
+        if sq(code[0]).endswith(":") and flat.startswith(":", pos):
+            pos += 1  # the head's own colon (`def f(x):`): that line is typed, not "the one that differs"
+        for want in code[1:]:
+            k = flat.find(sq(want), pos)
+            if k < 0 or k > pos + 2:  # missing, or the next thing in the file is something else
+                row = next(r for r, e in enumerate(ends) if e >= pos)  # the line the matched code ends on
+                if ends[row] > pos:  # that line goes on with something else: it's the one that differs
+                    return {"path": p, "line": start + row + 1, "kind": "change", "expect": want}
+                nxt = next((r for r in range(row + 1, len(ends)) if text(lines[start + r])), None)
+                if nxt is not None and lines[start + nxt][:1] in (" ", "\t"):  # an indented line of the block
+                    return {"path": p, "line": start + nxt + 1, "kind": "change", "expect": want}
+                return {"path": p, "line": start + row + 2, "kind": "next", "expect": want}
+            pos = k + len(sq(want))
+        return {"path": p, "line": start + 1, "kind": "done", "expect": code[0]}
+
+    def _finish_caption(self, step: dict) -> str:
+        head = self._code_head(step)
+        return self.FINISH_CAPTIONS[0 if re.match(r"(async\s+)?def\b", head) else 1 if head.startswith("class ") else 2]
+
+    async def _progress_spot(self, step: dict, prog: dict, caption: str | None = None,
+                             jump: bool = True) -> dict | None:
+        """E9 / E15: the editor row of `prog` (_code_progress), from Accessibility or the OCR'd gutter (one line high,
+        right of the line numbers). Scrolled off: jump there and ask once more (not with jump=False: t6's
+        _insert_follow never scrolls the learner's editor). Only with the real screen reader."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        from . import workspace as wsmod
+
+        path, line = prog["path"], prog["line"]
+        where = await asyncio.to_thread(wsmod.line_location, path, line)
+        if jump and not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
+            if self.workspace is not None and self.editor_open:
+                self.workspace.goto(str(path), line)
+                await asyncio.sleep(0.4)
+                where = await asyncio.to_thread(wsmod.line_location, path, line)
+        r = where.get("rect")
+        if not r:
+            return None
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        if not caption:  # t8: a line that differs is changed, not finished ("Finish this function" on nn2's sign)
+            caption = self.CHANGE_CAPTION if prog.get("kind") == "change" else self._finish_caption(step)
+        return {"rect": rect, "caption": caption,
+                "app": "Code", **self._snippet(step), "_line": self._line_meta(prog, float(r["h"]))}
+
+    def _below_code_spot(self, step: dict) -> dict | None:
+        """E16: the step's code isn't in the file yet and the gutter didn't give its line (a short new file): the row
+        under the file's last line of text, measured from that line on screen. No model call; real reader only."""
+        if getattr(self.screen, "reader", None) is None or self._editor_off_screen():
+            return None
+        from . import workspace as wsmod
+
+        file = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, file) if file and self._real_file(file) else None
+        try:
+            text = p.read_text(errors="replace") if p is not None else ""
+        except OSError:
+            return None
+        last = next((ln.strip() for ln in reversed(text.splitlines()) if ln.strip()), "")
+        hit = self.screen.locate(re.escape(last), "Code") if len(last) >= 4 else None
+        if not hit or "\n" in (hit.get("matched") or "") or self._chrome_hit(hit) or self._long_hit(hit, last):
+            return None
+        r = hit["rect"]
+        lh = max(14.0, float(r["h"]) - 3.0)  # E24: the row pitch (locate_match's box is the row + 3 pt)
+        return {"rect": {"x": float(r["x"]), "y": float(r["y"]) + lh, "w": max(float(r["w"]), 320.0), "h": float(r["h"])},
+                "caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
+
+    async def _vision_spot(self, step: dict) -> dict | None:
+        """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
+        the row from the marked screenshot (server.screen.target). None = no box; it never boxes chrome or tooltips."""
+        pick = getattr(self.screen, "pick", None) if getattr(self.screen, "reader", None) is not None else None
+        if pick is None or self._lesson_window_hidden() or stage.on(self):  # nothing to pick / a Demo: no Haiku call
+            return None
+        spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
+        res = await pick(self._no_create(self._spot_intent(spot)))  # same question _confirm_spot asks next: answered from the cache
+        if not res or res.get("kind") not in ("code", "blank"):
+            return None
+        if res["rect"]["h"] > 3 * 20.0 + 12:  # E3: taller than ~3 lines (merged rows) is a block, not the line
+            log.info("vision spot: %r is %.0f pt tall; no box", res.get("label"), res["rect"]["h"])
+            return None
+        if self.lesson_mode and not self._vision_ok(step, res):  # t5 (d): only a sure pick, never inside a def
+            return None
+        log.info("vision spot: %s (%.2f, %s)", res.get("label"), res.get("confidence", 0), res.get("reason"))
+        return {"rect": res["rect"], **spot}
+
+    async def _editor_line_spot(self, step: dict) -> dict | None:
+        """S2 + E6: the exact editor line of the step's target (Accessibility, else E6's locate_line on the OCR'd
+        gutter). Scrolled off: jump there (`-g file:line`) and ask once more. Only with the real screen reader
+        (never in tests: it reads the real editor)."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        from . import workspace as wsmod
+
+        loc = wsmod.target_location(self.workdir, step, missing="end")  # anchor not in the file: where code goes
+        if loc is None:
+            return None
+        path, line = loc
+        where = await asyncio.to_thread(wsmod.line_location, path, line)
+        if not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
+            if self.workspace is not None and self.editor_open:
+                self.workspace.goto(str(path), line)
+                await asyncio.sleep(0.4)
+                where = await asyncio.to_thread(wsmod.line_location, path, line)
+        r = where.get("rect")
+        if not r:
+            return None
+        target = next((t for t in step.get("targets") or [] if t.get("match")), None)
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        return {"rect": rect, "caption": self._type_caption(step, target), **self._snippet(step)}
+
+    def _ensure_step_file(self, step: dict) -> None:
+        """Lesson mode: the step's file exists in the lesson folder before it starts, so step 1 is "type this"
+        (never "mkdir … && touch …" in a terminal)."""
+        from . import workspace as wsmod
+
+        rel = (self._step_file(step) or step.get("file") or "").strip()
+        if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts or not Path(self.workdir).is_dir():
+            return
+        if wsmod.resolve_file(self.workdir, rel) is not None:
+            return
+        p = Path(self.workdir) / rel
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch(exist_ok=True)
+            log.info("lesson mode: created %s", p)
+        except OSError as e:
+            log.warning("could not create %s: %s", p, e)
+
+    # L1: Miyagi creates each step's file before the step starts (_ensure_step_file), so "Create nn.py and type …" (a
+    # cached lesson's target caption, E2's action, the model's own wording) must read "In nn.py, type …" once it's there
+    _CREATE_LEAD = re.compile(
+        r"^\s*(?:in (?:vs code|your editor),?\s+)?create\s+(?:(?:a|an|the)\s+(?:(?:new|empty|blank)\s+)*(?:[\w+#-]+\s+)?"
+        r"file\s+(?:(?:called|named)\s+)?)?[`'\"“]?(?P<file>[\w-][\w./-]*\.\w{1,8})[`'\"”]?"
+        r"(?:\s+in\s+(?:the|your)\s+(?:lesson\s+|project\s+)?folder)?"
+        r"(?:(?:\s*,\s*then|\s*,?\s+and(?:\s+then)?|\s*[.;:])\s+(?P<rest>\S.*?))?\s*(?P<end>[.!]?)\s*$", re.I | re.S)
+
+    def _no_create(self, text: str) -> str:
+        """L1: "Create nn.py and type X" / "Create nn.py, then type X" / "Create a file called nn.py and type X" ->
+        "In nn.py, type X" ("… and open it" / a bare "Create nn.py" -> "Open nn.py") when that file is already in the
+        lesson folder. For every learner-facing line (step instructions / details, spotlight captions, the Start card)
+        and the targeter's question (Haiku read "nn.py not yet created" and boxed nothing)."""
+        m = self._CREATE_LEAD.match(text or "")
+        if not m:
+            return text
+        from . import workspace as wsmod
+
+        if not (Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, m.group("file")) is not None):
+            return text  # really not there yet: "Create …" is right
+        name, end = Path(m.group("file")).name, m.group("end")
+        rest = re.sub(r"^then\s+", "", m.group("rest") or "", flags=re.I)
+        if not rest or re.match(r"open it\b", rest, re.I):
+            return f"Open {name}{rest[7:]}{end}"
+        if re.match(r"[A-Z][a-z]+\b", rest):  # "Type the …" -> "type the …" (NumPy, VS Code keep their case)
+            rest = rest[0].lower() + rest[1:]
+        if name.lower().endswith(".ipynb") and re.match(r"type\s+(?!(?:it|this|that)\b)", rest):  # t10: a cell
+            rest = "add a cell: " + rest.split(None, 1)[1]
+        return f"In {name}, {rest}{end}"
+
+    async def _replace_provisional(self, g: dict, complete: bool) -> None:
+        """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
+        replaced by the real one with the same ids; the learner keeps watching, the checklist becomes real."""
+        if self.graph is None:
+            return
+        new = copy.deepcopy(g)
+        _use_lesson_venv(new)
+        new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
+        new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
+        new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
+        for st in new.get("steps", []):
+            st.pop("provisional", None)
+        log.info("quick start: the real lesson (%d steps) replaces the placeholder", len(new.get("steps", [])))
+        idx = 0  # the placeholder had one step: the learner restarts on the REAL s1
+        self.graph = new
+        setup_apps.apply_choice(self)  # Nov 22: the real lesson's AutoCAD checks follow the learner's FreeCAD too
+        self.m.set_lesson(new)
+        await self.emit("lesson.ready", self._lesson_ready_payload())
+        self.waiting_more = False  # even if they skipped the placeholder: the real s1 starts now
+        if self.steps:
+            seg = self._segment(self.steps[min(idx, len(self.steps) - 1)])
+            keep = self.video_t if (seg and self.video_t is not None and seg["start"] <= self.video_t < seg["end"]) else None
+            await self.start_step(min(idx, len(self.steps) - 1), seek_to=keep)  # keep the video where it is
+
+    async def _extend_lesson(self, g: dict, complete: bool) -> None:
+        """Append a progressive build's new steps to the running lesson (ids never change, earlier steps are
+        never edited) and tell the app; a learner waiting at the end of the built part moves on."""
+        if self.graph is None:
+            return
+        known = {st["id"] for st in self.steps}
+        new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
+        _use_lesson_venv({"lesson": self.graph.get("lesson") or {}, "steps": new})
+        self.graph["steps"].extend(new)
+        setup_apps.apply_choice(self)  # Nov 22: new steps arrive pinned to AutoCAD; the learner may use FreeCAD
+        lesson = self.graph.setdefault("lesson", {})
+        for k in ("parts", "builtBy", "goalMatch"):
+            if k in (g.get("lesson") or {}):
+                lesson[k] = copy.deepcopy(g["lesson"][k])
+        was_complete = lesson.get("complete") is True
+        lesson["complete"] = bool(complete or (g.get("lesson") or {}).get("complete"))
+        if not new and (not complete or was_complete):
+            return  # nothing changed: no empty lesson.updated
+        payload: dict[str, Any] = {"steps": [self._step_summary(st, i) for i, st in
+                                             enumerate(self.steps) if st["id"] in {n["id"] for n in new}],
+                                   "complete": lesson["complete"]}
+        parts = lesson.get("parts") or {}
+        if parts:
+            payload["parts"] = {k: parts.get(k) for k in ("done", "failed", "total") if k in parts}
+        await self.emit("lesson.updated", payload)
+        if self.waiting_more and self.step is not None:
+            if self.idx + 1 < len(self.steps):
+                self.waiting_more = False
+                await self.start_step(self.idx + 1)
+            elif lesson["complete"]:
+                self.waiting_more = False
+                self.phase = "done"
+                await self.emit("video.play", {})
+                self._spawn_lesson_end()
+
+    async def _build_failed(self, message: str, error: BaseException | None = None) -> None:
+        self.build_progress = None
+        self.phase = "idle" if self.graph is None else "active"
+        self._metrics("failed", build_fail_code(error if error is not None else message))
+        await self.emit("error", {"message": message})
+        payload: dict[str, Any] = {"message": message, "progress": 0.0, "failed": True}
+        info, self._build_v2 = getattr(self, "_build_v2", None), None
+        try:  # v2 (Err-LessonBuildFailed): why, in one plain sentence, and lessons that start with no build
+            payload["failCode"] = build_fail_code(error if error is not None else message)
+            if reason := fail_reason(message):
+                payload["failReason"] = reason
+            if info and info.get("source"):
+                payload["source"] = dict(info["source"])
+            alts = await asyncio.to_thread(library_alternatives)
+            # "Try transcript only": offered for a YouTube build that failed for a reason other than missing captions
+            # and was not itself a transcript-only build. The app sends learn_url {url, transcriptOnly: true}.
+            if (info and info.get("url") and not info.get("text") and not info.get("transcript_only")
+                    and video_id_from_url(info["url"]) and payload["failCode"] != "no_captions"):
+                alts = [{"kind": "transcript", "title": "Try transcript only", "url": info["url"],
+                         "meta": "Builds steps from what the teacher says. Checks may be looser."}] + alts
+            if alts:
+                payload["alternatives"] = alts
+        except Exception:  # noqa: BLE001 - the failure itself must reach the app
+            log.exception("v2 build-failed fields failed")
+        await self.emit("lesson.building", payload)
+        await self._status("idle" if self.graph is None else "watching")
+
+    async def load_graph(self, graph: dict) -> None:
+        await onscreen_coach.clear(self)  # the last lesson's on-screen mark, if one is up
+        self.lesson_epoch += 1
+        self._no_editor = False  # "VS Code not found" belongs to the lesson that asked
+        self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
+        self.notebook_lesson = is_notebook_lesson(graph)
+        if self.notebook_lesson and is_colab_lesson(graph):  # t10 R3: never a VS Code one (the video panel showed
+            unscope_editor_apps(graph)  # the presenter's outputs); Colab in a browser counts, not just VS Code
+        _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
+        _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
+        _app_lesson(graph)  # Nov 22: a cached AutoCAD lesson too talks about AutoCAD and checks the app, never files
+        self.graph = graph
+        context_memory.lesson_loaded(self)  # a fresh start (not a Resumer restore) forgets the earlier run's notes
+        _session_cost_start(graph)  # roadmap 3.8: the running cost tally (build included) belongs to this lesson
+        self.lesson_wall_t0 = None  # v2: set by the first start_step (minutes only from step 1)
+        self._build_v2 = None
+        self.runs = {}
+        self._extend_failed = False
+        self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
+        self.assisted_steps = []  # t7: ids whose code Do it for me typed in full (the skill map: not mastered)
+        self._run_redirected: set[str] = set()  # run steps already sent back to their typing step once
+        self.judge = self.m.make_step_judge()
+        new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
+        self.workdir = new_wd
+        if self.on_workdir:
+            self.on_workdir(new_wd)
+        if self.notebook_lesson:  # t9 V3: the .ipynb saves itself, so the checks read the cells' real outputs
+            from . import workspace as wsmod
+
+            wsmod.notebook_autosave(new_wd)
+            lesson_notebook.create(self)  # t10: the lesson's notebook (mnist.ipynb) exists before step 1 starts
+        _refresh_readme(new_wd, graph)  # t10: the README tells the steps as they run (after the .venv / notebook fixes)
+        self.m.set_lesson(graph)
+        if not stage.on_graph(graph):  # a Demo lesson never calls the coach
+            self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
+        if self.voice:
+            self._prefetch_voice()
+        ready = self._lesson_ready_payload()
+        build_s = self._metrics("ready", steps=len(self.steps), provisional=True if is_provisional(graph) else None)
+        if isinstance(build_s, (int, float)):
+            ready["buildS"] = build_s  # contract (additive): seconds from the learner's command to this lesson.ready
+        await self.emit("lesson.ready", ready)
+        self.editor_open = False
+        if self.workspace is not None:  # S2 opens the editor at most once per lesson + folder
+            self.workspace.lesson_key = str(graph.get("lesson", {}).get("id") or "")
+        if self.lesson_mode:
+            await self._open_editor_full(new_wd)
+        await self.start_step(0)
+        await self._offer_editor(graph, new_wd)  # after step.started (the app clears cards on a new step)
+        if self._deferred_installs:  # pip installs picked on the preflight card: now there's a lesson .venv
+            self._spawn(self._run_deferred_installs())
+        if self._download_after_build:  # "Download tutorial files" on the preflight card
+            self._download_after_build = False
+            self._spawn(self.action("download"))
+        if (loaded := getattr(self, "_loaded_evt", None)) is not None:
+            loaded.set()  # _run_build: the lesson is live, free the command queue
+
+    def _step_summary(self, st: dict, i: int) -> dict:
+        summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
+        for k in ("kind", "what"):  # E2: Code / Run / Learn + the plan line ("A list that stores every note")
+            if isinstance(st.get(k), str) and st[k].strip():
+                summary[k] = st[k].strip()
+        if isinstance(st.get("estMinutes"), int) and st["estMinutes"] > 0:  # "about 4 min" / "about 35 min left"
+            summary["estMinutes"] = st["estMinutes"]
+        if ids := self._skill_ids().get(st["id"]):  # Nov 22 (Skills page): the skills this step builds evidence for
+            summary["skillIds"] = ids
+        seg = self._segment(st)
+        if seg:
+            summary["video"] = seg
+        ref = st.get("pageRef")  # any link (ANY-LINK.md): the part of the page this step comes from
+        if isinstance(ref, dict) and isinstance(ref.get("url"), str) and ref["url"].startswith(("https://", "http://")):
+            summary["pageRef"] = {k: ref[k] for k in ("url", "heading") if isinstance(ref.get(k), str) and ref[k]}
+        return summary
+
+    def _skill_ids(self) -> dict[str, list[str]]:
+        """stepId -> the Skills page's skill ids it builds (server.lesson.skillmap.node_steps: from the steps alone, no model
+        call; the ids are the ones sessions/skills_graph gives the same skills). Empty when nothing is known."""
+        g = self.graph if isinstance(self.graph, dict) else {}
+        sig = (id(g), len(self.steps))
+        cached = getattr(self, "_skill_ids_cache", None)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        out: dict[str, list[str]] = {}
+        try:
+            from server.lesson.skillmap import node_steps
+            from server.sessions.skills_graph import skill_id
+
+            ns = node_steps({"lesson": g.get("lesson"), "steps": list(self.steps)})
+            for t in ns["taught"]:
+                for step_id in t["steps"]:
+                    out.setdefault(step_id, []).append(skill_id(ns["track"], t["label"]))
+        except Exception as e:  # noqa: BLE001 - skill tags are an extra: the lesson never fails on them
+            log.debug("no skill ids for the steps: %s", e)
+        self._skill_ids_cache = (sig, out)
+        return out
+
+    def _lesson_ready_payload(self) -> dict:
+        g = self.graph or {}
+        lesson = g.get("lesson", {})
+        sources = [
+            {k: v for k, v in s.items() if k in ("id", "kind", "title", "url", "meta", "videoId")}
+            for s in g.get("sources", [])
+        ]
+        steps = [self._step_summary(st, i) for i, st in enumerate(self.steps)]
+        info: dict[str, Any] = {"id": lesson.get("id", "lesson"), "title": lesson.get("title", "Lesson"), "sources": sources}
+        for k in ("complete", "builtBy", "mode", "provisional"):  # E2: progressive builds / who watched the video / no-video lesson
+            if k in lesson:
+                info[k] = lesson[k]
+        if lesson.get("curated"):  # t8: a hand-written lesson (also one saved before builtBy said so): never "Claude wrote"
+            info["builtBy"] = curated.BUILT_BY
+        if lesson.get("goalMatch"):
+            info["goalMatch"] = lesson["goalMatch"]
+        origin = lesson.get("origin")  # any link (ANY-LINK.md): the BuildSource a web / github lesson was built from
+        if isinstance(origin, dict) and origin.get("kind") in ("web", "github") and isinstance(origin.get("title"), str):
+            info["origin"] = {k: origin[k] for k in ("kind", "title", "url", "site", "author") if isinstance(origin.get(k), str)}
+        if (app := onscreen_coach.ready_app(self)) is not None:  # on-screen coach: a desktop-app lesson's app only
+            info["app"] = app
+        if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
+            info["primer"] = [
+                {k: v for k, v in item.items() if k in ("id", "title", "body", "code", "diagramPrompt") and v}
+                for item in lesson["primer"] if isinstance(item, dict) and item.get("id") and item.get("title")
+            ]
+        if isinstance(lesson.get("overview"), str) and lesson["overview"].strip():  # "What we're building"
+            info["overview"] = lesson["overview"].strip()
+        for k in ("build", "flow", "prerequisites", "learnFirst"):  # learn-anything screens (drawer v2, "Before you start")
+            if lesson.get(k):
+                info[k] = lesson[k]
+        # E23: every step from the start (titles, count, minutes), so "Step 1 of N · about M min" never jumps while
+        # the rest is still being written: the steps built so far, then the builder's outline for the rest (none for
+        # a build still running without one: its count isn't known yet)
+        ol = lesson.get("outline") if isinstance(lesson.get("outline"), dict) else None
+        if lesson.get("complete") is not False:
+            rows = list(steps)
+        else:
+            rows = list(steps) + [r for r in (ol or {}).get("steps") or [] if isinstance(r, dict)][len(steps):] if ol else []
+        rows = [{k: r[k] for k in ("index", "title", "kind", "what", "estMinutes", "skillIds") if r.get(k) not in (None, "")}
+                for r in rows if isinstance(r, dict) and r.get("title")]
+        if rows:
+            info["outline"] = {"count": len(rows), "steps": rows}
+            if all(isinstance(r.get("estMinutes"), int) for r in rows):
+                info["outline"]["estMinutes"] = sum(r["estMinutes"] for r in rows)
+        if info.get("prerequisites"):  # passed / unknown from the lessons finished on this Mac; learn-first only for gaps
+            from server.sessions import store
+
+            info["prerequisites"] = store.prerequisite_status(info["prerequisites"], info["id"])
+            have = {q.get("id") for q in info["prerequisites"] if q["status"] == "passed"}
+            info["learnFirst"] = [x for x in info.get("learnFirst") or [] if x.get("covers") not in have]
+            if not info["learnFirst"]:
+                info.pop("learnFirst")
+        return {"lesson": info, "steps": steps}
+
+    # ------------------------------------------------------------------ steps
+    _RUN_VERB = re.compile(r"^(?:run|execute|press|hit|click)\b\s*", re.I)
+    _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b", re.I)
+
+    def _run_line(self, step: dict, cmd: str) -> str:
+        """V5: "Run <cmd> in the VS Code terminal" for a shell command. A video build's run_command can be the action in
+        words ("Run the cell (Shift+Enter)", "run python3 app.py"): never "Run Run …", and a notebook cell (Shift+Enter, a
+        cell, a .ipynb step) runs in the notebook, not in the terminal."""
+        verb = self._RUN_VERB.match(cmd)
+        if verb and self.SHELL_CMD.match(cmd[verb.end():]):  # "run python3 app.py": the command is what follows
+            cmd, verb = cmd[verb.end():], None
+        if self.SHELL_CMD.match(cmd) or not (verb or self._NOTEBOOK_RUN.search(cmd)):
+            return f"Run {cmd} in the VS Code terminal"
+        line = (cmd if verb else f"Run {cmd}").rstrip(" .")
+        line = line[0].upper() + line[1:]
+        if self._NOTEBOOK_RUN.search(cmd) or (self._step_file(step) or "").lower().endswith(".ipynb"):
+            return line if re.search(r"\bnotebook\b", line, re.I) else f"{line} in the notebook"
+        return f"{line} in the VS Code terminal"
+
+    def _action_line(self, step: dict) -> str:
+        """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
+        "In <file>, type the lines below." (lesson mode: the step's code shows under it; a video lesson has no snippet,
+        so "In VS Code, type <first line> … in <file>"), else the instructions' first sentence."""
+        for k in ("action", "todo"):
+            if isinstance(step.get(k), str) and step[k].strip():
+                return step[k].strip()
+        if nb := self._notebook_cell(step):  # t10: its code shows under this line (step.started code / snippet)
+            return f"Add a cell with the code below to {nb}, then press Shift+Enter"
+        if cmd := self._run_command(step):
+            if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
+                return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
+            return self._run_line(step, cmd.splitlines()[0].strip())
+        code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
+        first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
+        if first and file:
+            from . import workspace as wsmod
+
+            exists = Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, file) is not None
+            n = len([ln for ln in code.splitlines() if ln.strip()])
+            if self.lesson_mode:  # E5: the island's snippet shows the code under this line (lesson mode only)
+                lines = "the lines below" if n > 1 else "the line below"
+                return (f"In {Path(file).name}, type {lines}." if exists
+                        else f"Create {Path(file).name}, then type {lines}.")
+            line = first if len(first) <= 60 else first[:57] + "…"
+            more = " …" if n > 1 and not line.endswith("…") else ""  # names the first line (t10: never "te… …")
+            if file.lower().endswith(".ipynb"):  # t10: a notebook gets a cell (Miyagi made the lesson's notebook)
+                return (f"In {Path(file).name}, add a cell: {line}{more}" if exists
+                        else f"In VS Code, create {Path(file).name} and add a cell: {line}{more}")
+            return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
+                    else f"In VS Code, create {Path(file).name} and type {line}{more}")
+        text = " ".join((step.get("instructions") or "").split())
+        m = re.match(r"(.+?[.!?])(\s|$)", text)
+        sent = m.group(1) if m else text
+        words = sent.split()
+        return " ".join(words[:20]) + ("…" if len(words) > 20 else "")
+
+    def _step_started_payload(self, step: dict) -> dict:
+        full = self._no_create(step.get("instructions", ""))  # L1: the file exists by now (_ensure_step_file)
+        action = self._no_create(self._action_line(step) or full)
+        p = {"stepId": step["id"], "index": step.get("index", self.idx), "title": step["title"],
+             "instructions": action}
+        if full and " ".join(full.split()) != action:
+            p["details"] = full  # the step's full explanation (the app may show it on expand)
+        for k in ("kind", "what", "why"):  # what you build + what it means (E2, contract 9fdd9db)
+            if isinstance(step.get(k), str) and step[k].strip():
+                p[k] = step[k].strip()
+        if isinstance(step.get("concepts"), list) and step["concepts"]:
+            p["concepts"] = [c for c in step["concepts"] if isinstance(c, str)]
+        rc = self._run_command(step)
+        if rc and not self.SHELL_CMD.match(rc) and (self._RUN_VERB.match(rc) or self._NOTEBOOK_RUN.search(rc)):
+            rc = ""  # V5: "Run the cell (Shift+Enter)" is an action in words, not the code to type or run
+        exact = rc or (step.get("code") or "").strip()  # the full thing to type / run, never cut
+        if exact:
+            p["code"] = exact
+            # v2 (Les-Working): the line above the code and the one under it; the curated lesson's own lines win
+            lines = where_then(code=exact, run_command=bool(rc), notebook=bool(self.notebook_lesson),
+                               file=self._step_file(step))
+            lines.update(curated.step_copy(self, step))
+            p.update({k: v for k, v in lines.items() if v})
+        if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
+            p["estMinutes"] = step["estMinutes"]
+        seg = self._segment(step)
+        if seg:
+            p["video"] = seg
+        return p
+
+    async def start_step(self, idx: int, seek_to: float | None = None) -> None:
+        """seek_to: resume mid-segment (a restored session) instead of from the segment's start."""
+        if not (0 <= idx < len(self.steps)):
+            return
+        setup_apps.apply_choice(self)  # Nov 22: never start a step whose checks wait on an app the learner isn't using
+        back = self._typing_step_for_empty_run(idx)
+        if back is not None:  # "run calculator.py" while calculator.py is still empty: type it first
+            idx, empty = back
+        carry = self._clip_runs_into(idx) if seek_to is None and idx == self.idx + 1 else None  # t10: before reset
+        if getattr(self, "lesson_wall_t0", None) is None:  # v2 card.result.minutes: only from step 1 seen here
+            self.lesson_wall_t0 = time.time() if idx == 0 and seek_to is None else 0.0
+        self.idx = idx
+        self.phase = "active"
+        self._reset_step_state()
+        entered = getattr(self, "_entered_steps", set())
+        self._step_first_visit, self._entered_steps = idx not in entered, entered | {idx}
+        if idx > 0 and self.awaiting_start:  # the app closes the sheet when the first step isn't step 1 (store.ts):
+            self._start_hold, self._hold_fresh = None, False  # a restore / Continue at a later step is never held
+            log.info("lesson start (step %d started: no Before you start)", idx + 1)
+        held = self.awaiting_start  # E4: "Before you start" is up: this step begins on Start / the first edit
+        if held:
+            self._hold_fresh, self._hold_t, self._hold_sig = True, self.clock(), None
+        self._sync_screen_soon()  # E3: the reader runs again for a lesson step
+        step = self.steps[idx]
+        if self.lesson_mode:
+            self._ensure_step_file(step)  # before the payload: step 1 reads "In calc.py, type …"
+            curated.prepare_step(self, step)  # curated run step: the lesson .venv's python once NumPy is in it
+            self._step_wall_t0 = time.time()  # after creating it: only the learner's saves count
+            self._term_at_start = tuple(self._vscode_terminal_lines())
+        started = self._step_started_payload(step)
+        if carry is not None and started.get("video"):  # t12: the app's player jumps to video.start unless it's already
+            v = started["video"]  # past it (2:51 -> 4:12, 4:36 -> 7:18): the clip it plays on from starts where it is
+            started["video"] = {**v, "start": min(v["start"], max(0.0, float(int(carry)) - 1.0))}
+        await self.emit("step.started", started)
+        self._metrics("first_step", idx)  # the build in flight (if any) is complete: log + build-metrics.jsonl
+        self._say("step.started", started)
+        self._maybe_extend()  # E2 lazy parts: nearing the last built step -> build the next part now
+        self._record("step_started", {"title": step.get("title")}, step)
+        for c in self.display_checks(step):
+            self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
+            await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
+                                              "label": c.get("label", c["id"]), "status": "pending"})
+        await self.emit("spotlight", {"clear": True})  # E3: the last step's box (e.g. its terminal) never carries over
+        seg = self._segment(step)
+        resuming = seek_to is not None and seg is not None and seg["start"] <= seek_to < seg["end"]
+        if seg is None or not (resuming or self._video_needed(step, seg)):
+            seg = None  # setup / nothing to watch: the video stays where it is (Show me still plays it)
+            self.segment_done = True
+            self.segment_end_t = self.clock()
+        self._watch_screen_metrics(step)
+        if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
+            self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
+        if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
+            self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
+            box_follow.jumped(self, step)  # t7: the step's first box waits for that jump to land
+            if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
+                self._spawn(self._show_step_file(step), timer=True)
+                self._spawn(ui_targets.watch_file(self, self.step_gen, step), timer=True)  # t6: else "Click nn.py"
+                self._spawn(start_hold.reveal_step_line(self, step), timer=True)  # t6: and its line on screen
+        await self._status("watching")
+        await self.evaluate("start")
+        if seg is not None and not self.passed and self.step is step:
+            # already doing it: don't replay. t10: a "No … errors" (screen_absent) row says nothing about that: it
+            # marked s4/s6/s7's clips done at step start, so they never played and _segment_end never ran
+            absent = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_absent"}
+            ahead = any(r.get("status") == "pass" and r.get("checkId") not in absent for r in self.last_results)
+            if carry is not None and not ahead:  # t10: the last clip plays to its end, then on into this segment
+                log.info("video plays on from %.0f s into %s's segment (%.0f-%.0f s): no jump", carry, step["id"],
+                         seg["start"], seg["end"])
+                self._spawn(self._segment_timer(self.step_gen, seg["end"] - carry), timer=True)
+            elif not ahead or resuming:
+                t0 = float(seek_to) if resuming else seg["start"]
+                # never start the video over the learner's typing; Nov 21: a restored lesson waits paused at its place
+                play = not self.typing() and not self.restoring
+                await self.emit("video.seek", {"t": t0, "play": play})
+                if play:
+                    await self.emit("video.play", {})
+                self._spawn(self._segment_timer(self.step_gen, seg["end"] - t0), timer=True)
+            else:
+                self.segment_done = True
+                self.segment_end_t = self.clock()
+                await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
+        # E5: the run caption ("Run it here" on the terminal, or "Open the terminal") goes up whenever the lesson's VS
+        # Code window is on screen; the drawer says the command. The Run it card only when no caption can go up
+        # (Run it for me stays on Check's "Not yet" card). t7: a Demo lesson always gets it, beside the ▷ / terminal
+        # box (docs/DEMO.md presses Run it for me on Train it and See what it learned; the box was up, so no button).
+        spot_up = (self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
+                   and not stage.on(self))
+        if back is not None and self._dirty_step_file(step):  # they typed it: it's just not saved
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {empty}",
+                                   "body": f"Save {empty} in VS Code (⌘S)."})
+        elif back is not None:
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"{empty} is still empty",
+                                   "body": f"Type this step's code into {empty} first; then we'll run it."})
+        elif self.lesson_mode and (cmd := self._run_command(step)) and not spot_up:  # the run step's own button
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",
+                                   "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
+                                   "actions": ["run_command"]})
+        await curated.on_step_started(self, step)  # curated lesson: the step's network in the right-hand panel
+        await self._maybe_pass_setup_step()
+        if self.lesson_mode and not self.passed and self.step is step:  # t6: held too (the hold gates checks only)
+            self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
+            if self._run_command(step):  # the terminal panel open, the window beside the drawer
+                self._spawn(self._ready_run_step(self.step_gen, step), timer=True)
+        if onscreen_coach.is_app_lesson(self):  # Nov 24: circle the step's target in the app, its words beside it
+            self._spawn(onscreen_coach.on_step(self, self.step_gen, step), timer=True)
+
+    MIN_SEGMENT_S = 3.0
+
+    def _video_needed(self, step: dict, seg: dict) -> bool:
+        """Play the clip only when it teaches something: not for setup / install steps (E2 tags them setup: true)
+        and not for a sliver of video."""
+        if step.get("setup") or self.SETUP_STEP.search(step.get("title", "")):
+            return False
+        return seg["end"] - seg["start"] >= self.MIN_SEGMENT_S
+
+    def _watch_screen_metrics(self, step: dict) -> None:
+        if self.screen is None:
+            return
+        patterns = {c["metric"]: c["metric_pattern"]
+                    for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                    if c.get("metric") and c.get("metric_pattern")}
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id", "lesson")
+        if patterns:
+            self.screen.watch(lesson_id, patterns, self._on_screen_metric)
+        else:
+            self.screen.unwatch()
+
+    def _on_screen_metric(self, run_id: str, name: str, step: int, value: float) -> None:
+        """Called on the loop by the screen bridge for each metric read off the terminal."""
+        self._spawn(self.ingest({"kind": "metric", "run_id": run_id, "step": step, "name": name,
+                                 "value": value, "source": "screen"}))
+
+    def _track_play(self, type_: str, payload: dict) -> None:
+        """t10: what the engine last told the player (seek / play / pause), so a step change knows where the clip is."""
+        if type_ == "video.seek":
+            t = payload.get("t")
+            self._play_at = (float(t), self.clock()) if payload.get("play") and isinstance(t, (int, float)) else None
+        elif type_ == "video.pause":
+            self._play_at = None
+        elif type_ == "video.play" and self._play_at is None and self.video_t is not None:
+            self._play_at = (float(self.video_t), self.clock())
+
+    def _clip_runs_into(self, idx: int) -> float | None:
+        """t10: the learner passed the current step while its clip still plays (test 10: s4 passed at 3:03, s5 jumped
+        the video to 4:11 and cut 68 s on ReLU / softmax). When that clip runs straight on into step idx's segment, ->
+        where the video is now: it plays on to the end of the clip and into the next segment (no jump forward past what
+        wasn't watched). Else None."""
+        prev, at = self.step, self._play_at
+        if prev is None or at is None or self.segment_done or not (0 <= idx < len(self.steps)):
+            return None
+        if prev.get("id") in getattr(self, "skipped_steps", ()):  # Skip: on to the next clip (app: step.passed skipped)
+            return None
+        a, b = self._segment(prev), self._segment(self.steps[idx])
+        if not a or not b or self.steps[idx] is prev or a["videoId"] != b["videoId"]:
+            return None
+        now = at[0] + max(0.0, self.clock() - at[1])
+        if not (a["start"] - 1 <= now < b["end"] - 1) or abs(b["start"] - a["end"]) > 2.0:
+            return None  # not in that clip or the next one, or the next segment doesn't start where it ends
+        return now
+
+    async def _segment_timer(self, gen: int, duration: float) -> None:
+        """Fallback when the player never reports video.state: end the segment by wall clock."""
+        await asyncio.sleep(max(0.0, duration) + 1.0)
+        if gen == self.step_gen and self.video_reports == 0 and not self.segment_done:
+            await self._segment_end()
+
+    async def _segment_end(self) -> None:
+        if self.segment_done or self.step is None:
+            return
+        self.segment_done = True
+        self.segment_end_t = self.clock()
+        step = self.step
+        if not step.get("checks") and not step.get("precision_checks"):
+            await self._pass_step()
+            return
+        await self.evaluate("segment")
+        if self.passed or self.step is not step:
+            return
+        await self.emit("video.pause", {})
+        await self._spotlight_target(step)
+        if self.status != "offtrack":
+            await self._status("watching")
+
+    def _locate(self, match: str, app: str | None, caption: str) -> dict | None:
+        if self.screen is None or not match:
+            return None
+        spot = self.screen.locate(match, app)
+        if not spot:
+            return None
+        snap = getattr(self.screen, "snap_rows", None)  # t8: on its editor row exactly (the full-line box's y / height)
+        if snap is not None and (rows := snap(spot["rect"], app)) is not None:
+            spot = {**spot, "rect": rows}
+        return {**spot, "caption": caption}
+
+    async def _spotlight_target(self, step: dict, owner: str = "step") -> bool:
+        """Spotlight the step's first target that is visible on screen (rect in screen points).
+        The target is remembered, so later frames re-place the spotlight when it scrolls into view or moves.
+        Lesson mode (E6 / E9): only VS Code's text, only while its window is on screen, and never the step's "where to
+        start" anchor once the step's code is in the file. `owner`: who asks (E8, see _show_spot)."""
+        tlist = [t for t in step.get("targets") or [] if t.get("match")]
+        if self.lesson_mode and (self._spot_frozen() or self._code_progress(step) is not None):
+            return False  # E7: paused / E9: the code is typed (partly): _lesson_spot boxes where it goes on
+        if self.lesson_mode and self._insert_plan(step) is not None:
+            return False  # t5 (d): the file says where new code goes (_insert_spot), not a fuzzy OCR hit of the anchor
+        if owner == "step" and not self.lesson_mode and nb_coach.code_typed(self, step):
+            return False  # t12: a notebook step's code is in the notebook: no box + code popup over what they typed
+        if tlist and self.spot_track is None and self._spot_rank_ok(owner):  # E8: never under a higher box
+            t = tlist[0]
+            self.spot_track = (t["match"], "Code" if self.lesson_mode else t.get("app"), t.get("caption", ""))
+        if self.lesson_mode:  # an anchor that isn't in the file (yet) would box some other line: skip it
+            if self._editor_off_screen():
+                return False  # E6: no VS Code window on screen: never a box on another app's text
+            tlist = [t for t in tlist if self._anchor_in_file(t)]
+        gen = self.step_gen
+        pane = await asyncio.to_thread(self._code_pane) if self.lesson_mode and tlist else None
+        if gen != self.step_gen:  # E3: the step moved on while the pane was read: no stale box
+            return False
+        for t in tlist:
+            cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
+            app = "Code" if self.lesson_mode else t.get("app")  # E6: lesson mode: VS Code's text only (Claude's chat
+            spot = self._locate(t["match"], app, cap)  # quoting `import sys` is not the line)
+            if spot and (self._chrome_hit(spot, pane) or (self.lesson_mode and self._long_hit(spot, t["match"]))):
+                continue  # a breadcrumb / tab / title-bar hit (e.g. the file name) is not where to type
+            if spot:
+                if self._spot_rank_ok(owner):
+                    self.spot_track = (t["match"], app, cap)
+                await self._show_spot({**spot, **self._snippet(step)}, steady=True, owner=owner)
+                return True
+        return False
+
+    @staticmethod
+    def _long_hit(spot: dict, match: str) -> bool:
+        """E6: an OCR line far longer than the anchor is prose that mentions it (a chat message quoting `import sys`),
+        not the code line."""
+        line = next(iter((spot.get("matched") or "").splitlines()), "")
+        lit = re.sub(r"\s+", "", re.sub(r"\\(.)", r"\1", match or ""))  # an escaped regex reads as its text
+        n = len(re.sub(r"\s+", "", line))
+        prose = (len(line.split()) >= 8 and not line.lstrip().startswith(("#", "//"))  # a sentence, not a code comment:
+                 and re.search(r"[\w)][.!?]\s+[A-Z][a-z']", line) is not None)  # "… on import sys and line 7. I'm …"
+        return bool(lit) and (n > max(4 * len(lit), len(lit) + 50) or prose)
+
+    def _spot_intent(self, spot: dict) -> str:
+        """What the Haiku targeter is asked to find for a box: the step's one action (+ its code). A short pointer
+        caption ("Type it here", E5) asks with the step's action line, as before. E9: when part of the step's code is
+        already in the file, it asks for the line where it goes on (or the line that differs) with that line's code,
+        never for the whole snippet again."""
+        intent, code = spot.get("caption") or "", spot.get("snippet") or ""
+        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, self.CHANGE_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
+            intent = self._action_line(self.step)
+            prog = self._code_progress(self.step)  # None for a run step
+            if prog is not None and prog["kind"] != "done":
+                name = Path(prog["path"]).name
+                intent = (f"In {name}, line {prog['line']}: the line that differs from the step's code"
+                          if prog["kind"] == "change" else
+                          f"In {name}, line {prog['line']}: where typing goes on (the lines above it are already typed)")
+                code = prog["expect"]
+        if code:
+            intent += f" (code: {code[:120]})"
+        return intent
+
+    async def _confirm_spot(self, spot: dict, pane: dict | None = None, move_conf: float | None = None) -> dict | None:
+        """The Haiku targeter (server/screen/target.py, via screen.confirm) checks the box on the real screen: keeps
+        it, moves it to what Haiku picked, or drops it (None) when Haiku is sure nothing on screen matches. E6: unsure
+        (low confidence / "nothing" / an error) keeps the box only inside the lesson's editor pane (`pane`). Haiku
+        unavailable (no key / timeout / budget): the box stands. No real reader (tests): it stands."""
+        confirm = getattr(self.screen, "confirm", None) if getattr(self.screen, "reader", None) is not None else None
+        if confirm is None or stage.on(self):  # a Demo lesson: the box stands, no Haiku call
+            return spot
+        kw: dict[str, Any] = {"pane": pane} if pane is not None else {}
+        if move_conf is not None and spot_lines.takes_kw(confirm, "move_conf"):  # t5 (d): a file box moves when sure
+            kw["move_conf"] = move_conf
+        try:
+            rect = await confirm(spot["rect"], self._no_create(self._spot_intent(spot)), **kw)
+        except Exception:
+            log.exception("targeter failed; keeping the located box")
+            return spot
+        return None if rect is None else {**spot, "rect": {k: float(rect[k]) for k in ("x", "y", "w", "h")}}
+
+    def _anchor_in_file(self, target: dict) -> bool:
+        from . import workspace as wsmod
+
+        f, match = target.get("file") or "", target.get("match") or ""
+        p = wsmod.resolve_file(self.workdir, f) if self._real_file(f) else None
+        if p is None or not match:
+            return p is not None
+        try:
+            return wsmod.anchor_line(p.read_text(errors="replace"), match) is not None
+        except OSError:
+            return False
+
+    def _chrome_hit(self, spot: dict, pane: dict | None = None) -> bool:
+        """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?
+        `pane`: a lesson code step's editor pane (_code_pane): a match outside it (terminal, Chat) isn't either."""
+        text = (spot.get("matched") or "").strip()
+        if re.search(r"\s[>›]\s", text):
+            return True
+        if re.fullmatch(r"[\w./-]+\.\w{1,6}( [—–-] .*)?", text):  # just a file name (tab / title)
+            return True
+        win = self._editor_window()
+        if win and self.lesson_mode and spot["rect"]["y"] < win["y"] + 70.0:
+            return True
+        return pane is not None and not self._in_pane(spot["rect"], pane)
+
+    def _code_pane(self) -> dict | None:
+        """E3: in a lesson code step, VS Code's editor pane (E6 region "editor"; it may capture a frame, so call it
+        in a thread); None for a run step, a video lesson, or when the pane isn't read."""
+        if not self.lesson_mode or self.step is None or self._run_command(self.step):
+            return None
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        return region("editor") if region is not None else None
+
+    @staticmethod
+    def _in_pane(r: dict, pane: dict, slop: float = 4.0) -> bool:
+        cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
+        return (pane["x"] - slop <= cx <= pane["x"] + pane["w"] + slop
+                and pane["y"] - slop <= cy <= pane["y"] + pane["h"] + slop)
+
+    # E8: the box has ONE owner at a time. A press's answer (Show me / Explain / Hint / Check) outranks the coach's
+    # off-track box, which outranks the step's own target; a lower one never replaces a higher one that's still up.
+    SPOT_RANK = {"step": 1, "offtrack": 2, "answer": 3}
+    ANSWER_PIN_S = 10.0  # an answer's box holds this long, or until the learner acts
+    SPOT_DUP_S = 1.0  # the same box is never sent twice within this
+
+    def _spot_frozen(self) -> bool:
+        """E7: no box work at all (no targeter call either) while "Continue where you left off?" is up or the app that
+        was connected has left. An engine that never had an app (demo autostart before it connects, the in-process
+        staging / box-rehearsal scripts) still places boxes (as has_client: last_client_gone is None)."""
+        if self.awaiting_resume:
+            return True
+        engine = getattr(self._emit_raw, "__self__", None)  # main.Engine._emit -> the Engine (hub + last_client_gone)
+        clients = getattr(getattr(engine, "hub", None), "clients", None)
+        return clients is not None and not clients and getattr(engine, "last_client_gone", None) is not None
+
+    def _live_front(self) -> str:
+        """The frontmost app right now (E6 reader.frontmost(): the window server, ~0.3 ms, Miyagi's overlay never
+        counts), or '' when unknown (no real reader: tests)."""
+        fn = getattr(getattr(self.screen, "reader", None), "frontmost", None) if self.screen is not None else None
+        if fn is None:
+            return ""
+        try:
+            return str((fn() or {}).get("app") or "").strip()
+        except Exception:  # noqa: BLE001 - a failed lookup must never cost the box
+            return ""
+
+    def _editor_off_screen(self) -> bool:
+        """E6: the latest frame lists the windows on screen and none is the lesson's VS Code window (E6 keeps other
+        folders' VS Code windows out of `windows`)."""
+        wins = getattr(self.last_obs, "windows", None) or []
+        return bool(wins) and not any((getattr(w, "app", "") or "").lower() in CODE_APP_NAMES for w in wins)
+
+    def _spot_held_by(self) -> str | None:
+        """The owner of the box up now while it outranks the step's box: an answer for ANSWER_PIN_S or until the
+        learner acts; an off-track box while this step's diagnosis stands. None: no box, or the step's own."""
+        own = getattr(self, "_spot_owner", None)
+        if own is None or self.spot_rect is None or own[1] != self.step_gen:
+            return None
+        name, _gen, t0 = own
+        if name == "answer" and (self.clock() - t0 >= self.ANSWER_PIN_S or self.last_action_t > t0):
+            return None
+        if name == "offtrack" and not (self._fix_active() if self.lesson_mode else self.last_offtrack is not None):
+            return None  # t5 (b): a lesson's fix box holds while its fix is active (Not-yet card / running diagnosis)
+        return None if name == "step" else name
+
+    def _spot_rank_ok(self, owner: str) -> bool:
+        held = self._spot_held_by()
+        return held is None or self.SPOT_RANK.get(owner, 1) >= self.SPOT_RANK[held]
+
+    def _spot_lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        if getattr(self, "_spot_lock_loop", None) is not loop:  # a lock never outlives its loop (tests run several)
+            self._spot_lock_obj, self._spot_lock_loop = asyncio.Lock(), loop
+        return self._spot_lock_obj
+
+    def _same_box(self, spot: dict, steady: bool) -> bool:
+        """The box up already is this one: a steady box that hasn't really moved, or any identical box sent within
+        SPOT_DUP_S (two callers placing the same box)."""
+        old, r = self.spot_rect, spot["rect"]
+        if not old or spot.get("caption") != self._spot_caption:
+            return False
+        slop = self.SPOT_MOVE_PX if steady else 1.0
+        if not all(abs(r[k] - old[k]) <= slop for k in ("x", "y", "w", "h")):
+            return False
+        return steady or self.clock() - self._spot_t < self.SPOT_DUP_S
+
+    def _title_strip(self, r: dict) -> bool:
+        """E6/E17: the menu bar or VS Code's title bar (layout buttons), where no step is ever done."""
+        win = self._editor_window()
+        return r["y"] + r["h"] / 2 < (win["y"] + 40.0 if win else 60.0)
+
+    async def _show_spot(self, spot: dict, steady: bool = False, owner: str | None = None,
+                         verify: bool = True) -> None:
+        """steady: the engine's own target box (step start / follow): not re-sent when it hasn't really moved.
+        Coach / button spotlights go out (an identical one not twice within SPOT_DUP_S).
+        owner (E8): "answer" > "offtrack" > "step" (see SPOT_RANK); default: steady -> step, during a press -> answer,
+        else (the coach) -> offtrack. verify: a steady lesson box goes past the Haiku targeter first.
+        Never while the lesson is paused (E7); lesson mode: only on VS Code, and only while it is the app in front (E6).
+        One send at a time: the checks run again after the targeter's await (E8: no double sends)."""
+        owner = owner or ("step" if steady else "answer" if _ANSWERED.get() is not None else "offtrack")
+        line_meta = spot.get("_line")  # t5 (d): a line box the file decided (_line_meta): never sent with the box
+        if line_meta is not None:
+            spot = {k: v for k, v in spot.items() if k != "_line"}
+        if self._spot_frozen():
+            log.info("no box for %r: the lesson is paused (resume card up / no app)", spot.get("caption"))
+            return
+        if onscreen_coach.holds_spot(self):  # Nov 24: the step's on-screen mark is the one pointer
+            log.info("no box for %r: the step's on-screen mark is up", spot.get("caption"))
+            return
+        if not self._spot_rank_ok(owner):
+            log.info("no %s box for %r: the %s box is up", owner, spot.get("caption"), self._spot_held_by())
+            return
+        if owner == "step" and self._fix_active() and self._code_progress(self.step) is not None:
+            log.info("no step box for %r: a fix / off-track / Not-yet line is up (t5)", spot.get("caption"))
+            return
+        if self._lesson_window_hidden() and (self.lesson_mode or (spot.get("app") or "").lower() in CODE_APP_NAMES):
+            log.info("no box for %r: another folder's VS Code window is on screen, not the lesson's", spot.get("caption"))
+            return
+        if self.lesson_mode and ((spot.get("app") or "Code").strip().lower() not in CODE_APP_NAMES
+                                 or self._editor_off_screen()):
+            log.info("no box for %r: not on the lesson's VS Code window (%s)", spot.get("caption"), spot.get("app"))
+            return
+        gen = self.step_gen
+        self._spot_seq = seq = getattr(self, "_spot_seq", 0) + 1
+        pane = await asyncio.to_thread(self._code_pane) if steady and self.lesson_mode else None
+        if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
+            r0 = spot["rect"]
+            if not self._in_pane(r0, pane):
+                log.info("no box for %r: outside the editor pane", spot.get("caption"))
+                return
+            x, x2 = max(r0["x"], pane["x"]), min(r0["x"] + r0["w"], pane["x"] + pane["w"])
+            spot = {**spot, "rect": {**r0, "x": x, "w": max(8.0, x2 - x)}}
+        if 0 < spot["rect"]["h"] < 12.0:  # E24: a sliver (7.6 pt) is no box: one text row, centred on it
+            r0 = spot["rect"]
+            spot = {**spot, "rect": {**r0, "y": r0["y"] + r0["h"] / 2 - 10.0, "h": 20.0}}
+        if owner != "answer":  # t8: one line, one caption (a press may still say more: Show me's "Change to: …")
+            spot = self._keep_row_caption(spot)
+        sticky = steady and owner != "answer"  # E15: a press re-sends the box it answers with (not twice in 1 s)
+        if self._same_box(spot, sticky):
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("spotlight")  # a press: the box already up is the answer, no notice
+            return  # the same box again: no re-send (flicker made the overlay feel laggy)
+        if line_meta is not None and not line_meta.get("move"):
+            verify = False  # t5 (d): the line to change / the line above, read off the file: Haiku can't improve it
+        if sticky and self.lesson_mode and verify:  # E15: a press's box answers at once, no Haiku round trip
+            confirmed = await self._confirm_spot(spot, pane, move_conf=self.LINE_MOVE_CONF if line_meta else None)
+            if gen != self.step_gen or self.passed:  # E3: Haiku answered after the step moved on: no stale box
+                log.info("targeter answered after the step changed; no box for %r", spot.get("caption"))
+                return
+            if confirmed is None and line_meta is not None:  # t5 (d): an empty row has nothing to match: it stands
+                log.info("targeter: no match for %r on line %s; the file's row stands (t5)",
+                         spot.get("caption"), line_meta.get("line"))
+                confirmed = spot
+            if confirmed is None:
+                log.info("targeter: no real target for %r; no box", spot.get("caption"))
+                if owner == "step":  # _maybe_respot backs off instead of asking again every RESPOT_S
+                    prev = getattr(self, "_spot_refused", None)
+                    self._spot_refused = (gen, prev[1] + 1 if prev and prev[0] == gen else 1, self.clock())
+                if self.spot_rect is not None and self._spot_rank_ok(owner):  # E6: never keep a stale box up
+                    async with self._spot_lock():
+                        if self.spot_rect is not None and gen == self.step_gen and self._spot_rank_ok(owner):
+                            await self.emit("spotlight", {"clear": True})
+                return
+            moved = confirmed["rect"] != spot["rect"]
+            if moved and pane is not None and not self._in_pane(confirmed["rect"], pane):
+                log.info("targeter moved %r out of the editor pane; keeping the line box", spot.get("caption"))
+                confirmed = spot  # E3: (taller than ~3 lines is refused in target.verdict)
+            elif moved and self._title_strip(confirmed["rect"]) and not self._title_strip(spot["rect"]):
+                log.info("targeter moved %r onto the menu / title bar; keeping the box", spot.get("caption"))
+                confirmed = spot
+            elif moved and line_meta is not None and not self._line_move_ok(line_meta, spot["rect"], confirmed["rect"]):
+                log.info("targeter moved %r off line %s into a block / onto code; keeping the file's line (t5)",
+                         spot.get("caption"), line_meta.get("line"))
+                confirmed = spot
+            spot = confirmed
+        async with self._spot_lock():
+            if gen != self.step_gen or (steady and self.passed) or self._spot_frozen():
+                return
+            if owner == "step" and getattr(self, "_spot_sent_seq", 0) > seq:
+                return  # a newer box went out while this one waited for the targeter
+            if not self._spot_rank_ok(owner) or self._same_box(spot, sticky):
+                return  # E8: re-checked after the await: a second caller with the same box sends nothing
+            front = self._live_front().lower()
+            if self.lesson_mode and front and front not in CODE_APP_NAMES and front not in self.OVERLAY_APPS:
+                log.info("no box for %r: %s is in front, not VS Code (it comes back with VS Code)",
+                         spot.get("caption"), front)
+                self._spot_away = True  # E6: never a box over another app, never a box and a clear in one tick
+                return
+            r = spot["rect"]
+            self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
+            self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)
+            self._spot_misses = 0
+            self._spot_matched = bool(spot.get("matched"))  # a text match _follow_spot may move; a line box it never swaps
+            self._spot_sent_seq, self._spot_owner = seq, (owner, gen, self.clock())
+            # V9: the box up's own line, caption and app: _follow_spot moves THAT box (an off-track box included)
+            self._spot_up = (gen, str(spot.get("matched") or ""), spot.get("app"), spot.get("caption") or "")
+            # <= ~8 words, and never the boxed line's own code as a to-do (V9: "Assign fig, axes here" -> "Look here")
+            await self.emit("spotlight", {**spot, "caption": captions.for_line(
+                short_caption(self._no_create(spot["caption"])), spot.get("matched"))} if spot.get("caption") else spot)
+
+
+    RELAYOUT_S = (0.4, 1.2, 2.5)  # V9: re-measure the box this long after a layout change that wasn't a scroll
+
+    def _held_box_track(self) -> tuple | None:
+        """V9 (test 9, video lesson s3): the box up is an off-track / answer box on a line of text (the coach's target),
+        which outranks the step's own tracked target: -> (match, app, caption, owner) of THAT box, so it follows its
+        own line when notebook output appears above it and pushes the code down. (Before, the step's target was
+        re-located and refused under the off-track box every frame: "no step box …: the offtrack box is up", and the
+        off-track box stayed on the old y.) None: no such box, or lesson mode (its line boxes have their own followers)."""
+        if self.lesson_mode or self.spot_rect is None:
+            return None
+        held = self._spot_held_by()
+        up = getattr(self, "_spot_up", None)
+        if held in (None, "step") or not up or up[0] != self.step_gen or not up[1].strip():
+            return None
+        return re.escape(up[1].strip()), up[2], up[3], held
+
+    def relayout(self, why: str) -> None:
+        """V9: the screen's layout may have changed without a scroll (a notebook cell ran and its output pushed the
+        code below it down; a run printed; the companion saw an edit / save / editor change): re-measure the box up a
+        few times over the next RELAYOUT_S (the latest frame's OCR / AX text via _locate: no capture, no model call)
+        and move it with its line. One pass at a time. Video lessons only: lesson mode's line boxes follow by row."""
+        if self.lesson_mode or self.step is None or self.passed or self.spot_rect is None or self._spot_frozen():
+            return
+        if self.spot_track is None and self._held_box_track() is None:
+            return
+        t = getattr(self, "_relayout_task", None)
+        if t is not None and not t.done():
+            return  # the pass running re-measures within 2.5 s anyway
+        gen = self.step_gen
+
+        async def go() -> None:
+            waited = 0.0
+            for d in self.RELAYOUT_S:
+                await asyncio.sleep(d - waited)
+                waited = d
+                if gen != self.step_gen or self.passed or self.spot_rect is None:
+                    return
+                await self._follow_spot(force=True)
+
+        log.debug("box: re-measure after %s (V9)", why)
+        self._relayout_task = self._spawn(go(), timer=True)
+
+    def _keep_row_caption(self, spot: dict) -> dict:
+        """t8 (nn2, 05:51:20-05:51:31): one line to change got three captions in 11 s ("Finish this function", the
+        coach's streamed "Change + to - here", the off-track's "Change this line"). A box on the row of the box that is
+        up, both saying what to change there, keeps the caption already on screen."""
+        cur, cap, new = self.spot_rect, self._spot_caption or "", spot.get("caption") or ""
+        if cur is None or not cap or not new or new == cap or not (cap.startswith("Change") and new.startswith("Change")):
+            return spot
+        r = spot.get("rect") or {}
+        try:
+            h = max(float(cur["h"]), float(r["h"]), 1.0)
+            same_row = (abs(float(cur["y"]) + float(cur["h"]) / 2 - float(r["y"]) - float(r["h"]) / 2) < 0.5 * h
+                        and float(r["x"]) < float(cur["x"]) + float(cur["w"])
+                        and float(cur["x"]) < float(r["x"]) + float(r["w"]))
+        except (KeyError, TypeError, ValueError):
+            return spot
+        if not same_row:
+            return spot
+        log.info("box on the same row as %r: keeps that caption (not %r)", cap, new)
+        return {**spot, "caption": cap}
+
+    async def _follow_spot(self, force: bool = False) -> None:
+        """On a new frame: move the spotlight with its target (only if it moved > 4pt). E8: it moves the box that is
+        up as that box's owner, never swaps a line / vision box for another text match; E9: the step's anchor is
+        dropped once the step's code is in the file; E6: lesson mode follows VS Code's text only.
+        V9: an off-track / answer box on a line follows that line (_held_box_track); `force` (relayout's re-measure)
+        skips the 2 s gap and never counts a miss toward clearing the box."""
+        held = self._held_box_track()
+        if (self.spot_track is None and held is None) or self.passed or self.step is None or self._spot_frozen():
+            return
+        if self.lesson_mode and self._offtrack_box() == "done":  # t4: the off-track's checks pass: the type box returns
+            self.spot_track = None
+            self._spawn(self._lesson_spot(self.step_gen, self.step, tries=3), timer=True)
+            return
+        if self.lesson_mode and self.spot_rect is not None and not getattr(self, "_spot_matched", True):
+            return  # the box up is the exact line (gutter / vision), not the tracked text
+        if not force and self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+            if not self.lesson_mode and self.SPOT_MIN_GAP_S > 0:
+                self.relayout("a frame inside the 2 s gap")  # V9: that frame may be the last one (a still screen)
+            return  # at most one re-send every 2 s
+        if held is not None:  # V9: the off-track / answer box up follows its own line, as its owner
+            match, app, caption, owner = held
+            own = False
+        else:
+            match, app, caption = self.spot_track
+            own = any(t.get("match") == match for t in self.step.get("targets") or [])
+            if self.lesson_mode:
+                app = app or "Code"
+                if own and self._code_progress(self.step) is not None:
+                    self.spot_track = None  # E9: "where to start typing" is done once the code is there
+                    return
+            elif own and nb_coach.code_typed(self, self.step):  # t12: the same for a notebook step's code
+                self.spot_track = None
+                if self.spot_rect is not None and self._spot_rank_ok("step"):
+                    self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+                    await self.emit("spotlight", {"clear": True})
+                return
+            owner = "step" if own else (self._spot_held_by() or "step")
+        spot = self._locate(match, app, caption)
+        if spot and (self._chrome_hit(spot) or (self.lesson_mode and self._long_hit(spot, match))):
+            spot = None
+        if not spot:
+            if force:
+                return  # V9: a re-measure that missed (OCR mid-redraw) never takes the box down
+            self._spot_misses += 1
+            if self.spot_rect is not None and self._spot_misses == 3 and self._spot_rank_ok(owner):
+                self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()  # scrolled out of view
+                await self.emit("spotlight", {"clear": True})
+            return
+        r, old = spot["rect"], self.spot_rect
+        if old and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
+            return
+        if own:
+            spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
+        if held is not None:
+            log.info("box: %r moved %+.0f pt without a scroll (notebook output / a run above it); it follows its "
+                     "line as the %s box (V9)", caption, float(r["y"]) - float((old or r)["y"]), owner)
+            pin = getattr(self, "_spot_owner", None)
+            await self._show_spot(spot, steady=True, owner=owner)
+            now = getattr(self, "_spot_owner", None)
+            if pin is not None and now is not None and now[:2] == pin[:2]:
+                self._spot_owner = pin  # following never restarts an answer's 10 s pin
+            return
+        await self._show_spot(spot, steady=True, owner=owner)
+
+    async def _pass_step(self, skipped: bool = False) -> None:
+        """skipped: the learner pressed Skip (action skip_step): move on, but it's not a pass (never green)."""
+        step = self.step
+        if step is None or self.passed:
+            return
+        if step.get("provisional") or is_provisional(self.graph):
+            # E2 quick start: the placeholder is watch-along only. It never passes or pends: at the end of its
+            # clip we hold quietly until the real lesson replaces it (_replace_provisional starts the real s1).
+            if not self._placeholder_hold:
+                self._placeholder_hold = True
+                await self._status("thinking", detail="Building the next steps")
+            return
+        self.passed = True
+        self._passed_t = self.clock()  # t10: the cue guard (a Check my work aimed at this step lands on the next)
+        nxt = self.steps[self.idx + 1]["id"] if self.idx + 1 < len(self.steps) else None
+        more_coming = nxt is None and (self.graph or {}).get("lesson", {}).get("complete") is False
+        payload: dict[str, Any] = {"stepId": step["id"]}
+        if nxt:
+            payload["nextStepId"] = nxt
+        if more_coming:
+            payload["pending"] = True  # the next part of a long video is still being built
+        if skipped:
+            payload["skipped"] = True
+            self.m.cancel_coach()
+            if step["id"] not in self.skipped_steps:
+                self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
+        await advice_clear.step_passed(self)  # t9 (V10): its "Not yet" card goes with the step
+        # ui-v4 skill tree: key, assisted, skillIds, proofId; records mastery / review rounds and the proof (local only)
+        payload.update(await skill_hooks.on_pass(self, step, skipped))
+        await self.emit("step.passed", payload)
+        await onscreen_coach.clear(self)  # the step's on-screen mark goes with it
+        if not skipped:
+            self._say("step.passed", payload)
+            await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
+        self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
+        await self._status("watching" if skipped else "passed")
+        await self.emit("spotlight", {"clear": True})
+        if nxt:  # Nov 15: steps whose code is already in the file pass at once, ONE card (quiet_save.advance)
+            self._spawn(quiet_save.advance(self, self.step_gen, self.idx + 1) if not skipped
+                        else self._advance(self.step_gen, self.idx + 1))
+        elif more_coming and not self._more_in_flight():
+            await self._finish_partial(step)  # nothing can build the rest (DEMO / extend failed): finish here
+        elif more_coming:
+            self.waiting_more = True  # _extend_lesson starts the next step when it arrives
+            await self._status("thinking", detail="Building the next steps")
+            parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
+            if parts.get("total") or parts.get("list"):  # only a real long-video part build gets this card
+                done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
+                where = f" (part {min(done + 1, total)} of {total})" if total else ""
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Building the next part…",
+                                       "body": f"The next part of this video is being built{where}. "
+                                               "Keep watching; its steps start here as soon as they're ready."})
+            await self.emit("video.play", {})  # the video keeps playing meanwhile
+        else:
+            self.phase = "done"
+            # t11: pause, never play: the video's outro, credits and end cards played behind the completion panel
+            await self.emit("video.pause", {})
+            self._spawn_lesson_end()  # t5: the completion card (its skill count, their run's numbers, End lesson)
+
+    def _spawn_lesson_end(self) -> None:
+        from . import lesson_end
+
+        self._spawn(lesson_end.send_later(self, self.step_gen), timer=True)
+
+    # ---------------------------------------------------------- E2 lazy parts (long videos)
+    def _more_in_flight(self) -> bool:
+        """Is anything building more steps for this lesson (the build itself, or an extend)? Starts an
+        extend if one is due."""
+        self._maybe_extend()
+        return (self.building() or self._parts_building
+                or (self._extend_task is not None and not self._extend_task.done()))
+
+    def _maybe_extend(self) -> None:
+        """Near the last built step of a lazily built long video, build the next part in the background
+        (one Gemini call per part the learner actually reaches)."""
+        g = self.graph
+        if (g is None or self._parts_building or self.building() or self._extend_failed
+                or (self._extend_task is not None and not self._extend_task.done())
+                or (g.get("lesson") or {}).get("complete") is not False
+                or is_provisional(g)  # a placeholder is replaced by the running build, never extended
+                or not _has_parts(g)):  # only lazily built long videos have parts to extend
+            return
+        step = self.step
+        cur = step.get("index", self.idx) if step else self.idx
+        if not self.m.lesson_needs_more(g, cur):
+            return
+        self._extend_task = self._spawn(self._extend_parts(g))
+
+    async def _extend_parts(self, graph: dict) -> None:
+        try:
+            g = await self.m.extend_lesson(copy.deepcopy(graph), on_update=self._extend_lesson)
+        except Exception as e:
+            log.exception("building the next part failed")
+            self._extend_failed = True
+            if self.graph is not None and self.waiting_more and self.step is not None:
+                await self.emit("error", {"message": f"Couldn't build the next part of this video: {human_build_error(e)}"})
+                await self._finish_partial(self.step)
+            return
+        self._extend_task = None
+        if self.graph is None:
+            return
+        await self._extend_lesson(g, (g.get("lesson") or {}).get("complete") is not False)
+        self._maybe_extend()  # a skipped / failed part, or still close to the end: the next one
+
+    async def _finish_partial(self, step: dict) -> None:
+        """The rest of the video can't be built now: the lesson ends at the steps it has."""
+        self.waiting_more = False
+        if self.graph is not None:
+            self.graph.setdefault("lesson", {})["complete"] = True
+        self.phase = "done"
+        await self._status("passed")
+        await self.emit("video.play", {})
+
+    async def _advance(self, gen: int, idx: int) -> None:
+        await asyncio.sleep(self.advance_delay_s)
+        if gen == self.step_gen:
+            await self.start_step(idx)
+
+    async def force_pass(self) -> None:
+        """Debug: mark every check of the active step as passed."""
+        step = self.step
+        if step is None or self.passed:
+            return
+        for c in self.display_checks(step):
+            await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
+                                              "label": c.get("label", c["id"]), "status": "pass",
+                                              "detail": "forced"})
+        await self._pass_step()
+
+    async def goto_step(self, idx: int) -> None:
+        await self.start_step(idx)
+
+    # ------------------------------------------------------------------ learner signals
+    def _acted(self) -> None:
+        self.last_action_t = self.clock()
+        self._touch()
+        if self._action_spot:  # a show_me / hint / explain spotlight: done its job once the learner acts
+            self._action_spot = False
+            self.spot_track = None
+            self._spawn(self.emit("spotlight", {"clear": True}))
+        if self.coaching:  # a real user action makes the pending diagnosis stale: close the stream
+            self.m.cancel_coach()
+
+    def learner_idle_s(self) -> float:
+        own = self.clock() - self.last_action_t
+        v = self._work_since("input")  # E5: a click in the Claude app / keys in Miyagi's ask box aren't lesson work
+        return own if v is None else min(own, v)
+
+    def typing(self) -> bool:
+        v = self.inputs.seconds_since_key() if self.inputs is not None else None
+        own = getattr(self.inputs, "miyagi_in_front", None)  # keys typed into Miyagi's own launcher aren't editor work
+        return v is not None and v < config.TYPING_GUARD_S and not (callable(own) and own())
+
+    def acted_since_step_start(self) -> bool:
+        if getattr(self, "_revisit_gen", None) == self.step_gen:
+            return False  # a step reached by Back: its code may be in the file already; a save / run / Check passes it
+        if self.last_action_t >= self.step_t0:
+            return True
+        v = self._work_since("input")  # E5: only input in the lesson's own editor / terminal
+        return v is not None and v <= self.clock() - self.step_t0
+
+    def _work_since(self, kind: str) -> float | None:
+        """Seconds since the learner's last key / click / either ("input") in the lesson's own editor or terminal
+        (E5: inputs.py books every key and click to the app that got it); None without input signals."""
+        inp = self.inputs
+        if inp is None:
+            return None
+        fn = getattr(inp, f"seconds_since_work_{kind}", None) or getattr(inp, f"seconds_since_{kind}")
+        return fn()
+
+    @staticmethod
+    def _sig(failed: list[dict]) -> tuple:
+        return tuple(sorted(r.get("checkId", "") for r in failed))
+
+    # ------------------------------------------------------------------ evaluation
+    async def _gate_off_loop(self, step: dict, ctx: RunContext, precision: bool) -> dict:
+        """self.m.evaluate_gate in a worker thread (A08 / ReDoS: a lesson's regexes wait on the regex worker's
+        deadlines there, never on the event loop), on a snapshot of the run state (ingest keeps appending to the
+        live one meanwhile), with the lesson's regex budget (server.safety.regex_worker.budget: after a few
+        timeouts in this lesson its other slow-capable patterns stop running)."""
+        from server.safety import regex_worker
+
+        snap = RunContext(workdir=ctx.workdir, runs=[_run_copy(r) for r in ctx.runs], editor=ctx.editor,
+                          step_started_at=ctx.step_started_at, lesson_started_at=ctx.lesson_started_at,
+                          screen={k: list(v) if isinstance(v, list) else v for k, v in ctx.screen.items()}
+                          if isinstance(ctx.screen, dict) else ctx.screen)
+        if ctx.last_run is not None:  # the same run as in runs (a `tut run` may be the last one there or not)
+            snap.last_run = next((c for r, c in zip(ctx.runs, snap.runs) if r is ctx.last_run), None) \
+                or _run_copy(ctx.last_run)
+        key = self._regex_key()
+
+        def run() -> dict:
+            with regex_worker.budget(key):
+                return self.m.evaluate_gate(step, snap, snap.screen, precision)
+
+        return await asyncio.to_thread(run)
+
+    def _regex_key(self) -> tuple:
+        """This lesson's regex budget key (server.safety.regex_worker.budget): a new one per loaded lesson."""
+        return ("lesson", self._regex_serial, self.lesson_epoch)
+
+    async def _off_loop(self, fn: Callable, *args: Any, **kw: Any) -> Any:
+        """fn(*args, **kw) in a worker thread under this lesson's regex budget: a lesson regex search (a VS Code
+        check graded on its file or buffer) waits on the regex worker's deadline there, never on the event loop."""
+        from server.safety import regex_worker
+
+        key = self._regex_key()
+
+        def run() -> Any:
+            with regex_worker.budget(key):
+                return fn(*args, **kw)
+
+        return await asyncio.to_thread(run)
+
+    async def evaluate(self, trigger: str) -> None:
+        """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
+        if stage.on(self):  # a Demo lesson: a save passes a typing step, the recorded run grades a run step
+            await stage.evaluate(self, trigger)
+            return
+        learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
+        if self.awaiting_resume or self.awaiting_start:
+            return  # frozen until the learner picks Continue / Start new; held until Start / the first edit (E4)
+        if trigger != "run_end" and self.notebook_lesson:  # t10 R1: a notebook cell the learner ran is a run of the step
+            from . import notebook_runs
+
+            if await notebook_runs.poll(self) and trigger in ("file", "screen"):
+                return  # its run_end evaluation graded the step (and the coach explains a failed cell now)
+        async with self._lock:
+            step = self.step
+            if step is None or self.passed or self.phase != "active":
+                return
+            if learner or (trigger == "screen" and self.segment_done):
+                self.engaged = True  # screen changes count once the clip is over (the learner is working)
+            ctx = self.context()
+            precision = self.precision_mode()
+            gen = self.step_gen
+            try:
+                gate = await self._gate_off_loop(step, ctx, precision)
+            except Exception as e:
+                log.exception("evaluate_gate failed")
+                if not self._eval_error_sent:  # once per step, not once per frame
+                    self._eval_error_sent = True
+                    await self.emit("error", {"message": f"Check evaluation failed: {e}"})
+                return
+            if gen != self.step_gen or self.step is not step or self.passed or self.phase != "active":
+                return  # the step moved on (or ended) while its checks were graded in the worker thread
+            if trigger in ("check", "file"):
+                self._buffers.clear()  # Check / a save: VS Code's text now, not the last tick's
+            gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
+            if gen != self.step_gen or self.passed:
+                return  # the step moved on while VS Code was asked for its unsaved text
+            if gate.get("passed") and gate.get("via") == "precision":
+                # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
+                # the files-only route: the files can be right while the app on screen is broken
+                kinds = {c["id"]: c.get("type") for c in step.get("checks") or []}
+                if any(r.get("status") == "fail" and kinds.get(r.get("checkId")) == "screen_absent"
+                       for r in gate.get("checks") or []):
+                    gate = {**gate, "passed": False, "via": None}
+            shown_list, other = ("precision", "checks") if self._precision_display(step) else ("checks", "precision")
+            results = list(gate.get(shown_list) or [])
+            if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
+                why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
+                ran_ids = self._run_row_ids(step)  # t8: a row about the run's output says so, in plain words
+                results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": "your run printed it"
+                           if r.get("checkId") in ran_ids else why} for r in results]
+            results, gate = self._need_run(step, results, gate)  # a run step needs a run, not just its code
+            results, gate = self._defs_once(step, results, gate)  # T5: no later copy of the step's def overriding it
+            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
+                                       or (self.lesson_mode and self._file_unready(step))):
+                # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
+                gate = {**gate, "passed": False, "via": None}
+                self._editor_state_card(step, unsaved=False)  # unsaved only: "Save to finish" (below) says it
+            if self.judged_pass:  # E5's judge saw these done on screen: they count like any pass
+                results = [r if r.get("checkId") not in self.judged_pass or r.get("status") == "pass"
+                           else {**r, "status": "pass", "detail": r.get("judgedDetail") or "Claude saw it on screen"}
+                           for r in results]
+                held = self._unsaved_holds - self.judged_pass  # green only until the save: never a step pass
+                if not gate.get("passed") and not held and results and all(r.get("status") == "pass" for r in results):
+                    gate = {**gate, "passed": True, "via": "judge"}
+            # E1 (live test 3): loose patterns passed print("You rolled:" roll) and a requests.get without
+            # params={"format": "j1"}. A lesson code step's .py file must also compile, and every call / keyword
+            # argument of its code must be in it, read from VS Code's exact text, else the disk (code_gate.py).
+            would_pass, self._code_block, speak_now = bool(gate.get("passed")), None, False
+            cfile = (self._step_file(step) or "") if self.lesson_mode and not self.notebook_lesson else ""
+            if cfile.endswith(".py") and not step.get("setup"):
+                from . import code_gate
+                from . import workspace as wsmod
+
+                if (cpath := wsmod.resolve_file(self.workdir, cfile)) is not None:
+                    await self._buffers.refresh([cpath], self.workdir)
+                    if gen != self.step_gen or self.passed:
+                        return  # Back / goto_step during the read: this gate is the old step's
+                    sid, again, btext = step["id"], would_pass or trigger == "check", self._buffers.text(cpath)
+                    # no exact text and the code is unsaved / in another folder: the disk is stale, the save or the
+                    # "Wrong folder?" card decides (both already hold the pass)
+                    stale = btext is None and bool(self._dirty_step_file(step) or self._other_folder(step))
+                    results, code_rows = (results, []) if stale else code_gate.review(
+                        step, results, code_gate.read(cpath, btext), Path(cfile).name,
+                        syntax=again or f"{sid}-syntax" in self.check_state,
+                        whole=again or f"{sid}-code" in self.check_state, shown=self.check_state)
+                    if code_rows:
+                        self._code_block = code_rows[0]
+                        gate = {**gate, "passed": False, "via": None}
+                        if would_pass and (learner or self.acted_since_step_start()):
+                            self.gate_open = self.screen_gate_open = True  # it would have passed now: say why not
+                            speak_now = code_rows[0].get("checkId") == f"{sid}-syntax" and \
+                                (self.check_state.get(f"{sid}-syntax") or {}).get("status") != "fail"
+            self._save_file = None if gate.get("passed") else self._save_to_finish(step, results)
+            results = curated.math_details(self, step, results)  # t8: "needs 1 - h2 ** 2 on line 25, not 1 + h2 ** 2"
+            self.last_results = results
+            failed = [r for r in results if r.get("status") == "fail"]
+            if not gate.get("passed"):
+                seen = {r.get("checkId") for r in failed}
+                failed += [r for r in gate.get(other) or [] if r.get("status") == "fail" and r.get("checkId") not in seen]
+            self.last_failed = failed
+            n_pass = sum(1 for r in results if r.get("status") == "pass")
+            if n_pass > self.best_pass:
+                self.best_pass, self.last_progress_t = n_pass, self.clock()
+            if failed and (trigger == "check" or (learner and self.clock() - self.step_t0 >= self.offtrack_grace_s)):
+                # E1: a learner action after the step's first ~20 s shows fails; Check (they asked) shows them all
+                self.gate_open = True
+                self.screen_gate_open = self.screen_gate_open or trigger == "check"
+            await self._publish(step, results)
+            await advice_clear.checks_moved(self)  # t9 (V10): a "Not yet" whose checks moved goes / names what's left
+            curated.after_evaluate(self, step, trigger)  # curated lesson: the panel follows the learner's real run
+            if gate.get("passed"):
+                if learner or self.acted_since_step_start():
+                    await self._pass_step()
+                elif self.segment_done and not self.confirm_pending:
+                    # the screen says done but we never saw the learner act: ask, don't assert (paced: a later
+                    # frame asks again if it's too early now)
+                    self.confirm_pending = await self._emit_card(
+                        {"stepId": step["id"], "kind": "step", "title": "Looks done?",
+                         "body": "The checks pass. Confirm and I'll move on.", "actions": ["confirm"]}, auto=True)
+                return
+            self.confirm_pending = False
+            if failed and trigger in ("file", "run_end"):  # breakpoints
+                sig = self._sig(failed)
+                repeat = sig == self.last_bp_sig
+                self.last_bp_sig = sig
+                if trigger == "run_end" or repeat or speak_now:  # a new syntax error: the coach explains it now
+                    self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
+            if (failed and not self.coaching and self._sig(failed) != self.spoken_sig
+                    and curated.known_offtrack(self, step, failed) is not None):
+                # t8: a known failure of the curated lesson (nn2's sign) is said now, not after the idle gate
+                self._consider_speaking("known", step, failed, ctx)
+
+    _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
+
+    @staticmethod
+    def _run_row_ids(step: dict) -> set:
+        """The step's rows about what a run prints (an output check, a check on the Terminal's text), when the files
+        route grades the run's output too (a precision output check): its pass means the run printed it."""
+        if not any(c.get("type") == "output_contains" for c in step.get("precision_checks") or []):
+            return set()
+        return {c.get("id") for c in step.get("checks") or [] if c.get("type") == "output_contains"
+                or "terminal" in str(c.get("app") or "").lower()}
+
+    async def _publish(self, step: dict, results: list[dict]) -> None:
+        screen_ids = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_contains"}
+        nb_run: bool | None = None  # T11: is a notebook run still going (asked once, only when a row would go red)
+        for r in results:
+            cid = r.get("checkId")
+            shown = r.get("status", "pending")
+            if shown == "fail" and not (self.screen_gate_open if cid in screen_ids else self.gate_open):
+                shown = "pending"  # "watching": code not typed yet isn't a failure until Check / a verdict / the timer
+            if shown == "fail" and nb_coach.waits_on_run(step, r):
+                if nb_run is None:
+                    nb_run = nb_coach.run_in_progress(self, step)
+                if nb_run:  # T11 (s7): "not printed yet" while Run All still runs is not a failure (printed 4 s later)
+                    shown = "pending"
+            detail = r.get("detail") if shown == r.get("status", "pending") else None  # a masked fail says nothing
+            prev = self.check_state.get(cid)
+            label = r.get("label") or (prev or {}).get("label") or cid
+            if prev and prev["status"] == shown and (prev.get("detail") == detail or shown == "pass" and not (
+                    self._FILE_DETAIL.match(detail or "") and not self._FILE_DETAIL.match(prev.get("detail") or ""))):
+                continue  # a row that stays green isn't re-sent for a new detail (live test 3: 20 sends flipping "found
+                # in weather.py" / "seen in VS Code", the drawer jumping 2 px each), except once to say the file has it
+            if prev and prev["status"] == "pass" and shown != "pass" and (
+                    shown == "pending" or self.clock() - self.step_t0 < self.offtrack_grace_s):
+                continue  # no flip-flop: a pass only turns red for a real failure, after the step's first ~20 s
+            if shown in ("pass", "fail") and (not prev or prev["status"] != shown):
+                self._record(f"check_{shown}", {"check_id": cid, "label": label, "detail": detail}, step)
+            self.check_state[cid] = {"label": label, "status": shown, "detail": detail}
+            payload = {"stepId": step["id"], "checkId": cid, "label": label, "status": shown}
+            if detail:
+                payload["detail"] = detail
+            await self.emit("check.updated", payload)
+
+    async def tick(self) -> None:
+        """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
+        if stage.on(self):  # a Demo lesson: no screen health, scene glances, judge, stuck cards or idle nudges,
+            self._attribute_input()  # but the reader follows the step (E3) and a click / edit in VS Code ends
+            self._sync_screen_soon()  # "Before you start" (E4), so step 1 gets its box
+            if self.awaiting_start:
+                await self._maybe_begin()
+            await stage.tick(self)  # a pasted step passes on its own, unsaved (as quiet_save.poll in a real lesson)
+            return
+        step = self.step
+        self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
+        self._sync_screen_soon()  # E3: the reader runs only while a lesson step does (and the app hasn't left)
+        await self._check_screen_health()
+        if not self._clients_ok():
+            return  # E7: the app left: no scene look, judge, stuck card or coach for nobody
+        if await self._v2_tick():
+            return  # v2: VS Code is closed: the lesson waits (no look, judge, stuck card or coach) until it's back
+        if self.awaiting_start:
+            await self._maybe_begin()  # E4: an edit of the step file / typing in the editor starts the held step
+            if self.awaiting_start:
+                return  # "Before you start" is up: no look, judge, stuck card or idle ladder yet
+        await quiet_save.poll(self)  # Nov 15: the buffer changed -> re-graded now, not at the next 2-5 s scene look
+        await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
+        if step is not None and not self.passed and not self.awaiting_resume:
+            if self._go_t <= self.step_t0 or self.learner_started():  # after Continue: once they work again (E4)
+                self._maybe_judge(step)
+            await self._maybe_stuck_card(step)
+        if (step is None or self.passed or self.coaching or not self.last_failed or not self.engaged
+                or self.awaiting_resume):
+            return
+        async with self._lock:
+            if self.step is not step or self.passed:
+                return
+            ctx = self.context()
+            if self.pending_speak and not self.typing():
+                reason, self.pending_speak = self.pending_speak, None
+                self._consider_speaking(reason, step, self.last_failed, ctx)
+                return
+            if self.clock() - self.last_progress_t >= config.STUCK_S:
+                self.last_progress_t = self.clock()  # one "stuck" per window
+                await self._open_gate(step, timer=True)
+                self._consider_speaking("stuck", step, self.last_failed, ctx)
+            elif self.learner_idle_s() >= self.idle_gate_s:
+                await self._open_gate(step, timer=True)
+                self._consider_speaking("idle", step, self.last_failed, ctx)
+
+    async def _open_gate(self, step: dict, timer: bool = False) -> None:
+        """Show failing checks as failed, unmatched screen checks too. A verdict (judge / coach) opens it at once; the
+        stuck / idle timer only once the learner did something on this step and its first ~20 s are over (E1)."""
+        if self.awaiting_start or (timer and (not self.learner_started()
+                                              or self.clock() - self.step_t0 < self.offtrack_grace_s)):
+            return
+        if not (self.gate_open and self.screen_gate_open):
+            self.gate_open = self.screen_gate_open = True
+            await self._publish(step, self.last_results)
+
+    # ------------------------------------------------------------------ lesson lifecycle (E3 E4 E5 E7)
+    has_clients: Callable[[], bool] | None = None  # main.py: is an app connected now? (None: tests / the CLI: yes)
+    # Nov 21: the learner asked for a lesson on this connection (learn, a pick, library.start, action start / resume).
+    # main.py sets it False at boot and on each first connection; True here (tests / the CLI: every load is asked for)
+    learner_asked = True
+    restoring = False  # sessions.Resumer is reloading a saved lesson (its start_step seeks paused, never plays)
+    _editor_deferred: int | None = None  # lesson epoch whose VS Code open waits for Start (_editor_waits_for_learner)
+    app_left: Callable[[], bool] | None = None  # main.py: no app now, and one was connected before (None: no)
+    _start_hold: int | None = None  # lesson epoch held by "Before you start" (E4)
+    _hold_fresh = False  # the step began under the sheet: it starts (clock, grace) on Start
+    _hold_t = 0.0  # when the hold began (session clock)
+    _hold_sig: Any = None  # the step file's text when the hold began (an edit starts the step)
+    _go_t = -1e9  # Start / Continue: learner_started() counts only what the learner does from then on
+    _last_shown_t = -1e9  # the last card / offtrack sent (any kind)
+    _screen_task: asyncio.Future | None = None
+    _no_client_since: float | None = None
+    SCREEN_NO_CLIENT_S = 3.0  # no app this long: the reader pauses (a reconnect blip doesn't)
+    START_ACTIONS = frozenset({"start", "open_editor", "show_me", "hint", "check_step", "skip_step", "run_command",
+                               "apply_fix", "confirm", "back", "use_this_folder", "undo",
+                               # t6: Install on the setup card left step 1 held; any learner press begins it
+                               "install", "install_all", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
+                               "retry", "have_it", "get_it", "alternative", "open_in_app"})  # they begin a held step
+    WORK_TERMINALS = ("terminal", "iterm", "warp")
+
+    @property
+    def awaiting_start(self) -> bool:
+        """A "Just teach me" lesson whose "Before you start" sheet is up (the app opens it on every lesson.ready of a
+        lesson with build / flow / prerequisites / learnFirst, and keeps it only when the first step.started is step 1):
+        VS Code opens under it as before, but no checks, judge, scene look, idle ladder, stuck card or off-track
+        until the learner presses / types in the lesson's editor (the overlay can't take focus, so "Start the lesson"
+        is a click with VS Code in front: start_hold.front_input), edits the step file, presses any control, or sends
+        action start (E4). t6: the step's type box does go up under it (start_hold.py)."""
+        return self._start_hold is not None and self._start_hold == self.lesson_epoch and self.graph is not None
+
+    def _hold_for_sheet(self, lesson: dict | None) -> None:
+        les = lesson or {}
+        if les.get("mode") != "lesson" or not any(les.get(k) for k in ("build", "flow", "prerequisites", "learnFirst")):
+            return
+        if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
+            return
+        if stage.on(self) and getattr(self, "_began_epoch", None) == self.lesson_epoch:  # Michael's locked Demo flow:
+            return  # once Start was pressed, a reconnect / lesson.ready replay / back to step 1 never brings the sheet back
+            # (same lesson). Other lessons: Continue at step 1 re-shows the sheet and holds again (E4, test_session).
+        if self._start_hold != self.lesson_epoch:
+            self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
+            self._hold_fresh = False
+            log.info("lesson %s: waiting for Start (Before you start is up)", les.get("id"))
+
+    def _step_file_sig(self) -> Any:
+        step = self.step
+        f = self._step_file(step) if step is not None else None
+        if not f:
+            return None
+        from . import workspace as wsmod
+
+        p = wsmod.resolve_file(self.workdir, f)
+        try:
+            return hashlib.sha1(p.read_bytes()).hexdigest() if p is not None and p.is_file() else None
+        except OSError:
+            return None
+
+    async def _maybe_begin(self) -> None:
+        """tick, while held: the step file changed on disk, or the learner typed / clicked with the lesson's editor or
+        terminal in front. The app's "Start the lesson" and Esc send nothing, but the overlay can't take focus: they
+        land as a click / key with VS Code (opened under the sheet) in front, so they start the lesson too."""
+        sig = self._step_file_sig()
+        if self._hold_sig is None:
+            self._hold_sig = sig or ""
+        elif (sig or "") != self._hold_sig:
+            await self._begin("edited the step file")
+            return
+        if not self.editor_open:  # Nov 21: a key / click in an editor Miyagi did not open is not the lesson's start
+            return
+        v = self._work_since("input")
+        if v is not None and v < self.clock() - self._hold_t and self._front_now():  # front app known: not a guess
+            await self._begin("a key / click in the lesson's editor")
+        elif await start_hold.front_input(self):  # t6: "Start the lesson" is a click on the overlay, VS Code in front
+            await self._begin("a key / click with the lesson's VS Code window in front")
+
+    async def _begin(self, why: str) -> None:
+        """The held step begins: checks run, the spotlight goes up, and the grace / idle / stuck clocks start now (E4).
+        VS Code is already open on the step's file (it opens under the sheet), so nothing moves the learner's cursor."""
+        if not self.awaiting_start:
+            return
+        self._start_hold = None
+        self._began_epoch = self.lesson_epoch  # (_hold_for_sheet: never held again in this lesson)
+        now = self.clock()
+        deferred = self._editor_deferred == self.lesson_epoch  # VS Code waited for this (_editor_waits_for_learner)
+        self._editor_deferred = None
+        if self._hold_fresh:  # step 1 started under the sheet: it really starts now
+            self.step_t0 = self.last_progress_t = now
+            if self.segment_done:
+                self.segment_end_t = now
+        self._hold_fresh = False
+        self._go_t = now
+        step = self.step
+        log.info("lesson start (%s): %s", why, (step or {}).get("id"))
+        if step is None or self.passed:
+            return
+        if self.lesson_mode and why == "Start" and self.workspace is not None and self.workdir \
+                and not await self._editor_missing(explicit=True):  # pressed Start: the card again if it's still missing
+            # Start pressed: bring the lesson's VS Code window forward on the step's file. A repeat run (Demo, a
+            # rerun) reuses the folder, so the once-per-lesson auto-open may never fire; the learner must not be
+            # left on the desktop with no editor (Michael, Nov 15 3:50 AM). Nov 24 (the 1517 demo: `code` ran three
+            # times per start): a window already up shows the file through the companion; the CLI only when none is.
+            self._spawn(self._start_editor(step))
+            self.editor_open = True
+        elif deferred and self.workdir and not self.editor_open:  # another control pressed: the held open goes now
+            if self.lesson_mode:
+                self._spawn(self._open_editor_full(self.workdir))
+            else:
+                self._spawn(self._auto_open_editor(self.workdir))
+        await self.evaluate("start")
+        if self.lesson_mode and not self.passed and self.step is step:
+            self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
+
+    def _front_now(self) -> str:
+        """The app in front now: "Miyagi" while Miyagi's own launcher / ask box has the keyboard, else the window
+        server's frontmost (E6), else the latest frame's; "" when unknown."""
+        own = getattr(self.inputs, "miyagi_in_front", None)
+        if callable(own) and own():
+            return "Miyagi"
+        fm = getattr(getattr(self.screen, "reader", None), "frontmost", None)
+        if callable(fm):
+            try:
+                f = fm()
+                if f and f.get("app"):
+                    return str(f["app"])
+            except Exception:  # noqa: BLE001
+                pass
+        return str(getattr(self.last_obs, "app", "") or "")
+
+    def _work_front(self) -> bool:
+        """Is the app in front one this lesson is done in (its editor, a terminal, the step's own app; a notebook
+        lesson's browser)? Miyagi, a chat app or another browser: no. Unknown: yes (as before E5)."""
+        app = self._front_now().strip().lower()
+        if not app:
+            return True
+        if app == "miyagi" or app in self.OVERLAY_APPS:
+            return False
+        if app in CODE_APP_NAMES:
+            return True
+        step = self.step
+        if any(t in app for t in self.WORK_TERMINALS):  # "Just teach me" runs in VS Code's own terminal: a Terminal /
+            if not self.lesson_mode:  # iTerm / Warp window is someone's own (a tester's Claude Code) unless the step
+                return True  # names it as its app
+            named = [str(x.get("app") or "").lower() for x in ((step or {}).get("targets") or [])
+                     + ((step or {}).get("checks") or []) if isinstance(x, dict)]
+            return any(a and (a in app or app in a) for a in named)
+        apps = [a.lower() for a in (self._work_apps(step) if step is not None else [])]
+        return any(a and (a in app or app in a) for a in apps)
+
+    def _attribute_input(self) -> None:
+        fn = getattr(self.inputs, "attribute", None)
+        if callable(fn) and self.step is not None:  # only a lesson step needs it (no front-app lookups while idle)
+            try:
+                fn(self._work_front())
+            except Exception:  # noqa: BLE001 - input attribution must never break the tick
+                log.exception("input attribution failed")
+
+    async def on_front_switch(self, app: str) -> None:
+        """main.py's E6 frontmost watcher: the keys before the switch went to the old app, the next ones to this one
+        (E5); then the box follows the switch (on_frontmost), except behind "Continue?" (E7; t6: under "Before you
+        start" too, where the type box is up and VS Code coming to the front can start the step: start_hold.py)."""
+        self._attribute_input()
+        if self._setup_card is not None:  # Nov 22: AutoCAD came to the front after Get it: re-check and flip its row
+            self._spawn(setup_apps.on_front(self, app))
+        if self.awaiting_start:
+            start_hold.note_front(self, app)  # t6: VS Code in front + a key / click starts the held step (tick)
+        if self.awaiting_resume:
+            return
+        await self.on_frontmost(app)  # t6: under "Before you start" too: the type box is up there
+
+    def _input_was_miyagi(self) -> None:
+        """The learner submitted text typed into Miyagi (an ask / explain): those keys weren't lesson work (E5)."""
+        fn = getattr(self.inputs, "mark_foreign", None)
+        if callable(fn):
+            fn()
+
+    @staticmethod
+    def _ask_hook(fn: Callable[[], bool] | None, default: bool) -> bool:
+        if fn is None:
+            return default
+        try:
+            return bool(fn())
+        except Exception:  # noqa: BLE001
+            return default
+
+    def _clients_ok(self) -> bool:
+        """False once the app that was connected has left (E7: no screen reading, looks, judge or cards for nobody).
+        An engine that never had an app (demo autostart, the in-process rehearse_boxes / staging scripts) goes on,
+        as coach-cards' has_client and spotlight's _spot_frozen do."""
+        return not self._ask_hook(self.app_left, False)
+
+    def _screen_off_reason(self) -> str | None:
+        """Why the screen reader should not run now (E3 / E7), or None."""
+        if self.step is None or self.phase != "active":
+            return "no lesson step"
+        if self.awaiting_resume:
+            return "Continue? is up"
+        if self._clients_ok():
+            self._no_client_since = None
+            return None
+        now = self.clock()
+        if self._no_client_since is None:
+            self._no_client_since = now
+        return "the app left" if now - self._no_client_since >= self.SCREEN_NO_CLIENT_S else None
+
+    def _sync_screen_soon(self) -> None:
+        """Pause / resume the real screen reader to match _screen_off_reason (in a thread: it joins threads)."""
+        scr = self.screen
+        if getattr(scr, "reader", None) is None or not hasattr(scr, "pause") or not hasattr(scr, "resume"):
+            return  # no real reader (tests, ORCH_SCREEN=0)
+        if self._screen_task is not None and not self._screen_task.done():
+            return
+        why = self._screen_off_reason()
+        ambient = why is not None and self._ask_hook(getattr(self, "ambient_screen", None), False)
+        if ambient:  # ambient help (Nov 24): "Spot errors" is on outside a lesson (orchestrator/ambient.py)
+            why = None
+        if (why is not None) == bool(getattr(scr, "paused", False)):
+            return
+        if why is not None:
+            self.last_obs = None  # nothing seen is kept while no step runs (cursor.under, scene, judge)
+            fn, arg = scr.pause, why
+        else:
+            fn, arg = scr.resume, "spot errors" if ambient else f"step {(self.step or {}).get('id')}"
+        task = asyncio.ensure_future(asyncio.to_thread(fn, arg))
+        task.add_done_callback(lambda t: t.cancelled() or (t.exception() and log.error(
+            "screen %s failed", "pause" if why else "resume", exc_info=t.exception())))
+        self._screen_task = task
+
+    # ------------------------------------------------------------------ coaching (hint ladder)
+    def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
+        # t10: a notebook step's code is the learner's notebook (cells + output tails), never the screen: its file is
+        # often the video's Untitled.ipynb, not in the folder, and the screen fallback read "the notebook ends at
+        # model.compile" off an editor scrolled to the top
+        from . import nb_coach
+
+        if (nb := nb_coach.excerpt(self, step, limit)) is not None:
+            return nb
+        # a run step's "(terminal)" is a place, not a file: its code is the step's own file (t3: the coach was handed
+        # OCR text under "(terminal)" and held it as unconfirmed instead of reading main.py)
+        files = [t.get("file") for t in step.get("targets") or [] if self._real_file(t.get("file"))]
+        files += [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                  if self._real_file(c.get("file"))]
+        files += [step["file"]] if self._real_file(step.get("file")) else []
+        if not files:
+            files = [p.name for p in sorted(Path(self.workdir).glob("*.py"))[:1]] if Path(self.workdir).is_dir() else []
+        from . import workspace as wsmod
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        for f in files:
+            p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
+            if p is not None:
+                try:  # VS Code's exact text (unsaved edits included) when it has the file open, else the disk
+                    text = self._buffers.text(p)
+                    text = p.read_text(errors="replace") if text is None else text
+                except OSError:
+                    continue
+                if p.suffix.lower() == ".ipynb":  # cell sources, then the limit (S9: raw JSON cut = invalid)
+                    text = notebook_sources(text) or text
+                return text[:limit], f
+        lines = self._screen_lines() or {}  # screen-first: the code the learner is looking at
+        for app in [t.get("app") for t in step.get("targets") or [] if t.get("app")] + ["Code"]:
+            for a, ls in lines.items():
+                if app.lower() in (a or "").lower() and ls:
+                    return "\n".join(ls)[:limit], None
+        return "", None
+
+    def _coach_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
+        """_code_excerpt for a coach request (diagnose, explain, diagrams, "Explain this"): a step file that is a
+        secret file (.env, .env.local, .npmrc ...) goes as its names with every value hidden (5.2; key-shaped text in
+        any file is redacted again in coach.llm). Grading and patching read _code_excerpt's real text."""
+        code, file = self._code_excerpt(step, limit)
+        return _for_coach(code, file), file
+
+    def _learner_evidence(self) -> bool:
+        """Lesson mode, without keyboard signals: the step's file was saved since the step began, or a run step's
+        VS Code terminal shows new output. Either means the learner did it (never stale output / old files)."""
+        step = self.step
+        if not self.lesson_mode or step is None:
+            return False
+        from . import workspace as wsmod
+
+        f = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, f) if f else None
+        try:
+            if p is not None and p.stat().st_mtime > self._step_wall_t0 + 0.05:
+                return True
+        except OSError:
+            pass
+        if self._run_command(step):
+            now = tuple(self._vscode_terminal_lines())
+            return bool(now) and now != self._term_at_start
+        return False
+
+    def learner_started(self) -> bool:
+        """Did the learner do anything on this step (since Start / Continue, when later): a save, a run, an action, or
+        typing in the lesson's own editor / terminal? Keys typed into Miyagi or another app don't count (E5)."""
+        t0 = max(self.step_t0, self._go_t)
+        if self.last_action_t >= t0:
+            return True
+        v = self._work_since("key")
+        return v is not None and v <= self.clock() - t0
+
+    def _consider_speaking(self, reason: str, step: dict, failed: list[dict], ctx: RunContext) -> None:
+        """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
+        if self.coaching or self.passed or not failed:
+            return
+        if missing_module.check_run(self, step, ctx):  # the run stopped on a lesson package: Install, no diagnosis
+            return
+        if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
+            self.pending_speak = None
+            return
+        if not self.learner_started() or (self.clock() - self.step_t0 < self.offtrack_grace_s
+                                          and curated.known_offtrack(self, step, failed) is None
+                                          and self._traceback_card(step, ctx, failed) is None):
+            # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
+            # is a known failure of the curated lesson the learner just made: its card is certain and instant)
+            return self._speak_note(reason, "held (learner not started / first ~20 s)")
+        if self._video_still_teaching(step, ctx, failed):
+            return self._speak_note(reason, "held (the video still teaches this step: until it waits, or Check)")
+        if nb_coach.run_in_progress(self, step):  # T11 (s7): its output isn't printed yet; never a triage of a half run
+            return self._speak_note(reason, "held (the notebook run is still going)")
+        if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
+            return self._speak_note(reason, "held (editor-state card instead)")
+        if changed := self._changed_since_run(step):  # Nov 15: never (again) a diagnosis of a run of older code
+            return self._speak_note(reason, f"held ({changed} changed since its last run: run it again)")
+        if self.clock() < self._coach_retry_at:
+            return self._speak_note(reason, "held (coach failed recently)")  # e.g. offline: wait before trying again
+        if self.typing():
+            self.pending_speak = reason  # never talk over the learner's typing; the tick retries
+            return self._speak_note(reason, "deferred (typing)")
+        if self._nudge_held(step, ctx):  # L4: "not started" already decided for this step / screen / code: no coach re-run
+            return self._speak_note(reason, "held (not started: the Start card is decided)")
+        if typo_card.holds(self, step):  # Nov 15: cmd_typos already named the terminal typo's fix (no model call)
+            return self._speak_note(reason, "held (terminal typo card)")
+        sig = self._sig(failed)
+        if sig != self.spoken_sig:  # a new problem (or the first one): concept card
+            level = 2
+        elif (self.ladder == 2 and reason in ("repeat", "stuck")
+              and self.clock() - self.spoken_t >= config.LADDER_MIN_S):
+            level = 3  # same failure again / still stuck: the exact fix + "Do it for me"
+        else:
+            return self._speak_note(reason, f"held (already said at level {self.ladder})")
+        self._speak_note(reason, f"speak level {level}")
+        self.coaching = True
+        self.spoken_sig, self.spoken_t = sig, self.clock()
+        self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
+
+    _REAL_ERROR = re.compile(r"Traceback \(most recent call last\)|\b\w*(?:Error|Exception): |command not found")
+
+    def _video_still_teaching(self, step: dict, ctx: RunContext, failed: list[dict]) -> bool:
+        """T11 (s1, 08:28:36): an unasked off-track card while the video still taught the step (1:07 of 0:40-1:13). In
+        a video lesson it waits until the video reaches the step's gate ("Video waits at", the segment's end) or the
+        learner presses Check my work on this step. An error row failing on a real error (a traceback) still speaks.
+        A "Just teach me" / curated lesson (no video) is unchanged."""
+        if not self.video_offtrack_hold or self.lesson_mode or self.segment_done or stage.on(self):
+            return False
+        seg = self._segment(step)
+        if seg is None or (self.video_t is not None and self.video_t >= seg["end"] - 0.3):
+            return False
+        if getattr(self, "_check_asked_t", -1e9) >= self.step_t0:
+            return False
+        try:
+            return not self._REAL_ERROR.search(self._error_text(step, ctx, failed))
+        except Exception:  # noqa: BLE001 - no error read: hold, as for no error
+            log.exception("error text failed")
+            return True
+
+    def _error_text(self, step: dict, ctx: RunContext, failed: list[dict]) -> str:
+        """The error an error row that fails is about: the notebook's own error output, else the run's tail, else the
+        screen's error lines. '' when no error row fails (never an old error for an unrelated row)."""
+        about_error = any(re.search(r"error|traceback|exception|exit code|crash", " ".join(
+            str(r.get(k) or "") for k in ("label", "detail", "type", "checkId")), re.I) or
+            str(r.get("checkId") or "").endswith("-ran") for r in failed or [])
+        if not about_error:
+            return ""
+        nb = nb_coach.notebook_step(self, step)
+        err = nb_coach.notebook_error(self, step) if nb else ""
+        if not err:
+            tail = ctx.output_tail[-40:] if isinstance(getattr(ctx, "output_tail", None), list) else []
+            err = "\n".join(tail or self._screen_error_lines())
+        return err
+
+    def _traceback_card(self, step: dict, ctx: RunContext, failed: list[dict],
+                        code: str | None = None) -> dict | None:
+        """t10 (CP5: s2's correct "load_dat is missing the a" took ~13 s through Claude): a deterministic Python
+        traceback (AttributeError with a near-match, NameError, SyntaxError with a line) -> its card now, no model
+        call. The error: the notebook's own error output, else the run's tail, else the screen's error lines."""
+        try:
+            err = self._error_text(step, ctx, failed)  # '' unless an error row fails
+            nb = bool(err) and nb_coach.notebook_step(self, step)
+            if not err:
+                return None
+            if code is None:
+                code = self._code_excerpt(step)[0]
+            return nb_coach.traceback_card(step, err, code or "", notebook=nb)
+        except Exception:  # noqa: BLE001 - Claude diagnoses it as before
+            log.exception("traceback card failed")
+            return None
+
+    def _speak_note(self, reason: str, outcome: str) -> None:
+        """Log a speaking decision (reason -> speak level N / deferred / held (why)), once per step, reason and
+        outcome: the ~1/s tick re-asks while idle and must not flood the log."""
+        key = (self.step_gen, reason, outcome)
+        if key != getattr(self, "_speak_noted", None):
+            self._speak_noted = key
+            step = self.step
+            log.info("speak? %s %s: %s", step["id"] if step else "-", reason, outcome)
+
+    # L4: the not-started nudge ("Start: …" + Do it for me) went out ~20 s after lesson.ready, before VS Code was even
+    # open, and the coach then re-ran every ~1.5 s (thinking -> watching) only to drop the same card again
+    NUDGE_EDITOR_S = 45.0  # the lesson's VS Code window on screen this long, with no edit by the learner
+    _nudge: dict | None = None  # the coach's "not started" card: {gen, fp, card, done}
+    _editor_seen_t: float | None = None  # since when the lesson's VS Code window has been on screen (None: it isn't)
+
+    def _note_editor_seen(self) -> None:
+        """On each new frame: is the lesson's VS Code window on screen, and since when."""
+        if self._editor_window() is None or self._lesson_window_hidden():
+            self._editor_seen_t = None
+        elif self._editor_seen_t is None:
+            self._editor_seen_t = self.clock()
+
+    def _setup_pending(self) -> bool:
+        """A setup card still asks the learner for something: Install (or an install is running), or Open VS Code
+        while the editor isn't on screen yet."""
+        acts = (self._setup_card or {}).get("actions") or []
+        return bool(self._installing) or "install" in acts or ("open_editor" in acts and self._editor_seen_t is None)
+
+    def _nudge_ok(self) -> bool:
+        """May the not-started nudge go out now? Never over a pending setup card, paced like any automatic card, and
+        in lesson mode only once the lesson's VS Code window has been on screen ~45 s with no edit by the learner."""
+        if self._setup_pending() or not self._auto_card_ok():
+            return False
+        if not self.lesson_mode:
+            return True
+        if self._editor_seen_t is None:
+            return False
+        key = self.inputs.seconds_since_key() if self.inputs is not None else None
+        since = max(self._editor_seen_t, self.step_t0, self.last_action_t,
+                    self.clock() - key if key is not None else -1e9)
+        return self.clock() - since >= self.NUDGE_EDITOR_S
+
+    def _nudge_fp(self, step: dict, ctx: RunContext) -> int:
+        """What a "not started" verdict rests on: the learner's code (the file, else the screen), the editor's text and
+        what the coach reads as the error text: the last run (id, exit code, output tail) and the terminal's lines
+        (Terminal / iTerm / Warp / VS Code's panel; a notebook lesson's browser). A new run or new terminal output (a
+        video lesson's Terminal.app, `tut run`) then asks the coach once more, so a later error is never left unseen."""
+        lines = getattr(ctx, "screen", None) or {}
+        shown = tuple(ln for app, ls in lines.items() if (app or "").lower() in CODE_APP_NAMES for ln in ls or [])
+        terms = ("terminal", "iterm", "warp") + (tuple(b.lower() for b in self.BROWSER_APPS) if self.notebook_lesson else ())
+        term = tuple(ln for app, ls in lines.items() if any(t in (app or "").lower() for t in terms) for ln in ls or [])
+        run, tail = getattr(ctx, "last_run", None), getattr(ctx, "output_tail", None)
+        tail = tuple(tail[-40:]) if isinstance(tail, list) else ()
+        return hash((self._code_excerpt(step)[0], shown, term, (run.run_id, run.exit_code) if run else None, tail))
+
+    def _nudge_held(self, step: dict, ctx: RunContext) -> bool:
+        """The coach already said "not started" for this step, this code and this screen text: don't ask it again (no
+        status flip, no duplicate card). Its Start card goes out once (_nudge_ok); then nothing until something changes."""
+        n = self._nudge
+        if n is None or n["gen"] != self.step_gen or n["fp"] != self._nudge_fp(step, ctx):
+            return False
+        if not n["done"] and self._nudge_ok():
+            self._spawn(self._send_nudge(n))
+        return True
+
+    def _send_nudge(self, n: dict):
+        """-> the _emit_card coroutine; `done` is set at once (sent, or dropped as a duplicate: either way it's said
+        for this step / code / screen), so a second tick can't queue it twice."""
+        n["done"] = True
+        self._carded_checks |= n["ids"]  # the Start card covers these checks (no offtrack on top), once it's up
+        return self._emit_card(n["card"], window_s=120.0, auto=True)
+
+    async def _think_soon(self, gen: int, delay: float = 0.4) -> None:
+        """"thinking" only when the coach really calls a model: a rules-only answer (not started, holds, playbook)
+        comes back in milliseconds and never flips the status."""
+        await asyncio.sleep(delay)
+        if gen == self.step_gen and self.coaching:
+            await self._status("thinking", detail="Looking at your code")
+
+    def _target_spot(self, target: dict) -> dict | None:
+        r = target.get("rect")
+        if isinstance(r, (list, tuple)) and len(r) == 4:
+            r = {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
+        if not isinstance(r, dict) or not all(k in r for k in ("x", "y", "w", "h")):
+            return None
+        # V9: the model's label ("Assign fig, axes here") never restates the code the box already sits on
+        spot = {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")},
+                "caption": captions.for_line(target.get("label") or "", target.get("text")) or ""}
+        if target.get("text"):
+            spot["matched"] = str(target["text"])[:200]
+        return spot
+
+    async def _screen_for_coach(self, step: dict) -> Any:
+        """E5's ScreenContext: OCR boxes + a screenshot + the cursor (+ the step's file/line), or None."""
+        if not self.screen_active() or self.last_obs is None or not hasattr(self.screen, "screenshot"):
+            return None
+        image = await asyncio.to_thread(self.screen.screenshot)
+        if image is None:
+            return None
+        pos = self.inputs.cursor() if self.inputs is not None else None
+        if pos is None:
+            r = getattr(self.last_obs, "screen", None)
+            pos = (getattr(r, "w", 0) / 2, getattr(r, "h", 0) / 2)
+        extra: dict[str, Any] = {}
+        from .workspace import target_location
+
+        loc = target_location(self.workdir, step)
+        if loc:
+            extra = {"file": str(loc[0]), "line": loc[1]}
+        extra["lesson_folder"] = str(self.workdir or "")  # E5 leaves other projects' VS Code windows out of the coach's view
+        return self.m.screen_context(self.last_obs, image, pos, **extra)
+
+    def _screen_error_lines(self, n: int = 40) -> list[str]:
+        lines = self._screen_lines() or {}
+        apps = ["Terminal", "iTerm", "Warp"] + (list(self.BROWSER_APPS) if self.notebook_lesson else []) + ["Code", "Cursor"]
+        out: list[str] = []
+        for want in apps:
+            for app, ls in lines.items():
+                if want.lower() in (app or "").lower():
+                    out.extend(ls[-n:])
+            if out:
+                break
+        return out[-n:]
+
+    def cursor_context(self) -> dict | None:
+        """{x, y, under: the OCR line at the pointer}, only while a lesson step runs (E3: idle, on "Continue?" or under
+        "Before you start" the text under the pointer is someone's own chat / mail, and /state is on the LAN)."""
+        from .inputs import text_under
+
+        if self.step is None or self.phase != "active" or self.awaiting_resume or self.awaiting_start:
+            return None
+        pos = self.inputs.cursor() if self.inputs is not None else None
+        if pos is None:
+            return None
+        out: dict[str, Any] = {"x": round(pos[0], 1), "y": round(pos[1], 1)}
+        under = text_under(self.last_obs, *pos) if self.last_obs is not None else None
+        if under:
+            out["under"] = under
+        return out
+
+    async def _coach(self, gen: int, step: dict, failed: list[dict], ctx: RunContext, level: int) -> None:
+        try:
+            if missing_module.check_run(self, step, ctx):  # a lesson package isn't installed: Install, no model call
+                return
+            card = self.full_card if (level == 3 and self.full_card) else None
+            if card is not None and card is self._known_full and curated.known_offtrack(self, step, failed) is None:
+                log.info("instant off-track %r: its cause is gone from the file; not said again", card.get("title"))
+                return  # t8: e.g. the weights start random now, the stuck run is old: a rerun is next
+            known = False
+            if card is None:
+                by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
+                failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
+                from . import stale_advice
+
+                await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
+                code, _file = self._code_excerpt(step)
+                card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
+                if card is None and (card := self._traceback_card(step, ctx, failed, code)) is not None:  # t10: instant
+                    log.info("instant off-track %r for %s (traceback, no model call)", card.get("title"), step["id"])
+                if card is not None:
+                    known = True
+                    log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
+                    stale_advice.note(self, step, card, code)
+            if card is None:
+                sfile = self._step_file(step) or step.get("file") or _file or ""
+                file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
+                              "wrong_folder": bool(self._other_folder(step))} if sfile else None
+                tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+                if not tail:  # screen-first (no `tut run`): what the terminal / notebook shows is the error text
+                    tail = self._screen_error_lines()
+                screen = await self._screen_for_coach(step)
+
+                def on_targets(targets: list[dict]) -> None:  # streamed mid-reply: spotlight before the card lands
+                    if gen == self.step_gen and targets and not self.passed:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._early_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                self._early_spot = False
+                think = self._spawn(self._think_soon(gen), timer=True)  # L4: a rules-only answer never shows "thinking"
+                try:
+                    card = await self.m.diagnose(step, failed_checks, ctx.metrics, _for_coach(code, _file),
+                                                 error_text="\n".join(tail),
+                                                 cursor=self.cursor_context(), screen=screen, on_targets=on_targets,
+                                                 file_state=file_state, code_source="file" if _file else "screen",
+                                                 **self._memory_kw(step, "diagnose", {_file} if _file else None))
+                    think.cancel()
+                except Exception as e:
+                    think.cancel()
+                    if gen == self.step_gen:
+                        self.spoken_sig = None  # a later breakpoint may try again...
+                        if "cancelled" in str(e):
+                            log.info("diagnosis cancelled: the learner acted")
+                        else:  # ...but back off (offline: no error storm), and say it once per step
+                            self._coach_backoff = min(120.0, max(15.0, self._coach_backoff * 2))
+                            self._coach_retry_at = self.clock() + self._coach_backoff
+                            log.warning("coach.diagnose failed (%s); retry in %.0fs", e, self._coach_backoff)
+                            if not self._coach_error_sent:
+                                self._coach_error_sent = True
+                                await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                        await self._status("watching")
+                    return
+                self._coach_backoff, self._coach_retry_at = 0.0, 0.0
+                from . import nb_coach
+
+                said = " ".join(str(card.get(k) or "") for k in ("title", "body"))
+                if not card.get("hold") and (hits := nb_coach.contradicts(said, step, self.last_results)):
+                    # t10 (CP14): "view_classify cell not written yet" while "view_classify defined" is Passed: the
+                    # checks win; the drawer's rows say what's left, Check my work rebuilds it from them
+                    log.info("diagnosis %r dropped: it asks for code whose check passed (%s)", card.get("title"), hits)
+                    await self._status("watching")  # spoken_sig stays: no re-diagnosis of the same rows each tick
+                    return
+                stale_advice.note(self, step, card, code)  # what it read: its line, gone later, makes it stale
+            if gen != self.step_gen or self.passed:
+                return
+            ids = {r.get("checkId") for r in failed if r.get("checkId")}
+            if hold := card.get("hold"):  # E5: not diagnosable yet -> never an offtrack
+                self.spoken_sig = None  # the next breakpoint tries again
+                if hold == "wrong_folder":
+                    self._editor_state_card(step)
+                elif hold == "unsaved":  # a run step: the same card as _editor_state_card's (no flicker between two)
+                    said = self._save_then_run(step) or {"title": card.get("title") or "Save first",
+                                                         "body": card.get("body") or "Save with ⌘S so I can check it."}
+                    await self._emit_card({"stepId": step["id"], "kind": "step", **said}, window_s=60.0)
+                # "unconfirmed": the OCR read disagreed with the last one: say nothing, a later read decides
+                await self._status("watching")
+                return
+            if card.get("notStarted"):  # E5: nothing done yet -> one plain instruction, never amber / "off track"
+                self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
+                body = card.get("body") or step.get("instructions", "")
+                if self.lesson_mode or len(body.split()) > 12:  # one action, <= 12 words (the drawer has the rest)
+                    body = self._action_line(step)
+                nudge = {"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here",
+                         "body": self._no_create(body)}
+                if self.lesson_mode:
+                    nudge["actions"] = ["apply_fix"]
+                # L4: kept for this step / code / screen text (no coach re-run, no status flip); it goes out once the
+                # lesson's VS Code window has been on screen ~45 s untouched and no setup card is pending
+                self._nudge = {"gen": gen, "fp": self._nudge_fp(step, ctx), "card": nudge, "done": False, "ids": ids}
+                if self._nudge_ok():
+                    await self._send_nudge(self._nudge)
+                if self.status != "watching":
+                    await self._status("watching")
+                return
+            full = dict(card)
+            missing_module.add_command(full, ctx.output_tail or self._screen_error_lines())  # never a bare "install it"
+            full.setdefault("stepId", step["id"])
+            full.setdefault("severity", "warn")
+            full.setdefault("actions", ["explain", "show_me", "hint"])
+            self.full_card = full
+            self._known_full = full if known else None  # t8: a curated instant card (its level-3 re-send rechecks it)
+            if level == 2:  # concept: what's wrong and why, not the patch
+                shown = {k: v for k, v in full.items() if k != "diff"}
+                shown["actions"] = [a for a in full["actions"] if a != "apply_fix"] or ["explain", "hint"]
+                if self.lesson_mode:  # "can you just apply?": Do it for me right away in lesson mode
+                    shown["actions"] = [*shown["actions"], "apply_fix"]
+            else:
+                shown = dict(full)
+                if full.get("diff") and "apply_fix" not in shown["actions"]:
+                    shown["actions"] = [*shown["actions"], "apply_fix"]
+            shown["level"] = level
+            if (step.get("code") or "").strip():  # E13: the drawer shows the exact code to type, so a Socratic
+                shown.pop("guidingQuestion", None)  # question only re-asks what the learner can read; the body says
+                full.pop("guidingQuestion", None)  # what differs and the box marks the line
+            self.ladder = level
+            await self._offer_offtrack(gen, step, failed, ids, level, full, shown)
+        finally:
+            if gen == self.step_gen:
+                self.coaching = False
+
+    # E14: a diagnosis that lands while a card just went up, the learner's question is answered, the display sleeps
+    # or no app is connected is KEPT and sent when that ends (it was dropped, and a later trigger paid for it again)
+    _known_full: dict | None = None  # t8: full_card when it is a curated instant card (curated.known_offtrack)
+    _pending_offtrack: dict | None = None
+    _pending_task: asyncio.Task | None = None
+    PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
+    has_client: Callable[[], bool] | None = None  # main.py: is an app connected? (None: unknown, e.g. tests)
+
+    # (title, clock, step_gen) of the card in the slot when it is the learner's own: the answer to their press or a
+    # card waiting for their Yes (`confirm`). _emit_card sets / clears it, card.closed clears it.
+    _card_in_use: tuple[str, float, int] | None = None
+    _advice_up: dict | None = None  # t8 (advice_clear): the Hint / Not yet card in the slot and what it is about
+    _offtrack_up: dict | None = None  # t11 (advice_clear): the off-track the app holds, until withdrawn
+
+    def _learner_card_up(self) -> bool:
+        """Is the learner's own card in the slot, and have they not acted since it went up? Then no off-track takes
+        its place on a timer (A1: a kept diagnosis wiped "Type this for you?" 8 s later; an answer was replaced 10 s
+        after it went up). A save / run / press since then lifts it, as does card.closed."""
+        u = self._card_in_use
+        return u is not None and u[2] == self.step_gen and self.last_action_t <= u[1]
+
+    def _offtrack_wait(self) -> str | None:
+        """Why an off-track card can't go out right now (None: it can)."""
+        if self.awaiting_resume or getattr(self, "awaiting_start", False):
+            return "the lesson is held"  # never behind the Continue? card or the Before-you-start sheet
+        if self.clock() - self._last_card_t < self.CARD_GAP_S:
+            return "a card just went up"
+        if self._ask_held():
+            return "the learner's question comes first"
+        if self._learner_card_up():
+            return f"the learner is using {self._card_in_use[0]!r}"
+        if self.screen_asleep(self.screen_down_reason()):
+            return "the screen is asleep"
+        if self.has_client is not None and not self.has_client():
+            return "no app connected"
+        return None
+
+    async def _offer_offtrack(self, gen: int, step: dict, failed: list[dict], ids: set, level: int, full: dict,
+                              shown: dict) -> None:
+        """Send the coach's diagnosis as the off-track card, keep it for later (_offtrack_wait), or leave it unsent
+        when a card on screen already covers the same checks. last_offtrack is set only when it is really sent."""
+        if gen != self.step_gen or self.passed:
+            return
+        if why := self._offtrack_wait():
+            self._pending_offtrack = {"gen": gen, "step": step, "failed": failed, "ids": ids, "level": level,
+                                      "full": full, "shown": shown, "sig": self._sig(failed), "t": self.clock()}
+            log.info("offtrack %r kept for later (%s)", full.get("title"), why)
+            if self._pending_task is None or self._pending_task.done():
+                self._pending_task = self._spawn(self._pending_offtrack_later(), timer=True)
+            if self.status != (want := "offtrack" if self.last_offtrack else "watching"):
+                await self._status(want)  # (only a real change: a flip can close a card the app is showing, A1)
+            return
+        self._pending_offtrack = None
+        from . import stale_advice
+
+        if await stale_advice.drop_offtrack(self, step, full):  # its line is gone from VS Code's text: never sent
+            return  # (QA 11-15 02:59:20: the ladder re-sent "delete the python3 nn.py line" after it was deleted)
+        if level == 2 and ids and ids <= self._carded_checks:
+            log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
+            await self._status("watching")
+            return
+        self.last_offtrack = full
+        key = (step["id"], level, (full.get("title") or "").strip().lower())
+        self._offtracked_checks |= ids
+        if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
+            self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
+            self._last_card_t = self.clock()
+            self._card_in_use = None  # the off-track takes the slot
+            await self.emit("offtrack", shown)
+            advice_clear.sent_offtrack(self, step, full, shown)  # t8: it goes once its line is fixed
+            self._say("offtrack", shown)
+            async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
+                if gen == self.step_gen and not self.passed:
+                    await self._open_gate(step)
+        else:
+            log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
+        self._record("offtrack", {"title": full.get("title"), "level": level,
+                                  "check_ids": [r.get("checkId") for r in failed]}, step)
+        await self._offtrack_spot(step, full)
+        await self._status("offtrack")
+
+    async def _pending_offtrack_later(self) -> None:
+        """Send the kept diagnosis once nothing holds it (no second model call). Dropped when the step moved on,
+        the failing checks changed (it may no longer be true: the next trigger diagnoses afresh) or it got old;
+        a newer diagnosis simply replaces it."""
+        while (p := self._pending_offtrack) is not None:
+            await asyncio.sleep(min(2.0, max(0.25, self._last_card_t + self.CARD_GAP_S - self.clock())))
+            p = self._pending_offtrack
+            if p is None:
+                return
+            if p["gen"] != self.step_gen or self.passed:
+                self._pending_offtrack = None
+                return
+            if self.coaching:
+                continue  # a fresh diagnosis is running: it replaces this one (resetting spoken_sig now would pay twice)
+            if self._learner_card_up():  # it doesn't age while the learner reads their own card: going stale would
+                p["t"] = self.clock()  # reset spoken_sig and the idle tick would pay for a new diagnosis every 90 s
+            if self._sig(self.last_failed) != p["sig"] or self.clock() - p["t"] > self.PENDING_OFFTRACK_S:
+                self._pending_offtrack, self.spoken_sig = None, None
+                log.info("kept offtrack %r dropped: the checks changed or it got old", p["full"].get("title"))
+                return
+            if self.typing() or self._offtrack_wait():
+                continue  # the learner types / still held
+            await self._offer_offtrack(p["gen"], p["step"], p["failed"], p["ids"], p["level"], p["full"], p["shown"])
+            return
+
+    LINE_REF = re.compile(r"\bline\s+(\d+)\b", re.I)
+
+    @staticmethod
+    def _plain(text: str | None) -> str:
+        """Markdown off a caption: `code` -> code, **bold** -> bold, [label](url) -> label (E10)."""
+        t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text or "")
+        t = t.replace("`", "").replace("**", "")
+        return " ".join(t.split()).strip(" .")
+
+    def _offtrack_anchor(self, step: dict, full: dict) -> tuple[str, str]:
+        """(the code line to box, its caption) for an off-track card (E10: the box sat on diff.yours's first line,
+        line 7, while the card said "change line 8"). The line the card names ("line 8") wins, read from the diff
+        (diff.line + offset) or the file; else the line of the diff that actually changes. Caption: "Change to
+        <expected line>" / "Add <line> below" / "Delete this line" from the diff ("" = none: the caller labels it)."""
+        import difflib
+
+        if (typo := typo_card.anchor_for(full)) is not None:  # Nov 15: a terminal typo card names its own line
+            return typo
+        diff = full.get("diff") or {}
+        yours = [ln for ln in (diff.get("yours") or "").splitlines()]
+        expected = [ln for ln in (diff.get("expected") or "").splitlines()]
+        while yours and not yours[0].strip():  # diff.line counts from the first real line
+            yours.pop(0)
+        idx, cap = 0, ""
+        ops = difflib.SequenceMatcher(a=[x.strip() for x in yours], b=[x.strip() for x in expected],
+                                      autojunk=False).get_opcodes() if yours else []
+        for tag, i1, i2, j1, j2 in ops:  # the first real change: what the box points at
+            if tag == "replace":
+                idx, cap = i1, f"Change to {expected[j1].strip()}"
+            elif tag == "delete":
+                idx, cap = i1, "Delete this line"
+            elif tag == "insert":
+                idx, cap = max(0, i1 - 1), f"Add {expected[j1].strip()} {'below' if i1 else 'above'}"
+            if tag != "equal":
+                break
+        named = self.LINE_REF.search(f"{full.get('body') or ''} {full.get('title') or ''}")
+        n = int(named.group(1)) if named else None
+        if n:  # where the hunk really starts in the file (diff.line is the model's count), then the named line
+            code, file = self._code_excerpt(step)
+            lines = [x.strip() for x in code.splitlines()] if file else []  # screen text has no line numbers
+            ys = [y.strip() for y in yours]
+            first = next((i + 1 for i in range(len(lines) - len(ys) + 1) if ys and lines[i:i + len(ys)] == ys),
+                         None) or (diff.get("line") if isinstance(diff.get("line"), int) and diff["line"] > 0 else None)
+            if first and 0 <= n - first < len(yours):
+                if n - first != idx:  # the card names another line of the hunk: box that one
+                    idx = n - first
+                    j = next((j1 + (idx - i1) for tag, i1, i2, j1, j2 in ops if tag == "replace" and i1 <= idx < i2
+                              and j1 + (idx - i1) < j2), None)
+                    cap = f"Change to {expected[j].strip()}" if j is not None else ""
+            elif 0 < n <= len(lines) and lines[n - 1]:  # the named line is outside the hunk: box it as the card says
+                anchor = lines[n - 1]
+                return anchor, (self._plain(cap) if yours and yours[idx].strip() == anchor else "")
+        anchor = yours[idx].strip() if yours else ""
+        cap = self._plain(cap)
+        if not cap or len(cap.split()) > 8 or len(cap) > 48:
+            cap = "Change this line" if anchor and diff.get("expected") else ""
+        return anchor, cap
+
+    async def _offtrack_spot(self, step: dict, full: dict) -> None:
+        """Box the line the off-track card is about (_offtrack_anchor), as the off-track's own spotlight."""
+        anchor, cap = self._offtrack_anchor(step, full)
+        cap = cap if self.lesson_mode else ""  # "Change to …" where the step's code is on show; a video keeps its title
+        title = self._plain(full.get("title")) or "Look here"  # no markdown on the box (E10)
+        spot = await box_follow.diagnosis_spot(self, step, anchor, cap or title) if self.lesson_mode else None  # t7
+        fresh = None
+        if spot is None:  # (the file's row, scrolled into view; else OCR of the line on screen)
+            fresh = await self._fresh_read()  # t10: what is on screen NOW, never an older frame's line
+            spot = self._locate(re.escape(anchor), None, cap or title) if anchor and fresh is not False else None
+        if spot is None and full.get("targets") and fresh is not False:  # the coach pointed at screen boxes (set-of-mark): one ON that line
+            import difflib
+
+            squash = re.sub(r"\s+", "", anchor)
+
+            def on_line(t: dict) -> bool:  # OCR may misread a letter ("resoonse"): close is enough
+                text = re.sub(r"\s+", "", t.get("text") or "")
+                return not squash or squash in text or difflib.SequenceMatcher(None, squash, text).ratio() >= 0.85
+
+            hit = next((t for t in full["targets"] if on_line(t)), None)
+            spot = self._target_spot({**hit, "label": cap or self._plain(hit.get("label")) or title}) if hit else None
+            if spot is not None and fresh:  # t10: the coach's boxes are from ITS read (a repeat warning re-sends an
+                # older card's: test 10's step 6 box went to y=861, then jumped 454 pt to where the line was): only
+                # where the fresh read finds that line now, and no box when it isn't on screen
+                line = next(iter((spot.get("matched") or "").strip().splitlines()), "")
+                now = self._locate(re.escape(line), None, spot.get("caption") or title) if line else None
+                if now is None:
+                    log.info("offtrack box: %r isn't on screen now (the coach's read was older): no box (t10)", line[:40])
+                spot = now
+        if getattr(self, "_early_spot", False) and spot is None:
+            if self.spot_rect is not None:  # t8: that box is the card's culprit region
+                await offtrack_targets.update(self, self.spot_rect, self._spot_caption or title, anchor)
+            return  # the streamed target spotlight is already up
+        if not spot:
+            await self._spotlight_target(step)
+            return
+        if anchor:
+            self.spot_track = (re.escape(anchor), None, spot.get("caption") or title)
+        import inspect
+
+        owner = {"owner": "offtrack"} if "owner" in inspect.signature(self._show_spot).parameters else {}
+        await self._show_spot(spot, **owner)  # owner: the spotlight cluster's argument, once it has landed
+        # t8: the off-track again, with that line as its target (measured after VS Code scrolled there): the app's
+        # card steps off it (test 8: no targets, and the nn4 card sat on the W1 line it was about)
+        await offtrack_targets.update(self, spot.get("rect"), spot.get("caption") or title, anchor)
+
+    async def _fresh_read(self) -> bool | None:
+        """t10: make the screen's latest read at most OFFTRACK_READ_MAX_AGE_S old (a new capture + OCR, in a thread)
+        before a box is placed from it. True: fresh; False: no read (paused / capture failing); None: this screen
+        can't tell (no fresh(): as before)."""
+        fn = getattr(self.screen, "fresh", None)
+        if fn is None:
+            return None
+        try:
+            return await asyncio.to_thread(fn, OFFTRACK_READ_MAX_AGE_S) is not None
+        except Exception:  # noqa: BLE001 - no fresh read: no box from an old one
+            log.exception("fresh screen read failed")
+            return False
+
+    # ------------------------------------------------------------------ inputs
+    async def on_screen(self, obs: Any = None) -> None:
+        """A new screen observation (only fires when the screen actually changed)."""
+        self._touch()
+        if obs is not None:
+            self.last_obs = obs
+            self._note_editor_seen()  # L4: the Start card waits for the lesson's VS Code window (~45 s on screen)
+        now = self.clock()
+        if obs is not None and now - self._last_seen >= self.seen_interval_s:
+            self._last_seen = now
+            app = getattr(obs, "app", None) or ""
+            lines = self._screen_lines() or {}
+            summary = " · ".join((lines.get(app) or [])[:2])[:140]
+            await self.emit("screen.seen", {"app": app, "summary": summary, "t": float(getattr(obs, "t", 0) or 0)})
+        if self.step is not None and not self.awaiting_resume and not self.awaiting_start:
+            # E7 / E4: nothing is graded, carded or boxed behind "Continue?" or "Before you start"
+            if self.clock() - self._wf_t >= 2.0:  # S2's wrong_folder: a cheap window read, at most every 2 s
+                self._wf_t = self.clock()
+                self._spawn(self._refresh_wrong_folder(self.step))
+            await self.evaluate("screen")
+            await advice_clear.follow(self)  # t8: a Hint / Not yet whose code changed goes (<= ~1 s)
+            if self._spot_frozen():  # E7: resume card up / no app connected: no box work, no targeter call
+                if self.spot_rect is not None:  # the card shows instead; after Continue / a reconnect it goes out again
+                    await self.emit("spotlight", {"clear": True})
+                return
+            if not await self._spot_follows_app(obs):
+                if not await self._progress_follow():
+                    await self._follow_spot()
+                await self._run_box_done()
+                self._maybe_respot()
+                self._fix_follow()  # t5 (b): a fix became active under the step's own box: the fix line replaces it
+                self._insert_follow()  # t6: the insertion box stays on its row when the editor scrolls under it
+
+    OVERLAY_APPS = {"miyagi", "electron", "miyagi-overlay"}
+    RESPOT_S = 5.0  # E16: a lesson step with no box while its VS Code window is in front: place it again this often
+
+    async def _progress_follow(self) -> bool:
+        """E9, lesson code step: once the step's code is (partly) in the file, the "where to start" box (the anchor,
+        `import sys`) goes and the box follows the typing: the line where the code goes on or differs; none once all of
+        it is there. At most every SPOT_MIN_GAP_S. -> handled (no text-follow on this frame)."""
+        step = self.step
+        if not self.lesson_mode or step is None or self.passed:
+            return False
+        track = self.spot_track
+        anchor_track = track is not None and any(t.get("match") == track[0] for t in step.get("targets") or [])
+        own = getattr(self, "_spot_owner", None)
+        mine = self.spot_rect is not None and own is not None and own[0] == "step" and own[1] == self.step_gen
+        if not (mine or anchor_track) or self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+            return False
+        prog = self._code_progress(step)
+        if prog is None:
+            return False
+        if anchor_track:
+            self.spot_track = None
+        want = (self.step_gen, prog["line"], prog["kind"])
+        if not mine or getattr(self, "_progress_at", None) == want:
+            return True  # no box of the step's up, or it is already on that line
+        if prog["kind"] == "done" or getattr(self, "_spot_matched", False):  # all typed / the anchor's text box
+            async with self._spot_lock():
+                if self.spot_rect is not None:
+                    await self.emit("spotlight", {"clear": True})
+            self._progress_at = None
+        tried = getattr(self, "_progress_try", None)
+        if prog["kind"] != "done" and not (tried and tried[0] == want and self.clock() - tried[1] < 10.0):
+            self._progress_try = (want, self.clock())  # a line the gutter can't give is asked again in 10 s, not 2
+            self._spawn(self._lesson_spot(self.step_gen, step, tries=1), timer=True)
+        return True
+
+    def _step_ran(self) -> bool:
+        """This step ran its command: a `tut run` / VS Code / Run it for me run, Run it for me typed into VS Code's
+        terminal, or loss lines read off the screen once the step's run row saw that run. t6 (nn4): the screen reader
+        read the last session's training output (VS Code's restored terminal) the moment the step began; that made the
+        step look run, so its Run ▷ box never went up."""
+        if getattr(self, "_ext_run_t", 0.0) >= self._step_wall_t0:
+            return True
+        if any(not r.run_id.startswith("screen-") for r in self.step_runs):
+            return True
+        return bool(self.step_runs) and bool((self._run_need or {}).get("ran"))
+
+    async def _run_box_done(self) -> None:
+        """E17: the run step's own box ("Click ▷ to run" / "Run it here" / "Open the terminal") has done its job once
+        the step ran."""
+        own = getattr(self, "_spot_owner", None)
+        cap = self._spot_caption or ""
+        if (self.lesson_mode and self.spot_rect is not None and own is not None and own[0] == "step"
+                and self.step is not None and self._run_command(self.step) and self._step_ran()
+                and (cap == self.RUN_CAPTION or cap.startswith(("Open the terminal", self.RUN_BUTTON_CAPTION)))):
+            async with self._spot_lock():
+                if self.spot_rect is not None:
+                    await self.emit("spotlight", {"clear": True})
+        await run_pointing.follow(self)  # t7: a culprit box -> the ▷ once the code changed; that ▷ goes on the rerun
+
+    def _maybe_respot(self) -> None:
+        """E16: no box up on a lesson step while its VS Code window is in front (the first tries ran under a save
+        dialog, or before the window opened): place it again, at most every RESPOT_S, with no Haiku pick (tries=1;
+        the scene look retries with one). Never after a run step ran (its box was cleared on purpose)."""
+        step = self.step
+        if (not self.lesson_mode or step is None or self.passed or self.spot_rect is not None or self._spot_away
+                or self.coaching or getattr(self, "_lesson_spot_gen", None) == self.step_gen
+                or self.clock() - max(getattr(self, "_respot_t", -1e9), self.step_t0) < self.RESPOT_S
+                or not getattr(self.last_obs, "windows", None) or self._editor_off_screen()
+                or self._lesson_window_hidden()):
+            return
+        front = self._live_front().lower()
+        if (front and front not in CODE_APP_NAMES) or (self._run_command(step) and self._step_ran()):
+            return
+        if self._respot_held():
+            return
+        self._respot_t = self.clock()
+        self._spawn(self._lesson_spot(self.step_gen, step, tries=1), timer=True)
+
+    def _respot_held(self) -> bool:
+        """The targeter said "no box" for this step's box: no re-place for 15, 30, 60, then 120 s (_maybe_respot every
+        5 s and the scene look every 15 s each asked Haiku again, spent the 6/min budget, starved real picks, and once
+        it ran out kept:budget put the refused box back)."""
+        r = getattr(self, "_spot_refused", None)
+        return bool(r) and r[0] == self.step_gen and self.clock() - r[2] < 15.0 * 2 ** min(r[1] - 1, 3)
+
+    async def on_frontmost(self, app: str) -> None:
+        """E6's frontmost watcher (app switch / Space swipe, ~0.25 s): clear or re-place the box right away."""
+        if self.step is None or self.passed or self._spot_frozen():
+            return
+        await self._spot_follows_app(types.SimpleNamespace(app=app), front=app)
+
+    async def _spot_follows_app(self, obs: Any, front: str | None = None) -> bool:
+        """The box lives in VS Code: when the learner leaves it (another app / Space), clear the spotlight at once;
+        when VS Code is frontmost again, re-scan and re-box. Never keep a rect from an old frame. -> handled.
+        E6: the live frontmost app decides (`front`, else the window server's, else the frame's)."""
+        if front is None:
+            front = self._live_front() or ((getattr(obs, "app", "") or "") if obs is not None else "")
+        front = front.strip().lower()
+        if not front or front in self.OVERLAY_APPS:
+            return False  # unknown, or the learner is on Miyagi's own cards: keep the box
+        in_editor = front in CODE_APP_NAMES and not self._lesson_window_hidden()  # another project's window: away
+        if not in_editor and self.spot_rect is not None and (self._spot_app or "").lower() in CODE_APP_NAMES:
+            self._spot_away = True
+            async with self._spot_lock():  # E8: after a box another caller is sending, never under it
+                self.spot_rect, self._spot_caption = None, None  # the box must come back when VS Code does (S1 g)
+                await self.emit("spotlight", {"clear": True})
+            return True
+        if in_editor and self._spot_away and self.step is not None and not self.passed:
+            self._spot_away = False
+            step = self.step
+            if self.lesson_mode:
+                self._spawn(self._lesson_spot(self.step_gen, step, tries=8), timer=True)
+            else:
+                await self._spotlight_target(step)
+            return True
+        return False
+
+    def overlay_bounds(self, rects: list[dict]) -> None:
+        if self.screen is not None:
+            self.screen.set_overlay(rects)
+
+    async def on_file_change(self, paths: list[str] | None = None) -> None:
+        self._acted()  # a save is a learner action (and a breakpoint)
+        context_memory.scan_soon(self, paths)  # outlines of the saved files (incremental, in a thread; off in tests)
+        if self.step is not None:
+            await self.evaluate("file")
+
+    async def ingest(self, ev: dict) -> None:
+        kind = ev.get("kind")
+        run_id = str(ev.get("run_id") or "run")
+        run = self.runs.get(run_id)
+        if kind == "run_started" or run is None:
+            if run is None:
+                run = RunInfo(run_id=run_id)
+                self.runs[run_id] = run
+                if self.step is not None and not self.passed:
+                    self.step_runs.append(run)
+            run.command = ev.get("command", run.command) or run.command
+            run.cwd = ev.get("cwd", run.cwd) or run.cwd
+            if isinstance(ev.get("started_at"), (int, float)) and ev["started_at"] > 0:  # VS Code's own start time
+                run.started_t = float(ev["started_at"])
+        self._touch()
+        in_step = run in self.step_runs
+        if kind == "run_started":
+            if in_step:
+                self.engaged = True
+                if ev.get("source") != "screen":
+                    self._acted()  # the learner launched a run
+            return
+        if kind in ("metric", "metrics"):
+            items = ev.get("metrics") or ev.get("items") or [ev]
+            out: list[dict] = []  # live-curve points: one concurrent flush per batch, newest METRIC_EMIT_CAP per name
+            for it in items:
+                try:
+                    step_n, name = int(it["step"]), str(it["name"])
+                    raw = it.get("value")
+                    value = None if raw is None or it.get("nonfinite") else float(raw)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if value is not None and not math.isfinite(value):
+                    value = None
+                # NaN/inf arrive as None and stay None: a NaN loss must FAIL its metric check, not vanish
+                run.add_metric(step_n, name, value)
+                if value is not None:  # the app's live curve only takes finite numbers
+                    out.append({"runId": run_id, "step": step_n, "name": name, "value": value})
+            if out:
+                kept: dict[str, int] = {}
+                tail: list[dict] = []
+                for pt in reversed(out):  # every point is stored in the run (grading sees all); only the emit is capped
+                    if kept.get(pt["name"], 0) < METRIC_EMIT_CAP:
+                        kept[pt["name"]] = kept.get(pt["name"], 0) + 1
+                        tail.append(pt)
+                tail.reverse()
+                await asyncio.gather(*(self.emit("metric", pt) for pt in tail))
+            if in_step:
+                self._schedule_metric_eval()
+            return
+        if kind == "output":
+            lines = ev.get("lines") or []
+            run.add_output([str(x) for x in lines])
+            return
+        if kind == "run_ended":
+            try:
+                run.exit_code = int(ev.get("exit_code", 0))
+            except (TypeError, ValueError):
+                run.exit_code = 1
+            self._tiger_run(run)  # before grading: the step passing on this run must not lose its numbers
+            if in_step:
+                await self.evaluate("run_end")
+            self.relayout("a run ended")  # V9: its output may have pushed the boxed line down
+            return
+
+    def _tiger_run(self, run: RunInfo) -> None:
+        """A finished run's loss values -> Tiger (tiger_runs.py: VS Code / Run it for me runs as 'learner', a Demo's
+        recorded runs as 'demo', each run once; non-blocking, offline spool). Never breaks the lesson."""
+        try:
+            from . import tiger_runs
+
+            tiger_runs.record(self, run)
+        except Exception:  # noqa: BLE001
+            log.exception("tiger: run %s not recorded", run.run_id)
+
+    def _schedule_metric_eval(self) -> None:
+        if self._metric_eval_pending:
+            return
+        self._metric_eval_pending = True
+        gen = self.step_gen
+
+        async def later() -> None:
+            await asyncio.sleep(self.metric_eval_s)
+            self._metric_eval_pending = False
+            if gen == self.step_gen:  # metrics of a step that already passed must not grade the next one
+                await self.evaluate("metric")
+
+        self._spawn(later())
+
+    async def video_state(self, t: float, playing: bool) -> None:
+        self._play_at = (float(t), self.clock()) if playing else None  # t10: where the clip is, even after a pass
+        step = self.step
+        if step is None or self.passed:
+            return
+        self.video_reports += 1
+        self.video_t = t
+        self.video_playing = playing
+        seg = self._segment(step)
+        if seg and not self.segment_done and t >= seg["end"] - 0.3 and t <= seg["end"] + 5:
+            await self._segment_end()
+
+    async def resume(self) -> None:
+        """"Continue": replay the lesson state and pick the video up where it was."""
+        if self.graph is None or self.step is None:
+            self.awaiting_resume = False
+            await self._status("idle")
+            return
+        self.awaiting_resume = False
+        now = self.clock()
+        self.last_progress_t = now  # time away doesn't count as being stuck
+        # E4: nothing counts as started until the learner works after Continue (was: Continue itself was an action,
+        # so the idle ladder opened the gate and the coach spoke before they touched anything)
+        if not self.learner_started():
+            self.last_offtrack = None  # made before the learner started (e.g. off a click in another app): not replayed
+            self._pending_offtrack = None  # nor sent later (t3fix-coach-cards' kept diagnosis, E14; unused before it)
+        self._go_t = now
+        self.gate_open = self.screen_gate_open = False  # shown fails wait for the first edit after Continue
+        for cid, st in self.check_state.items():  # re-graded from the file on the next evaluation, not replayed
+            if st.get("status") == "fail":
+                self.check_state[cid] = {**st, "status": "pending", "detail": None}
+        self._sync_screen_soon()  # E3: the reader runs again
+        for type_, payload in self.snapshot():
+            if type_ != "status":
+                await self.emit(type_, payload)
+        step = self.step
+        seg = self._segment(step)
+        t = self.video_t if self.video_t is not None else (seg or {}).get("start")
+        if seg is not None and t is not None:
+            await self.emit("video.seek", {"t": float(t), "play": not self.segment_done})
+        if step is not None and self.workspace is not None and self.editor_open:  # (also under the sheet, as start_step)
+            self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
+            if self.lesson_mode:  # Continue: back to the step's file
+                self._spawn(self._show_step_file(step, explicit=True), timer=True)
+                self._spawn(start_hold.reveal_step_line(self, step, again=True), timer=True)  # t6: its line on screen
+        # the checks are re-graded by the next frame / save (the reader runs again), not replayed as they were
+        self.status = ""  # the snapshot's status was held back for this one: always sent (_status skips unchanged states)
+        await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
+                           else "watching")
+
+    async def action(self, kind: str, text: str | None = None, *, region: Any = None, ask_id: str | None = None,
+                     source: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
+        """`region` / `ask_id` / `source`: circle to ask (Nov 22, action ask + region; circle_ask.py). `ask_id` on a
+        typed or spoken ask is echoed on its answer card. `capture` (the helper's crop, AskCapture) and `release_t`
+        (time.monotonic when the command arrived): the fast, streamed circle ask (circle_ask.answer)."""
+        context_memory.on_action(self, kind, text)  # "skipped setup", "has AutoCAD": later answers know (never raises)
+        if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
+            await self._begin("Start")
+            return
+        if kind in self.START_ACTIONS and self.awaiting_start and region is None:
+            await self._begin(kind)  # a step control pressed: the sheet is closed (a circle on screen is not one)
+        if kind in self.ASK_KINDS and region is None and source not in ("circle", "voice"):
+            self._input_was_miyagi()  # E5: the keys just typed went into Miyagi's ask box (a circle / voice ask types none)
+        if kind == "resume":
+            await self.resume()
+            return
+        if getattr(self, "paused", None) is not None and kind in PAUSED_ANSWERS:  # v2: VS Code is closed: nothing to
+            await self.emit("lesson.paused", dict(self.paused))  # check or point at; the paused surface again
+            return
+        if kind == "end_lesson":  # the resume card's "Start a new lesson"
+            await self.end_lesson("end_lesson")
+            return
+        if kind == "build":  # preflight card: build the picked video
+            await self._build_pick()
+            return
+        if kind == "pick_another":
+            await self._pick_another()
+            return
+        if self.step is None and self.pending_pick is not None and kind == "download":
+            self._download_after_build = True  # no lesson folder yet: download into it once it exists
+            await self.emit("card", {"kind": "answer", "title": "Tutorial files",
+                                     "body": "I'll save the video's files in your lesson folder as soon as it's ready."})
+            return
+        if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser", *setup_apps.ACTIONS):
+            # the preflight card's tool buttons, before any lesson exists
+            if kind in setup_apps.ACTIONS:  # I have it / Get it / free alternative (a licensed app's row)
+                await setup_apps.act(self, kind, text)
+            elif kind == "install":
+                self._spawn(self._install((text or "").strip()))
+            else:
+                await self._open_in_browser((text or "").strip())
+            return
+        if kind == "retry":  # the "Couldn't reach Claude" card's Try again: the question that failed, once more
+            kind, text = self._last_ask or ("explain", None)
+            region, ask_id = self._last_ask_region if self._last_ask else (None, None)
+            capture = release_t = None  # the helper's crop was used (and deleted) by the first try
+        asking = kind in self.ASK_KINDS and self.step is not None
+        if asking:  # hold every proactive card until the answer is out (and drop one the typing guard queued)
+            self._last_ask, self.pending_speak = (kind, text), None
+            self._last_ask_region = (region, ask_id)  # a circle's Try again asks about the same circle
+            self._asks_in_flight += 1
+        gen = self.step_gen
+        token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
+        gen_token = _GEN.set(gen)  # an answer that finishes after the learner changed step is dropped
+        answered: set[str] = set()
+        answered_token = _ANSWERED.set(answered)
+        gen = self.step_gen
+        try:
+            circle = {k: v for k, v in (("region", region), ("ask_id", ask_id), ("capture", capture),
+                                        ("release_t", release_t)) if v is not None}
+            await self._action(kind, text, **circle)  # the old call shape when there is no circle / askId
+            if not answered & ANSWER_EVENTS and kind not in QUIET_ACTIONS and gen == self.step_gen:
+                await self._notice(kind)  # never silence: a press that changed nothing still gets an answer
+        except Exception as e:  # live mode: a missing/failing module is reported, never faked
+            log.exception("action %s failed", kind)
+            if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
+                card = (stage.fallback_answer(self, kind, text) if curated.active(self) and region is None else None) \
+                    or self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
+                if region is not None:  # circle to ask: the app matches the card to its ink by askId + region
+                    from . import circle_ask
+
+                    card = circle_ask.failed_card(self.step, circle_ask._region(region) or {}, ask_id, card)
+                await self._emit_card(card, window_s=0.0)
+            elif kind == "ask" and region is not None:  # a circle without a lesson, or the step moved on: never the
+                from . import circle_ask  # bare error event, which the app can't tie to its pending circle
+
+                reg = circle_ask._region(region) or {}
+                if gen == self.step_gen:
+                    await self._emit_card(circle_ask.failed_card(None, reg, ask_id), window_s=0.0)
+                else:
+                    await circle_ask.moved_on(self, reg, ask_id)
+            else:
+                await self.emit("error", {"message": f"{kind}: {e}"})
+            if self.step is not None:
+                await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+        finally:
+            if asking:
+                self._asks_in_flight = max(0, self._asks_in_flight - 1)
+                self._ask_hold_until = self.clock() + self.ASK_HOLD_S
+            _EPOCH.reset(token)
+            _GEN.reset(gen_token)
+            _ANSWERED.reset(answered_token)
+            await self._resolve_thinking_after_action()
+
+    async def _resolve_thinking_after_action(self) -> None:
+        """An action that was cancelled (the app left, a newer request replaced it) or that returned without setting a
+        verdict must not leave the pill on "thinking": nothing is running that would ever clear it."""
+        if self.status != "thinking" or getattr(self, "_checking", 0) or self._asks_in_flight:
+            return
+        if self.building() or self.phase == "searching" or self._tasks:  # background work still owns the pill
+            return
+        try:
+            to = ("offtrack" if self.last_offtrack and not self.passed else
+                  "passed" if self.passed else "watching" if self.step is not None else "idle")
+            await self._status(to)
+        except Exception:  # noqa: BLE001
+            log.exception("could not resolve the thinking status")
+
+    NOTICES = {  # action -> (title, body) when it had nothing to do; check_step's body is the off-track title
+        "back": ("This is the first step", "There's no step before this one."),
+        "confirm": ("Nothing to confirm", "That card is out of date. Press Check to see where this step stands."),
+        "undo": ("Nothing to undo", "There's no fix to undo."),
+        "skip_step": ("Moving on", "This step is already done."),
+        "check_step": ("Not yet", "The checks haven't passed yet."),
+        "show_me": ("Nothing to point at", "I can't find this step's spot on your screen yet."),
+        "apply_fix": ("No fix to apply", "There's no fix for this step yet. Try a hint."),
+        "diagram": ("No diagram", "The lesson changed while I was drawing. Press Diagram again."),
+    }
+
+    async def _notice(self, kind: str) -> None:
+        """A short answer card for an action the engine could not serve (it would otherwise look like a lost click)."""
+        title, body = self.NOTICES.get(kind, ("Nothing to do here", "That doesn't apply to this step right now."))
+        step, actions = self.step, []
+        progress = kind in ("check_step", "skip_step", "confirm")
+        if progress and step is not None and (self._placeholder_hold or step.get("provisional")
+                                              or is_provisional(self.graph)):
+            title, body = "Almost ready", "The full lesson is still being built. Its first step starts here in a moment."
+        elif progress and self.passed and self.phase == "done":  # t5: Check / Skip after the end: the ending again
+            from . import lesson_end
+
+            await self._emit_card(lesson_end.card(self), window_s=0.0)
+            await self._status("passed")  # Check set "thinking" on a passed step: no spinner left over the ending
+            return
+        elif progress and self.passed:  # the last step, or a long video's next part still building: not "Not yet"
+            title, body = "This step is done", ("That was the last step." if self.phase == "done" else
+                                                "The next part is still being built." if self.waiting_more else
+                                                "Moving on to the next step.")
+        elif kind == "check_step" and step is not None:  # replaces the off-track card in the app: keep its buttons
+            body = (self.last_offtrack or {}).get("title") or body  # the off-track card may have been covered
+            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode
+                       else ["hint", "show_me"])  # t10: a video lesson's Not yet keeps its teach buttons (Card has no explain)
+            actions += ["skip_step"]
+        log.info("action %s: nothing to do; notice %r", kind, title)
+        await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
+                                 "body": body, **({"actions": actions} if actions else {})})
+
+    # Setup and help presses aren't work on the step: they must not open the check gate or start the
+    # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
+    NOT_WORK_ACTIONS = frozenset({"install", "install_all", "skip_setup", "open_editor", "open_in_browser", "download",
+                                  "have_it", "get_it", "alternative", "open_in_app",
+                                  "use_this_folder", "voice_toggle", "build", "pick_another",
+                                  "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
+
+    async def _action(self, kind: str, text: str | None = None, *, region: Any = None,
+                      ask_id: str | None = None, capture: Any = None, release_t: float | None = None) -> None:
+        step = self.step
+        if kind != "show_me":  # Show me counts once its box / snippet is actually up (below), never on "Nothing to point at"
+            skill_hooks.note_assist(self, kind)  # skill tree: a hint / show me / Do it for me on a step is not unassisted
+        if step is not None:
+            if kind in self.NOT_WORK_ACTIONS:
+                self._touch()
+            else:
+                self._acted()
+        if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
+            if step is not None and self.pending_patch is not None:
+                await self._apply_patch(step)
+            elif step is not None and (self.confirm_pending or self.confirm_check_ids) and not self.passed:
+                # confirm_check_ids: the judge's "Looks done?" stays armed until the step changes or Claude
+                # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
+                await self._status("thinking", detail="Checking your work")  # the app's Yes spinner ends on thinking -> passed, even on the last step
+                self.confirm_pending = False
+                if await self._dup_blocks_pass(step):  # T5: a later copy of the step's def overrides it: no pass
+                    self.confirm_check_ids = []
+                    return
+                for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
+                    label = (self.check_state.get(cid) or {}).get("label", cid)
+                    await self.emit("check.updated", {"stepId": step["id"], "checkId": cid, "label": label,
+                                                      "status": "pass", "detail": "You confirmed it"})
+                    self.judged_pass.add(cid)  # (they stay green; t11: the run below may still decide)
+                self.confirm_check_ids = []
+                if (first := self._run_first(step)) is not None:  # t11: a notebook step needs its cell run: Yes
+                    log.info("confirm on %s held: %s", step["id"], first["title"])  # waits, the run passes it
+                    await self._emit_card(first, window_s=0.0)
+                    await self._status("watching")
+                    return
+                await self._pass_step()
+            elif step is not None and not self.passed:
+                await self._confirm_stale(step)  # a "Looks done?" that went stale: re-check, never a silent no-op
+            return
+        if kind == "undo":
+            await self._undo_fix()
+            return
+        if kind == "explain" and (text or "").strip():  # selected text (VS Code "Explain this", drawer "Explain more")
+            from .selection import answer as explain_selection
+
+            await explain_selection(self, step, text)  # also without a lesson: no step context then
+            return
+        if kind == "ask" and region is not None:  # circle to ask (Nov 22): the learner circled part of the screen
+            from . import circle_ask
+
+            await circle_ask.answer(self, step, text, region, ask_id,  # also without a lesson
+                                    app_capture=capture, release_t=release_t)
+            return
+        if step is None:
+            await self.emit("error", {"message": "No lesson is running yet."})
+            return
+        self._touch()
+        if kind == "run_command":  # "Run it for me" on a run step
+            await self._run_for_me(step)
+            return
+        if kind == "use_this_folder":  # the "Wrong folder?" card: continue in the learner's folder
+            await self._use_this_folder(step)
+            return
+        if kind == "check_step":  # "Can I move on?"
+            await self._check_step(step)
+            return
+        if kind == "skip_step":  # leave this step unfinished and start the next one
+            await self._pass_step(skipped=True)
+            return
+        if kind == "back":
+            idx = self.idx
+            seg = self._segment(step)
+            # Back is the previous step in every lesson (Michael, Nov 15 9:15: in a video lesson Back only rewound the
+            # clip, so a learner who skipped a step couldn't get its code back). Rewinding the clip stays on the
+            # player's own Back-to-the-step's-start button, and Back on step 1 still rewinds.
+            if idx > 0:
+                self._revisit_gen = self.step_gen + 1  # start_step's reset bumps step_gen once: never auto-passed
+                await self.start_step(idx - 1)  # no clip to rewind (a "Just teach me" lesson): the previous step
+                return
+            if seg:
+                self.segment_done = False
+                await self.emit("video.seek", {"t": seg["start"], "play": True})
+            return
+        if kind == "show_me":
+            seg = self._segment(step)
+            if seg:
+                self.segment_done = False
+                await self.emit("video.seek", {"t": seg["start"], "play": True})
+                await self.emit("video.play", {})
+            gen = self.step_gen
+            if onscreen_coach.is_app_lesson(self):  # an app lesson: circled on screen, else the where words (no model)
+                if await onscreen_coach.on_where(self, step):
+                    skill_hooks.note_assist(self, "show_me", step)
+                elif gen == self.step_gen:  # nothing to circle: the where card in words, never m.show_me
+                    await self._emit_card(onscreen_coach.where_card(self, step))
+                return
+            if reason := self.screen_down_reason(include_ax=False):  # say at once why there's no spotlight (no capture attempt)
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
+                                       "body": self.screen_down_message(reason)})
+                return
+            if self._lesson_window_hidden():  # another project's window is in front: no box on it; where + Open
+                await self._emit_card(self._where_card(step))
+                return
+            if self.lesson_mode and await self._show_step_file(step, explicit=True):
+                await asyncio.sleep(0.4)  # L2: the editor switched to the step's file: box it, not the old one
+            elif self.lesson_mode and await ui_targets.show_open_file(self, step):
+                return  # t6: the companion couldn't switch files: nn.py's tab / Explorer row is the one box
+            if self.lesson_mode and not self._run_command(step) and (step.get("code") or "").strip():
+                await self._lesson_show_me(gen, step)  # E15 + t5 (c): ONE box on the right line + its answer card
+                return
+            quick = await self._show_where(step)  # exact match / window: instant
+            if quick:
+                skill_hooks.note_assist(self, "show_me", step)  # a box is up: the pass is assisted
+            if quick and self.lesson_mode:
+                return  # the target box + what to type there is the whole answer
+            if self.lesson_mode and (cmd := self._run_command(step)):  # no Run ▷ / terminal on screen: never a box
+                await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",  # on a line of the file
+                                       "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
+                                       "actions": ["run_command"]})
+                skill_hooks.note_assist(self, "show_me", step)  # the command itself was shown
+                return
+            if self.m.has_pointing() and not stage.on(self):  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
+                screen = await self._screen_for_coach(step)
+                r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
+                if gen != self.step_gen:
+                    return
+                if r and r.get("targets"):
+                    spot = self._target_spot({**r["targets"][0], "label": r.get("caption") or r["targets"][0].get("label")})
+                    if spot:
+                        self._action_spot = True
+                        await self._show_spot({**spot, **self._snippet(step)})
+                        skill_hooks.note_assist(self, "show_me", step)
+                        return
+                if r and r.get("where") and not quick:
+                    await self._emit_card({"stepId": step["id"], "kind": "where", "title": "Where to work",
+                                           "body": r["where"], **({"actions": ["open_editor"]} if self._offers_open() else {})})
+                    return
+            if not quick and self._can_see():
+                await self._emit_card(self._where_card(step))
+            return
+        if kind in ("explain", "ask"):
+            if kind == "ask" and region is None and await onscreen_coach.on_where_ask(self, step, text):
+                return  # an app lesson's "where is X?": circled on screen like Show me
+            self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
+            await self._status("thinking", detail="Writing an answer" if kind == "ask" else "Writing an explanation")
+            gen = self.step_gen
+            placed = await self._show_where(step)
+            if kind == "explain" and not text and (card := curated.explain_card(self, step)) is not None:
+                await self._emit_card(card)  # curated lesson: the step's own Explain card, instantly
+                await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+                return
+            # t5 (a): a lesson's Explain keeps the ONE line _show_where boxed (the fix line / where the code goes on),
+            # never the coach's mentioned lines on top of it ("Change this line" x3 beside "Type it here")
+            keep = self.lesson_mode and placed and kind == "explain"
+            from . import stale_advice
+
+            await stale_advice.before_answer(self, step)  # VS Code's exact text now; a stale diagnosis leaves its context
+            ctx = self._explain_context()
+            screen = await self._screen_for_coach(step)
+            if screen is not None:
+                ctx["screen"] = screen
+
+                def on_targets(targets: list[dict]) -> None:  # the coach points while it answers
+                    if gen == self.step_gen and targets and not keep:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._action_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                ctx["on_targets"] = on_targets
+            card = await self._explain_in_time(step, text if kind == "ask" else (text or None), ctx)
+            if gen != self.step_gen:
+                return  # the learner moved to another step meanwhile: an answer about the old one would mislead
+            card = dict(card)
+            card["stepId"] = step["id"]
+            if kind == "ask" and ask_id:
+                card["askId"] = ask_id  # the app matches the answer to the question it sent
+            card = await stale_advice.answer(self, step, card)  # never "delete line 41" once line 41 is gone (03:00:41)
+            if card.get("targets") and not keep:
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
+            await self._emit_card(card)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+            return
+        if kind == "hint":
+            gen = self.step_gen
+            await self._status("thinking", detail="Writing a hint")
+            if self._lesson_window_hidden():  # another project's window is in front: say where (+ Open), quote nothing
+                await self._emit_card(self._where_card(step))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            from . import card_copy
+
+            if await card_copy.diagnosed_hint(self, step):  # t5: from the diagnosis / Check's "Not yet": line, then fix
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            off = self.last_offtrack or {}
+            if (not self.lesson_mode and not curated.active(self) and off.get("stepId") == step["id"]
+                    and getattr(self, "spot_rect", None) is not None):  # video lessons only (t8 replay: curated boxes)
+                shown = True  # t10 (CP6): the off-track's fix box stays ("Fix load_dat to load_data"), never the step's
+            else:  # caption ("Load MNIST and normalize pixels") put back over it by the Hint
+                shown = await self._show_where(step)
+            screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
+            if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
+                await self._emit_card(self._where_card(step))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            card = curated.hint_card(self, step, self.hint_level) or \
+                (stage.last_hint(self, step) if stage.on(self) else None) or \
+                dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
+            if gen != self.step_gen:
+                return
+            card["stepId"] = step["id"]
+            self.hint_level += 1
+            if card.get("targets") and not (self.lesson_mode and shown):  # E5 pointed at the exact spot (t5: one box)
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
+            await self._emit_card(card)
+            await self._status("offtrack" if self.last_offtrack else "watching")
+            return
+        if kind == "diagram":
+            want = (text or "").strip().lower()
+            if stage.on(self) and want not in ("network", "gradients"):
+                want = ""  # a Demo lesson: a concept title gets the step's own network, never a model call
+            if (d := curated.diagram_for_action(self, step, want)) is not None:  # curated: its own network, instantly
+                await self.emit("diagram", d)
+                return
+            if want not in DIAGRAM_KINDS and not self.m.has_diagrams():  # stubs (DEMO) pick from the failing checks
+                metric_fail = any(r.get("status") == "fail" and r.get("checkId") in
+                                  {c["id"] for c in step.get("checks", []) if c.get("type", "").startswith("metric")}
+                                  for r in self.last_results)
+                want = "gradients" if metric_fail or self.last_offtrack else "network"
+            await self._status("thinking", detail="Drawing a diagram")
+            gen, graph = self.step_gen, self.graph
+            d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, self._diagram_step(step), self.context(),
+                                     self._diagram_context(step, None if want in DIAGRAM_KINDS else (text or None)))
+            if self.graph is not graph or gen != self.step_gen:
+                return  # the lesson/step changed while drawing: never show it in the wrong place
+            d = dict(d)
+            d["stepId"] = step["id"]
+            await self.emit("diagram", d)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+            return
+        if kind == "open_editor":
+            await self._open_editor_answered()
+            return
+        if kind == "install":  # text = the setup item's tool id (none: the package the card is about)
+            self._spawn(missing_module.install(self, text))
+            return
+        if kind == "install_all":  # t9 V12: the setup card's Install all: every missing row, one after another
+            self._spawn(setup_rows.install_all(self))
+            return
+        if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
+            self._setup_card = None  # L4: no longer pending (the Start card may go out)
+            return
+        if kind == "download":  # S2: the video's linked code / notebooks -> <lesson folder>/tutorial/ (never run)
+            from . import workspace as wsmod
+
+            await self._status("thinking", detail="Downloading the files")
+            res, summary = await asyncio.to_thread(wsmod.download_resources, self.graph or {}, self.workdir)
+            await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Tutorial files", "body": summary})
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+            return
+        if kind == "open_in_browser":  # text = a web_app setup item's tool id (no-code lessons)
+            await self._open_in_browser((text or "").strip())
+            return
+        if kind in setup_apps.ACTIONS:  # text = an app row's tool id: I have it / Get it / free alternative
+            await setup_apps.act(self, kind, text)
+            return
+        if kind == "open_in_app":  # Nov 24: the setup card's Open in Blender (text? = the app's tool id)
+            await open_in_app.act(self, text)
+            return
+        if kind == "voice_toggle":
+            if not config.voice_enabled():  # voice is off for now (MIYAGI_VOICE): the toggle does nothing
+                log.info("voice: off (set MIYAGI_VOICE=1 to turn it on); voice_toggle ignored")
+                self.voice = False
+                return
+            self.voice = not self.voice
+            if self.voice:
+                self._prefetch_voice()
+            return
+        if kind == "apply_fix":
+            await self._apply_fix(step)
+            return
+        await self.emit("error", {"message": f"Unknown action: {kind}"})
+
+    def _diagram_context(self, step: dict, question: str | None) -> dict:
+        ctx = self._explain_context()
+        return {"code": ctx.get("code"), "file": ctx.get("file"), "screen": self._screen_lines(),
+                "question": question, "lesson": ctx.get("lesson"),
+                "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
+
+    # ------------------------------------------------------------------ pointing (show_me / hint / explain)
+    BROWSER_APPS = ("Google Chrome", "Safari", "Arc", "Firefox", "Brave Browser", "Microsoft Edge")
+
+    def _work_apps(self, step: dict) -> list[str]:
+        apps = [t.get("app") for t in step.get("targets") or [] if t.get("app")]
+        apps += [c.get("app") for c in step.get("checks") or [] if c.get("app")]
+        if self.notebook_lesson:
+            apps += list(self.BROWSER_APPS) + ["Code", "Cursor", "Jupyter"]
+        return list(dict.fromkeys(apps or ["Code", "Cursor", "Terminal"]))
+
+    def _window_spot(self, step: dict, caption: str) -> dict | None:
+        """The window the learner should work in, when the exact target isn't on screen."""
+        obs = self.last_obs
+        for want in self._work_apps(step):
+            for w in getattr(obs, "windows", None) or []:
+                if want.lower() in (getattr(w, "app", "") or "").lower():
+                    r = w.rect.to_dict() if hasattr(w.rect, "to_dict") else w.rect
+                    return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption, "app": w.app}
+        return None
+
+    async def _show_where(self, step: dict) -> bool:
+        """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible.
+        A press's answer (E8 owner "answer": Explain / Hint / Show me). E9: once the step's code is (partly) in the
+        file, where it goes on, never the "where to start" anchor. t5: a fix that is up boxes the line to fix; nothing
+        typed yet boxes where the code goes (the file decides, _insert_spot). A run step otherwise: VS Code's Run ▷ or
+        the terminal, never a line of its file (Nov 15, nn4: Show me boxed nn.py's last line "Type it here: python3
+        nn.py", and the learner typed the command into nn.py). t7: a run step whose "Not yet" is in the code (stuck
+        loss: W1..W3; a diagnosed line; a NameError) boxes those lines, never the ▷ (run_pointing.culprit_spot)."""
+        if (culprit := await run_pointing.culprit_spot(self, step)) is not None:
+            if culprit:  # ({}: those lines aren't on screen: no box beats "click ▷ again")
+                self._action_spot = True
+                await self._show_spot(culprit, owner="answer")
+            return True
+        if self.lesson_mode and self._fix_active() and (fix := await self._change_spot(step)) is not None:
+            self._action_spot = True  # t5 (b): the press points at the line to fix: the one box
+            await self._show_spot(fix, owner="answer")
+            return True
+        if self.lesson_mode and (cmd := self._run_command(step)):
+            if not self._ptr_runs_it(step):  # t8: the ▷ makes its own terminal (else zsh + "Python")
+                await self._ensure_terminal(step)
+            spot = await self._run_spot(step, cmd)
+            spot.pop("kind", None)
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+            return bool(spot)
+        if self.lesson_mode and (prog := self._code_progress(step)) is not None:
+            spot = await self._progress_spot(step, prog) if prog["kind"] != "done" else None
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+            return spot is not None
+        if self.lesson_mode and (plan := self._insert_plan(step)) is not None:  # t5 (d): where new code goes
+            spot = await self._insert_spot(step, plan=plan)
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+            return spot is not None
+        if await self._spotlight_target(step, owner="answer"):
+            self._action_spot = True
+            return True
+        file = self._step_file(step)
+        if self.lesson_mode:  # the exact line (S2 / E6), never the whole editor window
+            spot = await self._editor_line_spot(step)
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+                return True
+            return False
+        caption = f"Work here: {file}" if file else "Work here"
+        spot = self._window_spot(step, caption)
+        if spot:
+            self._action_spot = True
+            await self._show_spot({**spot, **self._snippet(step)})
+            return True
+        return False
+
+    async def _change_spot(self, step: dict) -> dict | None:
+        """E15 Show me: the exact line to change, captioned with what it should read: the off-track diagnosis's line
+        ("Change to: return response.json()"), else the first line of the file that differs from the step's code (or
+        where its next line goes). None: nothing typed yet (Show me boxes where to start, as before).
+        t5: the diff's first line that really CHANGES (not a shared context line like `def sigmoid(x):`), found in the
+        file first (its editor row, file-exact; the fuzzy OCR match boxed look-alike lines), on screen only when the
+        gutter misses; a diagnosis whose line is no longer in the file is stale: the step's code decides then.
+        A run step's snippet is its command: never under a line of the file (Nov 15: typed into nn.py)."""
+        t = self._fix_target(step)
+        if t is None:
+            return None
+        spot = await self._progress_spot(step, t, caption=t["caption"])
+        if spot is None and t.get("yours") and self.screen is not None:  # the gutter missed: that exact line on screen
+            hit = self._locate(re.escape(t["yours"]), "Code", t["caption"])
+            if hit and not self._chrome_hit(hit) and not self._long_hit(hit, t["yours"]):
+                spot = {**hit, **self._snippet(step), "_line": self._line_meta(t, float(hit["rect"]["h"]))}
+        if spot is not None and self._run_command(step):
+            spot.pop("snippet", None)  # a run step's snippet is its command: never under a line of the file
+        return spot
+
+    @staticmethod
+    def _real_file(name: str | None) -> bool:
+        """E2 files run steps under "(terminal)": that's a place, not a file."""
+        n = (name or "").strip()
+        return bool(n) and not n.startswith("(") and n.lower() not in ("terminal", "the terminal", "shell")
+
+    _ENV_DIRS = {".venv", "venv", "site-packages", "node_modules", "__pycache__"}
+
+    def _step_file(self, step: dict) -> str | None:
+        """The file the step is about (its box, the editor's tab). t10: never a file inside a venv / node_modules (s1's
+        `.venv/bin/activate` check opened the activate shell script as the step's file)."""
+        def ok(f: Any) -> bool:
+            return self._real_file(f) and not (set(Path(str(f)).parts) & self._ENV_DIRS)
+
+        for t in step.get("targets") or []:
+            if ok(t.get("file")):
+                return t["file"]
+        for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
+            if ok(c.get("file")):
+                return c["file"]
+        if ok(step.get("file")):
+            return step["file"]
+        return None
+
+    def _can_see(self) -> bool:
+        """The screen reader is running and has a frame: 'nothing found' then really means 'not on screen'."""
+        return self.screen_active() and self.last_obs is not None
+
+    @staticmethod
+    def _editor_label() -> str:
+        from . import workspace as wsmod
+
+        return wsmod.editor_label()
+
+    def _code_not_visible(self) -> bool:
+        details = " ".join(str(r.get("detail") or "") for r in self.last_results if r.get("status") != "pass").lower()
+        return any(k in details for k in ("not visible", "not on screen", "waiting for screen"))
+
+    def _lesson_window_hidden(self) -> str | None:
+        """The lesson is bound to its own VS Code window, and the screen shows ANOTHER folder's VS Code window but none
+        of the lesson's (E6 `obs.foreign`) -> that folder's name: a box would land on the wrong project. Else None."""
+        obs = self.last_obs
+        foreign = getattr(obs, "foreign", None) if self.editor_open else None
+        if not foreign or any((getattr(w, "app", "") or "").lower() in CODE_APP_NAMES
+                              for w in getattr(obs, "windows", None) or []):
+            return None
+        parts = [p.split("[")[0].strip() for p in re.split(r"\s[—–]\s", (getattr(foreign[0], "title", "") or "").lstrip("●•⚫ "))]
+        return (parts[1] if len(parts) >= 2 else parts[0]) or "another folder"
+
+    def _offers_open(self) -> bool:
+        from . import workspace as wsmod
+
+        return self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph)
+
+    def _where_card(self, step: dict) -> dict:
+        """A card that says WHERE to go when I can't see the learner's work."""
+        file = self._step_file(step)
+        if self.notebook_lesson:
+            if nb := lesson_notebook.name(self):  # t10: the lesson's notebook, in VS Code (never Colab / a browser Jupyter)
+                return {"stepId": step["id"], "kind": "where", "title": f"Open {nb}",
+                        "body": f"Open {nb} in VS Code so I can see it."}
+            return {"stepId": step["id"], "kind": "where", "title": "Open the notebook",
+                    "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
+        untitled = self._untitled_editor()
+        if file and untitled:  # the learner typed into a new, unsaved editor tab: say exactly what to do
+            return {"stepId": step["id"], "kind": "where", "title": f"Save it as {Path(file).name}",
+                    "body": f"Your code is in an unsaved {untitled} tab. Save it (⌘S) as {Path(file).name} in "
+                            f"{self.workdir} so I can check it."}
+        hidden = self._lesson_window_hidden()  # another project's VS Code window is the one on screen: name it
+        card: dict[str, Any] = {"stepId": step["id"], "kind": "where", "title": f"Open {file}" if file else "Show me your code",
+                                "body": (f"This VS Code window is {hidden}. Open {file} in {Path(self.workdir).name}, "
+                                         "this lesson's folder." if hidden and file else
+                                         f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
+                                         if file else "Bring your editor to the front so I can see your code.")}
+        if self._offers_open():
+            card["actions"] = ["open_editor"]
+        return card
+
+    def _untitled_editor(self) -> str | None:
+        """The code editor (VS Code / Cursor) showing an unsaved 'Untitled-N' tab, if any."""
+        for w in getattr(self.last_obs, "windows", None) or []:
+            app = (getattr(w, "app", "") or "")
+            title = (getattr(w, "title", "") or "").lstrip("● ")
+            if app.lower() in CODE_APP_NAMES | {"code"} and title.lower().startswith("untitled"):
+                return "Cursor" if app.lower() == "cursor" else "VS Code"
+        return None
+
+    def _setup_without_code(self, step: dict) -> bool:
+        """A setup step with no code to type (T11 s1 "Activate .venv and start Jupyter": a terminal command): tagged /
+        titled setup, or, in a video lesson whose other steps carry their code, the one step without any."""
+        if (step.get("code") or "").strip():
+            return False
+        if step.get("setup") or self.SETUP_STEP.search(step.get("title") or ""):
+            return True
+        return not self.lesson_mode and any((s.get("code") or "").strip() for s in self.steps or [])
+
+    def _diagram_step(self, step: dict) -> dict:
+        """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
+        hand one lesson's diagram to another."""
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id", "lesson")
+        return {**step, "id": f"{lesson_id}:{step['id']}"}
+
+    async def _prefetch_diagram(self, gen: int, step: dict) -> None:
+        """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
+        if self._setup_without_code(step):  # T11: s1's ~4 s Sonnet diagram of "activate .venv" nobody opened
+            log.info("diagram prefetch skipped: %s is a setup step with no code", step.get("id"))
+            return
+        await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
+        if gen != self.step_gen or not self.m.has_diagrams() or curated.active(self):
+            return  # a curated lesson's diagrams are its own files: no S4 call
+        try:
+            await self.m.diagram(None, self._diagram_step(step), self.context(), self._diagram_context(step, None))
+        except Exception as e:  # noqa: BLE001 - a prefetch must never surface
+            log.info("diagram prefetch skipped: %s", e)
+
+    def _explain_context(self) -> dict:
+        code, file = self._coach_excerpt(self.step) if self.step else ("", None)
+        return {
+            "lesson": (self.graph or {}).get("lesson", {}),
+            "query": self.query,
+            "checks": self.last_results,
+            "metrics": metrics_summary(self.context().metrics),
+            "metrics_summary": self.context().metrics,  # coach (E5) wants the raw series
+            "cursor": self.cursor_context(),  # {x, y, under: {text, app, rect}} in screen points
+            "code": code,
+            "file": file,
+            "offtrack": advice_clear.live_offtrack(self),  # t11: never a diagnosis whose checks pass now
+            # Nov 22: what the setup scan found about the lesson's app ("AutoCAD 2025 is installed"; "the learner uses
+            # FreeCAD instead"). "" for a code lesson, so its context is unchanged.
+            "setup": setup_apps.context_line(self),
+            # server/context: what this lesson already saw and did ("" when memory is off: the context is unchanged)
+            **self._memory_kw(self.step, "explain", {file} if file else None),
+        }
+
+    def _memory_kw(self, step: dict | None, purpose: str, files: Any = None) -> dict:
+        """{"memory": block} for a coach call, or {} when memory is off or knows nothing (fakes in tests never see
+        a new keyword). `files`: names the prompt already carries in full (their notes are left out)."""
+        names = {str(f) for f in (files or ()) if f}
+        mem = context_memory.block(self, step, purpose, files_in_prompt=names)
+        return {"memory": mem} if mem else {}
+
+    CARD_GAP_S = 8.0  # never two automatic cards within 8 s
+    ASK_KINDS = ("explain", "ask", "hint")  # the learner asked Miyagi: proactive cards wait for the answer
+    ASK_HOLD_S = 10.0  # ...and for this long after it (or its "Couldn't reach Claude" card) went up
+    _asks_in_flight = 0
+    _ask_hold_until = -1e9
+    _last_ask: tuple[str, str | None] | None = None  # what "retry" re-sends
+    _last_ask_region: tuple[Any, str | None] = (None, None)  # ...with its circle (region, askId), for a circle ask
+
+    def _ask_held(self) -> bool:
+        """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
+        judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
+        return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    # t8 offline: a typed question in the curated / Demo lesson waits at most this long for Claude. On a venue network
+    # that drops packets the coach call sat out its 45 s timeout twice (82 s measured), and every press behind it
+    # (Check my work, Show me, Run it for me) queued for that long. Then the step's own Explain card answers instead.
+    # A live answer takes ~9 s (03:00:33 -> 03:00:41 on test 6).
+    CURATED_ASK_S = float(os.environ.get("MIYAGI_ASK_DEADLINE_S") or 12.0)
+
+    async def _explain_in_time(self, step: dict, question: str | None, ctx: dict) -> dict:
+        """m.explain, cut off after CURATED_ASK_S in the curated / Demo lesson (it has an offline answer)."""
+        call = self.m.explain(step, question, ctx)
+        if not curated.active(self):
+            return await call
+        try:
+            return await asyncio.wait_for(call, self.CURATED_ASK_S)
+        except asyncio.TimeoutError:
+            log.warning("ask: no answer from Claude within %.0fs (network?); the lesson's own answer instead",
+                        self.CURATED_ASK_S)
+            raise ConnectionError(f"connection: no answer within {self.CURATED_ASK_S:.0f}s") from None
+
+    def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
+        """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""
+        msg = str(e)
+        if "connection" in msg.lower():
+            title, why = "Couldn't reach Claude", "Check your connection, then try again."
+        elif "ANTHROPIC_API_KEY" in msg:
+            title, why = "Claude isn't set up", "Add your Anthropic key in Settings, then try again."
+        else:
+            title, why = "Claude couldn't answer", "Try again in a moment."
+        q = " ".join((text or "").split())
+        asked = f"“{q[:60]}{'…' if len(q) > 60 else ''}” didn't get an answer. " if kind == "ask" and q else ""
+        return {"stepId": (self.step or {}).get("id"), "kind": "answer", "title": title, "body": asked + why,
+                "actions": ["retry"]}
+
+    def _auto_card_ok(self) -> bool:
+        """May the engine show a card nobody asked for right now? Not in a step's first ~20 s, never within 8 s
+        of the last card, never while the learner's own question is being answered."""
+        now = self.clock()
+        return (now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+                and not self._ask_held())
+
+    async def _emit_card(self, card: dict, window_s: float = 15.0, auto: bool = False) -> bool:
+        """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated
+        key presses or overlapping triggers must not stack identical cards. auto: the engine's own initiative
+        (stuck / judge / not-started cards): paced by _auto_card_ok. -> whether it was sent."""
+        if (card := await quiet_save.intercept(self, card)) is None:  # Nov 15: no ⌘S chores: saved it quietly instead
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("card")  # a press answered by the save (its re-grade passes the step / shows the rows)
+            return False
+        if auto and not self._auto_card_ok():
+            log.info("held back auto card %r (too early / too soon after the last)", card.get("title"))
+            return False
+        sig = (card.get("stepId"), card.get("kind"), card.get("level"), card.get("title"), card.get("body"))
+        now = self.clock()
+        last = self._recent_cards.get(sig)
+        # demo pre-test: a press (Explain / Check my work after a Not yet) whose card another card / off-track /
+        # diagram has replaced since goes out again (it isn't on screen any more: dropping it answered nothing)
+        covered = not auto and _ANSWERED.get() is not None and self._recent_slot.get(sig) != self._slot_n
+        if last is not None and now - last < window_s and not covered:
+            log.info("dropped duplicate card %r", card.get("title"))
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("card")  # a press: this very card went out moments ago, so no "Nothing to do" notice
+            return False
+        self._recent_cards[sig] = now
+        self._last_card_t = now
+        await self.emit("card", card)
+        self._recent_slot[sig] = self._slot_n
+        advice_clear.sent(self, card)  # t8: a Hint / Not yet goes once the code it is about changed
+        mine = (not auto and _ANSWERED.get() is not None) or "confirm" in (card.get("actions") or [])
+        self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
+        covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
+                  or (self._nudge is not None and card is self._nudge.get("card")))
+        onscreen_coach.not_yet_card(self, card, pressed=not auto and _ANSWERED.get() is not None)  # app lesson: again
+        if covers:  # card.closed lifts the hold only for THIS card (another card's close must not: Test 2, 01:09)
+            self._carded_title = card.get("title") or ""
+        elif self._carded_checks:  # E14: the app has ONE card slot: this card took the place of the one
+            log.info("card %r replaced the card covering %s", card.get("title"), sorted(self._carded_checks))
+            if not self._carded_checks <= self._offtracked_checks:
+                self.spoken_sig = None  # the diagnosis it held back was never shown
+            self._carded_checks, self._carded_title = set(), None  # that covered these: off-tracks may speak again
+        return True
+
+    async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> bool:
+        """Every card goes through _emit_card (E14): the card gap, the duplicate check and card.closed see it too."""
+        return await self._emit_card({"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra},
+                                     window_s=1.0)
+
+    _carded_title: str | None = None  # title of the card that set _carded_checks (card.closed matches on it)
+
+    async def card_seen(self, shown: bool, step_id: str | None, title: str, kind: str | None = None,
+                        by: str | None = None) -> None:
+        """App -> engine card.shown / card.closed (E14): what the learner really has on screen. The card that set
+        the off-track hold, closed by the learner or by itself (by "user" / "timeout"), no longer speaks for its
+        checks: the hold is lifted. Another card's close, "replaced" or "hidden" lift nothing."""
+        step = self.step
+        if step is None or (step_id and step_id != step["id"]):
+            return
+        if shown:
+            log.info("card on screen: %s %r", kind or "card", title)
+            return
+        log.info("card closed (%s): %s %r", by or "?", kind or "card", title)
+        advice_clear.closed(self, title, by)  # t8: a closed card is never cleared (re-shown) later
+        if by in ("replaced", "hidden"):  # _emit_card already handled the card the engine put in its place; a covered
+            return  # slot shows the same card again (card.shown), so neither lifts a hold
+        same = (title or "").strip().casefold()
+        if self._card_in_use is not None and self._card_in_use[0].strip().casefold() == same:
+            self._card_in_use = None  # the learner closed their own card: a kept off-track may go out
+        if self._carded_checks and (self._carded_title or "").strip().casefold() == same:
+            log.info("no card covers %s any more", sorted(self._carded_checks))
+            if not self._carded_checks <= self._offtracked_checks:
+                self.spoken_sig = None  # the diagnosis it held back was never shown: the next save / run may speak
+            self._carded_checks = set()
+        await offtrack_targets.card_closed(self)  # t8: the off-track card is on top again: its waiting targets
+
+    async def _apply_fix(self, step: dict) -> None:
+        """"Do it for me": the learner saw the diff on the offtrack card and pressed the button.
+        Preview -> confirm -> act -> undo; never types into the editor, never presses Return."""
+        diff = (self.last_offtrack or {}).get("diff") or {}
+        command = diff.get("command")
+        file, yours, expected = diff.get("file"), diff.get("yours"), diff.get("expected")
+        from . import stale_advice
+
+        if await stale_advice.line_fix(self, step, diff):  # a line to delete from the file (02:59:22: the `python3
+            return  # nn.py` typed into nn.py went to the clipboard): the previewed deletion, never "Command copied"
+        if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
+            from server.safety.commands import invisible_char, visible
+
+            command = str(command)
+            if (bad := invisible_char(command.replace("\n", "").replace("\t", ""))) is not None:
+                # a control / zero-width / bidi character: the card could show one command and paste another, so
+                # nothing goes on the clipboard and the card writes every hidden character out
+                log.info("Do it for me: not copying a command with %s", bad)
+                await self._card(step, "Check this command", f"It holds a hidden character ({bad}), so I didn't copy "
+                                 "it. Type the command yourself, without that character.", output=visible(command))
+            else:
+                ok = await self._clipboard(command)  # the card always shows exactly what went on the clipboard
+                await self._card(step, "Command copied" if ok else "Run this command",
+                                 "Check it, then paste it in your terminal (⌘V) and press Enter." if ok
+                                 else "Check it, then type it in your terminal.", output=command)
+            if not (file and yours and expected):
+                return  # command-only fix; otherwise continue with the code part below
+        if self.lesson_mode and self._run_command(step):
+            await self._run_for_me(step)  # a run step: "Do it for me" = run it
+            return
+        if (self.lesson_mode and (step.get("code") or "").strip()
+                and (not (file and yours and expected) or not self._step_code_in_file(step))):
+            await self._type_step_for_them(step)  # the step's own code first, previewed; a coach diff only after
+            return
+        if not (file and yours and expected):
+            await self._card(step, "No automatic fix", "This one needs your hands. Try a hint.")
+            return
+        from . import workspace as wsmod
+        from .inputs import dirty_files
+
+        from server.safety.paths import lesson_file
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        path, rel = lesson_file(self.workdir, wsmod.resolve_file(self.workdir, file, titles) or file, write=True)
+        if path is None:  # LLM06: a coach diff naming ~/.zshrc, ../../x or .git/hooks/...: never read or written
+            log.warning("Do it for me: %r is outside the lesson folder or a protected file", str(file)[:120])
+            await self._card(step, "I can't change that file", f"{file} isn't a file in your lesson folder that I "
+                             "may change. Make the change yourself.", kind="answer")
+            return
+
+        if path.name in dirty_files(self.last_obs):  # VS Code has unsaved edits: writing would clobber them
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            return
+        if self._by_name(step, path, text) is not None:  # T5: the step's defs are in the file: its code in their
+            await self._fix_by_hand(step, path, text, diff)  # place (previewed), no model call, no second copies
+            return
+        if self.m.has_do_it_for_me() and not stage.on(self):  # E5: a minimal, compiling patch -> preview -> confirm -> apply
+            await self._status("thinking", detail="Writing the fix")
+            try:
+                p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
+            except Exception as e:
+                log.info("do_it_for_me: no safe patch for %s: %s", step.get("id"), e)  # internal: never on a card
+                await self._fix_by_hand(step, path, text, diff)
+                return
+            if not p.get("new_text"):
+                if p.get("command"):
+                    await self._card(step, "Fix it by hand", p.get("summary") or "Run the command in your terminal.")
+                    await self._status("offtrack" if self.last_offtrack else "watching")
+                else:
+                    await self._fix_by_hand(step, path, text, diff)
+                return
+            if why := self._patch_unsafe(step, path, p["new_text"], text):  # a second copy of the step's def, …
+                log.info("do_it_for_me: patch for %s rejected: %s", step.get("id"), why)
+                await self._fix_by_hand(step, path, text, diff)
+                return
+            self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
+                                  "first": (expected or "").strip().splitlines()[:1], "step_code": step.get("code")}
+            await self._card(step, "Apply this fix?", f"In {rel}: {p.get('summary') or 'here is the change.'}",
+                             kind="answer", diff=p.get("unified_diff", ""), actions=["confirm"])
+            await self._status("offtrack" if self.last_offtrack else "watching")
+            return
+        new_text = self.m.propose_fix(diff, text)
+        if new_text is not None and path.suffix == ".py":
+            try:
+                compile(new_text, str(path), "exec")
+            except SyntaxError:
+                log.warning("proposed fix for %s does not compile; asking the learner to do it", path.name)
+                new_text = None
+        if new_text is None or new_text == text or self._patch_unsafe(step, path, new_text, text):
+            await self._fix_by_hand(step, path, text, diff)
+            return
+        backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text, encoding="utf-8")
+        except OSError:
+            log.warning("could not write a backup of %s", path)
+        self.undo = (path, text)
+        path.write_text(new_text, encoding="utf-8")
+        line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
+        if self.workspace is not None and self.editor_open:
+            self.workspace.goto(str(path), line, explicit=True)  # Do it for me: a learner action
+        first = expected.strip().splitlines()[0]
+        spot = self._locate(re.escape(first), None, "Fixed")
+        if spot:
+            await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
+        await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
+                         kind="answer", actions=["undo"])
+        await self.on_file_change([str(path)])
+
+    async def _fix_by_hand(self, step: dict, path: Path, text: str, diff: dict) -> None:
+        """No safe patch from the coach. Lesson mode, the file lacks the step's code: offer to type it (the
+        "Type this for you?" preview, confirm -> _apply_patch). Else a plain card saying what to change, with
+        Show me. The coach's internal reason is logged by the caller, never shown (T4: "no safe patch: …")."""
+        from . import step_code
+
+        code = step.get("code") or ""
+        # T5: by name in the step's own Python file (no second copies), and the result verified
+        py = path.suffix == ".py" and self._in_step_file(step, path)
+        if self.lesson_mode and code.strip() and (not step_code.code_done(code, text, py)
+                                                  or self._by_name(step, path, text) is not None):
+            new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), py,
+                                                            self._other_codes(step))
+            ok = bool(new_text) and new_text != text
+            if ok and path.suffix == ".py":
+                try:
+                    compile(new_text, str(path), "exec")
+                except SyntaxError:
+                    ok = False
+            if ok and (why := self._patch_unsafe(step, path, new_text, text)):
+                log.info("Do it for me: no safe placement of %s's code: %s", step.get("id"), why)
+                ok = False
+            if ok:
+                import difflib
+
+                self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
+                                      "first": code.strip().splitlines()[:1], "step_code": code,
+                                      "result": f"Typed {self._code_head(step)} into {path.name}."}
+                summary = (f"Puts this step's code in {path.name} in place of yours." if replaced
+                           else f"Adds this step's code to {path.name}.")
+                await self._card(step, "Type this for you?", summary, kind="answer", actions=["confirm"],
+                                 diff="".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
+                                                                   f"a/{path.name}", f"b/{path.name}")))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+        body = (step_code.fix_in_words(diff.get("yours"), diff.get("expected"), diff.get("line"), text)
+                or (self.last_offtrack or {}).get("body")
+                or "Compare your code with the step's code and change it to match.")
+        await self._card(step, "Fix it by hand", body, actions=["show_me"])
+        await self._status("offtrack" if self.last_offtrack else "watching")
+
+    def _judge_results(self) -> list[dict]:
+        """last_results for a judge: a row held green only by an unsaved buffer (_unsaved_holds) goes as "pending",
+        so the judge's own file blocker refuses it until the save (a held row must never pass the step)."""
+        held = getattr(self, "_unsaved_holds", set())
+        return [{**r, "status": "pending"} if r.get("checkId") in held else r for r in self.last_results]
+
+    async def _check_step(self, step: dict) -> None:
+        """"Can I move on?": re-run the checks on a fresh frame now (asking counts as acting, so a pass moves on
+        at once), then E5's Claude judge looks at the screen + files. Done -> step.passed. Not done -> ONE card
+        "Not yet" saying what's missing in whole sentences (from the failing rows, the step's exact command, a
+        syntax error on its own line), with the spot to fix when the judge gives one. Without the judge (offline /
+        no key) the deterministic checks decide alone. The status stays "thinking" until that verdict (_status)."""
+        if stage.on(self):  # a Demo lesson: Check my work passes the step (a run step runs first)
+            await stage.check(self, step)
+            return
+        if await self._cue_guard(step):
+            return
+        self._checking = getattr(self, "_checking", 0) + 1
+        try:
+            await self._check_step_now(step)
+        finally:
+            self._checking -= 1
+            if not self._checking:  # a state another path asked for meanwhile, if the check set none itself
+                later, self._status_after_check = getattr(self, "_status_after_check", None), None
+                if later and self.status == "thinking":
+                    await self._status(later)
+
+    CUE_GUARD_S = float(os.environ.get("ORCH_CUE_GUARD_S", "2.0"))  # t10: since step.started (the Demo's is 1.5 s)
+    CUE_GUARD_PASS_S = float(os.environ.get("ORCH_CUE_GUARD_PASS_S", "4.0"))  # since the step before it passed
+
+    async def _cue_guard(self, step: dict) -> bool:
+        """t10 (CP15): in a video lesson a Check my work pressed for the step that just passed lands on the NEW step
+        (1.7 s after step.started, 3.5 s after the pass) and got an instant "Not yet" for code not typed yet. A press
+        that soon is about the step before: say it passed, never judge the new one. True: handled."""
+        if self.lesson_mode or self.idx <= 0 or self.passed:
+            return False
+        now = self.clock()
+        since_start = now - self.step_t0
+        since_pass = now - (getattr(self, "_passed_t", None) or -1e9)
+        if since_pass >= self.CUE_GUARD_PASS_S or since_start >= max(self.CUE_GUARD_S, since_pass):
+            return False  # only right after a PASS moved on (a jump / Back to this step: the press is about it)
+        from . import workspace as wsmod
+
+        f = self._step_file(step)  # the learner already wrote the NEW step's file: the press is about this step
+        p = wsmod.resolve_file(self.workdir, f) if f and not f.endswith(".ipynb") else None
+        try:
+            if p is not None and p.stat().st_mtime > getattr(self, "_step_wall_t0", 0.0) + 0.05:
+                return False
+        except OSError:
+            pass
+        prev = self.steps[self.idx - 1] if 0 < self.idx <= len(self.steps) else {}
+        log.info("check_step %.1fs after %s started (%.1fs after the pass): aimed at %s, no verdict on the new step",
+                 since_start, step.get("id"), since_pass, prev.get("id"))
+        await self._emit_card({"stepId": step["id"], "kind": "answer", "title": f"Step {self.idx} done",
+                               "body": f"“{prev.get('title') or 'That step'}” passed. Now: {step.get('title') or 'the next step'}.",
+                               "dismissAfterMs": 4000}, window_s=0.0)
+        await self._status("watching")
+        return True
+
+    async def _check_step_now(self, step: dict) -> None:
+        gen = self.step_gen
+        self._check_asked_t = self.clock()  # T11: they asked: off-track cards may speak before the video's gate
+        await self._status("thinking", detail="Checking your work")
+        if self.lesson_mode and self._run_command(step):  # a run step checks the code that will run: saved first
+            await self._save_step_file(step)
+        if self.screen is not None:  # a new frame, not one from before their last keystroke
+            if (fresh := getattr(self.screen, "fresh_frame", None)) is not None:
+                await fresh(self.check_wait_s)  # returns as soon as that frame is in (was a flat 1.2 s sleep)
+            else:
+                self.screen.poke()
+                if self.check_wait_s:
+                    await asyncio.sleep(self.check_wait_s)
+        if gen != self.step_gen:
+            return
+        self.engaged = True
+        # Which file is the learner really on? Read it fresh (extension / AX / title / new-frame OCR), never guess
+        # from screen text (Michael: switched README -> .py, pressed Check, got "you're still on README"). Read
+        # alongside the checks (independent; ~0.3 s extension timeout), not after them.
+        reader = getattr(self.screen, "reader", None)
+        active_job = None
+        if reader is not None and hasattr(reader, "active_file"):
+            folder = (self.graph or {}).get("lesson", {}).get("workdir") or getattr(self, "workdir", None)
+            active_job = asyncio.ensure_future(asyncio.to_thread(reader.active_file, True, folder))
+            active_job.add_done_callback(lambda t: t.cancelled() or t.exception())  # unread when the checks pass
+        await self.evaluate("check")
+        if self.passed or gen != self.step_gen:
+            return
+        if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
+            await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
+            await self._status("watching", check=True)
+            return
+        if await missing_module.reoffer(self, step):  # the last run stopped on a lesson package: Install, no judge
+            await self._status("offtrack" if self.last_offtrack else "watching", check=True)
+            return
+        from . import stale_advice
+
+        if await stale_advice.check_pressed(self, step):  # the off-track's line is gone from VS Code's text, unsaved:
+            return  # "You fixed it / Save nn.py (⌘S)."; saved: forgotten, the rows below say what's left
+        from . import nb_coach
+
+        if nb_coach.running(self, step):  # t10 (CP11): training mid-run: wait for it, never a diagnosis of a half run
+            log.info("check_step: %s's notebook cell is still running: wait card, no judge", step["id"])
+            await self._emit_card({"stepId": step["id"], "kind": "answer", **nb_coach.still_running(step),
+                                   "actions": ["skip_step"]}, window_s=2.0)
+            await self._status("watching", check=True)
+            return
+        if (wait := nb_coach.waiting_card(self, step, self.last_results)) is not None:
+            # t10 (CP12): the code is in (its rows Passed), only a run's output row waits: say that now (~4 s of
+            # screenshot + Haiku judge saved), never "Add model.fit"; advice_clear drops it once the row passes
+            log.info("check_step: %s waits on its run's output only: %r, no judge", step["id"], wait["body"])
+            self._carded_checks |= {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+            await self._emit_card({"stepId": step["id"], "kind": "answer", **wait, "verdict": "not_done",
+                                   "actions": ["hint", "show_me", "skip_step"]}, window_s=2.0)
+            await self._status("watching", check=True)
+            return
+        screen, files, exact = self._judge_inputs(step)
+        active = None
+        if active_job is not None:
+            try:
+                active = await active_job
+            except Exception as e:  # noqa: BLE001 - best effort; None means "unsure", so nothing claims a file
+                log.info("check_step: active_file unavailable (%s)", e)
+        try:
+            verdict = await self.m.judge_step(step, screen=screen, files=files,
+                                              check_results=self._judge_results(), focused_app=self._focused_app(),
+                                              lesson=(self.graph or {}).get("lesson"), active_file=active,
+                                              exact_files=exact, **self._memory_kw(step, "judge", files))
+        except Exception as e:  # noqa: BLE001 - the judge is a bonus
+            log.info("check_step: no judge (%s)", e)
+            verdict = None
+        if gen != self.step_gen or self.passed:
+            return
+        said = (verdict or {}).get("missing")  # the judge's own words (the engine's below replace them)
+        if verdict and verdict.get("done") and self._file_unready(step):
+            verdict = {**verdict, "done": False,
+                       "missing": (f"Save {d} with ⌘S so I can check it" if (d := self._dirty_step_file(step))
+                                   else f"Type the code into {Path(self._step_file(step) or step.get('file') or '').name}")}
+        if verdict and verdict.get("done") and getattr(self, "_unsaved_holds", None):  # code typed, not saved yet
+            verdict = {**verdict, "done": False,
+                       "missing": f"Save {Path(self._step_file(step) or step.get('file') or '').name} with ⌘S so I can check it"}
+        if verdict and verdict.get("done") and (unrun := self._run_missing(step)):
+            verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
+        if verdict and verdict.get("done") and getattr(self, "_code_block", None):
+            verdict = {**verdict, "done": False}  # E1: a syntax error / a missing piece of the step's code
+        if verdict and verdict.get("done") and (dup := self._overridden_defs(step)):  # T5: a later copy overrides it
+            verdict = {**verdict, "done": False, "missing": f"Delete the second {dup[0]} on line {dup[1][-1]}"}
+        if verdict and verdict.get("done"):
+            for cid, v in (verdict.get("checks") or {}).items():
+                if v.get("verdict") == "done":
+                    self.judged_pass.add(cid)
+            await self.evaluate("check")
+            if self.passed or gen != self.step_gen:
+                return
+            if not getattr(self, "_code_block", None):  # the judge says every check is done: trust it
+                await self._pass_step()
+                return
+            # E1: the judge's passes reached rows the code gate fails (a syntax error / a missing piece, e.g. a
+            # requests.get without params): the drawer shows them red, so "Not yet", never step.passed
+        else:
+            # t11 (s5, 08:34:24): the cell finished during the ~3 s judge call and "Not yet" went out 0.2 s before
+            # step.passed. The rows as they are now decide: passed -> no card; the cell still running -> wait
+            await self.evaluate("check")
+            if self.passed or gen != self.step_gen:
+                return
+            if nb_coach.running(self, step):
+                await self._emit_card({"stepId": step["id"], "kind": "answer", **nb_coach.still_running(step),
+                                       "actions": ["skip_step"]}, window_s=2.0)
+                await self._status("watching", check=True)
+                return
+
+        if await stale_advice.checks_win(self, step, gen):  # every row green: no "Not yet" contradicting them (Bug C)
+            return
+        from . import code_gate
+
+        missing = (verdict or {}).get("missing") or ""
+        # E19 (live test 3: "Wrap roll in def roll_die(), add a call, fix the print comma…", "run python main.py"
+        # for a python3 step): whole sentences from the rows the drawer shows, the step's exact command
+        rows = [r for r in self.last_results if r.get("status") != "pass"] or self.last_failed
+        cmd = self._run_command(step) or self._python3((step.get("run_command") or "").strip())
+        body = code_gate.not_yet_body(missing, rows, sid=step["id"], cmd=cmd, forced=bool(missing) and missing != said)
+        title = "Not yet"
+        if hits := nb_coach.contradicts(body, step, self.last_results):  # t10 (CP11/12): "Add model.fit" while
+            fixed = nb_coach.rebuilt(self, step, self.last_results)  # "model.fit called" is Passed: dropped, rebuilt
+            log.info("check_step: Not yet %r asked for code whose check passed (%s): %r", body[:80], hits, fixed["body"])
+            body, verdict = fixed["body"], {**(verdict or {}), "target": None}
+            if fixed["title"] != "Not yet":
+                title = fixed["title"]
+        ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+        if ids and ids <= self._offtracked_checks and self.last_offtrack:
+            await self._status("offtrack", check=True)  # the offtrack card on screen already says what's missing
+            return
+        self._carded_checks |= ids
+        target = (verdict or {}).get("target") or {}
+        if target.get("rect"):
+            await self._show_spot({"rect": target["rect"], "caption": body.split("\n")[0]})
+            self._action_spot = True
+        # teach first: Hint / Show me on the first "Not yet"; Do it for me only on a repeat. A run step's rerun (Run
+        # it for me) is on every one: running it is the step itself, not the answer (t7: the Demo had no rerun button)
+        n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
+        teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
+        if not self.lesson_mode:  # t10 (CP11, CP15): a video lesson's Not yet had only Skip step; s2's had all three
+            teach = ["hint", "show_me"]  # (the Card contract has no "explain"; the off-track has it)
+        if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": title, "body": body,
+                                  "actions": teach + ["skip_step"]}, window_s=2.0):
+            self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
+        await self._status("offtrack" if self.last_offtrack else "watching", check=True)
+
+    # ------------------------------------------------------------------ check evidence (E3, QA 11-14)
+    def _checks_fn(self, name: str) -> Any:
+        """A helper from E3's server.checks (None when the checks run on the stubs)."""
+        return getattr((getattr(self.m, "real", None) or {}).get("checks"), name, None)
+
+    def _check_files(self, step: dict, check: dict) -> list[Path]:
+        """The lesson files a VS Code screen check can be about: the check's own file, then the step's (targets,
+        checks, step file), where they are in the lesson folder. In lesson mode a nested one is found too (a folder
+        search at most every 5 s), and the step's file stands in even before it exists. [] for a check on another
+        app, a step without files, or (video lessons, where the learner may work elsewhere) files that aren't in the
+        lesson folder. Runs on every frame: a stat per file."""
+        if (check.get("app") or "").strip().lower() not in CODE_APP_NAMES:
+            return []
+        from . import workspace as wsmod
+
+        names = [check.get("file")] + [t.get("file") for t in step.get("targets") or []] + \
+            [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])] + [step.get("file")]
+        out: list[Path] = []
+        for f in dict.fromkeys(str(n).strip() for n in names if self._real_file(n)):
+            p = Path(self.workdir) / f
+            if not p.is_file():
+                t, p = self._file_hits.get(f, (-1e9, None)) if self.lesson_mode else (self.clock(), None)
+                if self.clock() - t > 5.0:
+                    p = wsmod.resolve_file(self.workdir, f)
+                    self._file_hits[f] = (self.clock(), p)
+            if p is not None and p not in out:
+                out.append(p)
+        first = self._step_file(step)
+        return out or ([Path(self.workdir) / first] if self.lesson_mode and first else [])
+
+    def _lesson_window_shown(self) -> bool | None:
+        """Is the lesson's VS Code window in the latest frame? True: a VS Code window there names the lesson folder
+        in its title; False: the titled ones all name other folders; None: no titled VS Code window to go by."""
+        from . import workspace as wsmod
+
+        parse = getattr(wsmod._s2(), "vscode_windows", None)
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []
+                  if (getattr(w, "app", "") or "").strip().lower() in CODE_APP_NAMES]
+        if parse is None or not any(titles):
+            return None
+        try:
+            names = {w.get("folder_name") for w in parse(titles)}
+        except Exception:  # noqa: BLE001
+            return None
+        return (Path(self.workdir).name in names) if names else None
+
+    def _lesson_window_open(self) -> bool:
+        """Does a VS Code window with the lesson folder exist at all (any Space, behind, full screen)? From every
+        VS Code window's title (CGWindowList), at most every 3 s; only with the real screen reader (never in tests)."""
+        if getattr(self.screen, "reader", None) is None:
+            return False
+        t, seen = self._lesson_win_seen
+        if self.clock() - t < 3.0:
+            return seen
+        from . import workspace as wsmod
+
+        parse = getattr(wsmod._s2(), "vscode_windows", None)
+        try:
+            seen = parse is not None and any(w.get("folder_name") == Path(self.workdir).name for w in parse())
+        except Exception:  # noqa: BLE001
+            seen = False
+        self._lesson_win_seen = (self.clock(), seen)
+        return seen
+
+    async def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
+        """The gating screen checks, made stable and honest about which window they read:
+
+        * Latch: a screen_contains check that passed this step stays passed, unless the editor's text really lacks
+          it (`_latch_lost`). A frame of another window, a scroll, a Space switch or an OCR misread while the
+          learner types into the unsaved file can't un-pass it. A hold the file on disk doesn't confirm (code only
+          on screen / unsaved) keeps the row green but never passes the step (`_unsaved_holds`): the save does.
+        * Lesson mode, a VS Code check: when the frame has no VS Code text, or every VS Code window in it shows
+          another folder while the lesson's window exists elsewhere, the check is graded on the lesson's file on
+          disk (never "not seen in Code" from the wrong window, never a pass from it). "Open VS Code so I can check
+          it" stays only when no lesson window exists at all.
+        * VS Code has the check's file open (companion extension): graded on its exact text, unsaved edits included,
+          never OCR (00:55: "import numey as np"); a pass only in the unsaved buffer is held: the save passes it."""
+        self._unsaved_holds = set()
+        on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
+        find, windows = self._checks_fn("search_screen"), self._checks_fn("scan_windows")
+        if on_file is None or text_of is None:
+            return gate
+        defs = {c.get("id"): c for c in step.get("checks") or []}
+        shown: Any = ...  # computed once, on first need
+        carded = False
+        buffers: dict[Path, str | None] = {}  # VS Code's unsaved text per file: asked once per evaluation
+
+        def graded_sync(c: dict, paths: list[Path]) -> dict:  # on the files: a pass from any, else the first's verdict
+            res = [on_file(c, p) for p in paths]
+            return next((x for x in res if x.get("status") == "pass"), res[0])
+
+        async def graded(c: dict, paths: list[Path]) -> dict:  # off the event loop, under the lesson's regex budget
+            return await self._off_loop(graded_sync, c, paths)
+
+        out = []
+        for r in gate.get("checks") or []:
+            cid, c = r.get("checkId"), defs.get(r.get("checkId")) or {}
+            if c.get("type") != "screen_contains":
+                out.append(r)
+                continue
+            paths = self._check_files(step, c)
+            if paths:
+                await self._buffers.refresh(paths, self.workdir)  # once per file per tick
+            exact = await self._off_loop(editor_text.check_on_editor, c, paths, self._buffers, find, on_file,
+                                         windows) if paths else None
+            if exact is not None and (self.lesson_mode or exact[0].get("status") == "pass"):  # video: a pass only
+                r, unsaved = exact  # VS Code has the file open: its exact text decides, never OCR (numpy -> numey)
+                if unsaved:
+                    self._unsaved_holds.add(cid)  # green on the unsaved buffer: the save passes the step
+                elif r.get("status") != "pass":
+                    self.latched_pass.discard(cid)  # the editor's exact text lacks it: not an OCR flicker
+                    if not carded and self.lesson_mode and self._other_folder(step):
+                        carded = True
+                        self._editor_state_card(step)
+            elif paths and self.lesson_mode and ctx.screen is not None:
+                if shown is ...:
+                    shown = self._lesson_window_shown()
+                hidden = text_of(ctx.screen, c.get("app")) is None
+                if hidden or (shown is False and self._lesson_window_open()):
+                    r = await graded(c, paths)
+                    if r.get("status") != "pass" and not (shown or self._lesson_window_open()):
+                        # no lesson window anywhere: "Open VS Code …"
+                        r = await self._off_loop(on_file, c, paths[0], window_open=False)
+                    elif r.get("status") != "pass" and not carded and self._other_folder(step):
+                        carded = True  # the lesson's file typed in another folder: "Wrong folder?" now, not after 20 s
+                        self._editor_state_card(step)
+            if r.get("status") == "pass":
+                self.latched_pass.add(cid)
+                self._latch_t[cid] = time.time()
+            elif cid in self.latched_pass:
+                on_disk = not paths or (await graded(c, paths)).get("status") == "pass"  # the saved file has it too
+                if on_disk or not await self._latch_lost(cid, c, paths, buffers):
+                    if not on_disk:
+                        self._unsaved_holds.add(cid)  # unsaved code: the row stays green, the step waits for a save
+                    prev = self.check_state.get(cid) or {}
+                    r = {**r, "status": "pass",
+                         "detail": prev.get("detail") if prev.get("status") == "pass" else "seen earlier in this step"}
+                else:
+                    self.latched_pass.discard(cid)  # gone from the unsaved buffer / the saved file: really un-passed
+            out.append(r)
+        gate = {**gate, "checks": out}
+        if out and all(r.get("status") == "pass" for r in out) and not self._unsaved_holds:
+            return gate if gate.get("passed") else {**gate, "passed": True, "via": "checks"}
+        if gate.get("via") == "checks":  # a pass read off another folder's window: only the precision route is left
+            prec = gate.get("precision") or []
+            ok = bool(prec) and all(r.get("status") == "pass" for r in prec)
+            gate = {**gate, "passed": ok, "via": "precision" if ok else None}
+        return gate
+
+    async def _latch_lost(self, cid: str, check: dict, paths: list[Path], buffers: dict[Path, str | None]) -> bool:
+        """Did a latched screen pass really go? Only when each of the check's files lacks it: in the companion
+        extension's live buffer when it holds unsaved edits of the file, else in the file on disk once it was saved
+        after the pass. An unsaved edit never un-passes a check: while the learner types, OCR misreads the line and
+        the file on disk is still empty (L3: s1c2 pass -> fail -> pass, nn.py 0 bytes). `buffers` caches the
+        unsaved texts for this evaluation (one ask of VS Code, not one per check)."""
+        if need := [p for p in paths if p not in buffers]:
+            buffers.update(zip(need, await asyncio.to_thread(self._unsaved_texts, need)))
+        on_file, find = self._checks_fn("screen_check_on_file"), self._checks_fn("search_screen")
+        for p in paths:
+            if (text := buffers.get(p)) is not None:  # the editor's unsaved text decides
+                try:  # off the event loop, under the lesson's regex budget
+                    if find is None or await self._off_loop(find, check.get("pattern") or "", text):
+                        return False
+                except re.error:
+                    return False
+                continue
+            try:
+                saved = p.stat().st_mtime > self._latch_t.get(cid, 0.0)
+            except OSError:
+                saved = False  # not on disk (yet): no save can disagree
+            if not saved or on_file is None or (await self._off_loop(on_file, check, p)).get("status") == "pass":
+                return False
+        return True
+
+    def _unsaved_texts(self, paths: list[Path]) -> list[str | None]:
+        """Each file's unsaved text in VS Code, from the companion extension. None when it didn't answer (always in
+        tests) or its buffer is clean: a clean buffer is the file on disk (also what a window that doesn't have the
+        file open answers), so the save rule decides. From this tick's reads (self._buffers): no HTTP here."""
+        return [self._buffers.unsaved_text(p) for p in paths]
+
+    def _run_how(self, step: dict, cmd: str) -> str:
+        """The run row's how-to (t8): the ▷ the step's box points at when it runs the command on its own, the terminal
+        too; "Run it for me" only where a button says so (a Demo's Run it card; elsewhere it isn't on screen)."""
+        first = next((ln.strip() for ln in (cmd or "").splitlines() if ln.strip()), "")
+        demo = stage.on(self)
+        if self.lesson_mode and (f := self._run_button_file(step, first)):
+            return f"Click ▷ to run {f}, or press Run it for me" if demo else \
+                f"Click ▷ to run {f} (or run {first} in the terminal)"
+        return f"Run {first} in the terminal" + (" (or press Run it for me)" if demo else "")
+
+    def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
+        """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
+        command since the step began. Evidence, any one: a `tut run` / Run it for me (subprocess) run; VS Code's
+        report of the command ending in a terminal of the lesson folder (the companion's command_end, from shell
+        integration: the learner's own runs and Run it for me in VS Code's terminal); VS Code's report of it started
+        after the step began and still running LIVE_PASS_S later (a server, an input() loop: _live_run_row); or, only
+        when VS Code reports no commands at all, the lesson's VS Code terminal showing it run: more runs than when the step began, the step's
+        expected output under its last run when it wasn't there then, the command typed at the prompt and then
+        entered. A run counts when it exited 0, or showed the step's expected output with no crash the step didn't ask
+        for (E3's run_output: "run it and see the ZeroDivisionError" passes on that error); never one stopped by ^C
+        (exit 130), never one that started before the step (terminal_run.verdict). Shown as one more row ("Ran
+        python3 calculator.py"); until it is green the step can't pass."""
+        from . import notebook_runs
+
+        if (nb := notebook_runs.need_run(self, step, results, gate)) is not None:  # t10 R1: a video's notebook step
+            return nb
+        need = self._run_need
+        if need is None:  # fixed at the step's first evaluation: a typing step whose code is now saved stays one
+            cmd = (self._run_command(step) if self.lesson_mode else "").strip()
+            expect = [c["pattern"] for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                      if c.get("pattern") and (c.get("type") == "output_contains" or (
+                          c.get("type") == "screen_contains" and "terminal" in (c.get("app") or "").lower()))]
+            expect += [rf"^\s*{re.escape(ln.strip())}\s*$" for ln in (step.get("expected_output") or "").splitlines()
+                       if ln.strip()][:1]
+            need = self._run_need = {"cmd": cmd.splitlines()[-1].strip() if cmd else "", "expect": expect,
+                                     "base": None, "base_shows": False, "ran": None,
+                                     "seq": 0, "end": None, "typed": False, "left": None}
+        cmd = need["cmd"]
+        count, same, out = (self._checks_fn(n) for n in ("terminal_runs", "command_matches", "run_output"))
+        if not cmd or count is None or same is None or out is None:
+            return results, gate
+        base = {"checkId": f"{step['id']}-ran", "label": _ran(cmd), "status": "pending", "detail": self._run_how(step, cmd)}
+        from . import terminal_run
+
+        def ended(code: int | None, lines: Any) -> dict:  # a run that finished: green, or why not
+            # pass; fail (a crash or a non-zero exit: t3, the coach explains it); pending (t5: stopped by ^C, or no exit
+            # status from VS Code: run it again, nothing to explain)
+            status, detail = terminal_run.verdict(code, lines, need["expect"], out)
+            return {**base, "status": status, "detail": detail}
+
+        row = {**base, "status": "pass", "detail": need["ran"]} if need["ran"] else base
+        for c in self._ext_commands_ended(need):  # VS Code's shell integration: every run of the command, read once
+            if same(cmd, str(c.get("commandLine") or "")):
+                need["end"] = c  # its exit code beats reading the terminal (below)
+                self._ext_run(c)  # a run of the step: checks grade its output, the coach explains its error
+        for run in reversed(self.step_runs):  # tut run / Run it for me / VS Code: the latest finished run of this command
+            if row["status"] == "pass":
+                break
+            # a run in VS Code's terminal ("vscode-…") is graded below, on its command_end's own exit code
+            if run.run_id.startswith(("screen-", "vscode-")) or run.exit_code is None or not same(cmd, run.command):
+                continue
+            row = ended(run.exit_code, run.output_tail)
+            break
+        if row["status"] != "pass" and need["end"] is not None:  # VS Code's own exit code (t5: never a ^C'd run)
+            row = ended(need["end"].get("exitCode"), need["end"].get("outputTail"))
+        row = self._live_run_row(need, row, cmd, same, count, ended)  # a server / input() loop: ends only on ^C (130)
+        # what the terminal panel shows only without VS Code's reports (t5: a ^C'd command on screen, an earlier step's
+        # run scrolled into view, passed as "ran in the terminal")
+        if row["status"] != "pass" and need["end"] is None and not terminal_run.shell_reports() \
+                and (rows := self._terminal_rows()) is not None:
+            n, err, shows = count(cmd, rows, need["expect"])
+            now = self.clock()
+            if rows and count(cmd, [rows[-1], ""])[0]:  # typed at the prompt (the bottom row), Enter not pressed yet
+                need["typed"], need["left"] = True, None
+            elif need["typed"] and need["left"] is None:
+                need["left"] = now
+            # it left the prompt and stayed gone 1.5 s (one misread frame can't fake it): it was entered
+            entered = need["typed"] and need["left"] is not None and now - need["left"] >= 1.5
+            # baseline: the terminal as the step began (or as it first showed), the most its first 2 s of reads saw,
+            # so a frame that misread an old run can't make that old run look new later
+            if need["base"] is None or now - self.step_t0 < 2.0:
+                need["base"], need["base_shows"] = max(n, need["base"] or 0), need["base_shows"] or shows
+            # a new run: one more run than at the start, the step's expected output under the last run when it
+            # wasn't there at the start, or the command entered at the prompt (a small panel, a restored history or a
+            # new terminal can hide that a run is new). Not "Run it for me typed it": t5's ^C swallowed that one.
+            elif n and (n > need["base"] or (shows and not need["base_shows"]) or entered):
+                row = {**base, "detail": "the run printed an error"} if err else \
+                    {**base, "status": "pass", "detail": "ran in the terminal"}
+                if err:
+                    need["typed"] = False  # that run crashed: the next one has to be entered again
+        if row["status"] != "pass" and (save := self._save_then_run(step)) is not None:  # a run uses the disk's file
+            row = {**base, "detail": save["body"].rstrip(".")}  # "Save nn.py (⌘S), then run it" (never a stale fail)
+        elif row["status"] == "fail" and (changed := self._changed_since_run(step)):  # that run was of older code
+            row = {**base, "detail": f"{changed} changed since that run: run it again"}
+        if row["status"] == "pass":
+            need["ran"] = row["detail"]
+        elif gate.get("passed"):
+            gate = {**gate, "passed": False, "via": None}
+        return [*results, row], gate
+
+    def _live_run_row(self, need: dict, row: dict, cmd: str, same: Any, count: Any, ended: Any) -> dict:
+        """The step's run row for a run of its command still going: VS Code reported it started in a terminal of the
+        lesson folder after the step began and it has run terminal_run.LIVE_PASS_S with no end (a Flask / npm dev
+        server, an input() menu loop: ^C ends those with 130, which never passes). Green ("it's running in the
+        terminal") unless the terminal panel shows an error under its last run. Not t5's swallowed line (it never
+        started) nor an earlier step's run (started before the step). When that run then ends in a crash, the pass
+        it gave is taken back (the crash row, the coach explains it); ^C or exit 0 keeps it. Else `row` as it was."""
+        from . import terminal_run
+
+        end, t_live = need["end"], need.get("live_t")
+        if t_live is not None and end is not None and (end.get("startedAt") or 0) / 1000 == t_live:
+            need["live_t"] = None  # the run it passed on ended: its exit status decides now
+            if (r := ended(end.get("exitCode"), end.get("outputTail")))["status"] == "fail":
+                need["ran"] = None
+                return r
+        if row["status"] == "pass":
+            return row
+        t0 = terminal_run.live_start(need.setdefault("live", {}), str(self.workdir), self._step_wall_t0, cmd, same)
+        if t0 is None or time.time() - t0 < terminal_run.LIVE_PASS_S:
+            return row
+        rows = self._terminal_rows()
+        if rows and count(cmd, rows, need["expect"])[1]:
+            return row  # it printed a crash and is still up (a server's traceback): not a pass
+        need["live_t"] = t0
+        return {**row, "status": "pass", "detail": "it's running in the terminal"}
+
+    def _ext_commands_ended(self, need: dict) -> list[dict]:
+        """Commands VS Code reported ended in a terminal of the lesson folder since the step began, oldest first
+        ({commandLine, exitCode, outputTail, cwd, ...}): the companion's command_end events, pushed to the engine
+        (no HTTP here). Each event is read once (need["seq"]); other folders' windows don't count."""
+        try:
+            import importlib
+
+            evs = importlib.import_module("server.workspace.vscode_ext").recent_events(need["seq"])
+        except Exception:  # noqa: BLE001
+            return []
+        mine, found = os.path.realpath(self.workdir), []
+        for ev in evs:
+            need["seq"] = max(need["seq"], int(ev.get("seq") or 0))
+            c = ev.get("command")
+            if ev.get("type") != "command_end" or not isinstance(c, dict):
+                continue
+            t = (c.get("startedAt") or 0) / 1000 or float(ev.get("received") or 0)
+            cwd = os.path.realpath(str(c["cwd"])) if c.get("cwd") else ""
+            here = (cwd == mine or cwd.startswith(mine + os.sep)
+                    or str(self.workdir) in str(c.get("commandLine") or "")  # Run it for me: "cd <lesson> && …"
+                    or (not cwd and any(os.path.realpath(str(f)) == mine for f in ev.get("folders") or [])))
+            if here and t >= self._step_wall_t0:
+                found.append(c)
+        return found
+
+    def _ext_run(self, c: dict) -> RunInfo | None:
+        """A command_end of the step's command (VS Code's terminal: the learner's run or Run it for me) as a run of
+        the step, once per command: its exit code and output tail grade output_contains / command_exit_ok and the
+        terminal checks the screen can't read, and are the coach's error text. A new one is a breakpoint: a run_end
+        evaluation follows (the coach explains a crash). None once the step is over."""
+        run_id = f"vscode-{c.get('id')}-{c.get('startedAt')}"  # the same id _terminal_run_result / curated use
+        if run_id in self.runs or self.step is None or self.passed:
+            return self.runs.get(run_id)
+        tail = c.get("outputTail")
+        lines = [str(x) for x in tail] if isinstance(tail, list) else str(tail or "").splitlines()
+        run = RunInfo(run_id=run_id, command=str(c.get("commandLine") or ""), cwd=str(c.get("cwd") or self.workdir))
+        if isinstance(c.get("startedAt"), (int, float)) and c["startedAt"] > 0:
+            run.started_t = c["startedAt"] / 1000
+        run.add_output(lines)
+        try:
+            run.exit_code = int(c.get("exitCode"))
+        except (TypeError, ValueError):  # the shell didn't report one: a crash in its output is a failed run
+            out = self._checks_fn("run_output")
+            run.exit_code = 1 if out is not None and out(lines)[0] else 0
+        self.runs[run_id] = run
+        self.step_runs.append(run)
+        self._tiger_run(run)  # its loss lines -> Tiger (curated.on_command_end stands back from a run taken here)
+        self.engaged = True
+        self._acted()  # the learner's run (a breakpoint); a diagnosis of the code before it is stale
+        self._run_ended(run)  # t6: so is the coach's box on the run before it (T6-CP10's stale terminal error box)
+        gen, step, card = self.step_gen, self.step, self._run_for_me_card
+
+        async def run_end() -> None:
+            if card is not None and card[0] == gen == self.step_gen and self._run_for_me_card is card:  # Running it
+                self._run_for_me_card = None  # becomes the result, before the coach's card (that one goes on top)
+                self._record("run_for_me", {"command": card[1][:200], "exit_code": run.exit_code}, step)
+                await self._card(step, _ran(card[1]),
+                                 self._run_verdict(run.exit_code, run.output_tail), kind="answer",
+                                 output="\n".join(run.output_tail[-8:]) or "(no output)")
+            for _ in range(20):  # the stale diagnosis _acted cancelled must end first, or the breakpoint is dropped
+                if not self.coaching:
+                    break
+                await asyncio.sleep(0.1)
+            if gen == self.step_gen:
+                await self.evaluate("run_end")
+
+        self._spawn(run_end())
+        return run
+
+    _TB_FILE = re.compile(r'File "([^"]+)", line (\d+)')
+    _RUN_ERR = re.compile(r"^\s*[A-Z][\w.]*(?:Error|Exception)\b.*|.*(?:command not found|No such file or directory"
+                          r"|can't open file).*")
+
+    def _run_verdict(self, code: int | None, lines: list[str]) -> str:
+        """One line for a finished run's card: "It ran without errors.", "It stopped on line 6: SyntaxError: …"
+        (the traceback's last frame in the lesson folder), "It stopped with exit code 2."."""
+        if code == 0:
+            return "It ran without errors."
+        err = next((ln.strip() for ln in reversed(lines) if self._RUN_ERR.match(ln)), "")
+        if not err:
+            return f"It stopped with exit code {code}." if code else "It ran."
+        mine = os.path.realpath(self.workdir)
+        frames = [n for f, n in self._TB_FILE.findall("\n".join(lines))
+                  if os.path.realpath(f) == mine or os.path.realpath(f).startswith(mine + os.sep)]
+        return f"It stopped on line {frames[-1]}: {err[:160]}" if frames else f"It stopped: {err[:160]}"
+
+    _run_for_me_card: tuple[int, str] | None = None  # Run it for me in VS Code's terminal: (step_gen, cmd) until its end
+    EXT_RUN_WAIT_S = 300.0  # how long Run it for me waits for VS Code to report its end (a program waiting for input)
+
+    async def _ext_run_wait(self, gen: int, step: dict, cmd: str, seq: int) -> None:
+        """Run it for me typed into VS Code's terminal: pick up its command_end at once (not on the next frame), so
+        its "Running it" card becomes the result like the subprocess run's ("It stopped on line 6: SyntaxError: …")
+        and the run_end evaluation follows (_ext_run). Stops when the step moves on, or after EXT_RUN_WAIT_S."""
+        same = self._checks_fn("command_matches")
+        last = cmd.strip().splitlines()[-1].strip()
+        probe = {"seq": seq}  # its own read position: _need_run reads the same events with its own
+        deadline = time.monotonic() + self.EXT_RUN_WAIT_S
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+            if gen != self.step_gen or self.step is not step or self.passed:
+                return
+            ends = [c for c in self._ext_commands_ended(probe)
+                    if same is None or same(last, str(c.get("commandLine") or ""))]
+            if ends:
+                self._ext_run(ends[-1])  # once per command: a no-op when _need_run took it first
+                return
+
+    def _run_missing(self, step: dict) -> str:
+        """The run a run step still needs ('' when it ran, or it isn't a run step)."""
+        row = next((r for r in self.last_results if r.get("checkId") == f"{step['id']}-ran"), None)
+        return f"Run {(self._run_need or {}).get('cmd')} in the terminal" if row and row.get("status") != "pass" else ""
+
+    def _terminal_rows(self) -> list[str] | None:
+        """The lesson's VS Code terminal panel as visual rows (OCR blocks on one line joined left to right), top to
+        bottom ([] for an empty panel). None when no terminal panel of the lesson's window is on screen."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        blocks = getattr(self.last_obs, "blocks", None)
+        if region is None or blocks is None:
+            return None
+        try:
+            r = region("terminal")
+        except Exception:  # noqa: BLE001
+            return None
+        if not r:
+            return None
+        mine, items, other = Path(self.workdir).name, [], False
+        for b in blocks:
+            br = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            cx, cy = br["x"] + br["w"] / 2, br["y"] + br["h"] / 2
+            if not (r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]):
+                continue
+            title = str(getattr(b, "window", "") or "")
+            if " — " in title and mine not in title:
+                other = True  # another folder's VS Code window: not the lesson's terminal
+                continue
+            items.append((cy, float(br["h"]) or 1.0, br["x"], str(getattr(b, "text", ""))))
+        if other and not items:
+            return None
+        rows: list[list] = []  # [centre y, height, [(x, text)]]
+        for cy, h, x, text in sorted(items):
+            if rows and abs(cy - rows[-1][0]) < 0.5 * min(h, rows[-1][1]):
+                rows[-1][2].append((x, text))
+            else:
+                rows.append([cy, h, [(x, text)]])
+        return [" ".join(t for _, t in sorted(parts)) for _, _, parts in rows]
+
+    SCREEN_PERMISSION_DOWN_S = 3.0  # a missing grant is not transient: say so within a tick or two
+    SCREEN_DOWN_S = 15.0  # a Space switch / screen lock is brief: only a lasting failure is reported
+
+    def screen_down_reason(self, include_ax: bool = True) -> str | None:
+        """Why the screen can't be read. "no_accessibility" (AX revoked) is reported apart from Screen Recording and
+        only when include_ax: OCR still works without AX, so gates that decide whether to look ask include_ax=False."""
+        fn = getattr(self.screen, "down_reason", None) if self.screen is not None else None
+        try:
+            return (fn(include_ax=include_ax) if include_ax is False else fn()) if fn else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def screen_asleep(reason: str | None) -> bool:
+        """The display is asleep or the screen is locked: the learner is away, nothing is broken."""
+        r = (reason or "").lower()
+        return "asleep" in r or "locked" in r
+
+    @classmethod
+    def screen_down_message(cls, reason: str) -> str:
+        if cls.screen_asleep(reason):
+            return "Your screen is asleep or locked. Miyagi picks up again when you're back."
+        if reason == "no_permission":
+            from server.screen import health
+            return "Miyagi can't see your screen. " + health.permission_hint()
+        if reason == "no_accessibility":
+            return ("Miyagi lost Accessibility access, so it can't read your cursor or the open file. "
+                    "Turn it back on in System Settings > Privacy & Security > Accessibility. Screen reading still works.")
+        if "blank frame" in reason:
+            return "Your screen looks blank. Miyagi keeps watching."
+        return "Miyagi can't see your screen. Check Screen Recording in System Settings."
+
+    async def _check_screen_health(self) -> None:
+        """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
+        if self._screen_off_reason() is not None or getattr(self.screen, "paused", False):
+            # Nov 21 (launch-quiet): no lesson step runs, so the reader is off on purpose: never a "Check Screen
+            # Recording" error before the learner picks a lesson (the setup step asks for it when it comes)
+            self._screen_down_since = None
+            return
+        reason = self.screen_down_reason()
+        if reason is None:
+            if self._screen_notice_sent:
+                log.info("screen reader recovered")
+            self._screen_down_since, self._screen_notice_sent = None, False
+            return
+        if self._screen_down_since is None:
+            self._screen_down_since = self.clock()
+        wait = self.SCREEN_PERMISSION_DOWN_S if reason in ("no_permission", "no_accessibility") else self.SCREEN_DOWN_S
+        if not self._screen_notice_sent and self.clock() - self._screen_down_since >= wait:
+            if self.screen_asleep(reason):  # learner away: an error toast would only mislead ("Check Screen Recording")
+                return
+            self._screen_notice_sent = True
+            log.warning("screen reader down: %s", reason)
+            await self.emit("error", {"message": self.screen_down_message(reason)})
+
+    def _dirty_step_file(self, step: dict) -> str | None:
+        """The step's file when the editor has it unsaved: the companion extension's dirty flag (this tick's read /
+        its dirty and save events), else ● in the window title. Checks read the file on disk."""
+        from .inputs import dirty_files
+
+        file = self._step_file(step) or step.get("file") or ""
+        for k in self._buffers.named(file) if file else []:
+            if (d := self._buffers.dirty(k)) is not None:
+                return Path(file).name if d else None
+        names = dirty_files(self.last_obs)
+        if file and Path(file).name in names:
+            return Path(file).name
+        return None
+
+    def _other_folder(self, step: dict, any_window: bool = False) -> str | None:
+        """VS Code edits the step's file in ANOTHER folder (another lesson's) -> that folder's name. S2's detector
+        when present, else the window title ("● calculator.py — other-lesson — Visual Studio Code"). S2 also reports
+        another folder's window being the one on screen (reason "other_window", lesson bound to its window): that
+        counts only with any_window (the Wrong folder? card; a pass on the lesson's own files never waits for it)."""
+        from . import workspace as wsmod
+
+        file = Path(self._step_file(step) or step.get("file") or "").name
+        if not file:
+            return None
+        if self._s2_wrong_folder_fn() is not None:  # S2's detector (real screen): its cached answer decides
+            wf = self._wrong_folder
+            if wf and not any_window and wf.get("reason") == "other_window":
+                return None
+            return (wf.get("learner_folder_name") or "another folder") if wf else None
+        mine = Path(self.workdir).name
+        for w in getattr(self.last_obs, "windows", None) or []:
+            if (getattr(w, "app", "") or "").lower() not in CODE_APP_NAMES:
+                continue
+            parts = [p.strip() for p in re.split(r"\s[—–]\s", (getattr(w, "title", "") or "").lstrip("● "))]
+            if len(parts) >= 2 and parts[0] == file and parts[1] and parts[1] not in (mine, "Visual Studio Code"):
+                return parts[1]
+        return None
+
+    def _s2_wrong_folder_fn(self):
+        """S2's wrong_folder(), only with the real screen reader (never in tests: it reads real windows)."""
+        from . import workspace as wsmod
+
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        return getattr(wsmod._s2(), "wrong_folder", None)
+
+    async def _refresh_wrong_folder(self, step: dict) -> None:
+        fn = self._s2_wrong_folder_fn()
+        if fn is None:
+            return
+        files = sorted({Path(f).name for f in [self._step_file(step)] + [t.get("file") for t in step.get("targets") or []]
+                        if self._real_file(f)})
+        try:  # window_check: the lesson is bound to its own window, so ANOTHER folder's window on screen counts too
+            self._wrong_folder = await asyncio.to_thread(fn, self.workdir, files or None, window_check=self.editor_open)
+        except Exception:  # noqa: BLE001
+            log.exception("wrong_folder failed")
+            self._wrong_folder = None
+        # another project's VS Code window has been the one in front for a few seconds (e.g. the lesson window went
+        # to its own Space): say so with Open, without waiting for a failing check to ask the coach. Only while VS Code
+        # is the front app: a window left behind the browser the learner reads in is not where they work.
+        if ((self._wrong_folder or {}).get("reason") != "other_window" or self.step is not step or self.passed
+                or self.awaiting_resume or not (self.lesson_mode or self.segment_done)
+                or (getattr(self.last_obs, "app", "") or "").strip().lower() not in CODE_APP_NAMES):
+            self._wf_since = None
+            return
+        if self._wf_since is None or self._wf_step is not step:  # a new step starts its own count (no carried quiet)
+            self._wf_since, self._wf_step = self.clock(), step
+        elif self.clock() - self._wf_since >= self.WRONG_WINDOW_S and self._auto_card_ok():  # not while VS Code opens
+            self._wf_since = self.clock() + 120.0  # once; again only if it's still the wrong window 2 min later
+            self._editor_state_card(step)
+            return
+        if self._wf_recheck != self.step_gen and self._wf_since <= self.clock():
+            self._wf_recheck = gen = self.step_gen  # one at a time: a still screen sends no new frames, so look again
+            delay = max(self._wf_since + self.WRONG_WINDOW_S - self.clock(), 2.0) + 0.1  # until the card can go out
+
+            async def again() -> None:
+                await asyncio.sleep(delay)
+                if gen == self.step_gen:
+                    self._wf_recheck = None
+                    await self._refresh_wrong_folder(step)
+
+            self._spawn(again(), timer=True)
+
+    WRONG_WINDOW_S = 4.0
+
+    async def _use_this_folder(self, step: dict | None) -> None:
+        """"Use this folder" (S2 adopt_folder): the lesson continues in the folder the learner is typing in; files
+        it lacks are copied in (nothing overwritten or deleted)."""
+        from . import workspace as wsmod
+
+        wf = self._wrong_folder or {}
+        fn = getattr(wsmod._s2(), "adopt_folder", None)
+        if fn is None or not wf.get("learner_folder"):
+            await self.emit("error", {"message": "I can't switch to that folder; open this lesson's file instead."})
+            return
+        try:
+            res = await asyncio.to_thread(fn, self.workdir, wf["learner_folder"])
+        except Exception as e:  # noqa: BLE001
+            await self.emit("error", {"message": f"Couldn't use that folder: {e}"})
+            return
+        new = str(res.get("workdir") or wf["learner_folder"])
+        self.workdir = new
+        if self.graph is not None:
+            self.graph.setdefault("lesson", {})["workdir"] = new
+        if self.on_workdir:
+            self.on_workdir(new)
+        self._bind_lesson_window()  # the screen follows: this folder's window is the lesson's now
+        self._wrong_folder = None
+        copied = len(res.get("copied") or [])
+        await self._emit_card({"stepId": (step or {}).get("id"), "kind": "answer", "title": f"Using {Path(new).name}",
+                               "body": "I'll check your work in this folder now."
+                                       + (f" Copied {copied} missing file(s) in." if copied else "")})
+        if self.step is not None:
+            await self.evaluate("file")
+
+    def _editor_state_card(self, step: dict, unsaved: bool = True) -> bool:
+        """Before any off-track: an unsaved step file -> "Save with ⌘S"; another lesson's folder -> one calm card
+        with "Open this lesson's file". -> True when one applies (the caller then stays quiet). unsaved=False: the
+        other folder only (every check green: _save_to_finish says the save)."""
+        other = self._other_folder(step, any_window=True)
+        if other:
+            wf = self._wrong_folder or {}
+            if wf.get("reason") == "other_window":  # another project's window is the one on screen, any file
+                file = Path(self._step_file(step) or step.get("file") or "").name
+                adopt = wf.get("can_adopt") and not self.lesson_mode
+                self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": "Wrong folder?",
+                                             "body": f"This VS Code window is {other}. Open {file} in "
+                                                     f"{Path(self.workdir).name}, this lesson's folder.",
+                                             "actions": ["open_editor", "use_this_folder"] if adopt
+                                             else ["open_editor"]}, window_s=120.0))
+                return True
+            file = wf.get("file") or Path(self._step_file(step) or step.get("file") or "").name
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": "Wrong folder?",
+                                         "body": f"This is {other}/{file}. Open the lesson's {file} in VS Code.",
+                                         "actions": ["use_this_folder", "open_editor"] if wf.get("can_adopt")
+                                         else ["open_editor"]}, window_s=120.0))
+            return True
+        if unsaved and self._save_file:
+            return True  # every check green, only the save missing: "Save to finish" said it (once per dirty episode)
+        dirty = self._dirty_step_file(step) if unsaved else None
+        if dirty:  # a run step: "Save nn.py (⌘S), then run it." (the run uses the file on disk)
+            card = (self._save_then_run(step, dirty)
+                    or {"title": f"Save {dirty}", "body": f"Save {dirty} in VS Code (⌘S)."})
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", **card}, window_s=60.0))
+            return True
+        return False
+
+    def _file_unready(self, step: dict) -> bool:
+        """The step's file is missing / empty on disk, or unsaved in the editor: the screen can't stand in for it."""
+        from . import workspace as wsmod
+
+        file = self._step_file(step) or step.get("file") or ""
+        if not file or not (step.get("code") or "").strip() or self._run_command(step):
+            return False
+        if self._dirty_step_file(step):
+            return True
+        p = wsmod.resolve_file(self.workdir, file)
+        try:
+            return p is None or not p.read_text(errors="replace").strip()
+        except OSError:
+            return True
+
+    def _save_to_finish(self, step: dict, results: list[dict]) -> str | None:
+        """Every row green on the editor's text / the screen, the step held only by the save (VS Code's dirty flag, ●
+        in the title, or the file on disk lacking the code): ONE calm "Save to finish" card per dirty episode, no
+        buttons. The save then passes the step (a file evaluation). -> the file name in that state, else None."""
+        if not (self._dirty_step_file(step) or self._unsaved_holds or (self.lesson_mode and self._file_unready(step))):
+            self._save_card_sent = False  # saved: the next unsaved stretch is a new episode
+            return None
+        name = Path(self._step_file(step) or step.get("file") or "").name
+        if (not name or not results or any(r.get("status") != "pass" for r in results) or self._other_folder(step)
+                or self._untitled_editor()):
+            return None
+        if not self._save_card_sent:
+            self._save_card_sent = True
+            self._spawn(self._emit_card(editor_text.save_card(step["id"], name), window_s=60.0))
+        return name
+
+    def _judge_inputs(self, step: dict) -> tuple[Any, dict, bool]:
+        """(screen, files, exact) for E5's judge: the step file's text, VS Code's exact buffer when it has the file
+        open (else the disk). Exact in a "Just teach me" lesson: the editor's OCR is left out, it must not judge code."""
+        code, file = self._code_excerpt(step)
+        files = {file: code} if file and code else {}
+        exact = bool(files) and any(self._buffers.text(k) is not None for k in self._buffers.named(file))
+        screen = self._screen_lines()
+        return (editor_text.without_apps(screen, CODE_APP_NAMES) if exact and self.lesson_mode else screen), files, exact
+
+    def _focused_app(self) -> str:
+        return str(getattr(self.last_obs, "app", "") or "")
+
+    def _judge_gate_kwargs(self, step: dict) -> dict:
+        """E5's cost gate: is the reader alive, is the display asleep / locked, the step files' mtimes."""
+        from . import workspace as wsmod
+
+        down = self.screen_down_reason(include_ax=False) or ""
+        mtimes: dict[str, float] = {}
+        names = {self._step_file(step)} | {t.get("file") for t in step.get("targets") or []}
+        for f in names:
+            if self._real_file(f) and (p := wsmod.resolve_file(self.workdir, f)) is not None:
+                try:
+                    mtimes[str(p)] = p.stat().st_mtime
+                except OSError:
+                    pass
+        return {"screen_ok": self.screen_active() and not down,
+                "display_asleep": bool(re.search(r"asleep|locked", down, re.I)), "file_mtimes": mtimes}
+
+    def _maybe_judge(self, step: dict) -> None:
+        """E5's StepJudge in the background: when the learner is idle and the deterministic checks can't tell
+        (pending), Claude (Haiku) looks; gates (idle >= 8 s, <= 1 per 20 s, only on change) are E5's."""
+        j = self.judge
+        if j is None or self._judging or not self.last_results:
+            return
+        if why := self._judge_needless(step):  # t11: wasted Haiku calls (and s3's "Looks done?" 2 s before the pass)
+            if getattr(self, "_judge_skip_why", None) != why:
+                self._judge_skip_why = why
+                log.info("judge %s skipped: %s", step.get("id"), why)
+            return
+        self._judge_skip_why = None
+        screen, files, exact = self._judge_inputs(step)
+        try:
+            if not j.should_judge(step, [r for r in self.last_results if r.get("checkId") != f"{step['id']}-ran"],
+                                  idle_s=self.learner_idle_s(),
+                                  video_playing=self.video_playing and not self.segment_done,
+                                  screen=screen, files=files, focused_app=self._focused_app(),
+                                  **self._judge_gate_kwargs(step)):
+                return
+        except Exception:  # noqa: BLE001
+            log.exception("should_judge failed")
+            return
+        self._judging = True
+        self._spawn(self._run_judge(self.step_gen, step, screen, files, exact))
+
+    def _only_run_left(self, step: dict) -> bool:
+        """t11: every row but the run's ("Ran the cell") passes, or, in a notebook step, only rows its run grades
+        (printed output, accuracy, no errors) are left: the run decides, never the judge."""
+        ran = f"{step.get('id')}-ran"
+        open_ = [r for r in self.last_results if r.get("status") != "pass" and r.get("checkId") != ran]
+        if not open_:
+            return True
+        from . import nb_coach
+
+        if not nb_coach.notebook_step(self, step):
+            return False
+        by_id = nb_coach._checks_by_id(step)
+        return all(nb_coach._is_output_check({**by_id.get(r.get("checkId"), {}), **r}, r) for r in open_)
+
+    def _judge_needless(self, step: dict) -> str:
+        """t11: why a background judge call would be wasted ("": ask it). An off-track is up (it says what's wrong);
+        only the run's rows are left (_only_run_left); a notebook step's cell is still running."""
+        if self.last_offtrack is not None:
+            return "an off-track is up"
+        if self._only_run_left(step):
+            return "only the run's rows are left"
+        from . import nb_coach
+
+        if nb_coach.notebook_step(self, step) and nb_coach.running(self, step):
+            return "its cell is still running"
+        return ""
+
+    def _run_first(self, step: dict) -> dict | None:
+        """t11: Yes on "Looks done?" in a notebook step whose cell hasn't run since the step began (its "Ran the cell"
+        row isn't green): the card that says so (the run then passes the step), else None."""
+        from . import nb_coach
+
+        if self.lesson_mode or not nb_coach.notebook_step(self, step):
+            return None
+        ran = next((r for r in self.last_results if r.get("checkId") == f"{step['id']}-ran"), None)
+        if ran is None or ran.get("status") == "pass":
+            return None
+        if nb_coach.running(self, step):
+            return {"stepId": step["id"], "kind": "step", **nb_coach.still_running(step)}
+        if ran.get("status") == "fail":
+            return {"stepId": step["id"], "kind": "step", "title": "Not yet",
+                    "body": "The cell stopped with an error. Fix it, then run it again (Shift+Enter)."}
+        return {"stepId": step["id"], "kind": "step", "title": "Run the cell first",
+                "body": "Run the cell (Shift+Enter). I'll move on when it finishes."}
+
+    async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict, exact: bool = False) -> None:
+        try:
+            j = await self.judge.judge(step, self._judge_results(), screen=screen, files=files,
+                                       focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
+                                       file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"],
+                                       **({"exact_files": True} if exact else {}),
+                                       **self._memory_kw(step, "judge", files))
+        except Exception:  # noqa: BLE001
+            log.exception("step judge failed")
+            j = None
+        finally:
+            self._judging = False
+        if not j or gen != self.step_gen or self.passed:
+            return
+        if self._file_unready(step):  # Claude "saw it" but the file is empty / unsaved: the file check decides
+            self._editor_state_card(step)
+            return
+        for ev in j.get("events") or []:
+            p = ev.get("payload") or {}
+            if ev.get("type") == "check.updated" and p.get("status") == "pass" and p.get("checkId"):
+                self.judged_pass.add(p["checkId"])
+        if self.judged_pass:
+            await self.evaluate("judge")
+        card = j.get("card")
+        if card and "confirm" in (card.get("actions") or []) and (dup := self._overridden_defs(step)):
+            card = self._dup_card(step, dup)  # T5: never a "Looks done?" while a later copy overrides the step's def
+        if card and "confirm" in (card.get("actions") or []) and self._only_run_left(step):
+            log.info("judge %s: no 'Looks done?': only the run's rows are left (t11)", step.get("id"))
+            card = None  # t11 (s3): the checks / the run pass it in a moment; Yes would skip the cell's run
+        if not j.get("done"):
+            self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
+        if card and not self.passed and gen == self.step_gen:
+            ids: set = set()
+            if card.get("verdict") == "not_done":
+                ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+                pend = self._pending_offtrack
+                if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack) or (
+                        pend is not None and pend["gen"] == gen and ids and ids <= pend["ids"]):
+                    return  # the off-track card (up, coming or kept) says "Not yet" better: one card per mistake
+                from . import stale_advice
+
+                if stale_advice.judge_contradicts(self, card):  # Bug C: never a "Not yet" over all-green rows
+                    return
+            if await self._emit_card(card, auto=True):
+                if ids:  # E13: and no off-track on top of this "Not yet" for the same checks (until it's closed)
+                    self._carded_checks |= ids
+                if shown := getattr(self.judge, "card_shown", None):
+                    shown(step["id"], card)  # E5: the same card isn't offered again for this step until a save
+                if card.get("verdict") == "not_done":  # the judge's verdict: the check rows say "not yet" with it (E1)
+                    async with self._lock:
+                        if gen == self.step_gen and not self.passed:
+                            await self._open_gate(step)
+                if "confirm" in (card.get("actions") or []):
+                    self.confirm_pending = True
+                    self.confirm_check_ids = list(card.get("checkIds") or [])
+
+    CONFIRM_TIMEOUT_S = 7.0  # Yes on a stale "Looks done?" answers within this (the app's button gives up at 10 s)
+
+    async def _confirm_stale(self, step: dict) -> None:
+        """Yes on a "Looks done?" that is no longer armed (the checks changed since it went up): re-check like the
+        Check button, but answer within CONFIRM_TIMEOUT_S. When the re-check runs late (a slow judge) or ends with
+        only a status, the deterministic checks decide and a card says what is still missing."""
+        gen, last_card = self.step_gen, self._last_card_t
+        # not cancelled on timeout (a cancel inside _pass_step would strand the lesson); a late pass still counts
+        check = self._spawn(self._check_step(step))
+        late = not (await asyncio.wait({check}, timeout=self.CONFIRM_TIMEOUT_S))[0]
+        if late:
+            log.info("confirm: re-check took over %.0f s; the checks decide", self.CONFIRM_TIMEOUT_S)
+        if self.passed or gen != self.step_gen or self._last_card_t != last_card:
+            return  # passed, moved on, or the re-check already answered with a card
+        labels = [r.get("label") or r.get("checkId") for r in self.last_failed
+                  or [r for r in self.last_results if r.get("status") != "pass"]]
+        what = ("" if late else (self.last_offtrack or {}).get("title") or "") or (
+            f"Still missing: {'; '.join(str(x) for x in labels[:2])}" if labels else "The checks haven't passed yet")
+        body = " ".join((("Couldn't double-check in time. " if late else "") + what).split()[:16])
+        await self._emit_card({"stepId": step["id"], "kind": "step", "source": "judge", "verdict": "not_done",
+                               "title": "Not yet", "body": body, "actions": ["hint", "show_me"]}, window_s=2.0)  # E9: the bar owns Skip
+        await self._status("offtrack" if self.last_offtrack else "watching")
+
+    SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
+    # one part of a step's command that only installs / checks / activates (pip install, node -v, source .venv/...)
+    _SETUP_PART = re.compile(r"^(?:sudo\s+)?(?:source|\.|cd|mkdir|export|which|echo)\b|\binstall\b|\bvenv\b|"
+                             r"--version\b|\s-[vV]$|\bversion\b|\bupgrade\b|\bactivate\b", re.I)
+
+    @classmethod
+    def _runs_more_than_setup(cls, step: dict) -> bool:
+        """t10: s1 "source .venv/bin/activate && jupyter notebook" passed as "Already installed" the moment the lesson
+        started: tools already on this Mac don't start a server / run a program for the learner. True when some part
+        of the step's command does more than install / activate / check a version."""
+        rc = str(step.get("run_command") or "").strip()
+        parts = [p.strip() for p in re.split(r"\s*(?:&&|\|\||;|\n)\s*", rc) if p.strip()]
+        return any(not cls._SETUP_PART.search(p) for p in parts)
+
+    async def _maybe_pass_setup_step(self) -> None:
+        """Never trap the learner on an install step for tools S2's check already found on this Mac."""
+        step = self.step
+        if step is None or self.passed or not self.reqs:
+            return
+        if (step.get("code") or "").strip() and not self._run_command(step):
+            return  # a typing step is never an install step, whatever its title says
+        if str(step.get("file") or "").lower().endswith(".ipynb"):
+            return  # t10-flow: "Select the .venv kernel in mnist.ipynb" is never done by an install the check found
+        if self._runs_more_than_setup(step):
+            return  # it also starts something (jupyter notebook, npm run dev): the learner has to run it
+        requires = {str(t).lower() for t in step.get("requires") or []}
+        if step.get("setup") and requires:  # E2 tags real setup steps: setup: true, requires: [tool ids]
+            items = [it for it in self.reqs if str(it.get("tool", "")).lower() in requires]
+            if len(items) < len(requires):
+                return  # S2's check doesn't cover every required tool: can't vouch for it
+        else:
+            text = f"{step.get('title', '')} {step.get('instructions', '')}"
+            if not self.SETUP_STEP.search(text):
+                return
+            low = text.lower()
+            named = [it for it in self.reqs if any(n and str(n).lower() in low for n in (it.get("label"), it.get("tool")))]
+            items = named or [it for it in self.reqs if it.get("needed")]
+        if not items or not all(it.get("ok") for it in items):
+            return
+        for c in self.display_checks(step):
+            await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"], "label": c.get("label", c["id"]),
+                                              "status": "pass", "detail": "Already installed"})
+        self._record("step_passed_installed", {"tools": [it.get("tool") for it in items]}, step)
+        await self._pass_step()
+
+    STUCK_CARD_S = 90.0
+    STUCK_QUIET_S = 60.0  # no stuck card within a minute of any other card / off-track
+
+    async def _maybe_stuck_card(self, step: dict) -> None:
+        """Pending > 90 s after the clip ended AND after the learner's last action, the learner had started on the step,
+        nothing else is waiting on them (a "Do it for me" preview, "Looks done?") and no card for a minute: offer Hint /
+        Skip, once per step. (E4: it went out behind "Before you start" and over a pending preview.)"""
+        if (self._stuck_card_sent or self.awaiting_start or not self.segment_done or self.segment_end_t is None
+                or self.pending_patch is not None or self.confirm_pending or self._ask_held()
+                or not self.learner_started()):
+            return
+        quiet = min(self.clock() - self.segment_end_t, self.learner_idle_s())  # since the last action, not the start
+        if quiet < self.STUCK_CARD_S or self.clock() - self._last_shown_t < self.STUCK_QUIET_S:
+            return
+        if self.last_results and all(r.get("status") == "pass" for r in self.last_results):
+            return
+        self._stuck_card_sent = await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Need a hand?",
+                                                       "body": "Press Hint for a nudge.",
+                                                       "actions": ["hint", "skip_step"]}, auto=True)
+
+    async def _type_step_for_them(self, step: dict) -> None:
+        """Lesson mode "Do it for me": E5 places the step's code in the file (preview -> confirm -> apply);
+        a new / empty file just gets the code. Never types into the editor."""
+        from . import workspace as wsmod
+        from .inputs import dirty_files
+
+        file = self._step_file(step) or step.get("file") or ""
+        if not file:
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+            return
+        from server.safety.paths import lesson_file
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        path, rel = lesson_file(self.workdir, wsmod.resolve_file(self.workdir, file, titles) or file, write=True)
+        if path is None:  # LLM06: a lesson's step.file of ../../../.zshrc, ~/.ssh/..., .vscode/tasks.json: nothing
+            log.warning("Do it for me: step file %r is outside the lesson folder or protected", str(file)[:120])
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+            return
+        if path.name in dirty_files(self.last_obs):  # unsaved edits in VS Code: writing the file would fight them
+            ext = self._vscode_ext()
+            if ext is not None and hasattr(ext, "apply") and hasattr(ext, "buffer_text"):
+                # The companion extension edits the live buffer instead. apply(new_text) REPLACES the whole buffer, so
+                # append this step's code to what the editor holds (unsaved edits included), never just the snippet.
+                ok = None
+                try:
+                    buf = await asyncio.to_thread(ext.buffer_text, str(path))
+                    cur = (buf or {}).get("text")
+                    if isinstance(cur, str):
+                        code = step["code"].rstrip("\n") + "\n"
+                        if code.strip() in cur and not self._patch_unsafe(step, path, cur, cur):
+                            ok = {"ok": True}  # already there
+                        else:  # T5: the step's defs in place of the buffer's ones, else appended; never 2 copies
+                            hit = self._by_name(step, path, cur)
+                            new_text = hit[0] if hit else cur + ("" if not cur or cur.endswith("\n") else "\n") + code
+                            if not self._patch_unsafe(step, path, new_text, cur):
+                                ok = await asyncio.to_thread(ext.apply, str(path), new_text)
+                except Exception:  # noqa: BLE001
+                    ok = None
+                if isinstance(ok, dict) and ok.get("ok") and not ok.get("pending"):
+                    await self._card(step, "Done", f"Added {self._code_head(step)} to {path.name}.", kind="answer")
+                    return
+            await self._card(step, f"Save {path.name} first?", "Press ⌘S, then Do it for me again.",
+                             kind="answer", actions=["apply_fix"])
+            return
+        try:
+            text = path.read_text(encoding="utf-8") if path.exists() else ""
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            return
+        code = step["code"].rstrip("\n") + "\n"
+        new_text, summary, line = None, f"Adds this step's code to {rel}.", 1
+        thinking = False  # E12: "thinking" only while a model really runs; the card goes out BEFORE the status
+        if not text.strip():
+            new_text = code
+        elif (hit := self._by_name(step, path, text)) is not None:  # T5: the step's defs are in the file: its code
+            (new_text, line), summary = hit, f"Puts this step's code in {rel} in place of yours."  # in place
+        elif self.m.has_do_it_for_me() and not stage.on(self):  # a Demo lesson: the step's own code, no model
+            thinking = True
+            await self._status("thinking", detail="Typing the step for you")
+            try:  # a patch that ADDS the step's code (never the last diagnosis's cached diff, which only fixed a
+                # comma); the diagnosis rides along as context so the file also compiles
+                p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack or self.full_card,
+                                              use_diagnosis=False)
+                new_text, summary, line = p.get("new_text"), p.get("summary") or summary, p.get("line") or 1
+            except Exception as e:  # noqa: BLE001
+                log.info("do_it_for_me (lesson step) failed: %s", e)
+            head = re.sub(r"\s+", "", next((ln for ln in code.splitlines()
+                                            if ln.strip() and not ln.strip().startswith("#")), ""))
+            if new_text and ((head and head not in re.sub(r"\s+", "", new_text))
+                             or self._syntax_error_line(new_text, path)):
+                log.info("do_it_for_me (lesson step): the patch lacks the step's code or doesn't compile; placing it")
+                new_text = None
+            if new_text and (why := self._patch_unsafe(step, path, new_text, text)):  # T5: a second copy of a def, …
+                log.info("do_it_for_me (lesson step): patch rejected: %s", why)
+                new_text = None
+        if not new_text and text.strip():  # no coach patch: the step's defs in place of the file's ones (by name),
+            from . import step_code  # else over the learner's partial copy, else below the target line / at the end
+
+            new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), path.suffix == ".py",
+                                                            self._other_codes(step))
+            summary = (f"Puts this step's code in {rel} in place of yours." if replaced  # not the rejected
+                       else f"Adds this step's code to {rel}.")  # coach patch's description
+            if bad := self._syntax_error_line(new_text or text, path):  # the file still has a mistake: say where
+                summary += f" Also fix line {bad} yourself: it doesn't run yet."
+        if new_text and new_text != text and (why := self._patch_unsafe(step, path, new_text, text)):
+            log.info("Do it for me: no safe placement of %s's code: %s", step.get("id"), why)  # T5: never 2 copies
+            await self._fix_by_hand(step, path, text, (self.last_offtrack or {}).get("diff") or {})
+            return  # (_fix_by_hand sets the status: no "thinking" left)
+        if not new_text or new_text == text:
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+        else:
+            import difflib
+
+            diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
+                                                f"a/{rel}", f"b/{rel}"))
+            self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
+                                  "first": code.strip().splitlines()[:1], "step_code": code,
+                                  "result": f"Added {self._code_head(step)} to {rel}."}
+            await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
+        if thinking:
+            await self._status("offtrack" if self.last_offtrack else "watching")
+
+    @staticmethod
+    def _syntax_error_line(text: str, path: Path) -> int | None:
+        """A Python file that doesn't compile: the line of its first syntax error (else None; other languages: None)."""
+        if path.suffix != ".py":
+            return None
+        try:
+            compile(text, str(path), "exec")
+        except SyntaxError as e:
+            return e.lineno or 1
+        except (ValueError, OverflowError):
+            return None
+        return None
+
+    @staticmethod
+    def _code_head(step: dict) -> str:
+        """"def add(a, b)" from the step's code: its first meaningful line, without a trailing colon."""
+        first = next((ln.strip() for ln in (step.get("code") or "").splitlines()
+                      if ln.strip() and not ln.strip().startswith("#")), "the code")
+        first = first.rstrip(":")
+        return first if len(first) <= 50 else first[:47] + "…"
+
+    def _step_code_in_file(self, step: dict) -> bool:
+        """Is the step's code (its first meaningful line, spacing ignored) already in its file on disk?"""
+        from . import workspace as wsmod
+
+        file = self._step_file(step)
+        head = re.sub(r"\s+", "", self._code_head(step))
+        p = wsmod.resolve_file(self.workdir, file) if file else None
+        try:
+            return bool(p and head and head in re.sub(r"\s+", "", p.read_text(errors="replace")))
+        except OSError:
+            return False
+
+    def _other_codes(self, step: dict) -> list[str]:
+        """The other steps' code: a block of the file that is one of theirs is never replaced by this step's."""
+        return [s.get("code") or "" for s in self.steps if s.get("id") != step.get("id")]
+
+    def _by_name(self, step: dict, path: Path, text: str) -> tuple[str, int] | None:
+        """Lesson mode, a Python step file that already has the step's defs / classes / assignments: (new_text, line)
+        with the step's code in their place, checked (one copy of each def; it compiles). Else None."""
+        from . import step_code
+
+        if not self.lesson_mode or not self._in_step_file(step, path):
+            return None
+        return step_code.by_name(step.get("code") or "", text, path.suffix == ".py", self._other_codes(step))
+
+    def _patch_unsafe(self, step: dict, path: Path, new_text: str, old_text: str | None,
+                      code: str | None = None) -> str:
+        """Lesson mode, a Python step with code: why `new_text` must not be written ('' = fine): a def / class of
+        the step's code missing or in two copies (T5: the later copy overrode the step's), or it no longer compiles."""
+        from . import py_blocks
+
+        code = (step.get("code") if code is None else code) or ""
+        if not self.lesson_mode or not code.strip() or path.suffix != ".py" or not self._in_step_file(step, path):
+            return ""
+        return py_blocks.verify(code, new_text, old_text)
+
+    def _overridden_defs(self, step: dict) -> tuple[str, list[int], str] | None:
+        """Lesson mode: (name, lines, file) of a def / class of the step's code that a later top-level copy in the
+        step's file overrides (that last copy isn't the step's). Reads VS Code's text of the file, else the disk."""
+        from . import py_blocks
+        from . import workspace as wsmod
+
+        code = step.get("code") or ""
+        if not self.lesson_mode or not re.search(r"^\s*(?:async\s+def|def|class)\s", code, re.M):
+            return None
+        file = self._step_file(step) or step.get("file") or ""
+        p = wsmod.resolve_file(self.workdir, file) if file else None
+        if p is None or p.suffix != ".py":
+            return None
+        try:
+            text = self._buffers.text(p)
+            text = p.read_text(errors="replace") if text is None else text
+        except OSError:
+            return None
+        hits = py_blocks.overridden(code, text)
+        return (*hits[0], p.name) if hits else None
+
+    def _defs_once(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
+        """T5: the step's def must be the one that counts. A later top-level copy of it (an old `def sigmoid_slope`
+        left below the right one) overrides it while every pattern is still in the file: one more row, red, and no
+        step pass until that copy is gone. Checked when the step would pass, the judge saw checks done (its pass comes
+        after this: the red row keeps it from passing; the row itself is never the judge's to pass), or the row is up."""
+        cid = f"{step['id']}-once"
+        if not (gate.get("passed") or self.judged_pass or cid in self.check_state):
+            return results, gate
+        self.judged_pass.discard(cid)
+        hit = self._overridden_defs(step)
+        if hit is None:
+            if cid not in self.check_state:
+                return results, gate
+            return [*results, {"checkId": cid, "label": self.check_state[cid]["label"], "status": "pass",
+                               "detail": "one copy left"}], gate
+        name, lines, fname = hit
+        row = {"checkId": cid, "label": f"One {name}() in {fname}"[:60], "status": "fail",
+               "detail": f"line {lines[-1]} defines {name} again and replaces yours: delete one copy"}
+        return [*results, row], {**gate, "passed": False, "via": None}
+
+    @staticmethod
+    def _dup_card(step: dict, hit: tuple[str, list[int], str]) -> dict:
+        """"Not yet: delete the second sigmoid_slope on line 30", with Do it for me (it removes that copy)."""
+        return {"stepId": step["id"], "kind": "answer", "title": "Not yet",
+                "body": f"Delete the second {hit[0]} on line {hit[1][-1]}", "actions": ["apply_fix"]}
+
+    async def _dup_blocks_pass(self, step: dict) -> bool:
+        """T5: a pass outside evaluate() (Yes on the judge's "Looks done?") while a later top-level copy overrides
+        the step's def: no pass. The red '<step>-once' row goes up (evaluate() keeps it until the copy is gone) and
+        a card names the copy to delete. -> whether the pass was blocked."""
+        hit = self._overridden_defs(step)
+        if hit is None:
+            return False
+        rows, _ = self._defs_once(step, [], {"passed": True})
+        self.gate_open = True
+        await self._publish(step, rows)
+        await self._emit_card(self._dup_card(step, hit), window_s=2.0)
+        await self._status("watching")
+        return True
+
+    def _in_step_file(self, step: dict, path: Path) -> bool:
+        """`path` is the step's own file (by name): the by-name placement and the one-copy check only look there,
+        never at another file a coach diff names (helper.py)."""
+        return path.name == Path(self._step_file(step) or step.get("file") or "").name
+
+    def _vscode_ext(self) -> Any:
+        """The VS Code companion extension (S2: server/workspace/vscode_ext.py, HTTP on 127.0.0.1:8791) when it's
+        installed and answering; else None. Never in tests (it would touch the real editor)."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        try:
+            import importlib
+
+            ext = importlib.import_module("server.workspace.vscode_ext")
+        except Exception:  # noqa: BLE001
+            return None
+        up = getattr(ext, "available", None) or getattr(ext, "is_up", None)
+        try:
+            return ext if (up is None or up()) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    RUN_TIMEOUT_S = 10.0
+
+    async def _run_for_me(self, step: dict) -> None:
+        """"Run it for me": the step's command in the lesson folder (VS Code's terminal via the companion extension
+        when it's up; else a subprocess, 10 s, stdin closed, the lesson's .venv first on PATH). The output goes in a
+        card and the run feeds the step's checks with its real exit code / output.
+        LLM06: the command comes from a model or a stored lesson, so it is parsed first (server.safety.commands): only
+        an Allowed argv runs, without a shell; anything else is shown "From the tutorial: check it before running"
+        and never run. The first run of each distinct command in a session shows the exact command and waits for
+        Yes (the same preview -> confirm as Do it for me: pending_patch {"run": ...} -> _apply_patch)."""
+        # skill tree: the engine ran the step's command (Run it for me, Do it for me on a run step, the Yes on "Run
+        # this command?"): a pass after it is assisted, never mastery, and keeps no proof of the engine's own output
+        skill_hooks.note_assist(self, "run_command", step)
+        if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
+            await stage.run(self, step)
+            return
+        curated.prepare_step(self, step)  # NumPy may have just been installed into the lesson's .venv
+        cmd = self._run_command(step) or (step.get("run_command") or "").strip()
+        cmd = curated.run_for_me_command(self, step, cmd)  # curated: the lesson .venv's python once NumPy is in it
+        if not cmd:
+            await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
+            return
+        from server.safety import child_env
+        from server.safety.commands import Manual, parse_run_command, visible
+
+        verdict = parse_run_command(cmd, self.workdir)
+        mark = step.get("run_command_manual")  # validate_untrusted_lesson's mark, while run_command is still that one
+        if (not isinstance(verdict, Manual) and isinstance(mark, dict)
+                and str(mark.get("command") or "").strip() == str(step.get("run_command") or "").strip()):
+            verdict = Manual(str(mark.get("reason") or "the lesson marked it"), command=cmd)
+        if isinstance(verdict, Manual):  # shown, never run: the learner reads it and runs it themselves
+            log.info("run it for me: not running %r: %s", cmd[:120], verdict.reason)
+            self._record("run_manual", {"command": cmd[:200], "reason": verdict.reason[:200]}, step)
+            await self._card(step, "From the tutorial: check it before running",
+                             f"I don't run this one for you ({verdict.reason}). Read it, and if it's what the "
+                             "tutorial means, copy it into VS Code's terminal and run it there.", kind="answer",
+                             output=visible(cmd))  # a control / zero-width character is shown, never hidden
+            return
+        cmd = verdict.command  # what runs, exactly: shlex-quoted, one command
+        seen = self.__dict__.setdefault("_run_confirmed", set())
+        # confirmed per (folder, command, what it runs): an npm script or requirements file edited since asks again
+        if (str(self.workdir), cmd, verdict.fingerprint) not in seen:  # first run this session: the command, then Yes
+            self.pending_patch = {"run": True, "command": cmd, "step": step.get("id"), "workdir": str(self.workdir),
+                                  "fingerprint": verdict.fingerprint}
+            changed = any(k[:2] == (str(self.workdir), cmd) for k in seen)  # said Yes to it before it was edited
+            await self._card(step, "Run this command?",
+                             ("What it runs changed since your last Yes. " if changed else "")
+                             + f"It runs in the lesson folder ({Path(str(self.workdir)).name}). Check it, then press "
+                             "Yes.", kind="answer", output=cmd + (f"\n{verdict.details}" if verdict.details else ""),
+                             actions=["confirm"])
+            # Yes runs it only while THIS card holds the slot (_apply_patch): a later card with a confirm (Looks
+            # done?, the checks pass), an off-track, a closed card or a new step makes the run stale
+            card = self._card_in_use
+            if self.pending_patch is not None and self.pending_patch.get("run"):
+                self.pending_patch["card"] = card if card and card[0] == "Run this command?" else None
+            return
+        argv = list(verdict.argv)
+        await self._save_step_file(step)  # the fix in the editor is what runs (Nov 15: the old file ran twice)
+        ext = self._vscode_ext()
+        if ext is not None and hasattr(ext, "run_in_terminal"):
+            try:
+                from . import workspace as wsmod
+
+                # t5: an older lesson's terminals still auto-activate the .venv (typing ^C over this command)
+                if await asyncio.to_thread(wsmod.python_terminal_settings, self.workdir):
+                    await asyncio.sleep(1.0)  # VS Code re-reads the folder's settings before the terminal is made
+                seq = self._ext_seq(ext)  # before typing it: a quick program's command_end may arrive at once
+                if await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir):
+                    self._acted()
+                    self._ext_run_t = time.time()  # _step_ran: the step's run box has done its job
+                    self._run_watch += 1  # a second press: the first one's watch stops (this one answers)
+                    await self._card(step, "Running it", f"{cmd} is running in VS Code's terminal.", kind="answer")
+                    self._spawn(self._terminal_run_result(self.step_gen, step, cmd, seq, ext=ext,
+                                                          token=self._run_watch), timer=True)
+                    return
+            except Exception:  # noqa: BLE001
+                log.exception("run_in_terminal failed; running it here")
+        await self._status("thinking", detail="Running it for you")
+        run_id = f"run-for-me-{int(time.time() * 1000)}"
+        await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
+        extra: dict[str, str] = {}
+        from server.workspace import paths
+
+        venv = paths.venv_bin(Path(self.workdir) / ".venv")
+        if venv.is_dir():
+            extra = {"PATH": f"{venv}{os.pathsep}{os.environ.get('PATH', '')}", "VIRTUAL_ENV": str(venv.parent)}
+        env = child_env(**extra)  # no provider key, cloud token or engine token reaches the learner's program
+        timed_out = False
+        try:
+            proc = await asyncio.create_subprocess_exec(*argv, cwd=self.workdir, env=env,  # never a shell
+                                                        stdin=asyncio.subprocess.DEVNULL,
+                                                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        except OSError as e:
+            await self.ingest({"kind": "run_ended", "run_id": run_id, "exit_code": 127})
+            await self._card(step, f"Couldn't run {cmd}", str(e), kind="answer")
+            return
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), self.RUN_TIMEOUT_S)
+            code = proc.returncode or 0
+        except TimeoutError:
+            timed_out = True
+            await _kill_shell(proc)
+            out = (await proc.stdout.read()) if proc.stdout else b""
+            await proc.wait()
+            code = 124
+        lines = out.decode(errors="replace").splitlines()
+        await self.ingest({"kind": "output", "run_id": run_id, "lines": lines[-200:]})
+        await self.ingest({"kind": "run_ended", "run_id": run_id, "exit_code": code})
+        self._record("run_for_me", {"command": cmd[:200], "exit_code": code}, step)
+        body = (f"Stopped after {self.RUN_TIMEOUT_S:.0f} s (is it waiting for input?)." if timed_out
+                else "It ran without errors." if code == 0 else f"It stopped with exit code {code}.")
+        await self._card(step, _ran(cmd), body, kind="answer",
+                         output="\n".join(lines[-8:]) or "(no output)")
+        if not self.passed and self.step is step:
+            await self._status("offtrack" if self.last_offtrack else "watching")
+
+    RUN_WAIT_S = 900.0  # Run it for me in VS Code's terminal: an input() loop runs until the learner quits it
+    _run_diag_key: tuple | None = None  # the terminal run crash last handed to the coach (each one once)
+
+    @staticmethod
+    def _ext_seq(ext: Any) -> int:
+        """The companion's latest event number (0 when unknown): every event after it is newer than now."""
+        fn = getattr(ext, "last_event", None)
+        try:
+            return int(((fn() if fn else None) or {}).get("seq") or 0)
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _metrics_in(self, step: dict, lines: list[str]) -> list[dict]:
+        """The step's metric_pattern readings in a run's output ([{step, name, value}]): a run in VS Code's terminal
+        then feeds its metric checks (e.g. "loss < 0.01 by epoch 4000") from what it printed, not from OCR."""
+        fn = self._checks_fn("extract_metrics")
+        if fn is None or not lines:
+            return []
+        pats = {c["metric"]: c["metric_pattern"] for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                if c.get("metric") and c.get("metric_pattern")}
+        out: list[dict] = []
+        for name, pat in pats.items():
+            try:
+                out += [{"step": s, "name": name, "value": v} for s, v in fn(pat, "\n".join(lines))]
+            except Exception:  # noqa: BLE001 - a bad pattern: the screen still reads the curve
+                log.warning("metric_pattern for %s failed on the run output", name)
+        return out
+
+    _run_cards: frozenset[str] = frozenset()  # vscode run ids whose Run it for me result card went out
+    _run_watch = 0  # Run it for me presses in VS Code's terminal: only the latest one's watch answers
+
+    async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int, ext: Any = None,
+                                   token: int | None = None) -> None:
+        """Run it for me typed `cmd` into VS Code's terminal (the "Running it" card). When the companion reports it
+        ended (command_end), that card's slot gets the result like the subprocess run's card: the exit status and the
+        last 8 lines of output. The run then feeds the step like one (ingest: the checks see it ended), and a crash (a
+        non-zero exit, or an error the step didn't ask for) goes to the coach's diagnosis once, never silence.
+        t5: terminal_run.follow types it again once when VS Code's shell swallowed it (the Python extension's venv
+        activation sent ^C over it) or it was interrupted right away, and the card never stays "Running it" for a
+        run that isn't: interrupted -> "It stopped before it finished", never started -> "didn't start", and with no
+        word at all from VS Code's shell (no shell integration) -> typed, can't follow it."""
+        from . import terminal_run
+
+        want = cmd.splitlines()[-1].strip()
+        same = self._checks_fn("command_matches") or (lambda a, b: bool(a) and a in (b or ""))
+        token = self._run_watch if token is None else token
+        if ext is None:
+            import importlib
+
+            ext = importlib.import_module("server.workspace.vscode_ext")
+
+        def alive() -> bool:  # the step moved on (its cards go with it), or a newer press answers instead
+            return gen == self.step_gen and not self.passed and token == self._run_watch
+
+        async def resend() -> Any:
+            return await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir)
+
+        async def live() -> bool:
+            return await asyncio.to_thread(terminal_run.terminal_live, ext, self.workdir)
+
+        res = await terminal_run.follow(ext, cmd, str(self.workdir), seq, same=same, alive=alive, resend=resend,
+                                        live=live, end_wait_s=self.RUN_WAIT_S)
+        end = res["end"]
+        if res["why"] == "gone":
+            return
+        if res["why"] != "ended" or end is None:  # the "Running it" card's slot never keeps a claim that isn't true
+            log.info("run it for me: %s %s", want[:80], res)
+            title, body = {
+                "not_started": (f"{want[:44]} didn't start",
+                                "VS Code's terminal didn't run it. Press Run it for me again."),
+                "running": (f"Still running {want[:44]}",
+                            "It's still running in VS Code's terminal. Press ⌃C there to stop it."),
+            }.get(res["why"], (f"Typed {want[:54]}",
+                               "It's in VS Code's terminal, but I can't follow it from here: its output is there."))
+            await self._card(step, title, body, kind="answer",
+                             **({"actions": ["run_command"]} if res["why"] == "not_started" else {}))
+            return
+        run_id = f"vscode-{end.get('id')}-{end.get('startedAt')}"
+        if run_id in self._run_cards:
+            return  # Run it for me pressed twice: the other wait already reported this run
+        self._run_cards = self._run_cards | {run_id}  # _ext_run may have ingested it already: the card still goes out
+        code, tail = end.get("exitCode"), [str(x) for x in end.get("outputTail") or []]
+        out = self._checks_fn("run_output")
+        err, shows = out(tail, (self._run_need or {}).get("expect") or []) if out else (False, False)
+        stopped = terminal_run.interrupted(code, tail)  # ^C: not a crash to explain, and never a pass
+        crashed = not stopped and (bool(err) or (code not in (0, None) and not shows))  # as _need_run grades it
+        body = ("It stopped before it finished. Press Run it for me again." if stopped
+                else f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
+                else "It ran without errors." if code == 0 else "It finished.")
+        await self._card(step, _ran(want), body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
+                         **({"actions": ["run_command"]} if stopped else {}))
+        if gen != self.step_gen or run_id in self.runs:
+            return
+        await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir,
+                           "started_at": (end.get("startedAt") or 0) / 1000})
+        await self.ingest({"kind": "output", "run_id": run_id, "lines": tail})
+        if mx := self._metrics_in(step, tail):  # the step's metric checks grade this run's exact output, not OCR
+            await self.ingest({"kind": "metrics", "run_id": run_id, "metrics": mx})
+        key = (gen, code, tuple(tail[-8:]))
+        diagnose = crashed and not self.coaching and key != self._run_diag_key
+        if diagnose:
+            self.coaching = True  # the run_end breakpoint stays quiet: the crash goes to the coach below, with its row
+        try:
+            await self.ingest({"kind": "run_ended", "run_id": run_id, "exit_code": code if code is not None
+                               else terminal_run.SIGINT_EXIT if stopped else int(crashed)})
+        finally:
+            if diagnose and gen == self.step_gen:
+                self.coaching = False
+        if not diagnose or gen != self.step_gen or self.passed:
+            return
+        self._run_diag_key = key
+        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": _ran(want), "status": "fail",
+               "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
+        failed = [row, *(r for r in self.last_failed if r.get("checkId") != row["checkId"])]
+        self.coaching = True
+        self.spoken_sig, self.spoken_t = self._sig(failed), self.clock()
+        self._spawn(self._coach(gen, step, failed, self.context(), 2))
+
+    async def _apply_patch(self, step: dict) -> None:
+        """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write.
+        A "Run this command?" preview (_run_for_me) confirmed: that exact command is now allowed this session, and
+        it runs. The file is checked again against the lesson-folder rules right before it is written."""
+        from server.safety.paths import lesson_rel, safe_lesson_path
+
+        from .inputs import dirty_files
+
+        pp, self.pending_patch = self.pending_patch, None
+        if pp.get("run"):  # Yes on "Run this command?": the same step, the same folder, then it runs
+            card = pp.get("card")
+            if card is None or self._card_in_use != card:
+                # not this card's Yes: a card with its own confirm went up since (Looks done?, the checks pass), or
+                # the run card was closed / replaced. Never a run: the press answers the card that is on screen.
+                log.info("confirm: the 'Run this command?' card isn't up any more; not running %r", pp["command"][:80])
+                await self._action("confirm")
+                return
+            if (pp.get("step") != step.get("id") or pp.get("workdir") != str(self.workdir)
+                    or card[2] != self.step_gen):
+                await self._card(step, "That command is out of date", "Press Run it for me again.", kind="answer")
+                return
+            self.__dict__.setdefault("_run_confirmed", set()).add((str(self.workdir), pp["command"],
+                                                                   pp.get("fingerprint") or ""))
+            await self._run_for_me(step)
+            return
+        path: Path = pp["path"]
+        rel = lesson_rel(self.workdir, path)
+        if not rel or safe_lesson_path(self.workdir, rel, write=True) is None:  # LLM06: never outside the folder
+            log.warning("Do it for me: refusing to write %s (outside the lesson folder or a protected file)", path)
+            await self._card(step, "I can't change that file", f"{path.name} isn't a file in your lesson folder that "
+                             "I may change. Make the change yourself.", kind="answer")
+            return
+        if path.name in dirty_files(self.last_obs):
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
+        try:
+            current = path.read_text(encoding="utf-8") if (path.exists() or pp["old"]) else ""
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {path}: {e}"})
+            return
+        if current != pp["old"]:
+            await self._card(step, "The file changed", "You edited it after the preview. Ask again for a fresh fix.")
+            return
+        if pp.get("step_code") and (why := self._patch_unsafe(step, path, pp["new"], current, pp["step_code"])):
+            log.info("Do it for me: not writing %s: %s", path.name, why)  # T5: never 2 copies of the step's def
+            await self._fix_by_hand(step, path, current, (self.last_offtrack or {}).get("diff") or {})
+            return
+        backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current, encoding="utf-8")
+        except OSError:
+            log.warning("could not write a backup of %s", path)
+        self.undo = (path, current)
+        path.parent.mkdir(parents=True, exist_ok=True)  # lesson mode: a step may create its file
+        path.write_text(pp["new"], encoding="utf-8")
+        if self.workspace is not None and self.editor_open:
+            self.workspace.goto(str(path), int(pp["line"]), explicit=True)  # Do it for me: a learner action
+        if pp["first"]:
+            spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
+            if spot:
+                await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
+        if pp.get("step_code") and step["id"] not in self.assisted_steps:  # t7: practiced, not mastered (skill map)
+            self.assisted_steps.append(step["id"])
+        if pp.get("result"):  # a lesson step's code: say what changed in one line
+            await self._card(step, "Done", pp["result"], kind="answer", actions=["undo"])
+        else:
+            await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
+                             kind="answer", actions=["undo"])
+        await self.on_file_change([str(path)])
+
+    async def _undo_fix(self) -> None:
+        step = self.step
+        if self.undo is None or step is None:
+            return
+        path, text = self.undo
+        self.undo = None
+        from server.safety.paths import lesson_rel, safe_lesson_path
+
+        rel = lesson_rel(self.workdir, path)
+        if not rel or safe_lesson_path(self.workdir, rel, write=True) is None:  # LLM06: the lesson folder only
+            log.warning("undo: refusing to write %s (outside the lesson folder or a protected file)", path)
+            await self._card(step, "I can't undo that", f"{path.name} isn't a file in your lesson folder.")
+            return
+        path.write_text(text, encoding="utf-8")
+        if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
+            self.assisted_steps.remove(step["id"])
+        await self._card(step, "Undone", "Your version is back.")
+        await self.on_file_change([str(path)])
+
+    @staticmethod
+    async def _clipboard(text: str) -> bool:
+        # macOS: pbcopy. Windows has no pbcopy: clip.exe, fed UTF-16LE without a byte-order mark (with one, the mark
+        # lands on the clipboard; UTF-8 arrives mangled through the console code page).
+        argv, data = (["clip"], text.encode("utf-16-le")) if os.name == "nt" else (["pbcopy"], text.encode())
+        try:
+            proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE)
+            await proc.communicate(data)
+            return proc.returncode == 0
+        except OSError:
+            return False
+
+    # ------------------------------------------------------------------ reconnect
+    def resume_card(self) -> dict:
+        lesson = (self.graph or {}).get("lesson", {})
+        step = self.step or {}
+        where = f"step {step.get('index', self.idx) if step else '?'}: {step.get('title', '')}".strip()
+        return {"kind": "resume", "title": "Continue where you left off?",
+                "body": f"{lesson.get('title', 'Your lesson')} · {where}", "actions": ["resume", "end_lesson"]}
+
+    def snapshot(self, ask_resume: bool = False, returning: bool = False) -> list[tuple[str, dict]]:
+        """Messages that bring a freshly connected client up to date. ask_resume (the app came back
+        after being away): pause and offer "Continue / Start new" instead of jumping back in. returning (the app
+        relaunched after being away, lesson or not): an old preflight card is never sent again (Nov 21). The pick
+        itself is kept: the same app run (sleep / wake, a Wi-Fi drop) still shows that card, and its Build works."""
+        from . import lesson_end
+
+        out: list[tuple[str, dict]] = []
+        if (ask_resume or returning) and self.pending_pick is not None and not self.pending_pick.get("no_replay"):
+            log.info("app returning: the old preflight card is not sent again (the pick is kept for its Build)")
+            self.pending_pick["no_replay"] = True  # (_show_preflight sends a late, fresh card and clears this)
+        done = lesson_end.finished(self)  # t5: a finished lesson is never "Continue where you left off?"
+        if ask_resume and self.graph is not None and self.step is not None and not done:
+            self.awaiting_resume = True
+            self.spot_rect, self._spot_caption = None, None  # E7: the box is cleared with the card, not left behind it
+            return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
+        if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
+            return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
+        if self.pending_pick is not None and self.pending_pick.get("card") and not self.pending_pick.get("no_replay"):
+            # preflight card awaiting build / pick_another (never replayed to an app that came back: Nov 21)
+            return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
+        if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
+            out.append(("status", {"state": "thinking", **({"detail": self.status_detail}
+                                                           if getattr(self, "status_detail", None) else {})}))
+            p = dict(self.build_progress)
+            info = getattr(self, "_build_v2", None)
+            if info is not None and not p.get("failed"):  # v2: the same checklist the live ticks carry
+                stage_id = build_stage_of(p.get("message"), p.get("progress"), info["text"])
+                p.setdefault("stage", stage_id)
+                p.setdefault("phases", build_phases(stage_id, info["text"]))
+                if info.get("source"):
+                    p.setdefault("source", dict(info["source"]))
+            out.append(("lesson.building", p))
+            return out
+        if self.graph is None:
+            out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
+            return out
+        ready = {**self._lesson_ready_payload(), "replay": True}  # Nov 15: the SAME lesson again (a reconnect / restore)
+        out.append(("lesson.ready", ready))
+        step, held = self.step, False
+        if step is not None:
+            if not (self.engaged or self.learner_started() or self.check_state and any(
+                    (c or {}).get("status") == "pass" for c in self.check_state.values())):
+                self._hold_for_sheet(ready.get("lesson"))  # E4: the app opens "Before you start" on this lesson.ready
+            held = self.awaiting_start  # (Nov 15: never again once the learner began: a reconnect isn't a new start)
+            out.append(("step.started", {**self._step_started_payload(step), "replay": True}))
+            for cid, st in self.check_state.items():
+                p = {"stepId": step["id"], "checkId": cid, "label": st["label"], "status": st["status"]}
+                if held and p["status"] == "fail":  # under the sheet: re-graded once the learner starts, not replayed
+                    p["status"] = "pending"
+                    self.check_state[cid] = {**st, "status": "pending", "detail": None}
+                elif st.get("detail"):
+                    p["detail"] = st["detail"]
+                out.append(("check.updated", p))
+            if self.last_offtrack and not self.passed and not held and getattr(self, "paused", None) is None:
+                out.append(("offtrack", {k: v for k, v in self.last_offtrack.items() if k != "targets"}))  # no stale box on reconnect
+        if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
+            out.append(("card", lesson_end.card(self)))
+        out += self.v2_snapshot()  # v2: the pause (VS Code closed) and the blockers on screen
+        out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status,
+                               **({"detail": self.status_detail}  # "Checking your work" survives a reconnect
+                                  if getattr(self, "status_detail", None) and self.status == "thinking" else {})}))
+        return out
+
+    def state(self) -> dict:
+        step = self.step
+        return {
+            # E7 / E4: the freezes are visible from outside ("active" while "Continue?" or "Before you start" was up)
+            "phase": "awaiting_resume" if self.awaiting_resume else ("ready" if self.awaiting_start else self.phase),
+            "status": self.status,
+            "workdir": self.workdir,
+            "lesson": (self.graph or {}).get("lesson"),
+            "stepIndex": self.idx,
+            "stepId": step["id"] if step else None,
+            "step": step,
+            "checks": self.check_state,
+            "engaged": self.engaged,
+            "gateOpen": self.gate_open,
+            "segmentDone": self.segment_done,
+            "ladder": self.ladder,
+            "learnerIdleS": round(self.learner_idle_s(), 1),
+            "confirmPending": self.confirm_pending,
+            "cursor": self.cursor_context(),
+            "runs": [r.run_id for r in self.step_runs],
+            "modules": self.m.describe(),
+            "precisionMode": self.precision_mode(),
+            "screen": bool(self.screen is not None and getattr(self.screen, "active", False))
+            and not self.screen_down_reason(include_ax=False),  # false while frames fail (E6 status error / no_permission)
+            "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
+            "screenPaused": bool(getattr(self.screen, "paused", False)),  # E3: no capture while no lesson step runs
+            "voice": self.voice,
+            "scene": scene_watch.state(self),  # the latest Haiku look + its counters (scene_watch.py)
+        }

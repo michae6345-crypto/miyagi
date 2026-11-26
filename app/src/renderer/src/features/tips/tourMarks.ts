@@ -31,3 +31,23 @@ export const SAMPLE = {
   where: 'Type this in a new file',
   code: "print('hello')"
 } as const
+
+/** How long a mark waits for its target to show (the sample panel springs in) before the tour skips it. */
+export const TARGET_GRACE_MS = 900
+
+export type MarkPlan = { kind: 'show'; index: number } | { kind: 'wait' } | { kind: 'skip'; to: number } | { kind: 'end' }
+
+/**
+ * Which mark to draw now. The island is always there (TourLayer falls back to the top centre). Any other target that
+ * isn't on screen is waited for TARGET_GRACE_MS, then skipped for the next mark whose target is there; with none left
+ * the tour ends, so it never stalls on a mark with nothing to point at.
+ */
+export function planMark(index: number, present: (t: TourTarget) => boolean, waitedMs: number, marks: readonly TourMark[] = TOUR): MarkPlan {
+  const mark = marks[index]
+  if (!mark) return { kind: 'end' }
+  const there = (t: TourTarget): boolean => t === 'island' || present(t)
+  if (there(mark.target)) return { kind: 'show', index }
+  if (waitedMs < TARGET_GRACE_MS) return { kind: 'wait' }
+  for (let i = index + 1; i < marks.length; i++) if (there(marks[i].target)) return { kind: 'skip', to: i }
+  return { kind: 'end' }
+}

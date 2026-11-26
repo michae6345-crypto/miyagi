@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "explain",
+ "title": "Reading the output",
+ "body": "sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1. Rounded to one decimal, a network that learned the curve prints exactly those."
+}

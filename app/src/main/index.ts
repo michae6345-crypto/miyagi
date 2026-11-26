@@ -14,21 +14,25 @@ import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
+import { setShortcutCheck, setupPrefs, trackWindowBackground, windowBackground } from './prefs'
+import { createShortcutKeys } from './shortcutKeys'
+import { quitAccelerator, SHORTCUT_KINDS } from '../common/shortcuts'
 import { ENGINE_TOKEN, localEngineState, QUIT_CONFIRM_MS, QUIT_GRACE_MS, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { servePlayerHost } from './playerHost'
 import playerHostScript from './playerHost.page.js?raw'
-import { setupAppWindows, type AppWindows } from './appWindows'
+import { appWindowFrame, setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { debugFlagIn, openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
 import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
+import { overlaysHidden } from './overlayHide'
 import {
   describePlatform,
-  fitPillTop,
+  focusPanel,
+  pillTopOverride,
   followSpaces,
   isLeavingModifier,
   launcherGlassOptions,
@@ -43,10 +47,11 @@ import {
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
 import { VOICE_ENABLED } from '../common/flags'
-import { notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
+import { belowTop, notchFor, recheckThenResend, startNotch, type NotchService } from './notch'
 import { appendRotating, createIslandDiag, type IslandDiag } from './features/islandDiag'
 import { helperPath } from './features/ptt'
 import { getPrefs, onPrefsChange } from './prefs'
+import { holdSplash, holdUntilPainted, showSplash, skipSplash } from './splash'
 
 // A built app never starts under a debugger (app-harden): --inspect*, --remote-debugging-* or --js-flags in argv quits
 // here, the first statement of this file's own body. The imported modules' top-level code has run by then (ES imports
@@ -74,7 +79,9 @@ const QUIT_ENGINE_DEADLINE_MS = QUIT_GRACE_MS + QUIT_CONFIRM_MS + 1000
 /** Notch geometry and the other-notch-app flag (main/notch.ts); started at launch. */
 let notchService: NotchService | undefined
 /** Every window gets its layout again (Settings > General shows where the island is). Module level: the first notch read can land before whenReady has finished. */
-const resendLayout = (): void =>
+const resendLayout = (): void => {
+  // A helper read can change the band (a notch whose menu bar hides itself): the pill's top follows the overlay's display.
+  if (overlay && !overlay.isDestroyed()) platform.pillTop = belowTopNow(screen.getDisplayMatching(overlay.getBounds()))
   forEachWindow((w) => {
     const l = layoutFor(w)
     if (w === overlay) {
@@ -83,6 +90,7 @@ const resendLayout = (): void =>
     }
     send(w, 'layout', l)
   })
+}
 /** Island diagnostics (main/features/islandDiag.ts): bounds, level, grab and display measurements, log-only. Created once the overlay exists. */
 let islandDiag: IslandDiag | undefined
 /** ~/Library/Logs/miyagi/island.log: where main told the overlay the island lives, and why (a packaged app has no console). Rotates at ~512 KB. */
@@ -111,13 +119,25 @@ let launcherOpenedAt = 0
 const LAUNCHER_DOUBLE_MS = 400
 /** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
 let launcherOrigin: BrowserWindow | undefined
-/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
-let basePillTop = 0
+/**
+ * The island's top below the menu bar for a display (common/notch.ts belowTop via the notch service): flush with the
+ * menu bar's bottom edge on a Mac, MIYAGI_PILL_TOP when set. Without the service (or before the helper answers) it is
+ * the same rule from the work area alone, so a missing or slow helper still gives a top-anchored island.
+ */
+function belowTopNow(display: Electron.Display): number {
+  const override = pillTopOverride()
+  // The primary display always has a menu bar (shown or hiding itself). A second display with no band may have none at
+  // all ("Displays have separate Spaces" off): it gets the very top.
+  const menuBar = display.id === screen.getPrimaryDisplay().id || display.workArea.y > display.bounds.y
+  return notchService?.belowTopFor(display, override, menuBar) ?? belowTop(display, { mac: platform.os === 'mac', override, menuBar })
+}
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
+/** The launcher's key follows the gate (gateCore's launcherKey): true only between its on and off. */
+let launcherWanted = false
 
 /** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
 const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
@@ -307,7 +327,27 @@ function layoutFor(win: BrowserWindow): Layout {
   const display = screen.getDisplayMatching(b)
   const wa = display.workArea
   const notch = notchService?.layoutFor(display, getPrefs().island.place) ?? { ...notchFor(display), place: 'below' as const, coexist: false }
-  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { notch, origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, displayId: display.id, scaleFactor: display.scaleFactor, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+}
+
+/**
+ * A leased overlay:interactive ({on: true, leaseMs}, circle to ask): the grab lasts only while the renderer keeps saying
+ * it. Not said again within leaseMs (a hung renderer) and main gives the mouse back itself. A plain true (core hover)
+ * leaves a running lease alone; false ends it.
+ */
+let lease: ReturnType<typeof setTimeout> | undefined
+function leaseInteractive(payload: unknown): void {
+  const ms = payload && typeof payload === 'object' ? Number((payload as { leaseMs?: unknown }).leaseMs) : NaN
+  if (payload && !(ms > 0)) return
+  clearTimeout(lease)
+  lease = undefined
+  if (!payload) return
+  lease = setTimeout(() => {
+    lease = undefined
+    if (overlay.isDestroyed()) return
+    overlay.setIgnoreMouseEvents(true, { forward: true })
+    signalListeners.get('overlay:interactive')?.forEach((fn) => fn(false))
+  }, Math.min(5000, Math.max(250, ms)))
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -328,17 +368,19 @@ function openLauncher(): void {
   launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
-  launcher.show()
-  launcher.focus()
+  // Key without activating miyagi (platform.ts focusPanel). The old fallback's app.focus({steal: true}) activated the
+  // app, and over a full-screen VS Code macOS then switched Spaces to miyagi's home window (user report, main 1d453ca0).
+  focusPanel(launcher)
   raise(launcher)
-  // macOS: focus() doesn't activate an inactive app, so with Finder (or any other app) in front the panel showed
-  // but the keystrokes kept going there (Michael's test 10). If the launcher still isn't key a moment later, take it.
+  // Michael's test 10: with Finder in front the panel showed but the keystrokes kept going there. If the launcher still
+  // isn't key a moment later, ask again, still as a panel (never app.focus({steal}): that is the Space switch above).
   if (process.platform === 'darwin') {
-    setTimeout(() => {
-      if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
-      app.focus({ steal: true })
-      launcher.focus()
-    }, 60)
+    for (const ms of [60, 200]) {
+      setTimeout(() => {
+        if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
+        launcher.focus()
+      }, ms)
+    }
   }
   send(launcher, 'launcher:open', { from: islandSize })
   send(overlay, 'launcher:open') // the island hides: the launcher window has it now
@@ -392,8 +434,11 @@ function hideLauncher(): void {
   launcherOrigin = undefined
   if (origin && !origin.isDestroyed() && origin.isVisible()) {
     // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
-    overlay.showInactive()
-    raise(overlay)
+    // The overlay comes back only behind the gate (a sign-out while the launcher was open keeps it hidden).
+    if (gateIsOpen()) {
+      overlay.showInactive()
+      raise(overlay)
+    }
     if (process.platform === 'darwin') app.focus({ steal: true })
     origin.focus()
     return
@@ -401,26 +446,54 @@ function hideLauncher(): void {
   returnFocus(app, overlay, previousApp())
 }
 
-// Voice is off for now (common/flags): its key is never registered, so ⌃⌥V stays with the other apps.
-const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle'] as const).filter(
-  (k) => VOICE_ENABLED || k !== 'voice_toggle'
-)
+/** The launcher key: open, or close unless this press comes right after the open. */
+function onLauncherKey(): void {
+  if (!launcherOpen) return openLauncher()
+  if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+}
 
-/** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
+/**
+ * Whether a shortcut is registered right now. The launcher only while the login gate is open (main/gate.ts); the lesson
+ * keys only while a lesson is active (lesson.ready to lesson.ended), also behind the gate; voice's key never while voice
+ * is off (common/flags), so ⌃⌥V stays with the other apps. loginFirst.check.ts holds this function to the gate.
+ */
+function shortcutLive(kind: ShortcutKind): boolean {
+  if (!gateIsOpen()) return false
+  if (kind === 'launcher') return launcherWanted
+  if (kind === 'voice_toggle' && !VOICE_ENABLED) return false
+  return actionsRegistered
+}
+
+/**
+ * Live custom shortcuts (main/shortcutKeys.ts): the key in effect is prefs.shortcuts[kind] ?? platform.accelerators[kind].
+ * Every global registration of the launcher and lesson keys goes through here; sync() follows shortcutLive and the prefs.
+ * Action keys go to the overlay renderer, which decides (features may claim them) and tells the engine.
+ */
+const shortcutKeys = createShortcutKeys({
+  ops: { register: (acc, fn) => globalShortcut.register(acc, fn), unregister: (acc) => globalShortcut.unregister(acc) },
+  defaults: platform.accelerators,
+  mac: platform.os === 'mac',
+  kinds: SHORTCUT_KINDS.filter((k) => VOICE_ENABLED || k !== 'voice_toggle'),
+  overrides: () => getPrefs().shortcuts,
+  live: shortcutLive,
+  press: (kind) => (kind === 'launcher' ? onLauncherKey() : send(overlay, 'shortcut', kind)),
+  // A saved key another app owns fell back to the default (or to none): every keycap shows the key really bound.
+  onTaken: (taken) => forEachWindow((w) => w.webContents.send('feat:shortcuts:taken', taken)),
+  warn: (m) => console.warn(`[tut] ${m}`)
+})
+
+/** A lesson is ready: the lesson keys reach miyagi from any app. */
 function registerActionShortcuts(): void {
   if (actionsRegistered || !gateIsOpen()) return
   actionsRegistered = true
-  for (const kind of ACTION_KINDS) {
-    const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
-    if (!ok) console.warn(`[tut] shortcut ${platform.accelerators[kind]} is taken by another app`)
-  }
+  shortcutKeys.sync()
 }
 
 /** A lesson ended: hand the lesson keys back to the other apps until the next lesson.ready (Michael, Sun 12:49 AM). */
 function unregisterActionShortcuts(): void {
   if (!actionsRegistered) return
   actionsRegistered = false
-  for (const kind of ACTION_KINDS) globalShortcut.unregister(platform.accelerators[kind])
+  shortcutKeys.sync()
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
@@ -505,14 +578,17 @@ app.whenReady().then(async () => {
       console.error('[tut] could not serve the player host page; the video will not load', err)
     }
   }
-  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
-  // window exists: every renderer gets pillTop in its launch arguments.
-  basePillTop = platform.pillTop
-  platform.pillTop = fitPillTop(basePillTop, displayNow())
   // The notch geometry (miyagi-listen --screens, persisted last-good in userData) and the other-notch-app flag; a change re-sends the layout to every core window.
   notchService = startNotch({ helperBin: helperPath(), mac: platform.os === 'mac', cacheFile: join(app.getPath('userData'), 'notch-cache.json'), onChange: () => resendLayout() })
+  // Launch-ease lane: the pill sits under the menu bar / notch band, never on it, and never floats below it (belowTopNow).
+  // Before any window exists: every renderer gets pillTop in its launch arguments. The cache is already loaded, the
+  // helper not needed.
+  platform.pillTop = belowTopNow(displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
+  // The launch splash (main/splash.ts) waits for the renderer bundle's first load and, briefly, the engine link.
+  holdSplash(new Promise((res) => overlay.webContents.once('did-finish-load', () => res(undefined))))
+  holdSplash(new Promise((res) => engine.onOpen(() => res(undefined))), ENGINE_SPLASH_MS)
   islandDiag = createIslandDiag({
     logFile: join(app.getPath('logs'), 'island.log'),
     overlay: () => overlay,
@@ -539,13 +615,10 @@ app.whenReady().then(async () => {
   // window (its first-run flow) is on screen. showInactive before the first paint is held (showAfterFirstPaint).
   gateCore({
     overlay,
+    // The launcher key (the learner's own or the default) registers through shortcutKeys, which also checks the gate.
     launcherKey: (on) => {
-      if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
-      const ok = globalShortcut.register(platform.accelerators.launcher, () => {
-        if (!launcherOpen) return openLauncher()
-        if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
-      })
-      if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+      launcherWanted = on
+      shortcutKeys.sync()
     },
     closed: () => {
       if (launcherOpen) closeLauncher()
@@ -610,7 +683,9 @@ app.whenReady().then(async () => {
         forEachWindow((w) => w.webContents !== e.sender && w.webContents.send('ui:video:intent', payload))
         break
       case 'overlay:interactive':
-        overlay.setIgnoreMouseEvents(!payload, { forward: true })
+        // "Hide miyagi overlays" (overlayHide.ts): nothing drawn, so nothing may take the mouse.
+        overlay.setIgnoreMouseEvents(!payload || overlaysHidden(), { forward: true })
+        leaseInteractive(payload)
         break
       case 'island:size':
         islandSize = payload as typeof islandSize
@@ -645,7 +720,7 @@ app.whenReady().then(async () => {
   // 'second-instance' (it used to open the launcher here too, over a closed gate).
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
-  const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
+  const quitKey = quitAccelerator(platform.os === 'mac')
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
   // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
@@ -668,7 +743,7 @@ app.whenReady().then(async () => {
   /** Re-apply the display's bounds and the pill's fitted top to both core windows, raise them, send the layout. */
   const applyDisplay = (): void => {
     islandDiag?.snapshot('refit')
-    platform.pillTop = fitPillTop(basePillTop, displayNow())
+    platform.pillTop = belowTopNow(displayNow())
     for (const w of [overlay, launcher]) {
       if (w.isDestroyed()) continue
       w.setBounds(overlayBounds(displayNow()))
@@ -722,6 +797,17 @@ app.whenReady().then(async () => {
   netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
+  // Live custom shortcuts: main checks a new key before it is saved (taken by another app: the old key stays, the
+  // prefs:set result says so), and every change of the prefs re-registers what is live. Once now for the saved keys.
+  setShortcutCheck((next, prev) => {
+    const { accepted, refused } = shortcutKeys.accept(next, prev)
+    for (const r of refused) console.warn(`[tut] shortcut ${r.accelerator} for ${r.kind} refused (${r.reason})`)
+    return accepted
+  })
+  onPrefsChange(() => void shortcutKeys.sync())
+  // Which saved keys fell back (another app owns them), for a window that opens after the broadcast (core/keys.ts).
+  ipcMain.handle('feat:shortcuts:taken', (e) => (trustedSender(e) ? shortcutKeys.taken() : undefined))
+  shortcutKeys.sync()
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
   // Never let the engine's start-up stop the rest of the app (Home, setup, the features below): log it and carry on.
   try {
@@ -732,8 +818,16 @@ app.whenReady().then(async () => {
 
   // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
   const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))
-  appWindows = setupAppWindows({ app, create: (route, options) => createWindow(route, options, 'app'), trusted: trustedSender })
-  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
+  appWindows = setupAppWindows({
+    app,
+    create: (route, options) => {
+      const win = createWindow(route, options, 'app')
+      holdUntilPainted(win) // the splash leaves onto a painted home window (a no-op once the splash is gone)
+      return win
+    },
+    trusted: trustedSender
+  })
+  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender, helperBin: helperPath })
   ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
   loadFeatures({
@@ -772,7 +866,26 @@ app.whenReady().then(async () => {
     appWindow: (route) => appWindows?.get(route)
   })
   setupMenu()
+  // A cold launch opens on the splash (main/splash.ts), in home's own frame; home opens and paints underneath it. Not when started at login
+  // or for recordings (MIYAGI_QUIET_LAUNCH=1, the same switch features/launch.ts reads), not with MIYAGI_NO_SPLASH=1,
+  // and not in a second copy that features/launch.ts is about to quit.
+  if (wantsSplash()) showSplash(appWindowFrame('library'))
+  else skipSplash()
 })
+
+/** How long the splash waits on the engine link before it leaves anyway (the engine keeps starting behind the app). */
+const ENGINE_SPLASH_MS = 2500
+
+function wantsSplash(): boolean {
+  if (process.env.MIYAGI_QUIET_LAUNCH === '1' || process.env.MIYAGI_NO_SPLASH === '1') return false
+  if (platform.os === 'mac' && !app.hasSingleInstanceLock()) return false
+  try {
+    if (platform.os === 'mac' && app.getLoginItemSettings().wasOpenedAtLogin) return false
+  } catch {
+    // no login item info: a normal launch
+  }
+  return true
+}
 
 /**
  * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window

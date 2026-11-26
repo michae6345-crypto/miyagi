@@ -1,0 +1,91 @@
+{
+ "id": "jupyter-plot-hist-ten-bins",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Plotting plan, 'Histograms' (the histogram has 11 bars, one for each sum from 2 to 12). The learner called ax.hist(sums) without bins, so matplotlib used its default 10 bins over 2..12; the last bar lumps 11 and 12 together. The cell ends with ax.hist, so Out shows '<BarContainer object of 10 artists>' and the edges 2., 3., ... 12. The axes are labelled and a chart is drawn, but it has 10 bars, not 11. Not done: bins=np.arange(1.5, 13.5).",
+ "step": {
+  "id": "pl5s3",
+  "title": "Draw the histogram of the sums",
+  "instructions": "In dice.ipynb, roll two dice 500 times with rng.integers(1, 7, size=(500, 2)), sum each row and draw the sums with ax.hist, using bins=np.arange(1.5, 13.5) so each sum from 2 to 12 gets its own bar. Label both axes.",
+  "file": "dice.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "dice.ipynb",
+    "match": "ax.hist(",
+    "caption": "One bar per sum"
+   }
+  ],
+  "code": "rng = np.random.default_rng(0)\nsums = rng.integers(1, 7, size=(500, 2)).sum(axis=1)\nfig, ax = plt.subplots()\nax.hist(sums, bins=np.arange(1.5, 13.5), edgecolor='white')\nax.set_xlabel('Sum of two dice')\nax.set_ylabel('Rolls')",
+  "checks": [
+   {
+    "type": "screen_contains",
+    "label": "ax.hist called",
+    "app": "Code",
+    "pattern": "ax\\.hist\\(",
+    "id": "pl5s3c1"
+   },
+   {
+    "type": "screen_contains",
+    "label": "x axis labelled",
+    "app": "Code",
+    "pattern": "set_xlabel\\(",
+    "id": "pl5s3c2"
+   },
+   {
+    "type": "screen_contains",
+    "label": "y axis labelled",
+    "app": "Code",
+    "pattern": "set_ylabel\\(",
+    "id": "pl5s3c3"
+   },
+   {
+    "type": "screen_absent",
+    "label": "No errors in the cell",
+    "app": "Code",
+    "pattern": "Traceback|\\w+Error",
+    "id": "pl5s3c4"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "dice.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "import numpy as np\nimport matplotlib.pyplot as plt",
+       "run": true,
+       "count": 1
+      },
+      {
+       "source": "rng = np.random.default_rng(0)\nsums = rng.integers(1, 7, size=(500, 2)).sum(axis=1)\nfig, ax = plt.subplots()\nax.set_xlabel('Sum of two dice')\nax.set_ylabel('Rolls')\nax.hist(sums)",
+       "result": "(array([ 14.,  30.,  41.,  56.,  75., 128.,  54.,  48.,  36.,  18.]),\n array([ 2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10., 11., 12.]),\n <BarContainer object of 10 artists>)",
+       "image": "<Figure size 640x480 with 1 Axes>",
+       "count": 2
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "dice.ipynb",
+    "[2]",
+    "sums = rng.integers(1, 7, size=(500, 2)).sum(axis=1)",
+    "fig, ax = plt.subplots()",
+    "ax.set_xlabel('Sum of two dice')",
+    "ax.set_ylabel('Rolls')",
+    "ax.hist(sums)",
+    "(array([ 14.,  30.,  41.,  56.,  75., 128.,  54.,  48.,  36.,  18.]),",
+    "array([ 2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10., 11., 12.]),",
+    "<BarContainer object of 10 artists>)",
+    "Rolls",
+    "Sum of two dice"
+   ]
+  }
+ }
+}

@@ -1,0 +1,77 @@
+{
+ "id": "vscode-settings-json-in-project-root",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The settings are right but in the wrong place: the learner made settings.json at the top of recipe-box (the breadcrumb says recipe-box > settings.json) instead of in a .vscode folder. VS Code reads workspace settings only from .vscode/settings.json, so format on save is still off and the tab size is still 4 in this folder.",
+ "step": {
+  "id": "vs8s3",
+  "title": "Turn on format on save for this folder",
+  "kind": "code",
+  "instructions": "Create .vscode/settings.json in recipe-box (a folder named .vscode, then settings.json inside it) and set \"editor.formatOnSave\": true and \"editor.tabSize\": 2. These are workspace settings: they apply only to this folder.",
+  "file": ".vscode/settings.json",
+  "code": "{\n  \"editor.formatOnSave\": true,\n  \"editor.tabSize\": 2\n}",
+  "targets": [
+   {
+    "app": "Code",
+    "file": ".vscode/settings.json",
+    "match": "\"editor.formatOnSave\"",
+    "caption": "Workspace settings for recipe-box"
+   }
+  ],
+  "checks": [
+   {
+    "id": "vs8s3c1",
+    "type": "screen_contains",
+    "label": "Format on save is on",
+    "app": "Code",
+    "pattern": "\"editor\\.formatOnSave\"\\s*:\\s*true"
+   },
+   {
+    "id": "vs8s3c2",
+    "type": "screen_contains",
+    "label": "Tab size is 2",
+    "app": "Code",
+    "pattern": "\"editor\\.tabSize\"\\s*:\\s*2"
+   }
+  ],
+  "precision_checks": [
+   {
+    "id": "vs8s3p1",
+    "type": "file_contains",
+    "label": "The workspace settings file sets format on save",
+    "file": "recipe-box/.vscode/settings.json",
+    "pattern": "\"editor\\.formatOnSave\"\\s*:\\s*true"
+   }
+  ],
+  "hints": [
+   "The folder name starts with a dot: .vscode."
+  ],
+  "common_mistakes": [
+   "Putting the settings in User settings, which apply to every folder."
+  ]
+ },
+ "workspace": {
+  "files": {
+   "recipe-box/README.md": "# Recipe box\n\nMy recipes, scaled with node scale.js.\n",
+   "recipe-box/scale.js": "import recipe from './recipe.json' with { type: 'json' }\n",
+   "recipe-box/settings.json": "{\n  \"editor.formatOnSave\": true,\n  \"editor.tabSize\": 2\n}\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "RECIPE-BOX",
+    "README.md",
+    "recipe.json",
+    "scale.js",
+    "settings.json",
+    "recipe-box > {} settings.json",
+    "{",
+    "\"editor.formatOnSave\": true,",
+    "\"editor.tabSize\": 2",
+    "}"
+   ]
+  }
+ }
+}

@@ -1,0 +1,192 @@
+{
+ "t": 0.0,
+ "app": "iTerm2",
+ "windows": [
+  {
+   "app": "iTerm2",
+   "title": "web (-zsh)",
+   "rect": {
+    "x": 80.0,
+    "y": 110.0,
+    "w": 1560.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 73.8,
+ "frame": 1,
+ "source": "fixture:npm_failure.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "web (-zsh)",
+   "rect": {
+    "x": 831.3,
+    "y": 120.5,
+    "w": 57.8,
+    "h": 10.0
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "sam@mac web % npm install reactt",
+   "rect": {
+    "x": 92.9,
+    "y": 150.5,
+    "w": 258.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error code E404",
+   "rect": {
+    "x": 92.9,
+    "y": 168.0,
+    "w": 155.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error 404 Not Found - GET https://registry.npmjs.org/reactt -Not",
+   "rect": {
+    "x": 90.4,
+    "y": 188.3,
+    "w": 560.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error 404",
+   "rect": {
+    "x": 92.9,
+    "y": 208.3,
+    "w": 108.0,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error 404",
+   "rect": {
+    "x": 92.9,
+    "y": 225.9,
+    "w": 108.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "'reactt@*' is not in this registry.",
+   "rect": {
+    "x": 213.3,
+    "y": 223.3,
+    "w": 281.6,
+    "h": 20.4
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm",
+   "rect": {
+    "x": 92.9,
+    "y": 248.5,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "error 404",
+   "rect": {
+    "x": 123.1,
+    "y": 248.5,
+    "w": 75.3,
+    "h": 7.5
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error 404 Note that you can also install from a",
+   "rect": {
+    "x": 92.9,
+    "y": 263.5,
+    "w": 411.9,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error 404 tarball, folder, http url, or git url.",
+   "rect": {
+    "x": 92.9,
+    "y": 283.5,
+    "w": 416.9,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "npm error A complete log of this run can be found in: /Users/sam/-npm/_logs/2026-11-24T18_40_12_118Z-debug-0.log",
+   "rect": {
+    "x": 92.9,
+    "y": 303.5,
+    "w": 899.2,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  },
+  {
+   "text": "sam@mac web %",
+   "rect": {
+    "x": 92.9,
+    "y": 321.3,
+    "w": 108.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "iTerm2",
+   "window": "web (-zsh)"
+  }
+ ]
+}

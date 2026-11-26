@@ -61,6 +61,8 @@ Higher wins. Ranges: 0–9 pill-sized · 20 hover · 40–79 cards · 80+ modal.
 | 45 | build card (building) | A5 |
 | 50 | card (cards) | built |
 | 55 | step passed card (progress; Mini only, never on the last step or with the panel open) | A8 |
+| 56 | cap-line (signincard: a 429 cap on a shared lesson build, `cloud.notice`) | built |
+| 57 | signin-card (signincard: 401 `signin_required` on a shared lesson build, `cloud.notice`) | built |
 | 58 | limit (errors, `v2Cloud`, flagged) | A7 |
 | 60 | success (cards) | built |
 | 62 | build failed (errors) | A7 |

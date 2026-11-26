@@ -1,0 +1,271 @@
+{
+ "id": "blender-camera-track-to-no-target",
+ "kind": "blender",
+ "trap": "false_pass",
+ "heldOut": true,
+ "expected": "not_yet",
+ "why": "Near miss: Blender animation lesson 8 (\"The camera has Location keyframes and a Track To constraint aimed at an empty\"). The camera has Location keys at 1 and 96 and a Track To constraint, and an Empty exists, but the constraint's Target field was never filled (target null, Blender draws it red and it does nothing): the camera slides past without turning to the empty.",
+ "step": {
+  "id": "s8",
+  "index": 8,
+  "title": "Move the camera",
+  "file": "bounce.blend",
+  "instructions": "Add an Empty (Shift+A > Empty > Plain Axes) at the ball. Select the camera, add Object Constraint > Track To and pick the Empty as its Target. Key the camera's Location at frame 1 and, after moving it, at frame 96. Save (Cmd+S).",
+  "checks": [
+   {
+    "id": "s8c1",
+    "type": "file_contains",
+    "label": "An empty",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"EMPTY\\\""
+   },
+   {
+    "id": "s8c2",
+    "type": "file_contains",
+    "label": "Track To constraint",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"type\\\":\\s*\\\"TRACK_TO\\\""
+   },
+   {
+    "id": "s8c3",
+    "type": "file_contains",
+    "label": "Camera location keys",
+    "file": "bounce.scene.json",
+    "pattern": "\\\"name\\\":\\s*\\\"Camera\\\"[\\s\\S]*?\\\"data_path\\\":\\s*\\\"location\\\""
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "bounce.blend": "BLENDER-v402 (binary .blend: the engine reads it with Blender --background, see bounce.scene.json)\n",
+   "bounce.scene.json": {
+    "json": {
+     "dump": "dump_scene.py 1",
+     "blender": "4.2.3 LTS",
+     "file": "bounce.blend",
+     "is_dirty": false,
+     "scene": {
+      "name": "Scene",
+      "unit_system": "METRIC",
+      "frame_start": 1,
+      "frame_end": 96,
+      "fps": 24,
+      "render": {
+       "engine": "BLENDER_EEVEE_NEXT",
+       "resolution": [
+        1920,
+        1080
+       ],
+       "file_format": "PNG"
+      },
+      "frame_current": 1,
+      "camera": "Camera"
+     },
+     "objects": [
+      {
+       "name": "Ball",
+       "type": "MESH",
+       "location": [
+        0.0,
+        0.0,
+        0.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "mesh": {
+        "verts": 482,
+        "edges": 960,
+        "faces": 480,
+        "smooth": true,
+        "islands": 1
+       },
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Empty",
+       "type": "EMPTY",
+       "location": [
+        0.0,
+        0.0,
+        0.5
+       ],
+       "rotation_deg": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      },
+      {
+       "name": "Camera",
+       "type": "CAMERA",
+       "location": [
+        -6.0,
+        -8.0,
+        3.0
+       ],
+       "rotation_deg": [
+        75.0,
+        0.0,
+        -35.0
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": [],
+       "constraints": [
+        {
+         "name": "Track To",
+         "type": "TRACK_TO",
+         "target": null,
+         "track_axis": "TRACK_NEGATIVE_Z",
+         "up_axis": "UP_Y",
+         "influence": 1.0,
+         "is_valid": false
+        }
+       ],
+       "animation": {
+        "action": "CameraAction",
+        "fcurves": [
+         {
+          "data_path": "location",
+          "index": 0,
+          "keyframes": [
+           [
+            1.0,
+            -6.0
+           ],
+           [
+            96.0,
+            6.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 1,
+          "keyframes": [
+           [
+            1.0,
+            -8.0
+           ],
+           [
+            96.0,
+            -8.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         },
+         {
+          "data_path": "location",
+          "index": 2,
+          "keyframes": [
+           [
+            1.0,
+            3.0
+           ],
+           [
+            96.0,
+            3.0
+           ]
+          ],
+          "interpolation": [
+           "BEZIER",
+           "BEZIER"
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "name": "Light",
+       "type": "LIGHT",
+       "location": [
+        4.08,
+        1.01,
+        5.9
+       ],
+       "rotation_deg": [
+        37.3,
+        3.16,
+        106.9
+       ],
+       "scale": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "dimensions": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "parent": null,
+       "hide_viewport": false,
+       "modifiers": [],
+       "materials": []
+      }
+     ],
+     "materials": [],
+     "lights": [
+      {
+       "name": "Light",
+       "type": "POINT",
+       "energy": 1000.0
+      }
+     ],
+     "camera": {
+      "name": "Camera",
+      "lens": 50.0
+     }
+    }
+   }
+  }
+ }
+}

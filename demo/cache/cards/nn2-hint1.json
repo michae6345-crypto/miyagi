@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "d_h2 sends d_out back through W3, then multiplies by tanh's slope, 1 - h2 ** 2. d_h1 does the same through W2."
+}

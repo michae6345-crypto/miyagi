@@ -6,6 +6,9 @@
  *
  * The sign-in gate (core/gate.ts): until main says it is open, the overlay draws nothing (no layer, no island) and
  * ignores global shortcuts, even if main showed the window early. A renderer backstop for main's own gate.
+ *
+ * "Hide miyagi overlays" (core/overlayHidden.ts): everything stays mounted (so it comes back as it was) but is not drawn,
+ * takes no pointer, and reports no bounds or hits, so main's grab poll leaves the mouse to the learner's app.
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
@@ -16,6 +19,7 @@ import { Island, RestingIsland } from './Island'
 import { stretchKeepsWheel } from './hoverIntent'
 import { islandTop } from './islandEdge'
 import { perf } from './perf'
+import { overlaysHiddenNow, useOverlaysHidden } from './overlayHidden'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
 import { Boundary } from './ui/Boundary'
@@ -28,10 +32,18 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
   // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path (none before the gate).
   useEffect(() => bridge.on('shortcut', (kind) => gateIsOpen() && triggerShortcut(kind as ActionShortcut)), [])
   const open = useGateOpen()
+  const hidden = useOverlaysHidden((s) => s.hidden)
   if (!open) return null
   const overlayLayers = getOverlayLayers()
   return (
-    <div ref={root} data-theme="dark" className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
+    <div
+      ref={root}
+      data-theme="dark"
+      data-overlays-hidden={hidden || undefined}
+      aria-hidden={hidden || undefined}
+      className="absolute inset-0 overflow-hidden"
+      style={{ width: layout.width, height: layout.height, ...(hidden ? { visibility: 'hidden', pointerEvents: 'none' } : {}) }}
+    >
       {overlayLayers
         .filter((l) => l.z < ISLAND_Z)
         .map(({ id, Component }) => (
@@ -95,7 +107,8 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
     const tick = (): void => {
       // A hidden window (the stage tab in the background) has nothing new to say.
       if (typeof document !== 'undefined' && document.hidden) return
-      const el = root.current
+      // Hidden overlays (or none drawn) report nothing: no hits for main's grab poll, nothing for the engine to skip.
+      const el = overlaysHiddenNow() ? null : root.current
       if (!el) {
         // Nothing drawn (the sign-in gate closed again): clear what main and the engine last heard, once.
         if (lastHits && lastHits !== '[]') {
@@ -147,7 +160,9 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
 /**
  * Electron only: the window ignores the mouse (clicks fall through to the app below) except while
  * the cursor is over something marked data-hit. Mouse moves are still forwarded, so we can tell.
+ * data-grab (circle to ask's drawing surface) also keeps the mouse here, but is never reported (not in bounds or hits).
  */
+const HOLDS_MOUSE = '[data-hit],[data-grab]'
 export function useClickThrough(): void {
   useEffect(() => {
     let on = false
@@ -161,7 +176,7 @@ export function useClickThrough(): void {
     const move = (e: MouseEvent): void => {
       x = e.clientX
       y = e.clientY
-      set(!!(e.target as Element | null)?.closest?.('[data-hit]'))
+      set(!!(e.target as Element | null)?.closest?.(HOLDS_MOUSE))
     }
     const out = (): void => set(false)
     // A control can vanish under a still cursor (card closes, island shrinks): no mousemove fires,
@@ -169,7 +184,7 @@ export function useClickThrough(): void {
     const watchdog = setInterval(() => {
       if (!on) return
       const el = x < 0 ? null : document.elementFromPoint(x, y)
-      if (!el?.closest?.('[data-hit]')) set(false)
+      if (!el?.closest?.(HOLDS_MOUSE)) set(false)
     }, 250)
     // Desktop test 9, A1: a scroll over overlay UI that can't scroll itself (a card, the bar) goes to the app below:
     // hand the mouse back for a moment so the next wheel ticks reach it (main holds its grab off as well).

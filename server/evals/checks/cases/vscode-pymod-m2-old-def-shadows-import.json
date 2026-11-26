@@ -1,0 +1,36 @@
+{
+ "id": "vscode-pymod-m2-old-def-shadows-import",
+ "kind": "vscode",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "main.py is the old single-file calculator: the learner added 'from operations import add' at the top but left the old 'def add(a, b)' below it. The local def rebinds add, so print(add(2, 3)) calls main.py's own copy, not operations.py's (Pylance greys the import out: 'add' is not accessed). It prints 5 either way, but main.py does not use add() from operations.py yet: delete the old def.",
+ "step": {
+  "lesson": "server/evals/checks/lessons/py-modules.json",
+  "id": "m2"
+ },
+ "workspace": {
+  "files": {
+   "operations.py": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n",
+   "main.py": "from operations import add\n\n\ndef add(a, b):\n    return a + b\n\n\nprint(add(2, 3))\n"
+  },
+  "editor": "Code",
+  "screen": {
+   "Code": [
+    "EXPLORER",
+    "CALC",
+    "main.py",
+    "operations.py",
+    "main.py",
+    "from operations import add",
+    "def add(a, b):",
+    "return a + b",
+    "print(add(2, 3))"
+   ],
+   "Terminal": [
+    "tripi@mac calc % python3 main.py",
+    "5",
+    "tripi@mac calc %"
+   ]
+  }
+ }
+}

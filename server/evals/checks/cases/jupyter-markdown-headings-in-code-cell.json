@@ -1,0 +1,98 @@
+{
+ "id": "jupyter-markdown-headings-in-code-cell",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "heldOut": false,
+ "expected": "not_yet",
+ "why": "Intro to Jupyter plan (docs/ui-next/catalog/plans/intro-jupyter.json), 'Write notes in Markdown cells' (the notebook has a Markdown title, at least two headings and a bullet list): the bullet list is in a Markdown cell, but the learner never pressed M on the first cell. '# Step tracker', '## The data' and '## Results' sit in a code cell, where they are Python comments: it ran with no output ([1]) and shows grey code, not a title and headings. The '#' text is in the .ipynb, just not in a Markdown cell.",
+ "step": {
+  "id": "jup4s3",
+  "title": "Add a Markdown title, headings and a list",
+  "instructions": "At the top of steps.ipynb, add a cell, press M to make it Markdown and write a # title. Below it, add two headings and a bullet list of what the notebook does, in Markdown cells, then run them (Shift+Enter) so they render.",
+  "file": "steps.ipynb",
+  "run_command": "Run the cell (Shift+Enter)",
+  "targets": [
+   {
+    "app": "Code",
+    "file": "steps.ipynb",
+    "match": "# Step tracker",
+    "caption": "A Markdown cell with a title"
+   }
+  ],
+  "code": "# Step tracker\n\n## The data\n\n- steps for each day of one week\n- a daily goal of 8000\n\n## Results",
+  "checks": [
+   {
+    "id": "jup4s3c1",
+    "type": "file_contains",
+    "label": "A Markdown cell",
+    "file": "steps.ipynb",
+    "pattern": "\"cell_type\":\\s*\"markdown\""
+   },
+   {
+    "id": "jup4s3c2",
+    "type": "file_contains",
+    "label": "Markdown title",
+    "file": "steps.ipynb",
+    "pattern": "\"#\\s+\\S"
+   },
+   {
+    "id": "jup4s3c3",
+    "type": "file_contains",
+    "label": "Two headings",
+    "file": "steps.ipynb",
+    "pattern": "(?s)\"##\\s+\\S.*\"##\\s+\\S"
+   },
+   {
+    "id": "jup4s3c4",
+    "type": "file_contains",
+    "label": "A bullet list",
+    "file": "steps.ipynb",
+    "pattern": "\"[-*]\\s+\\S"
+   }
+  ]
+ },
+ "workspace": {
+  "files": {
+   "steps.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": [
+        "# Step tracker\n",
+        "## The data\n",
+        "## Results"
+       ],
+       "run": true,
+       "count": 1
+      },
+      {
+       "markdown": true,
+       "source": [
+        "- steps for each day of one week\n",
+        "- a daily goal of 8000"
+       ]
+      },
+      {
+       "source": "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]",
+       "run": true,
+       "count": 2
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "steps.ipynb",
+    "[1]",
+    "# Step tracker",
+    "## The data",
+    "## Results",
+    "\u2022 steps for each day of one week",
+    "\u2022 a daily goal of 8000",
+    "[2]",
+    "steps = [6200, 8400, 10300, 7900, 12000, 9100, 5600]"
+   ]
+  }
+ }
+}

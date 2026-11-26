@@ -1,0 +1,36 @@
+{
+ "id": "jupyter-mnist-s4-name-error",
+ "kind": "jupyter",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "why": "The model cell ran in a fresh kernel and raised NameError (models not imported); the code on screen looks perfect.",
+ "step": {
+  "lesson": "demo/cache/lessons/5c0ea8a49f419487.json",
+  "id": "s4"
+ },
+ "workspace": {
+  "files": {
+   "mnist.ipynb": {
+    "notebook": {
+     "cells": [
+      {
+       "source": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10, activation='softmax')\n])",
+       "error": "NameError: name 'models' is not defined"
+      }
+     ]
+    }
+   }
+  },
+  "screen": {
+   "Code": [
+    "mnist.ipynb",
+    "model = models.Sequential([",
+    "    layers.Flatten(input_shape=(28, 28, 1)),",
+    "    layers.Dense(128, activation='relu'),",
+    "    layers.Dense(64, activation='relu'),",
+    "    layers.Dense(10, activation='softmax')",
+    "])"
+   ]
+  }
+ }
+}

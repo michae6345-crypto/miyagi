@@ -1,0 +1,180 @@
+{
+ "t": 0.0,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Code",
+   "title": "explore.ipynb \u2014 weather-app",
+   "rect": {
+    "x": 160.0,
+    "y": 110.0,
+    "w": 1180.0,
+    "h": 640.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 78.7,
+ "frame": 1,
+ "source": "fixture:jupyter_cell.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "editor": null,
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "bexolore invn - weather-ann",
+   "rect": {
+    "x": 673.1,
+    "y": 120.5,
+    "w": 150.7,
+    "h": 7.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "[3]",
+   "rect": {
+    "x": 173.3,
+    "y": 150.6,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "import pandas as pd",
+   "rect": {
+    "x": 221.0,
+    "y": 153.0,
+    "w": 155.7,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "weather = pd. read csv(\"weather.csV\")",
+   "rect": {
+    "x": 218.5,
+    "y": 173.0,
+    "w": 291.3,
+    "h": 10.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "[41",
+   "rect": {
+    "x": 173.3,
+    "y": 208.3,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "df.head()",
+   "rect": {
+    "x": 221.0,
+    "y": 208.3,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "NameError",
+   "rect": {
+    "x": 170.8,
+    "y": 266.1,
+    "w": 77.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "Traceback (most recent call last)",
+   "rect": {
+    "x": 507.3,
+    "y": 266.0,
+    "w": 263.7,
+    "h": 10.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "Cell In[4], line 1",
+   "rect": {
+    "x": 173.3,
+    "y": 283.5,
+    "w": 145.7,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "-- 1 df.head()",
+   "rect": {
+    "x": 173.3,
+    "y": 303.5,
+    "w": 138.1,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "NameFrror: name 'dfi",
+   "rect": {
+    "x": 170.8,
+    "y": 341.4,
+    "w": 163.3,
+    "h": 10.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  },
+  {
+   "text": "ys not detined",
+   "rect": {
+    "x": 339.1,
+    "y": 343.9,
+    "w": 115.5,
+    "h": 7.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "explore.ipynb \u2014 weather-app"
+  }
+ ]
+}

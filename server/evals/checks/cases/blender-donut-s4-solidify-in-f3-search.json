@@ -1,0 +1,32 @@
+{
+ "id": "blender-donut-s4-solidify-in-f3-search",
+ "kind": "blender",
+ "trap": "false_pass",
+ "expected": "not_yet",
+ "heldOut": true,
+ "why": "Near miss on the donut lesson's s4 (\"... and add a Solidify modifier\"): the icing is separated (Torus.001 in the outliner) and the learner pressed F3 and typed \"solid\"; the menu search lists Add Modifier > Generate > Solidify but nothing was picked yet. The modifier stack of Torus.001 is empty (only the Add Modifier button shows).",
+ "step": {
+  "lesson": "server/workspace/tests/fixtures/blender_donut.json",
+  "id": "s4",
+  "adapt": true
+ },
+ "workspace": {
+  "screen": {
+   "Blender": [
+    "Object Mode View Select Add Object",
+    "Scene Collection",
+    "Collection",
+    "Camera",
+    "Light",
+    "Torus",
+    "Torus.001",
+    "Torus.001",
+    "Add Modifier",
+    "solid",
+    "Add Modifier > Generate > Solidify",
+    "Mesh > Extrude > Solidify",
+    "Object > Convert > Mesh"
+   ]
+  }
+ }
+}
