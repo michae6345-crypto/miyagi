@@ -4,7 +4,7 @@ macOS runner minutes count 10x Linux ones, so the slow Mac suites run nightly, n
 
 | Workflow | Runner | When |
 | --- | --- | --- |
-| `ci.yml` | Linux (+ `replay-mac` on macos-14; `mac-build` on main pushes) | every PR, every push to `main` |
+| `ci.yml` | Linux (+ `replay-mac` and `mac-build` on macOS, main pushes only) | every PR, every push to `main` |
 | `engine-ci.yml` | Linux | PRs and pushes touching `server/`, `shared/`, `cloud/` |
 | `app-ci.yml` `app` | Linux | PRs and pushes touching `app/`: typecheck + all unit tests (`app/test/*.test.ts`) |
 | `app-ci.yml` `mac` | macOS | same trigger: only the four test files whose tests skip off darwin (`overlayWindow`, `overlayLifecycle`, `screenLayout`, `permissionsRefresh`) |
@@ -37,7 +37,8 @@ about 15,000 a month.
 | app-visual (~15 min a run) | ~8,100 (every push to main and every PR push) | ~450 (nightly) + labeled PRs |
 | app-e2e (~4 min a run) | ~2,900 | ~120 (nightly) + labeled PRs |
 | app-ci (Mac) | ~4,100 (whole suite + typecheck) | ~1,500-2,000 (four files, ~2 min a run) |
-| Total | ~15,000 | ~2,100-2,600 (about -85%) |
+| ci `replay-mac` | 0 (macos-14 retired: cancelled before it started) | ~700 (main pushes, ~3 min a run) |
+| Total | ~15,000 | ~2,800-3,300 (about -80%) |
 
 app-ci's Linux job adds roughly 3,000 Linux minutes a month (equal to ~300 Mac minutes in cost). Not counted
-above and unchanged here: `ci.yml`'s `replay-mac` (every PR and main push) and `mac-build` (main pushes).
+above and unchanged here: `ci.yml`'s `mac-build` (main pushes, a full Electron build).
