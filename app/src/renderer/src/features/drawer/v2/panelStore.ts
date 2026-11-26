@@ -72,6 +72,12 @@ export const PRESS_GRACE_MS = 1500
 
 /** No answer to a Check after this long: Checking ends and the panel says there was none (never a silent spinner). */
 export const CHECK_MAX_MS = 45_000
+/**
+ * The engine starts thinking on a real check at once. A press it answers without thinking (the Demo stage's "passes
+ * nothing", its quiet return under the resume card, a lesson.paused reply) sends no checkedAt either: Checking ends
+ * after this long with no thinking, never a 45 s spinner.
+ */
+export const NO_THINKING_MS = 3000
 
 /** The panel says Checking right now: a press still waiting for its answer (checkFlight), or the stage's hold. */
 export function checkingNow(): boolean {
@@ -120,11 +126,13 @@ export function hintShown(): boolean {
 
 // ---- the Check in flight ------------------------------------------------------------------------------------------
 
-const timers: { hint?: ReturnType<typeof setTimeout>; notYet?: ReturnType<typeof setTimeout>; flight?: ReturnType<typeof setTimeout> } = {}
+type Timer = ReturnType<typeof setTimeout>
+const timers: { hint?: Timer; notYet?: Timer; flight?: Timer; quiet?: Timer } = {}
 
 /** The press's answer came (or the step moved on): Checking ends. */
 export function landFlight(): void {
   clearTimeout(timers.flight)
+  clearTimeout(timers.quiet)
   if (get().flight) set({ flight: undefined })
 }
 
@@ -136,6 +144,11 @@ export function startFlight(at = Date.now()): void {
     const f = get().flight
     if (f && f.at === at) set({ flight: { ...f, stuck: true } })
   }, CHECK_MAX_MS)
+  clearTimeout(timers.quiet)
+  timers.quiet = setTimeout(() => {
+    const f = get().flight
+    if (f && f.at === at && !f.sawThinking) landFlight() // answered without thinking (or not at all): no spinner
+  }, NO_THINKING_MS)
 }
 
 usePressed.subscribe((p, prev) => {
@@ -154,6 +167,7 @@ export function flightStatus(state: string | undefined): void {
 }
 onMessage('status', (p) => flightStatus(p.state))
 onMessage('error', () => landFlight())
+onMessage('lesson.paused', () => landFlight()) // VS Code closed: the engine answers a Check with the paused surface
 
 // ---- engine events ----------------------------------------------------------------------------------------------
 
@@ -223,6 +237,7 @@ const clearAll = (): void => {
   clearTimeout(timers.hint)
   clearTimeout(timers.notYet)
   clearTimeout(timers.flight)
+  clearTimeout(timers.quiet)
   set({ ...empty, notYet: { card: undefined, at: 0 } })
 }
 onMessage('lesson.ready', clearAll)

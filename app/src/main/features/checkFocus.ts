@@ -8,12 +8,12 @@
  * check's answer stays in the overlay.
  *
  * The fix: right after the press, activate the lesson's app once (`open -b <bundle>`, the same Launch Services call as
- * returnFocus), which puts its windows back above the home window. The bundle is the renderer's hint (the last front
- * app that was one of the lesson's apps: VS Code, Blender, a CAD app, a terminal; core/checkFocus.ts), else the last
- * non-miyagi front app (front-app.ts previousApp). One activation per press, at most every ONCE_MS: never a loop
- * (front-app.ts's handBack loop went in PR #281 and must not come back here).
+ * returnFocus), which puts its windows back above the home window. Which app: pickTarget (the last front app when
+ * it was one of the lesson's apps, never an app the learner chose over it; the renderer's lesson app only when nothing
+ * else was in front), and only when it is running (open -b would relaunch a quit app). One activation per press, at
+ * most every ONCE_MS: never a loop (front-app.ts's handBack loop went in PR #281 and must not come back here).
  *
- *   bridge.invoke('check:handback', bundleHint?)  -> the bundle activated, or null
+ *   bridge.invoke('check:handback', {lesson?, last?: {bundle, lesson}})  -> the bundle activated, or null
  */
 import { execFile } from 'node:child_process'
 import { defineMainFeature } from '../context'
@@ -35,9 +35,38 @@ export function validBundle(b: unknown): string | undefined {
   return OWN.some((o) => low === o || low.startsWith(`${o}.`)) ? undefined : b
 }
 
+/**
+ * What the renderer knows (front:app): the last front app that was one of the lesson's apps, and the last non-miyagi
+ * front app with whether it was one of the lesson's. A plain string (an older renderer) is the lesson app.
+ */
+export type HandBackHint = { lesson?: string; last?: { bundle?: string; lesson?: boolean } }
+
+function hintOf(h: unknown): HandBackHint {
+  if (typeof h === 'string') return { lesson: h }
+  if (!h || typeof h !== 'object') return {}
+  const o = h as { lesson?: unknown; last?: { bundle?: unknown; lesson?: unknown } }
+  const last = o.last && typeof o.last === 'object' ? { bundle: validBundle(o.last.bundle), lesson: o.last.lesson === true } : undefined
+  return { lesson: validBundle(o.lesson), last }
+}
+
+/**
+ * Which app gets the keyboard back, or undefined: never pull the lesson's app over an app the learner chose.
+ *   the last app in front (previousApp) was a lesson app (VS Code, Blender, a terminal...)  -> that app
+ *   it was another app (Safari with the docs, Notes)                                          -> nothing
+ *   nothing else was in front since miyagi started                                            -> the renderer's lesson app
+ */
+export function pickTarget(previous: string | undefined, hint: HandBackHint): string | undefined {
+  const prev = validBundle(previous)
+  if (!prev) return hint.lesson
+  if (hint.last?.bundle === prev) return hint.last.lesson ? prev : undefined
+  return hint.lesson === prev ? prev : undefined
+}
+
 export type HandBackDeps = {
   /** Activate the app with this bundle id (open -b). */
   activate: (bundle: string) => void
+  /** Is an app with this bundle id running? (`open -b` would launch a quit one.) */
+  running: (bundle: string) => Promise<boolean>
   /** The last non-miyagi front app's bundle (front-app.ts). */
   previous: () => string | undefined
   /** May miyagi move focus at all (the launch gate is open, macOS). */
@@ -45,20 +74,30 @@ export type HandBackDeps = {
   now?: () => number
 }
 
-/** The press handler, pure: which bundle it activated (or undefined). Never opens, shows or focuses a miyagi window. */
-export function createHandBack(deps: HandBackDeps): (hint?: unknown) => string | undefined {
+/** The press handler: which bundle it activated (or undefined). Never opens, shows or focuses a miyagi window. */
+export function createHandBack(deps: HandBackDeps): (hint?: unknown) => Promise<string | undefined> {
   let at = -Infinity
   const now = deps.now ?? Date.now
-  return (hint) => {
+  return async (hint) => {
     if (!deps.allowed()) return undefined
-    const bundle = validBundle(hint) ?? validBundle(deps.previous())
+    const bundle = pickTarget(deps.previous(), hintOf(hint))
     if (!bundle) return undefined
     const t = now()
     if (t - at < ONCE_MS) return undefined
-    at = t
+    at = t // before the await: a double press is one activation
+    if (!(await deps.running(bundle).catch(() => false))) return undefined
     deps.activate(bundle)
     return bundle
   }
+}
+
+/** lsappinfo find bundleid=<b>: one line per running app with that bundle, nothing when none runs. */
+function isRunning(bundle: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('lsappinfo', ['find', `bundleid=${bundle}`], { timeout: 800, encoding: 'utf8' }, (err, out) =>
+      resolve(!err && String(out ?? '').trim().length > 0)
+    )
+  })
 }
 
 export default defineMainFeature({
@@ -69,9 +108,10 @@ export default defineMainFeature({
         execFile('open', ['-b', bundle], (err) => {
           if (err) console.warn('[check-focus] could not hand focus back to', bundle, err.message)
         }),
+      running: isRunning,
       previous: previousApp,
       allowed: () => process.platform === 'darwin' && gateIsOpen() && process.env.MIYAGI_HAND_BACK !== '0'
     })
-    ctx.handle('check:handback', (hint) => handBack(hint) ?? null)
+    ctx.handle('check:handback', async (hint) => (await handBack(hint)) ?? null)
   }
 })

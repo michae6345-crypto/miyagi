@@ -6149,8 +6149,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             actions += ["hint", "show_me", "explain", "skip_step"]  # t10 / Nov 25: every Not yet keeps its teach buttons
         log.info("action %s: nothing to do; notice %r", kind, title)
         extra: dict = {}
-        if kind == "check_step" and step is not None and title == "Not yet":  # the panel's Not yet, re-shown as checked now
-            extra = {"verdict": "not_done", "checkedAt": self._wall_ms()}
+        if kind == "check_step" and step is not None:  # this press's answer: the app's Checking ends on it
+            extra = {"checkedAt": self._wall_ms(), **({"verdict": "not_done"} if title == "Not yet" else {})}
         await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
                                  "body": body, **({"actions": actions} if actions else {}), **extra})
 
@@ -7029,7 +7029,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                  since_start, step.get("id"), since_pass, prev.get("id"))
         await self._emit_card({"stepId": step["id"], "kind": "answer", "title": f"Step {self.idx} done",
                                "body": f"“{prev.get('title') or 'That step'}” passed. Now: {step.get('title') or 'the next step'}.",
-                               "dismissAfterMs": 4000}, window_s=0.0)
+                               "dismissAfterMs": 4000, "checkedAt": self._wall_ms()}, window_s=0.0)  # answers the press
         await self._status("watching")
         return True
 
@@ -7067,7 +7067,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.passed or gen != self.step_gen:
             return
         if self._eval_error:  # the checks themselves failed: "Couldn't run the checks", never a stale "Not yet"
-            rep = await check_health.self_check(self, fresh=fresh_ok, cloud_job=cloud_job)
+            rep = await check_health.self_check(self, fresh=fresh_ok, has_files=False, cloud_job=cloud_job)
             await self._check_issue_card(step, check_health.issue_for(rep, has_files=False, eval_error=self._eval_error))
             return
         if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
@@ -7099,7 +7099,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._status("watching", check=True)
             return
         screen, files, exact = self._judge_inputs(step)
-        rep = await check_health.self_check(self, fresh=fresh_ok, exact=exact, cloud_job=cloud_job)
+        rep = await check_health.self_check(self, fresh=fresh_ok, exact=exact, has_files=bool(files), cloud_job=cloud_job)
         if gen != self.step_gen or self.passed:
             return
         step_file = self._step_file(step) or step.get("file")

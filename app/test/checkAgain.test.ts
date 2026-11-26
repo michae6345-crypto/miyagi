@@ -52,7 +52,7 @@ const { sendAction } = require('../src/renderer/src/core/shortcuts') as typeof i
 const { useLesson } = require('../src/renderer/src/core/lesson') as typeof import('../src/renderer/src/core/lesson')
 const panel = require('../src/renderer/src/features/drawer/v2/panelStore') as typeof import('../src/renderer/src/features/drawer/v2/panelStore')
 const focus = require('../src/renderer/src/features/drawer/checkFocus') as typeof import('../src/renderer/src/features/drawer/checkFocus')
-const { createHandBack, validBundle, ONCE_MS } = require('../src/main/features/checkFocus') as typeof import('../src/main/features/checkFocus')
+const { createHandBack, pickTarget, validBundle, ONCE_MS } = require('../src/main/features/checkFocus') as typeof import('../src/main/features/checkFocus')
 
 const ev = (type: string, payload: Record<string, unknown>): void => dispatch({ type, payload } as never)
 
@@ -94,9 +94,36 @@ describe('Checking holds until the check answers', () => {
     ev('status', { state: 'watching' })
     assert.equal(panel.checkingNow(), false)
     sendAction('check_step')
+    ev('status', { state: 'thinking' }) // the check started, then nothing ever came back
     mock.timers.tick(panel.CHECK_MAX_MS + 1)
     assert.equal(panel.checkingNow(), false)
     assert.equal(panel.usePanel.getState().flight?.stuck, true, 'the panel says there was no answer')
+  })
+
+  test('the NN demo\'s "passes nothing" press (no thinking, no card) ends Checking within NO_THINKING_MS', () => {
+    ev('status', { state: 'watching' })
+    sendAction('check_step') // stage.check: the code isn't in nn.py yet / the resume card is up: _quiet(), no event
+    assert.equal(panel.checkingNow(), true)
+    mock.timers.tick(panel.NO_THINKING_MS + 1)
+    assert.equal(panel.checkingNow(), false)
+    assert.equal(panel.usePanel.getState().flight, undefined, 'no "No answer" line: the demo answered by passing nothing')
+  })
+
+  test('a demo press that passes the step, the cue guard\'s "Step N done" and lesson.paused all end Checking', () => {
+    sendAction('check_step')
+    ev('status', { state: 'thinking' })
+    mock.timers.tick(panel.NO_THINKING_MS + 1)
+    assert.equal(panel.checkingNow(), true, 'thinking: the check is running')
+    ev('step.passed', { stepId: 's1' })
+    assert.equal(panel.checkingNow(), false)
+
+    sendAction('check_step')
+    ev('card', { stepId: 's1', kind: 'answer', title: 'Step 1 done', body: 'x passed.', dismissAfterMs: 4000, checkedAt: Date.now() })
+    assert.equal(panel.checkingNow(), false)
+
+    sendAction('check_step')
+    ev('lesson.paused', { reason: 'editor_closed' })
+    assert.equal(panel.checkingNow(), false)
   })
 })
 
@@ -113,26 +140,38 @@ describe('a Check press hands focus back, never home', () => {
     features.get('front:app')?.({ known: true, bundle: 'com.microsoft.VSCode', lesson: true, miyagi: false })
     invokes.length = 0
     focus.handBackAfterCheck()
-    assert.deepEqual(invokes, [{ channel: 'check:handback', args: ['com.microsoft.VSCode'] }])
+    assert.deepEqual(invokes, [{ channel: 'check:handback', args: [{ lesson: 'com.microsoft.VSCode', last: { bundle: 'com.microsoft.VSCode', lesson: true } }] }])
   })
 
-  test('main activates the app once per press, falls back to the last other app, refuses miyagi and junk', () => {
+  test('main hands back only to a lesson app that was in front, once per press, and only when it runs', async () => {
+    const VS = 'com.microsoft.VSCode'
     const activated: string[] = []
     let now = 0
-    const hb = createHandBack({ activate: (b) => activated.push(b), previous: () => 'com.apple.Terminal', allowed: () => true, now: () => now })
-    assert.equal(hb('com.microsoft.VSCode'), 'com.microsoft.VSCode')
+    let prev: string | undefined = VS
+    const running = new Set([VS, 'com.apple.Safari'])
+    const hb = createHandBack({ activate: (b) => activated.push(b), running: async (b) => running.has(b), previous: () => prev, allowed: () => true, now: () => now })
+    const vsFront = { lesson: VS, last: { bundle: VS, lesson: true } }
+    assert.equal(await hb(vsFront), VS, 'VS Code was in front before the click: it gets the keyboard back')
     now += 200
-    assert.equal(hb('com.microsoft.VSCode'), undefined, 'a double press is one activation, never a loop')
+    assert.equal(await hb(vsFront), undefined, 'a double press is one activation, never a loop')
     now += ONCE_MS
-    assert.equal(hb(undefined), 'com.apple.Terminal', 'no hint: the last non-miyagi app')
+    prev = 'com.apple.Safari' // the learner went to the docs, then pressed Check
+    assert.equal(await hb({ lesson: VS, last: { bundle: 'com.apple.Safari', lesson: false } }), undefined, 'never VS Code over Safari')
     now += ONCE_MS
-    assert.equal(hb('dev.sandhacks.miyagi'), 'com.apple.Terminal', 'miyagi itself is never the target')
-    assert.deepEqual(activated, ['com.microsoft.VSCode', 'com.apple.Terminal', 'com.apple.Terminal'])
+    prev = undefined // nothing else was in front since miyagi started: the renderer's lesson app
+    assert.equal(await hb({ lesson: VS }), VS)
+    now += ONCE_MS
+    running.delete(VS) // VS Code was quit: open -b would relaunch it
+    assert.equal(await hb({ lesson: VS }), undefined)
+    now += ONCE_MS
+    assert.equal(await hb({ lesson: 'dev.sandhacks.miyagi' }), undefined, 'miyagi itself is never the target')
+    assert.deepEqual(activated, [VS, VS])
+    assert.equal(pickTarget('org.blenderfoundation.blender', { lesson: 'org.blenderfoundation.blender' }), 'org.blenderfoundation.blender')
     assert.equal(validBundle('com.github.Electron'), undefined)
     assert.equal(validBundle('-a /Applications/Calculator.app'), undefined)
     assert.equal(validBundle('com.microsoft.VSCode; rm -rf ~'), undefined)
-    const off = createHandBack({ activate: (b) => activated.push(b), previous: () => 'com.apple.Terminal', allowed: () => false })
-    assert.equal(off('com.microsoft.VSCode'), undefined, 'gate closed / not macOS: nothing moves')
+    const off = createHandBack({ activate: (b) => activated.push(b), running: async () => true, previous: () => VS, allowed: () => false })
+    assert.equal(await off(vsFront), undefined, 'gate closed / not macOS: nothing moves')
   })
 
   test('the check flow never opens, shows or focuses a miyagi window', async () => {
@@ -149,7 +188,7 @@ describe('a Check press hands focus back, never home', () => {
     try {
       await feature.setup(ctx as never)
       assert.deepEqual([...handlers.keys()], ['check:handback'])
-      assert.equal(handlers.get('check:handback')!('com.microsoft.VSCode'), null)
+      assert.equal(await handlers.get('check:handback')!({ lesson: 'com.microsoft.VSCode' }), null)
     } finally {
       if (prev === undefined) delete process.env.MIYAGI_HAND_BACK
       else process.env.MIYAGI_HAND_BACK = prev

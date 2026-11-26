@@ -19,22 +19,30 @@ export function nextTarget(prev: string | undefined, s: FrontLike | undefined): 
   return s.bundle
 }
 
+/** The last non-miyagi front app, and whether it was one of the lesson's (main hands back only to a lesson app). */
+export function nextLast(prev: { bundle: string; lesson: boolean } | undefined, s: FrontLike | undefined): { bundle: string; lesson: boolean } | undefined {
+  if (!s || !s.known || s.miyagi || !s.bundle) return prev
+  return { bundle: s.bundle, lesson: !!s.lesson }
+}
+
 let target: string | undefined
+let last: { bundle: string; lesson: boolean } | undefined
 bridge.onFeature('front:app', (s) => {
   target = nextTarget(target, s as FrontLike)
+  last = nextLast(last, s as FrontLike)
 })
 onMessage('lesson.ended', () => {
   target = undefined
 })
 
-/** The bundle a Check press hands focus back to (undefined: main's last non-miyagi app). */
-export const checkTarget = (): string | undefined => target
+/** What main decides from (main/features/checkFocus.ts pickTarget). */
+export const checkTarget = (): { lesson?: string; last?: { bundle: string; lesson: boolean } } => ({ lesson: target, last })
 
-/** Call right after the learner pressed Check (a click or Enter): one activation of their app, nothing else. */
+/** Call right after the learner pressed Check (a click or Enter): at most one activation of their app, nothing else. */
 export function handBackAfterCheck(): void {
   if (!isElectron) return
   try {
-    bridge.invoke('check:handback', target).catch(() => {})
+    bridge.invoke('check:handback', checkTarget()).catch(() => {})
   } catch {
     // an older main without the handler: nothing to hand back
   }

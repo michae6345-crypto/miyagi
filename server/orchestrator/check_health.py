@@ -29,7 +29,12 @@ log = logging.getLogger("orchestrator.check_health")
 
 CLOUD_TTL_S = 60.0  # one /healthz per minute at most, however often Check is pressed
 CLOUD_TIMEOUT_S = 2.0
-STALE_S = 10.0  # the newest frame is older than this and no fresh one came: the screen read is stale
+# The newest frame is older than this and no fresh capture came in: the screen read is stale. Above the reader's idle
+# heartbeat (perf_tier idle_heartbeat_max 10 s x 1.5) plus its max_age (15 s): a still screen is not a stale one.
+STALE_S = 30.0
+# A Check's capture that missed check_wait_s (1.2 s: the capture lock held by a tick, OCR, the AX wait on a slow Mac)
+# is awaited this much longer before the screen counts as stale; one still running after that is slow, never stale.
+FRESH_EXTRA_S = 3.0
 VSCODE_TIMEOUT_S = 0.3
 
 _cloud_cache: dict[str, Any] = {"t": -1e9, "url": None, "state": None}
@@ -37,9 +42,27 @@ _cloud_cache: dict[str, Any] = {"t": -1e9, "url": None, "state": None}
 
 # ------------------------------------------------------------------ the four probes
 
-def screen_state(s: Any, fresh: bool | None) -> tuple[str, float | None, str | None]:
+async def settle_fresh(s: Any, fresh: bool | None, extra: float = FRESH_EXTRA_S) -> tuple[bool | None, bool]:
+    """(fresh, capture still running). fresh_frame gave up after check_wait_s, but its capture job goes on: wait for that
+    same job up to `extra` s more (never a second capture). Its result decides; still running = slow, not stale."""
+    if fresh is not False:
+        return fresh, False
+    job = getattr(getattr(s, "screen", None), "fresh_job", None)
+    if job is None or not isinstance(job, asyncio.Future):
+        return fresh, False
+    if not job.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(job), extra)
+        except Exception:  # noqa: BLE001 - slow or failed: decided below
+            pass
+    if not job.done():
+        return False, True
+    return (not job.cancelled() and job.exception() is None), False
+
+
+def screen_state(s: Any, fresh: bool | None, running: bool = False) -> tuple[str, float | None, str | None]:
     """(state, newest frame age in s or None, down reason). `fresh`: did this check get a frame captured now
-    (None: not asked)."""
+    (None: not asked). `running`: this check's capture is still going (slow, so never "stale")."""
     scr = getattr(s, "screen", None)
     if scr is None:
         return "none", None, None  # no screen by design (ORCH_SCREEN=0 / headless / not macOS): nothing broken
@@ -65,7 +88,7 @@ def screen_state(s: Any, fresh: bool | None) -> tuple[str, float | None, str | N
             age = max(0.0, time.time() - float(t))
     except Exception:  # noqa: BLE001
         obs = None
-    if fresh is False and (age is None and getattr(scr, "reader", None) is not None or (age or 0) > STALE_S):
+    if fresh is False and not running and (age is None and getattr(scr, "reader", None) is not None or (age or 0) > STALE_S):
         return "stale", age, None
     return "ok", age, None
 
@@ -89,11 +112,14 @@ def vscode_windows() -> list[dict]:
     return vscode_ext.windows(timeout=VSCODE_TIMEOUT_S)
 
 
-async def vscode_state(s: Any, exact: bool) -> str:
+async def vscode_state(s: Any, exact: bool, has_files: bool = True) -> str:
     """connected: VS Code's exact buffer was read for this check, or a window answers; unknown without the real screen
-    reader (tests, the stage) unless vscode_windows was replaced."""
+    reader (tests, the stage) unless vscode_windows was replaced, and unknown when the step has no file in a "Just teach
+    me" lesson (a video / app lesson): no port scan for nothing."""
     if exact:
         return "connected"
+    if not (getattr(s, "lesson_mode", False) and has_files):
+        return "unknown"
     real = getattr(getattr(s, "screen", None), "reader", None) is not None
     if not real and vscode_windows is _REAL_WINDOWS:
         return "unknown"
@@ -157,12 +183,13 @@ def start_cloud_probe() -> asyncio.Future | None:
     return job
 
 
-async def self_check(s: Any, *, fresh: bool | None = None, exact: bool = False,
+async def self_check(s: Any, *, fresh: bool | None = None, exact: bool = False, has_files: bool = True,
                      cloud_job: asyncio.Future | None = None, probe_cloud: bool = False) -> dict:
     """The report, also kept on the session (last_self_check, GET /health) and logged."""
-    screen, age, down = screen_state(s, fresh)
+    fresh, running = await settle_fresh(s, fresh)
+    screen, age, down = screen_state(s, fresh, running)
     ocr, n = ocr_state(s) if screen in ("ok", "stale") else ("unknown", 0)
-    vscode = await vscode_state(s, exact)
+    vscode = await vscode_state(s, exact, has_files)
     cloud = "unknown"
     if cloud_job is not None:
         try:
@@ -175,12 +202,14 @@ async def self_check(s: Any, *, fresh: bool | None = None, exact: bool = False,
            "ocrLines": n, "fresh": fresh, "at": int(time.time() * 1000)}
     if down:
         rep["screenWhy"] = str(down)[:120]
+    if running:
+        rep["captureSlow"] = True  # this check's capture outlived check_wait_s + FRESH_EXTRA_S: slow, not stale
     try:
         s.last_self_check = rep
     except Exception:  # noqa: BLE001
         pass
-    log.info("self-check: screen=%s ocr=%s (%d lines) vscode=%s cloud=%s fresh=%s age=%s", screen, ocr, n, vscode, cloud,
-             fresh, rep["frameAgeS"])
+    log.info("self-check: screen=%s ocr=%s (%d lines) vscode=%s cloud=%s fresh=%s slow=%s age=%s", screen, ocr, n, vscode,
+             cloud, fresh, running, rep["frameAgeS"])
     return rep
 
 
@@ -222,7 +251,7 @@ def screen_issue(rep: dict, *, has_files: bool, file: str | None = None) -> dict
         # A frame with no text at all is odd but not proof of blindness (a blank desktop): a note, never blocking alone
         return _issue("screen_stale", "Couldn't read your screen", f"I couldn't {what} your screen just now." + only,
                       "Bring the window you're working in to the front, then press Check again.",
-                      not has_files and st != "ok", rep)
+                      not has_files and st == "stale", rep)  # blocks only when stale with no capture running
     return None
 
 
