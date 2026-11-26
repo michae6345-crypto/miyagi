@@ -124,7 +124,10 @@ let launcherOrigin: BrowserWindow | undefined
  */
 function belowTopNow(display: Electron.Display): number {
   const override = pillTopOverride()
-  return notchService?.belowTopFor(display, override) ?? belowTop(display, { mac: platform.os === 'mac', override })
+  // The primary display always has a menu bar (shown or hiding itself). A second display with no band may have none at
+  // all ("Displays have separate Spaces" off): it gets the very top.
+  const menuBar = display.id === screen.getPrimaryDisplay().id || display.workArea.y > display.bounds.y
+  return notchService?.belowTopFor(display, override, menuBar) ?? belowTop(display, { mac: platform.os === 'mac', override, menuBar })
 }
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
 let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean; top?: number; place?: 'notch'; radii?: { top: number; bottom: number } } = { w: 300, h: 34 }

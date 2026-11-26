@@ -18,7 +18,8 @@ describe('island look', () => {
     // Mac: flush with the menu bar's bottom edge (MacBook Neo, Nov 25: no more floating 16 pt under it).
     assert.equal(belowTop(d(37), { mac: true }), 37)
     assert.equal(belowTop(d(24), { mac: true }), 24)
-    assert.equal(belowTop(d(0), { mac: true }), 0)
+    assert.equal(belowTop(d(0), { mac: true }), 24) // a menu bar that hides itself still slides in over the top 24 pt
+    assert.equal(belowTop(d(0), { mac: true, menuBar: false }), 0) // a display with no menu bar at all
     // MIYAGI_PILL_TOP and Windows keep the old rule: never higher than 4 under the band.
     assert.equal(belowTop(d(37), { mac: true, override: 8 }), 41)
     assert.equal(belowTop(d(24), { mac: true, override: 40 }), 40)

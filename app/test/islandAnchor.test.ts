@@ -66,12 +66,17 @@ describe('islandAnchor', () => {
   })
 
   test('external display without a menu bar (Displays have separate Spaces off): the display top edge', () => {
-    assert.equal(islandAnchor(disp(7, 2560, 1440, 0, 1512), { mac: true, known: true, info: EXT.s }).top, 0)
+    assert.equal(islandAnchor(disp(7, 2560, 1440, 0, 1512), { mac: true, known: true, info: EXT.s, menuBar: false }).top, 0)
+  })
+
+  test('a notchless Mac whose menu bar hides itself: under where the menu bar slides in, not at 0', () => {
+    assert.equal(islandAnchor(disp(1, 1408, 881, 0), { mac: true, known: true, info: NEO.s }).top, 24)
+    assert.equal(islandAnchor(disp(1, 1408, 881, 0), { mac: true, known: false }).top, 24) // helper missing too
   })
 
   test('never mid-screen: a work area that starts far down is not a menu bar', () => {
     assert.equal(menuBarBottom(disp(1, 1408, 881, 400)), 0)
-    assert.equal(islandAnchor(disp(1, 1408, 881, 400), { mac: true, known: false }).top, 0)
+    assert.equal(islandAnchor(disp(1, 1408, 881, 400), { mac: true, known: false }).top, 24)
     assert.ok(menuBarBottom(disp(1, 1408, 881, 24), { ...NEO.s, safeTop: 500 }) <= MAX_MENU_BAR)
   })
 

@@ -77,7 +77,7 @@ export type NotchService = {
    * The island's top when it is not in the notch (common/notch.ts belowTop): flush under the menu bar on a Mac. Never
    * waits on the helper: without a read it answers from the work area.
    */
-  belowTopFor(display: Display, override?: number): number
+  belowTopFor(display: Display, override?: number, menuBar?: boolean): number
   /** Another notch app is running (private, log-only flag). */
   coexist(): boolean
   /** True once geometry for at least one display is known (read or persisted); until then every layout is `below`, never a fake notch. */
@@ -206,7 +206,7 @@ export function startNotch(opts: StartNotchOpts): NotchService {
       return { ...a.notch, place: a.place, coexist }
     },
     geometryFor,
-    belowTopFor: (display, override) => belowTop(display, { mac: opts.mac, info: infoFor(display), override }),
+    belowTopFor: (display, override, menuBar) => belowTop(display, { mac: opts.mac, info: infoFor(display), override, menuBar }),
     coexist: () => coexist,
     ready: () => good.size > 0,
     refresh() {

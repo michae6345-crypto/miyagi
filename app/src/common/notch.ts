@@ -64,6 +64,11 @@ export function effectivePlace(pref: IslandPlace | undefined, mac: boolean, hasN
 export const MAX_MENU_BAR = 64
 /** Air the island keeps under a band when MIYAGI_PILL_TOP is set, and on Windows (a taskbar docked at the top). */
 export const MENU_BAR_GAP = 4
+/**
+ * A menu bar that hides itself reports no band, but it still slides in over the top 24 pt: the island hangs under where
+ * it will be, not at 0 where the menu bar would cover it (review of #282).
+ */
+export const HIDDEN_MENU_BAR = 24
 
 /**
  * The menu bar's bottom edge on a display, in display-local points: what the island hangs from when it isn't in the
@@ -87,23 +92,29 @@ export type AnchorOpts = {
   known: boolean
   /** MIYAGI_PILL_TOP, when set (px from the display top). */
   override?: number
+  /**
+   * The display has a menu bar, shown or hidden (default true). False only for a display with none at all (a second
+   * display while "Displays have separate Spaces" is off): then the island may sit at the very top.
+   */
+  menuBar?: boolean
 }
 
 /**
  * The island's top edge when it is NOT in the notch, in display-local points.
  *   Mac: flush with the menu bar's bottom edge, a tab hanging from it, centred (MacBook Neo, Nov 25: on a display
- *        without a notch the old default top of 40 left the island floating 16 pt under a 24 pt menu bar). No menu bar
- *        (hidden, or a second display without one): the display's top edge. MIYAGI_PILL_TOP moves it down as before.
+ *        without a notch the old default top of 40 left the island floating 16 pt under a 24 pt menu bar). A menu bar
+ *        that hides itself: under where it slides in (HIDDEN_MENU_BAR). A display with no menu bar at all: its top
+ *        edge. MIYAGI_PILL_TOP moves it down as before.
  *   Windows: 8 px, or MENU_BAR_GAP under a taskbar docked at the top (unchanged).
  * Pure and helper-free: a missing or slow helper only means `info` is absent; the work area still gives the band.
  */
-export function belowTop(display: DisplayLike, o: Pick<AnchorOpts, 'mac' | 'info' | 'override'>): number {
+export function belowTop(display: DisplayLike, o: Pick<AnchorOpts, 'mac' | 'info' | 'override' | 'menuBar'>): number {
   const band = menuBarBottom(display, o.info)
   if (!o.mac || o.override !== undefined) {
     const base = o.override ?? 8
     return band > 0 ? Math.max(base, band + MENU_BAR_GAP) : base
   }
-  return band
+  return band > 0 ? band : o.menuBar === false ? 0 : HIDDEN_MENU_BAR
 }
 
 export type IslandAnchor = { place: IslandPlace; top: number; notch: NotchGeom }
