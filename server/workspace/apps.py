@@ -292,7 +292,7 @@ def item_actions(item: dict) -> list[str]:
         return acts + ["skip"]
     if sk == "web_app":
         return []
-    acts = ["install"] if method in ("brew", "brew_cask", "pip") else (["get_it"] if method == "download" else [])
+    acts = ["install"] if method in ("brew", "brew_cask", "pip", "vscode_ext") else (["get_it"] if method == "download" else [])
     if sk == "free_app":
         acts = acts + ["have_it"]
     return acts + ["skip"]

@@ -607,7 +607,7 @@ class VideoJump(_Model):
 
 
 class SetupInstall(_Model):
-    method: Literal["brew", "brew_cask", "pip", "npm", "download", "open", "none"]  # npm: ambient help (Nov 24), setup.fix only
+    method: Literal["brew", "brew_cask", "pip", "npm", "vscode_ext", "download", "open", "none"]  # npm: ambient help (Nov 24), setup.fix only; vscode_ext (Nov 26): VS Code's Python + Jupyter extensions
     command: str | None = None
     url: str | None = None
 

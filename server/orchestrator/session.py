@@ -594,6 +594,17 @@ def is_colab_lesson(graph: dict) -> bool:
     return "colab" in blob
 
 
+def _hosted_nb(graph: dict) -> bool:
+    """A notebook in a hosted service (Kaggle, Deepnote, Databricks, SageMaker, a JupyterHub; Colab above): stays in the
+    browser (server.workspace.setup.hosted_notebook_lesson)."""
+    try:
+        from server.workspace.setup import hosted_notebook_lesson
+
+        return hosted_notebook_lesson(graph)
+    except Exception:  # noqa: BLE001 - no S2: Colab alone decides, as before
+        return False
+
+
 def _use_lesson_venv(graph: dict) -> None:
     """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
     lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
@@ -1109,8 +1120,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         browser."""
         from . import workspace as wsmod
 
-        if self.notebook_lesson:
-            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        if self.notebook_lesson:  # Nov 26: no setup list (none could be made) still opens VS Code for its notebook
+            return (not items or wsmod.editor_needed(items)) and not is_colab_lesson(graph) and not _hosted_nb(graph)
         return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     def _opens_editor(self, graph: dict) -> bool:
@@ -1148,8 +1159,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # VS Code took 4.7 s), and only keystrokes hold it (the click itself isn't typing)
         follows_build = self.clock() - getattr(self, "_build_t0", -1e9) < BUILD_OPEN_FOLLOW_S
         file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
-        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: `code -g` is for text files
-        await asyncio.to_thread(self.workspace.open, folder, True, file=None if nb else file,
+        # Nov 26: a notebook goes to `code <folder> <nb>` too (S2 never puts `-g` on an .ipynb: that was t10's text view),
+        # so it opens as a tab of the lesson's window even without the companion; the companion step below is a no-op then
+        nb = file if file and file.lower().endswith(".ipynb") else None
+        await asyncio.to_thread(self.workspace.open, folder, True, file=file,
                                 miyagi_wait_s=0.0 if follows_build else wsmod.VIDEO_MIYAGI_WAIT_S,
                                 **self._open_holds(keys_only=follows_build))
         self.editor_open = True
@@ -1274,6 +1287,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if gated and ep == self.lesson_epoch:
                 setup_gate.gate(self).finish(tool, res)
                 await setup_gate.publish(self)
+                if res.get("ok") and tool in setup_gate.KERNEL_TOOLS:  # Nov 26: a notebook kernel that can't start
+                    setup_gate.check_kernel_soon(self)  # is a failed gate row, not VS Code's "No kernel" (background)
             if res.get("ok"):
                 status = f"{label} installed ✓"
             else:
@@ -1387,9 +1402,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if real and await asyncio.to_thread(where_row.reveal, self.workdir, file, line):
             self.editor_open = True  # shown in the lesson's existing window (companion extension): no `code` CLI
             return
-        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: the companion opens a notebook
+        nb = file if file and file.lower().endswith(".ipynb") else None  # Nov 26: a tab of the lesson window (no -g)
         await asyncio.to_thread(lambda: self.workspace.open(self.workdir, force=True, explicit=True,  # pressed Open
-                                                            file=None if nb else file))  # L2: the step's file
+                                                            file=file))  # L2: the step's file
         self.editor_open = True
         if nb:
             self._spawn(lesson_notebook.open_when_up(self, nb), timer=True)

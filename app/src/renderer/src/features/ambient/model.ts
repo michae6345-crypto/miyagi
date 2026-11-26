@@ -187,7 +187,7 @@ export function rowFix(x: SetupItem): RowFix {
   if (!x.needed || x.ok) return 'none'
   const m = x.install?.method
   if (x.setupKind === 'licensed_app' || m === 'download' || m === 'open') return x.install?.url ? 'link' : 'none'
-  if (m === 'brew' || m === 'brew_cask' || m === 'pip' || m === 'npm') return 'install'
+  if (m === 'brew' || m === 'brew_cask' || m === 'pip' || m === 'npm' || m === 'vscode_ext') return 'install'
   return 'none'
 }
 

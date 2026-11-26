@@ -399,6 +399,13 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
     """Fill installed / version / ok on an item. Read-only, a few seconds at most."""
     kind, cat = item["kind"], CATALOG.get(item["tool"], {})
     installed, version, where = False, "", ""
+    if item["tool"] == VSCODE_NOTEBOOK:  # VS Code's Python + Jupyter extensions (its extensions folder, no subprocess)
+        have = vscode_extensions()
+        installed = have is None or all(have.values())  # unreadable: never a wrong Install prompt
+        item.update(installed=installed, version="", where=str(_vscode_extensions_dir()), ok=installed)
+        if have:
+            item["missingExtensions"] = [i for i, ok in have.items() if not ok]
+        return item
     if kind == "web_app":  # nothing to install or check locally
         item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
         return item
@@ -447,6 +454,9 @@ def recipe(item: dict, brew: str | None) -> dict:
         return {"method": "download", "package": "", "command": "", "url": lic["vendor_url"], "licensed": True}
     if item["kind"] == "web_app":
         return {"method": "open", "package": "", "command": "", "url": url}
+    if item["tool"] == VSCODE_NOTEBOOK:  # a fixed pair of Marketplace ids, never a name from the model
+        return {"method": "vscode_ext", "package": " ".join(NOTEBOOK_EXTENSIONS), "url": _MARKETPLACE,
+                "command": "code " + " ".join(f"--install-extension {i}" for i in NOTEBOOK_EXTENSIONS)}
     if item["kind"] == "python_package":
         pkg = pip_requirement(item.get("pip_name") or cat.get("pip") or item["tool"])
         if pkg:
@@ -580,6 +590,90 @@ _JUPYTER_FAMILY = {"jupyter", "notebook", "jupyterlab", "ipykernel", "jupyter-no
 IPYKERNEL = {"tool": "ipykernel", "kind": "python_package", "why": "Runs the notebook's cells in VS Code.", "needed": True,
              "min_version": "", "binary": "", "import_name": "ipykernel", "pip_name": "ipykernel", "brew": "",
              "brew_cask": False, "url": "https://pypi.org/project/ipykernel/"}
+# A VS Code notebook lesson (user test Nov 26, the TensorFlow MNIST video): the notebook's kernel picker needs VS Code's
+# Python extension (it finds the lesson's .venv) and Jupyter extension (it runs the cells). Without them the picker
+# shows no .venv ("No kernel determined"). One setup row installs both with VS Code's own CLI, only on Install.
+NOTEBOOK_EXTENSIONS = ("ms-python.python", "ms-toolsai.jupyter")
+VSCODE_NOTEBOOK = "vscode-jupyter"  # the row's tool id (never matches the app's helper-extension sheet: VSCodeSheet.tsx)
+_MARKETPLACE = "https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter"
+NOTEBOOK_EXT_ROW = {"tool": VSCODE_NOTEBOOK, "label": "Python and Jupyter for VS Code", "kind": "cli",
+                    "why": "VS Code runs the notebook's cells with them, on the lesson's .venv.", "needed": True,
+                    "min_version": "", "binary": "", "import_name": "", "pip_name": "", "brew": "", "brew_cask": False,
+                    "url": _MARKETPLACE}
+NOTEBOOK_EDITOR_WHY = "You run the notebook's cells in VS Code."
+MAX_EXT_INDEX_BYTES = 4 * 1024 * 1024
+
+
+def _vscode_extensions_dir() -> Path:
+    env = os.environ.get("VSCODE_EXTENSIONS", "").strip()  # VS Code's own override
+    return Path(env).expanduser() if env else Path.home() / ".vscode" / "extensions"
+
+
+def vscode_extensions(ids: tuple[str, ...] = NOTEBOOK_EXTENSIONS) -> dict[str, bool] | None:
+    """Which of `ids` VS Code has installed, read from its extensions folder (no `code` subprocess): extensions.json
+    when VS Code keeps one, else the folder names (`ms-python.python-2026.2.0-darwin-arm64`); an uninstall still
+    waiting in .obsolete doesn't count. None when the folder can't be read."""
+    d = _vscode_extensions_dir()
+    want = {i.lower() for i in ids}
+    try:
+        if not d.is_dir():
+            return {i: False for i in ids}
+        obsolete: set[str] = set()
+        ob = d / ".obsolete"
+        if ob.is_file() and ob.stat().st_size <= MAX_EXT_INDEX_BYTES:
+            with contextlib.suppress(ValueError):
+                data = json.loads(ob.read_text(encoding="utf-8"))
+                obsolete = {k for k, v in data.items() if v is True} if isinstance(data, dict) else set()
+        have: set[str] = set()
+        index, data = d / "extensions.json", None
+        if index.is_file() and index.stat().st_size <= MAX_EXT_INDEX_BYTES:
+            with contextlib.suppress(ValueError):
+                data = json.loads(index.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            for e in data:
+                ident = e.get("identifier") if isinstance(e, dict) else None
+                eid = str(ident.get("id") or "").lower() if isinstance(ident, dict) else ""
+                if eid in want and str(e.get("relativeLocation") or "") not in obsolete:
+                    have.add(eid)
+        else:
+            for p in d.iterdir():
+                name = p.name.lower()
+                hit = next((i for i in want if name.startswith(i + "-")), None)
+                if hit and p.name not in obsolete and p.is_dir():
+                    have.add(hit)
+    except OSError:
+        return None
+    return {i: i.lower() in have for i in ids}
+
+
+VSCODE_APP_DIR = "Visual Studio Code.app"
+
+
+def _inside_vscode_app(path: str | None) -> bool:
+    """Is `path` (links resolved) VS Code's own CLI, inside a "Visual Studio Code.app" bundle?"""
+    if not path:
+        return False
+    try:
+        real = Path(os.path.realpath(path))
+    except OSError:
+        return False
+    return VSCODE_APP_DIR in real.parts and real.name == "code"
+
+
+def _vscode_cli(which: Callable[[str], str | None] = shutil.which,
+                app_path: Callable[[], str | None] | None = None) -> str | None:
+    """VS Code's own CLI for its extensions, never another editor's: the one inside the app (/Applications, else where
+    Spotlight finds VS Code), else a `code` on PATH only when it really is VS Code's (review of #296: Cursor installs
+    its own `code` shim on PATH, so `code --install-extension` went into Cursor and the row looped on "Install
+    again")."""
+    ed = _editor.EDITORS["vscode"]
+    found = app_path() if app_path is not None else _editor._app_path(ed)
+    for cand in ([ed["bundled_cli"]]
+                 + ([str(Path(found) / "Contents" / "Resources" / "app" / "bin" / "code")] if found else [])):
+        if Path(cand).is_file() and _inside_vscode_app(cand):
+            return cand
+    on_path = which("code")
+    return on_path if _inside_vscode_app(on_path) else None
 
 
 def _lib_names(graph: dict) -> list[str]:
@@ -677,8 +771,51 @@ def work_app(graph: dict) -> str | None:
     return None
 
 
+# Notebooks that live in a hosted service, in the browser: never moved into VS Code.
+_HOSTED_NOTEBOOK = re.compile(r"\b(?:colab|kaggle|deepnote|databricks|sagemaker|jupyter\s*hub|hosted\s+(?:jupyter|notebook)"
+                              r"|binder)\b", re.IGNORECASE)
+
+
+def hosted_notebook_lesson(graph: dict) -> bool:
+    """A notebook lesson done in a hosted notebook service (Colab, Kaggle, Deepnote, Databricks, SageMaker, a
+    JupyterHub): by the lesson's title / goal, its sources and its steps' text."""
+    les = graph.get("lesson") or {}
+    blob = " ".join([str(les.get(k) or "") for k in ("title", "goal")]
+                    + [str(s.get("url") or "") for s in graph.get("sources") or [] if isinstance(s, dict)]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in paths.lesson_steps(graph)
+                       if isinstance(st, dict)])
+    return _colab_lesson(graph) or bool(_HOSTED_NOTEBOOK.search(blob))
+
+
+def _has_notebook_file_or_package(graph: dict) -> bool:
+    """An .ipynb step / target / check file, or a Jupyter-family package in lesson.libraries (never step text alone)."""
+    if {n.lower() for n in _lib_names(graph)} & _JUPYTER_FAMILY:
+        return True
+    for st in paths.lesson_steps(graph):
+        if not isinstance(st, dict):
+            continue
+        files = [st.get("file")] + [x.get("file") for x in (st.get("targets") or []) + (st.get("checks") or [])
+                                    + (st.get("precision_checks") or []) if isinstance(x, dict)]
+        if any(str(f or "").lower().endswith(".ipynb") for f in files):
+            return True
+    return False
+
+
+def vscode_notebook_lesson(graph: dict | None) -> bool:
+    """A notebook lesson done in VS Code: an .ipynb step file or a Jupyter-family package (a step that only mentions
+    Jupyter doesn't count), and not a hosted notebook (Colab, Kaggle, Deepnote, Databricks, SageMaker, JupyterHub).
+    Miyagi runs those in the lesson's VS Code window (server/lesson/notebook_steps.py), whatever the video does in a
+    browser."""
+    return graph is not None and _has_notebook_file_or_package(graph) and not hosted_notebook_lesson(graph)
+
+
 def _items(raw: dict, graph: dict | None = None) -> list[dict]:
     ed = raw.get("editor") or {}
+    nb_vscode = vscode_notebook_lesson(graph)
+    if nb_vscode and not ed.get("needed"):
+        # User test Nov 26: Claude read the video's "start Jupyter in the browser" and said "No editor needed", so the
+        # notebook lesson got no ipykernel row, VS Code never opened by itself and the layout never ran.
+        ed = {"needed": True, "why": NOTEBOOK_EDITOR_WHY}
     items = [{
         "tool": (eid := _editor.editor_id()), "label": CATALOG[eid]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
         "why": (ed.get("why") or "") if ed.get("needed") else "No editor needed: " + _lower_first(ed.get("why") or "this lesson doesn't edit code files."),
@@ -689,6 +826,8 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
         tool = _canonical(t.get("tool", ""), t.get("kind"))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
             continue
+        if nb_vscode and tool in _JUPYTER_FAMILY - {"ipykernel"}:
+            continue  # no Jupyter server in VS Code: the kernel (ipykernel) is all it needs, as the local list says
         seen.add(tool)
         cat = CATALOG.get(tool, {})
         lic = _apps.licensed(tool)
@@ -709,10 +848,13 @@ def _items(raw: dict, graph: dict | None = None) -> list[dict]:
         items.append({"tool": app, "label": _apps.label(app), "kind": cat.get("kind") or "app",
                       "why": f"The video works in {_apps.label(app)}.", "needed": True, "min_version": "", "binary": "",
                       "import_name": "", "pip_name": "", "brew": "", "brew_cask": False, "url": cat.get("url", "")})
-    colab = graph is not None and _colab_lesson(graph)
-    if graph is not None and ed.get("needed") and not colab and notebook_lesson(graph) and not seen & _JUPYTER_FAMILY:
-        # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out
-        items.append({**IPYKERNEL, "label": "Jupyter kernel (ipykernel)"})
+    if nb_vscode:
+        if "ipykernel" not in seen:
+            # VS Code runs a notebook's cells with the lesson .venv's ipykernel; Claude's list often leaves it out. It
+            # goes before the other packages, so Install all has the kernel ready while TensorFlow still downloads.
+            at = next((i for i, it in enumerate(items) if it["kind"] == "python_package"), len(items))
+            items.insert(at, {**IPYKERNEL, "label": "Jupyter kernel (ipykernel)"})
+        items.insert(1, dict(NOTEBOOK_EXT_ROW))  # right under the editor: VS Code's own Python + Jupyter support
     return items
 
 
@@ -864,6 +1006,8 @@ def _host_of(r: dict) -> str | None:
     a Mac that is online."""
     if any(os.environ.get(k) for k in _PROXY_ENV):
         return None
+    if r.get("method") == "vscode_ext":
+        return "marketplace.visualstudio.com"
     if r.get("method") == "pip":
         if any(os.environ.get(k) for k in _PIP_CONF) or any(p.is_file() for p in _pip_conf_files()):
             return None
@@ -1027,6 +1171,8 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     if not reachable(_host_of(r)):
         out.update(error=OFFLINE, offline=True)
         return out
+    if r["method"] == "vscode_ext":
+        return _install_vscode_extensions(out, emit=emit, env=env, timeout=timeout, popen=popen, cancel=cancel)
     if r["method"] == "pip":
         if not workdir and not python:
             out["error"] = "pip installs go into the lesson's .venv: no lesson folder given"
@@ -1162,6 +1308,98 @@ def _pip_install(item: dict, r: dict, out: dict, *, workdir, python, emit, env, 
     elif not after.get("installed"):
         out.update(error="pip finished but Python still can't import it in this lesson's .venv", errorCode=pyinstall.UNKNOWN)
     return out
+
+
+def _install_vscode_extensions(out: dict, *, emit, env: dict, timeout: float, popen, cancel) -> dict:
+    """VS Code's Python + Jupyter extensions for a notebook lesson: `code --install-extension <id>` for each one it
+    doesn't have yet (VS Code's own CLI: no window opens). Only the fixed NOTEBOOK_EXTENSIONS ids, never a name from a
+    model or the app. -> install()'s result dict."""
+    cli = _vscode_cli()
+    if not cli:
+        out.update(error="VS Code isn't on this Mac yet. Install it first, then press Install again.",
+                   errorCode="no_vscode", url=_editor.EDITORS["vscode"]["url"])
+        return out
+    have = vscode_extensions() or {}
+    for ext in [i for i in NOTEBOOK_EXTENSIONS if not have.get(i)]:
+        emit(f"$ code --install-extension {ext}")
+        code, txt = _stream([cli, "--install-extension", ext], emit, env, min(timeout, 600.0), popen, cancel)
+        if code == CANCELLED_EXIT:
+            out.update(error="cancelled", errorCode=pyinstall.CANCELLED, cancelled=True)
+            return out
+        if code != 0:
+            out.update(error=f"VS Code couldn't add {ext}: {_last_error(txt) or f'exit {code}'}", url=_MARKETPLACE,
+                       log="\n".join(txt.splitlines()[-40:]))
+            return out
+    after = vscode_extensions()
+    out["ok"] = after is None or all(after.values())
+    if not out["ok"]:
+        out["error"] = ("VS Code finished, but it doesn't list "
+                        + ", ".join(i for i, ok in (after or {}).items() if not ok) + " yet. Press Install again.")
+    return out
+
+
+# The notebook's kernel in the lesson's .venv, as VS Code's Jupyter extension starts it (python -m ipykernel_launcher):
+# its imports, without starting a kernel (no ports, no Jupyter server, nothing on screen).
+KERNEL_PROBE = "import ipykernel, ipykernel.kernelapp, jupyter_client, zmq; print(ipykernel.__version__)"
+KERNEL_TIMEOUT_S = 90.0  # a cold import of ipykernel + IPython on a low-end Mac
+_NO_MODULE = re.compile(r"No module named '([\w.]+)'")
+
+
+def kernel_check(workdir: Path | str | None, *, run: Runner = _run, timeout: float = KERNEL_TIMEOUT_S) -> dict:
+    """Can the lesson's notebook kernel start in <workdir>/.venv? -> {ok, version?} or {ok: False, error, errorCode,
+    log?}: a plain sentence for the setup gate's failed row (Retry installs ipykernel again). Never raises."""
+    py = venv_python(workdir)
+    if not py:
+        return {"ok": False, "errorCode": "no_python",
+                "error": "The notebook has no kernel yet: the lesson's Python environment (.venv) isn't there. "
+                         "Press Retry."}
+    try:
+        code, txt = run([py, "-c", KERNEL_PROBE], timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - a runner that raised: the same failed row
+        code, txt = 1, str(e)
+    if code == 0:
+        return {"ok": True, "version": (txt.strip().splitlines() or [""])[-1][:32]}
+    if code == TIMEOUT:
+        return {"ok": False, "errorCode": pyinstall.TIMEOUT, "log": txt[-4000:],
+                "error": "The notebook kernel took too long to load in the lesson's .venv. Press Retry."}
+    m = _NO_MODULE.search(txt or "")
+    if m:
+        return {"ok": False, "errorCode": "missing", "log": txt[-4000:],
+                "error": f"The notebook kernel can't start: {m.group(1).split('.')[0]} isn't installed in the lesson's "
+                         ".venv. Press Retry to install the Jupyter kernel (ipykernel)."}
+    last = _last_error(txt) or f"exit {code}"
+    return {"ok": False, "errorCode": pyinstall.BROKEN_IMPORT, "log": txt[-4000:],
+            "error": f"The notebook kernel can't start in the lesson's .venv: {last[:200]}. Press Retry."}
+
+
+KERNEL_REPAIR = ("ipykernel", "pyzmq")  # a kernel that fails to import (a broken zmq build): reinstalled together
+
+
+def repair_kernel(workdir: Path | str | None, *, on_line: Callable[[str], None] | None = None, popen=subprocess.Popen,
+                  timeout: float = 900.0, cancel: threading.Event | None = None,
+                  net: Callable[[str], bool] | None = None) -> dict:
+    """Retry on a "Notebook kernel" row that failed with a broken import: `<.venv python> -m pip install
+    --force-reinstall ipykernel pyzmq` (fixed names only), then nothing else; the caller checks the kernel again.
+    -> {ok, error?, errorCode?, log?}. Only after the learner pressed Retry."""
+    emit = on_line or (lambda _line: None)
+    py = venv_python(workdir)
+    if not py:
+        return {"ok": False, "errorCode": "no_python", "error": "The lesson's Python environment (.venv) isn't there."}
+    reachable = net or (online if popen is subprocess.Popen else (lambda _host: True))
+    if not reachable(_host_of({"method": "pip"})):
+        return {"ok": False, "offline": True, "errorCode": pyinstall.NETWORK, "error": OFFLINE}
+    env = _child_env()
+    for k in _ENGINE_PY_ENV:
+        env.pop(k, None)
+    argv = [py, "-m", "pip", "install", "--force-reinstall", *KERNEL_REPAIR]
+    emit("$ pip install --force-reinstall " + " ".join(KERNEL_REPAIR))
+    code, txt = _stream(argv, emit, env, timeout, popen, cancel)
+    if code == CANCELLED_EXIT:
+        return {"ok": False, "cancelled": True, "errorCode": pyinstall.CANCELLED, "error": "cancelled"}
+    if code != 0:
+        return {"ok": False, "errorCode": pyinstall.classify(txt, code), "log": txt[-4000:],
+                "error": f"Reinstalling the notebook kernel failed: {_last_error(txt) or f'exit {code}'}"}
+    return {"ok": True}
 
 
 def check_python_packages_in(item: dict, py: str) -> dict:

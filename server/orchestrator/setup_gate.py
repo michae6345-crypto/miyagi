@@ -329,6 +329,10 @@ async def retry_rows(s: Any, tools: list[str]) -> None:
     """Install the retried rows one after another. The .venv row builds the environment again (run_venv); any row an
     install left queued (an early return) is settled, so the gate never waits on it (review H3)."""
     for t in tools:
+        if t == KERNEL:
+            await retry_kernel(s)
+            await settle(s, t, failed=True)
+            continue
         if t == VENV:
             job = getattr(s, "_venv_job", None)
             if job is not None:
@@ -374,3 +378,100 @@ async def run_venv(s: Any, folder: str, fn: Callable[[], Any]) -> Any:
                             "error": "Couldn't make the lesson's Python environment. Press Retry, or Continue anyway."})
     await publish(s)
     return made
+
+
+# ------------------------------------------------------------------------- the notebook kernel (user test Nov 26)
+
+KERNEL = "kernel"
+KERNEL_LABEL = "Notebook kernel"
+# installs after which a VS Code notebook lesson checks that its kernel starts in the lesson's .venv
+KERNEL_TOOLS = frozenset({"ipykernel", "jupyter", "notebook", "jupyterlab"})
+
+
+def kernel_repair(folder: str, on_line: Callable[[str], None], cancel: threading.Event | None) -> dict:
+    """server.workspace.setup.repair_kernel: pip install --force-reinstall ipykernel pyzmq (tests replace this)."""
+    from server.workspace import setup as ws_setup
+
+    return ws_setup.repair_kernel(folder, on_line=on_line, cancel=cancel)
+
+
+async def retry_kernel(s: Any) -> None:
+    """Retry on the "Notebook kernel" row. A broken import (ipykernel / zmq there but failing to load): reinstall
+    ipykernel and pyzmq by force, as the row, then check again. Missing: install ipykernel (its install checks the
+    kernel after). Else: check again."""
+    folder = getattr(s, "workdir", None)
+    row = gate(s).rows.get(KERNEL)
+    code = getattr(s, "_kernel_failure", "") or ""
+    if folder and code == "broken_import":
+        g = gate(s)
+        g.start(KERNEL, KERNEL_LABEL)
+        await publish(s)
+        loop = asyncio.get_running_loop()
+
+        def on_line(text: str) -> None:
+            loop.call_soon_threadsafe(lambda: g.line(KERNEL, str(text)[:300]))
+
+        res = dict(await asyncio.to_thread(kernel_repair, folder, on_line, cancel_event(s, KERNEL)))
+        if not res.get("ok"):
+            g.finish(KERNEL, res)
+            await publish(s)
+            return
+        await check_kernel(s)
+        return
+    item = next((it for it in getattr(s, "reqs", None) or [] if it.get("tool") == "ipykernel"), None)
+    if item is not None and code == "missing":
+        await s._install("ipykernel", item=item)  # its install checks the kernel (in the background)
+        await settle(s, "ipykernel")
+        job = getattr(s, "_kernel_job", None)
+        if job is not None:
+            await job
+    if row is None or gate(s).rows[KERNEL].status == QUEUED:
+        await check_kernel(s)
+
+
+def _kernel_applies(s: Any) -> bool:
+    if not getattr(s, "workdir", None) or not applies(s):
+        return False
+    from . import lesson_notebook
+
+    return bool(lesson_notebook.name(s))
+
+
+def check_kernel_soon(s: Any) -> None:
+    """check_kernel in the background (review of #296): Install all goes on to TensorFlow while the kernel loads. The
+    row is queued right away, so the gate never releases between the kernel's install and its check."""
+    spawn = getattr(s, "_spawn", None)
+    if spawn is None or not _kernel_applies(s):
+        return
+    gate(s).queue(KERNEL, KERNEL_LABEL)
+    s._kernel_job = spawn(check_kernel(s))
+
+
+def kernel_probe(folder: str) -> dict:
+    """server.workspace.setup.kernel_check (tests replace this). Blocking."""
+    from server.workspace import setup as ws_setup
+
+    return ws_setup.kernel_check(folder)
+
+
+async def check_kernel(s: Any) -> dict | None:
+    """A VS Code notebook lesson, right after its kernel package installed: can the notebook kernel start in the
+    lesson's .venv (ipykernel and its imports, no kernel started)? A gate row "Notebook kernel": done, or failed with a
+    plain sentence (Retry installs ipykernel again; Continue anyway), so the learner never meets VS Code's "No kernel"
+    picker with nothing said. None when it doesn't apply (not gated, not a VS Code notebook lesson, no folder)."""
+    if not _kernel_applies(s):
+        return None
+    folder = s.workdir
+    g = gate(s)
+    g.start(KERNEL, KERNEL_LABEL)
+    await publish(s)
+    try:
+        res = dict(await asyncio.to_thread(kernel_probe, folder))
+    except Exception as e:  # noqa: BLE001 - kernel_check never raises; belt and braces
+        log.exception("notebook kernel check failed")
+        res = {"ok": False, "errorCode": "unknown", "error": f"Couldn't check the notebook kernel: {e}"}
+    g.finish(KERNEL, res)
+    s._kernel_failure = "" if res.get("ok") else str(res.get("errorCode") or "")
+    log.info("notebook kernel in %s: %s", folder, "ready" if res.get("ok") else res.get("error"))
+    await publish(s)
+    return res

@@ -716,7 +716,7 @@ class Workspace:
             mine = self._key()
             ws.editor.jump(path, line, explicit=explicit, runner=self.run,
                            **({} if real else {"focus": lambda: ("com.microsoft.VSCode", "Code"),
-                                               "window_up": lambda ed: True,
+                                               "window_up": lambda ed: True, "folder_window": lambda folder: True,
                                                "opening": lambda: any(k[0] == mine and st["state"] != "open"
                                                                       for k, st in ws.editor._opened.items())}))
             return
