@@ -77,6 +77,8 @@ export type Goal = {
 }
 export type Plan = { id?: string; title: string; done: number; total: number }
 export type SkillSteps = {
+  /** The skill's id, when the payload names one (the rail opens it on Skills; a label alone is looked up there). */
+  id?: string
   label: string
   done: number
   need: number
@@ -227,7 +229,9 @@ export function readV4(raw: unknown): ProgressPart {
       const label = plain(str(s.label, 80))
       const need = count(s.need)
       if (!label || !need) continue
+      const id = str(s.id, 80)
       skills.push({
+        ...(id ? { id } : {}),
         label,
         done: Math.min(count(s.reps) ?? 0, need),
         need,
@@ -415,7 +419,7 @@ export function fromGraph(g: SkillGraph | undefined, n = 3): { goal?: Goal; near
   const goal: Goal | undefined = g.goal && g.goal.total > 0 ? { title: plain(g.goal.label), mastered: Math.min(g.goal.mastered, g.goal.total), total: g.goal.total } : undefined
   const near = g.nodes
     .filter((s) => s.kind !== 'capstone' && s.state === 'practicing' && s.evidence && s.evidence.done > 0 && s.evidence.done < s.evidence.total)
-    .map((s) => ({ label: plain(s.label), done: s.evidence!.done, need: s.evidence!.total, mastered: false }))
+    .map((s) => ({ id: s.id, label: plain(s.label), done: s.evidence!.done, need: s.evidence!.total, mastered: false }))
     .sort((a, b) => b.done / b.need - a.done / a.need || b.done - a.done)
     .slice(0, n)
   const fresh = g.keepFresh

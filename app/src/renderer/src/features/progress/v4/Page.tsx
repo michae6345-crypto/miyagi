@@ -29,6 +29,8 @@ import { openLauncher } from '../../library/Library'
 import { useLibrary } from '../../library/store'
 import { useAskPlanGoal, usePlanGoal } from '../../skills/planGoal'
 import { useSkillGraph } from '../../skills/store'
+import { showSkill } from '../../skills/go'
+import { openBrowsePlans, openPlan } from '../../plans/store'
 import { setPage } from '../../shell/store'
 import { PageColumn } from '../../shell/ui'
 import { Scroller } from '../../shell/pages/Column'
@@ -506,7 +508,7 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
           <Sec>Closest to mastered</Sec>
           <div className="mg-v4-rows">
             {near.map((s) => (
-              <RRow key={s.label}>
+              <RRow key={s.label} onClick={() => showSkill({ id: s.id, label: s.label })}>
                 {/* Margin, not padding: a line clamp clips at the padding box, so padding let half of a third line show (Progress clip). */}
                 <span title={s.label} style={{ ...rl, ...clamp2, lineHeight: '18px', margin: '6px 0' }}>
                   {s.label}
@@ -522,12 +524,12 @@ function Rail({ data, v4, now, stacked }: { data?: DashData; v4: V4; now: number
       )}
       {v4.plans.length > 0 && (
         <>
-          <Sec link="Browse plans" onLink={() => setPage('lessons')}>
+          <Sec link="Browse plans" onLink={openBrowsePlans}>
             Plans
           </Sec>
           <div className="mg-v4-rows">
             {v4.plans.map((p) => (
-              <RRow key={p.id ?? p.title}>
+              <RRow key={p.id ?? p.title} onClick={p.id ? () => openPlan(p.id!) : undefined}>
                 <span title={p.title} style={rl}>
                   {p.title}
                 </span>
@@ -642,7 +644,7 @@ function FirstMain({ wide }: { wide: boolean }): ReactNode {
           </button>
         ))}
       </div>
-      <Sec link="All plans" onLink={() => setPage('lessons')}>
+      <Sec link="All plans" onLink={openBrowsePlans}>
         Or start a plan
       </Sec>
       <div
@@ -653,7 +655,7 @@ function FirstMain({ wide }: { wide: boolean }): ReactNode {
         }}
       >
         {STARTER_PLANS.map((p) => (
-          <button key={p.id} type="button" onClick={() => setPage('lessons')} className="mg-press flex min-w-0 cursor-pointer flex-col text-left">
+          <button key={p.id} type="button" onClick={() => openPlan(p.id)} className="mg-press flex min-w-0 cursor-pointer flex-col text-left">
             <span className="block w-full">
               <span className="block w-full" style={{ aspectRatio: '16 / 9' }}>
                 <CoverFill kind={p.cover} />

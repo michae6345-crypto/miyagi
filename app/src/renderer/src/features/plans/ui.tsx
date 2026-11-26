@@ -7,6 +7,7 @@ import { ChevronRight, SquarePlay, Sprout } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { color, fill, radius2, surface, type2 } from '../../core/theme'
 import { aboutHours, endsWith, planMinutes, type CatalogPlan } from './catalog'
+import { showSkill, type SkillRef } from '../skills/go'
 import { openDialog, showPlan } from './store'
 import { Thumb, artFor } from './Thumb'
 
@@ -28,12 +29,38 @@ export function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number]
   return [ref, w]
 }
 
-/** A skill the lesson grows: a neutral chip (never a status, never a pastel). */
-export function SkillChip({ children }: { children: ReactNode }): ReactNode {
+/**
+ * A skill the lesson grows: a neutral chip (never a status, never a pastel). With `skill` (its id, or just a label to
+ * look up) it is a button that opens that skill on the Skills page (skills/go.ts showSkill). Inside a clickable row it
+ * stops its click and its keys, so the chip goes to the skill and the row's own action doesn't fire too.
+ */
+export function SkillChip({ children, skill }: { children: ReactNode; skill?: SkillRef }): ReactNode {
+  const look: CSSProperties = { height: 22, padding: '0 6px', borderRadius: radius2.keycap, background: fill.chip, color: color.text, fontSize: type2.sm }
+  if (!skill) {
+    return (
+      <span className="inline-flex shrink-0 items-center whitespace-nowrap" style={look}>
+        {children}
+      </span>
+    )
+  }
+  const label = typeof children === 'string' ? children : skill.label
   return (
-    <span className="inline-flex shrink-0 items-center whitespace-nowrap" style={{ height: 22, padding: '0 6px', borderRadius: radius2.keycap, background: fill.chip, color: color.text, fontSize: type2.sm }}>
+    <button
+      type="button"
+      data-skill-chip={skill.id ?? skill.label ?? ''}
+      aria-label={label ? `${label}. Open in Skills.` : 'Open in Skills'}
+      title={label ? `Open ${label} in Skills` : undefined}
+      onClick={(e) => {
+        e.stopPropagation()
+        showSkill({ id: skill.id, label: skill.label ?? label })
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      // The fill lives in classes (not the inline style) so the hover can change it on any page, not just the Library.
+      className="mg-chip inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap bg-(--f-chip) outline-offset-1 transition-colors hover:bg-(--f-chip-hover) focus-visible:outline-2"
+      style={{ ...look, background: undefined, border: 0, outlineColor: color.text }}
+    >
       {children}
-    </span>
+    </button>
   )
 }
 
@@ -103,22 +130,28 @@ export function TableHead({ cols, template, gap = 16 }: { cols: Array<{ label: s
   )
 }
 
-/** A table row: a hairline under it, a soft fill on hover, the whole row opens its thing. */
-export function TableRow({ template, children, onClick, label, gap = 16, height = 52, data }: { template: string; children: ReactNode; onClick?: () => void; label?: string; gap?: number; height?: number; data?: Record<string, string> }): ReactNode {
+/**
+ * A table row: a hairline under it; with `onClick`, the whole row opens its thing (a soft fill on hover, the focus
+ * ring, Enter and Space, the pointer). A row with nothing to open gets none of those, so it never looks clickable.
+ * Keys pressed on a control inside the row (a skill chip, a button) are that control's, not the row's.
+ */
+export function TableRow({ template, children, onClick, label, gap = 16, height = 52, data, expanded, controls }: { template: string; children: ReactNode; onClick?: () => void; label?: string; gap?: number; height?: number; data?: Record<string, string>; expanded?: boolean; controls?: string }): ReactNode {
   return (
     <div
       role="row"
       tabIndex={onClick ? 0 : undefined}
       aria-label={label}
+      aria-expanded={onClick && expanded !== undefined ? expanded : undefined}
+      aria-controls={onClick && expanded ? controls : undefined}
       onClick={onClick}
       onKeyDown={(e) => {
-        if (onClick && (e.key === 'Enter' || e.key === ' ')) {
+        if (onClick && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
           e.preventDefault()
           onClick()
         }
       }}
-      className={`mg-v4-row grid items-center ${onClick ? 'cursor-pointer' : ''}`}
-      style={{ gridTemplateColumns: template, columnGap: gap, minHeight: height, padding: '6px 0', borderBottom: hair, color: color.text, fontSize: type2.md }}
+      className={`grid items-center ${onClick ? 'mg-v4-row cursor-pointer' : ''}`}
+      style={{ gridTemplateColumns: template, columnGap: gap, minHeight: height, padding: '6px 0', borderBottom: expanded ? 0 : hair, color: color.text, fontSize: type2.md }}
       {...data}
     >
       {children}
