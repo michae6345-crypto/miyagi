@@ -50,15 +50,42 @@ export function keepWorking(): void {
   if (get().open) set({ open: false, dismissed: true })
 }
 
-/** Stop building: the first tap arms it, a second one within STOP_ARM_MS sends end_lesson. */
-export function tapStop(): void {
+/**
+ * The building pill was clicked: the card again, so Stop building is always one click away (a tester, Nov 25, could not
+ * stop a lesson mid-build: after Keep working, or for a build that never opened the card, the pill had no click at all).
+ * It opens before the engine's first lesson.building too (the pill's "Planning your lesson…"): the card shows its frame
+ * and the two actions, and Stop then ends the start the engine has queued or is running (main.py _stop_starts).
+ */
+export function openBuildCard(): void {
+  disarm()
+  set({ open: true, dismissed: false })
+}
+
+/** A confirm this soon after arming is the same double-click, not a second decision. */
+export const CONFIRM_MIN_MS = 350
+
+/**
+ * The second tap of a two-tap stop / end came from one double-click (or arrived too soon to be a second decision):
+ * ignore it. detail: the click's count (2 on a double-click's second click; 0 from the keyboard).
+ */
+export function isRushedConfirm(armedAt: number, now: number, detail?: number): boolean {
+  return now - armedAt < CONFIRM_MIN_MS || (detail ?? 0) > 1
+}
+
+let armedAt = 0
+
+/** Stop building: the first tap arms it, a second one within STOP_ARM_MS (not a double-click) sends end_lesson. */
+export function tapStop(e?: { detail?: number }, now = Date.now()): void {
   if (!get().open) return
   if (!get().armed) {
+    if ((e?.detail ?? 0) > 1) return // the second click of a double-click that armed nothing: never arms by itself
     set({ armed: true })
+    armedAt = now
     clearTimeout(armTimer)
     armTimer = setTimeout(disarm, STOP_ARM_MS)
     return
   }
+  if (isRushedConfirm(armedAt, now, e?.detail)) return
   disarm()
   bridge.send(cmd('end_lesson', {}))
   set({ open: false, dismissed: true })

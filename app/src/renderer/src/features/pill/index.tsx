@@ -46,6 +46,7 @@ import { Kbd, Spinner, StepDots } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Buddy } from '../buddy/store'
 import { useChecking } from '../drawer/v2/view'
+import { openBuildCard } from '../building/store'
 import { BootLine, useLinePhase } from '../errors/boot'
 import { retryBoot, useBoot, useBootClock, useBootInput, useSetupPending } from '../errors/startup'
 import { openPanel } from './panel'
@@ -273,22 +274,32 @@ function Building(): ReactNode {
     !building && !planning && shown.current ? shown.current : planning ? PLANNING : ready ? READY : buildingStage(message ?? kept) || PLANNING
   shown.current = stage
   const text = stageLabel(stage)
+  // A click opens the build card, where Stop building is (a tester, Nov 25: "midway I want to just remove the plan ...
+  // click on it ... it still doesn't do that"). Once the lesson is ready there is nothing left to stop: no click.
   return (
-    <div
-      role="status"
-      aria-label={stage}
-      title={text !== stage ? stage : undefined}
-      className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
+    <button
+      type="button"
+      aria-label={ready ? stage : `${stage}. Open to stop or keep working`}
+      title={text !== stage ? stage : ready ? undefined : 'Stop or keep building'}
+      className={`relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium${ready ? '' : ' cursor-pointer'}`}
       style={{ color: color.text }}
       data-planning={planning || undefined}
+      data-build-pill
+      disabled={ready}
+      // Never takes focus from the app the learner types in (as the launcher's EndLink): the click alone opens the card.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={ready ? undefined : openBuildCard}
     >
+      <span role="status" className="sr-only">
+        {stage}
+      </span>
       <MiyagiMark size={16} className="mr-[8px]" />
       {/* Never cut mid-word (item 9): the slot is always as wide as the stage's words; the island springs around it. */}
       <FitSwap id={text}>{text}</FitSwap>
       {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
       <span className="ml-[15px] flex items-center">{ready ? <StatusMark mark="watching" /> : <Spinner size={16} />}</span>
       <AnimatePresence>{!ready && !planning && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
-    </div>
+    </button>
   )
 }
 

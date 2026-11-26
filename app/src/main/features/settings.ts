@@ -37,7 +37,7 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { cmd } from '../../common/wire'
 import { defineMainFeature } from '../context'
-import { focusPanel, returnFocus } from '../platform'
+import { focusPanel, holdKeyboard, returnFocus } from '../platform'
 import { previousApp } from './front-app'
 import { removeFiles, SIGN_IN_FILES } from './settings/erase'
 
@@ -125,6 +125,9 @@ export default defineMainFeature({
       open = true
       // Key without activating miyagi (platform.ts focusPanel): showInactive, then focus.
       focusPanel(win)
+      // Not key a moment later (the app behind kept the keys, as the launcher saw in Michael's test 10): ask again, as a
+      // panel only. Settings opens with no field focused, so it never activates miyagi (platform.ts keyStep).
+      holdKeyboard(win, { app: ctx.app, isOpen: () => open, fieldFocused: () => false, appWindowOpen: () => false })
       ctx.raise(win)
       // The renderer starts the sheet on this exact shape, then yields the island once it has painted.
       ctx.broadcast('settings:open', { from: ctx.islandSize(), section })

@@ -12,10 +12,10 @@
  *
  * Only the routes in APP_ROUTES open (allowlist). A renderer can't pick a URL, size, or window option.
  */
-import { ipcMain, screen, type App, type BrowserWindow, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, ipcMain, screen, type App, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
 import { windowSize } from '../renderer/src/core/theme'
 import { windowBackground } from './prefs'
-import { appWindowOptions, showInDock } from './platform'
+import { appWindowOptions, holdKeyboard, followsEverySpace, showInDock } from './platform'
 
 /** Route → size (points). The feature's FeatureWindow {kind:'app'} must use the same route. */
 export const APP_ROUTES = {
@@ -61,6 +61,8 @@ export type AppWindows = {
   get(route: string): BrowserWindow | undefined
   /** Is this webContents one of ours (an open app window)? */
   owns(sender: Electron.WebContents): boolean
+  /** Is any app window on screen? Activating miyagi then may switch Spaces to it (platform.ts keyStep). */
+  anyVisible(): boolean
 }
 
 export function setupAppWindows(deps: {
@@ -69,11 +71,27 @@ export function setupAppWindows(deps: {
   create: (route: string, options: BrowserWindowConstructorOptions) => BrowserWindow
   /** Sender check (W0-6): only our own windows' main frames may call these. */
   trusted: (e: IpcMainInvokeEvent) => boolean
+  /** The app in front (bundle id) when known: a keyboard retry stops once the learner went to another app. */
+  frontApp?: () => string | undefined
 }): AppWindows {
   const open = new Map<AppRoute, BrowserWindow>()
   const args = new Map<AppRoute, Record<string, string | number | boolean> | undefined>()
 
   const syncDock = (): void => showInDock(deps.app, open.size > 0)
+
+  /**
+   * An app window is a normal window: bringing it forward is meant to activate miyagi. show() + focus() asks for that, but
+   * when the click came from a non-activating panel (the island, the launcher) the app behind can keep the keyboard, and
+   * typing in Library's fields went to it (a tester, Nov 25: "I can't even type coffee"). Still not key a moment later:
+   * ask again, then activate (holdKeyboard; here activating is the point: it is this very window macOS switches to).
+   */
+  // It stops for good once the window was key, or the learner went to another app (holdKeyboard), so a late retry never
+  // pulls the keyboard back from where they went. A newer show of the same window replaces the older retries.
+  const holding = new WeakMap<BrowserWindow, () => void>()
+  const takeKeys = (win: BrowserWindow): void => {
+    holding.get(win)?.()
+    holding.set(win, holdKeyboard(win, { app: deps.app, isOpen: () => !win.isDestroyed() && win.isVisible(), fieldFocused: () => true, appWindowOpen: () => false, frontApp: deps.frontApp }))
+  }
 
   const routeOf = (sender: Electron.WebContents): AppRoute | undefined => {
     for (const [r, w] of open) if (!w.isDestroyed() && w.webContents === sender) return r
@@ -91,6 +109,7 @@ export function setupAppWindows(deps: {
         if (have.isMinimized()) have.restore()
         have.show()
         have.focus()
+        takeKeys(have)
         return have
       }
       const frame = appWindowFrame(route)
@@ -107,6 +126,7 @@ export function setupAppWindows(deps: {
         if (win.isDestroyed()) return
         win.show()
         win.focus()
+        takeKeys(win)
       })
       win.on('closed', () => {
         if (open.get(route) === win) open.delete(route)
@@ -125,6 +145,7 @@ export function setupAppWindows(deps: {
       if (!w || w.isDestroyed()) return false
       w.show()
       w.focus()
+      takeKeys(w)
       return true
     },
     get(route) {
@@ -132,6 +153,12 @@ export function setupAppWindows(deps: {
     },
     owns(sender) {
       return routeOf(sender) !== undefined
+    },
+    anyVisible() {
+      for (const w of open.values()) if (!w.isDestroyed() && w.isVisible()) return true
+      // Any other normal (non-panel) window on screen counts too (the splash, a window opened outside this map): those
+      // are the ones macOS may switch Spaces to. Panels follow every Space (platform.ts panelType / followSpaces).
+      return BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isVisible() && !followsEverySpace(w))
     }
   }
 

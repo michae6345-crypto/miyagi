@@ -461,7 +461,8 @@ export function Action({
  * the first click arms it ("Tap to end", a little brighter) and a second click while armed ends the lesson. Neutral
  * chrome even when armed: the white button stays the one primary (Continue).
  */
-export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => void }): ReactNode {
+/** building: the lesson has not reached step 1 yet (no lesson loaded): the same two clicks read "Stop building". */
+export function EndLink({ armed, onClick, building = false }: { armed: boolean; onClick: (e?: { detail?: number }) => void; building?: boolean }): ReactNode {
   return (
     <motion.button
       type="button"
@@ -475,12 +476,13 @@ export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => voi
       transition={{ ...fade.tint, scale: spring }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      title={armed ? 'Click again to end the lesson' : 'End this lesson'}
+      title={building ? (armed ? 'Click again to stop building this lesson' : 'Stop building this lesson') : armed ? 'Click again to end the lesson' : 'End this lesson'}
       data-end
+      data-building={building || undefined}
       data-armed={armed || undefined}
     >
       <Square size={10} strokeWidth={2} className="shrink-0" />
-      {armed ? 'Tap to end' : 'End lesson'}
+      {building ? (armed ? 'Tap to stop' : 'Stop building') : armed ? 'Tap to end' : 'End lesson'}
     </motion.button>
   )
 }
