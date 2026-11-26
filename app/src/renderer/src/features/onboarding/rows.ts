@@ -169,7 +169,9 @@ export function summarize(rows: Row[]): Summary {
   const left = rows.filter((r) => r.state !== 'passed' && r.state !== 'unknown')
   const unknown = rows.some((r) => r.state === 'unknown')
   const hint =
-    left.length === 0
+    left.length > 0 && left.every((r) => r.restart)
+      ? 'Restart miyagi to finish.'
+      : left.length === 0
       ? unknown
         ? "miyagi can't check everything from here. You can start."
         : 'All set.'

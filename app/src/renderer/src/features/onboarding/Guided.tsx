@@ -317,8 +317,8 @@ export function Guided({
       }
     // Screen Recording after the click (or a grant only a restart picks up): the primary is Restart; the pane can be
     // opened again from here.
-    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('allow-screen') }
-    if (row.id === 'accessibility' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('open-accessibility') }
+    if (row.id === 'screen' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction(row.restart ? 'open-screen-pane' : 'allow-screen') }
+    if (row.id === 'accessibility' && row.action?.id === 'relaunch') return { label: 'Open System Settings', onClick: () => void runAction('open-accessibility-pane') }
     return undefined
   }, [row, idx, steps, done, go])
 
