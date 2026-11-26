@@ -164,26 +164,7 @@
           "pattern": "waiting\\s*\\.\\s*py"
         }
       ],
-      "precision_checks": [
-        {
-          "id": "s3p1",
-          "type": "file_exists",
-          "label": "hello.md created",
-          "file": "project1/hello.md"
-        },
-        {
-          "id": "s3p2",
-          "type": "file_exists",
-          "label": "learning.py created",
-          "file": "project1/learning.py"
-        },
-        {
-          "id": "s3p3",
-          "type": "file_exists",
-          "label": "waiting.py created",
-          "file": "project1/waiting.py"
-        }
-      ],
+      "precision_checks": [],
       "targets": [
         {
           "app": "Terminal",
@@ -238,15 +219,7 @@
           "pattern": "git\\s+add\\s+learning"
         }
       ],
-      "precision_checks": [
-        {
-          "id": "s4p1",
-          "type": "file_contains",
-          "label": "Print statement in learning.py",
-          "file": "project1/learning.py",
-          "pattern": "print\\s*\\("
-        }
-      ],
+      "precision_checks": [],
       "targets": [
         {
           "app": "Code",
@@ -368,7 +341,7 @@
           "id": "s6p1",
           "type": "file_exists",
           "label": "Cloned repository folder exists",
-          "file": "gitgoing/index.html"
+          "file": "GitGoing/index.html"
         }
       ],
       "targets": [
@@ -476,7 +449,7 @@
           "id": "s8p1",
           "type": "file_contains",
           "label": "Heading updated in index.html",
-          "file": "gitgoing/index.html",
+          "file": "GitGoing/index.html",
           "pattern": "Git\\s+Going"
         }
       ],

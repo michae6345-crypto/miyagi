@@ -65,8 +65,8 @@
    "actions": [
     {"do": "run", "cmd": "code .", "output": []},
     {"do": "write", "file": "project1/learning.py", "text": "print(\"I am learning git!\")\n"},
-    {"do": "mistake", "note": "stages a misspelled path: git add learnig.py (fatal: pathspec)", "caught": false, "caught_by_spec": false,
-     "finding": "s4c2 (git add learning) still passes on s3's `git add learning.py` in the terminal scrollback, so the failed add isn't caught",
+    {"do": "mistake", "note": "stages a misspelled path: git add learnig.py (fatal: pathspec)", "caught": true, "caught_by": ["s4c2"], "caught_by_spec": false,
+     "finding": "the lesson catches it (s4c2 no longer counts s3's `git add learning.py`, which a git status since then lists); the expected check (git add learning.py on screen) still passes on that scrollback",
      "actions": [
       {"do": "run", "cmd": "git add learnig.py", "exit": 128, "output": ["fatal: pathspec 'learnig.py' did not match any files"]}
      ]},
@@ -90,8 +90,7 @@
   },
   {
    "step": "s6", "about": "clone GitGoing and cd into it", "match": "clone",
-   "expect": ["fail", "pass-precision"],
-   "finding": "s6's screen check fails for a correct learner: `git clone .../GitGoing.git` makes GitGoing/ and tab completion types `cd GitGoing`, but s6c2's pattern cd\\s+.*gitgoing is case-sensitive (precision's gitgoing/index.html passes only on a case-insensitive disk, and right after the clone, before the cd)",
+   "finding": "s6c2's pattern cd\\s+.*gitgoing never matches `cd GitGoing`; it passes on what the clone made (GitGoing/index.html, read case-aside), so the step goes green right after the clone, before the cd",
    "expect_checks": [
     {"type": "screen_contains", "app": "Terminal", "pattern": "Cloning into 'GitGoing'"},
     {"type": "file_exists", "file": "GitGoing/index.html"}

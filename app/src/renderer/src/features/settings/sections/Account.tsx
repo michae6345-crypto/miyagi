@@ -145,6 +145,7 @@ function statusOf(state: KeyState | undefined, set: boolean, optional: boolean, 
   if (state === 'ok') return { text: 'Works', c: color.text, glyph: 'tick' }
   if (state === 'invalid') return { text: 'Not yet. Check the key.', c: color.text, glyph: 'ring' }
   if (state === 'env') return { text: `Using ${copy.name}'s key`, c: color.label, glyph: 'tick' }
+  if (state === 'cloud') return { text: 'Using the miyagi cloud', c: color.label, glyph: 'tick' }
   if (set) return { text: 'Saved', c: color.label, glyph: 'tick' }
   if (optional) return { text: 'Optional', c: color.faint }
   return { text: 'Not set', c: color.label, glyph: 'ring' }

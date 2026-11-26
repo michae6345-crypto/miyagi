@@ -1064,7 +1064,7 @@ class LessonEnded(_Model):
 
 
 CloudState = Literal["ok", "missing", "paused", "quota", "unauthorized", "offline", "off"]  # v2: missing = a proxy but no token yet; off = no proxy (BYOK or the engine's .env)
-KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
+KeyState = Literal["ok", "missing", "invalid", "env", "cloud"]  # "env" = the engine's .env; "cloud" = the miyagi cloud
 
 
 # ---------- v2 events (BUILD-PLAN W0-1) ----------

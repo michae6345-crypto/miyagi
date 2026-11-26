@@ -198,7 +198,7 @@ def test_engine_sends_token_invalid_once_and_a_fresh_status(engine):
         tin = next(m for m in ws.sent if m["type"] == "cloud.token_invalid")
         assert tin["payload"] == {"reason": "unknown_token"} and TOKEN not in repr(ws.sent)
         assert engine_message("cloud.token_invalid", tin["payload"]) == tin  # in shared/contracts/events.py
-        ConfigStatus.model_validate({**ws.sent[-1]["payload"], "anthropic": "ok", "gemini": "ok"})  # cloud: a CloudState
+        ConfigStatus.model_validate(ws.sent[-1]["payload"])  # anthropic / gemini "cloud" (a KeyState), cloud a CloudState
         assert ws.sent[-1] == {"type": "config.status", "payload": {**ws.sent[-1]["payload"], "cloud": "unauthorized"}}
         # the app heals: config.keys with a new token -> cloud ok, nothing more about the old one
         await e.dispatch({"type": "config.keys", "payload": {"miyagiCloud": CLOUD, "miyagiToken": TOKEN2}})
