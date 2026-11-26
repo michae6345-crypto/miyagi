@@ -16,6 +16,7 @@ import os
 import re
 
 import anthropic
+import httpx
 from jsonschema import Draft202012Validator
 
 from server import config as server_config
@@ -79,6 +80,11 @@ def escalation_model() -> str:
 
 _client_sig: str | None = None
 
+# A slow or dead network must not hold a build for the SDK default (600 s, 2 retries): every call streams (some with adaptive thinking, whose first byte can be slow), so
+# `read` (120 s) is the longest silence between chunks; connect/write/pool are short. The overall cap is the build deadline (session.py).
+CLIENT_TIMEOUT = httpx.Timeout(120.0, connect=10.0, write=20.0, pool=10.0)
+CLIENT_MAX_RETRIES = 2
+
 
 def client() -> anthropic.AsyncAnthropic:
     """The key from set_api_key, else server.config's (Settings key > miyagi cloud token > .env). A cloud token goes
@@ -88,7 +94,7 @@ def client() -> anthropic.AsyncAnthropic:
     kw = server_config.anthropic_kwargs("lesson", key=_override_key) if _override_key else server_config.anthropic_kwargs("lesson")
     sig = f"{kw.get('api_key')}\n{kw.get('base_url')}"
     if _client is None or sig != _client_sig:
-        _client = anthropic.AsyncAnthropic(**kw)
+        _client = anthropic.AsyncAnthropic(timeout=CLIENT_TIMEOUT, max_retries=CLIENT_MAX_RETRIES, **kw)
         _client_sig = sig
     return _client
 
