@@ -12,7 +12,8 @@
  * (server/workspace/editor.py). Never `osascript … System Events`: that asks for Automation mid-demo.
  * Read when the front app changes, not on a clock (perf lane, Nov 25: two lsappinfo processes every second):
  * NSWorkspaceDidActivateApplicationNotification (systemPreferences.subscribeWorkspaceNotification) and miyagi's own
- * did-become-active / did-resign-active trigger a read, plus a slow SAFETY_MS re-read in case a notification is missed.
+ * did-become-active / did-resign-active trigger a read (and one more LAG_MS later: Launch Services can lag the
+ * notification), plus a slow SAFETY_MS re-read in case a notification is missed.
  * Without the notification (it threw), the old POLL_MS poll. One read at a time (a trigger during a read queues one
  * more), TIMEOUT_MS each. A missing or failing lsappinfo never throws: after MAX_FAILS failures in a row reading stops
  * and the front app stays unknown, which the renderer treats as the lesson's (nothing folds, nothing hides). Windows:
@@ -47,6 +48,8 @@ export type FrontState = {
 const POLL_MS = 1000
 /** With it: still re-read this often, in case a notification was missed. */
 const SAFETY_MS = 10_000
+/** A trigger reads at once and again this much later: Launch Services can lag the activation notification. */
+const LAG_MS = 250
 const TIMEOUT_MS = 800
 const MAX_FAILS = 5
 
@@ -111,6 +114,8 @@ export function watchFront(deps: {
   subscribe: (fn: () => void) => (() => void) | undefined
   pollMs: number
   safetyMs: number
+  /** Each trigger also reads again this much later (Launch Services can lag the notification). 0: no second read. */
+  lagMs?: number
   maxFails: number
   onGiveUp: (err: unknown) => void
 }): () => void {
@@ -119,6 +124,7 @@ export function watchFront(deps: {
   let reading = false
   let again = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let lagTimer: ReturnType<typeof setTimeout> | undefined
   let unsubscribe: (() => void) | undefined
   let every = deps.pollMs
   const run = async (): Promise<void> => {
@@ -151,11 +157,17 @@ export function watchFront(deps: {
   const stop = (): void => {
     stopped = true
     clearTimeout(timer)
+    clearTimeout(lagTimer)
     unsubscribe?.()
     unsubscribe = undefined
   }
   try {
-    unsubscribe = deps.subscribe(() => void run())
+    unsubscribe = deps.subscribe(() => {
+      void run()
+      if (!deps.lagMs) return
+      clearTimeout(lagTimer)
+      lagTimer = setTimeout(() => void run(), deps.lagMs)
+    })
   } catch {
     unsubscribe = undefined
   }
@@ -241,6 +253,7 @@ export default defineMainFeature({
       },
       pollMs: POLL_MS,
       safetyMs: SAFETY_MS,
+      lagMs: LAG_MS,
       maxFails: MAX_FAILS,
       onGiveUp: (err) => {
         last = null

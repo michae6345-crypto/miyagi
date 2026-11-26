@@ -123,7 +123,7 @@ export default defineMainFeature({
       }
       clearTimeout(hideTimer)
       open = true
-      // Key without activating miyagi: show() activated the app, which over a full-screen app switched Spaces.
+      // Key without activating miyagi (platform.ts focusPanel): showInactive, then focus.
       focusPanel(win)
       ctx.raise(win)
       // The renderer starts the sheet on this exact shape, then yields the island once it has painted.

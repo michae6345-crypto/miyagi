@@ -52,7 +52,7 @@ import { CheckingCaption, HintBox, NotYetBox, PassedBody } from './states'
 import { Divider } from './ui'
 import { PageSource } from './Source'
 import { usePanelModel, type PanelModel } from './view'
-import { clampOffset, isDrag, HOME, movedRect, ownsPress, setPanelOffset, usePanelOffset, type Offset } from './drag'
+import { clampOffset, dragClickGuard, isDrag, HOME, movedRect, ownsPress, setPanelOffset, usePanelOffset, type Offset } from './drag'
 
 export type PanelVia = 'edge' | 'pill'
 
@@ -191,7 +191,7 @@ function usePanelDrag(
   const saved = usePanelOffset((s) => s.off)
   const [live, setLive] = useState<Offset | undefined>(undefined)
   const [dragging, setDragging] = useState(false)
-  const moved = useRef(false)
+  const guard = useRef(dragClickGuard()).current
   const area = layout.workArea
   const fit = (o: Offset): Offset => clampOffset(home, o, { x: area.x, y: area.y, w: area.width, h: area.height })
   // A saved spot from a bigger display (or an older layout) still lands on this one.
@@ -203,8 +203,10 @@ function usePanelDrag(
     dragging,
     catcher: dragging && typeof document !== 'undefined' ? createPortal(<div data-grab className="fixed inset-0" style={{ zIndex: 2147483647, cursor: 'grabbing' }} />, document.body) : null,
     onPointerDown: (e) => {
+      // Every press starts clean, a button press too: a drag whose release never reached the header must not eat the
+      // next click (the collapse chevron).
+      guard.press()
       if (e.button !== 0 || ownsPress(e.target)) return
-      moved.current = false
       const el = e.currentTarget as HTMLElement
       const box = el.getBoundingClientRect()
       const k = box.width && el.offsetWidth ? el.offsetWidth / box.width : 1
@@ -214,9 +216,9 @@ function usePanelDrag(
       const move = (m: PointerEvent): void => {
         const dx = (m.clientX - x0) * k
         const dy = (m.clientY - y0) * k
-        if (!moved.current && !isDrag(dx, dy)) return
-        if (!moved.current) {
-          moved.current = true
+        if (!guard.moved && !isDrag(dx, dy)) return
+        if (!guard.moved) {
+          guard.move()
           setDragging(true)
         }
         setLive(fit({ dx: start.dx + dx, dy: start.dy + dy }))
@@ -225,17 +227,17 @@ function usePanelDrag(
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
         window.removeEventListener('pointercancel', up)
-        if (moved.current) setPanelOffset(fit({ dx: start.dx + (u.clientX - x0) * k, dy: start.dy + (u.clientY - y0) * k }))
+        if (guard.moved) setPanelOffset(fit({ dx: start.dx + (u.clientX - x0) * k, dy: start.dy + (u.clientY - y0) * k }))
         setLive(undefined)
         setDragging(false)
+        guard.release()
       }
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
       window.addEventListener('pointercancel', up)
     },
     onClickCapture: (e) => {
-      if (!moved.current) return
-      moved.current = false
+      if (!guard.swallowClick()) return
       e.stopPropagation()
       e.preventDefault()
     },

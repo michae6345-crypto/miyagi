@@ -7,7 +7,7 @@ import { describe, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { watchFront } from '../src/main/features/front-app'
 
-type Opts = { subscribe?: boolean; readMs?: number; fail?: boolean }
+type Opts = { subscribe?: boolean; readMs?: number; fail?: boolean; lagMs?: number }
 function harness(o: Opts = {}): { reads: () => number; fire: () => void; stop: () => void; gaveUp: () => boolean; unsubscribed: () => boolean; overlapped: () => boolean } {
   let reads = 0
   let inFlight = 0
@@ -31,6 +31,7 @@ function harness(o: Opts = {}): { reads: () => number; fire: () => void; stop: (
     },
     pollMs: 30,
     safetyMs: 10_000,
+    lagMs: o.lagMs,
     maxFails: 3,
     onGiveUp: () => void (gaveUp = true)
   })
@@ -86,5 +87,21 @@ describe('front app watch', () => {
     h.fire()
     await sleep(20)
     assert.equal(h.reads(), 1)
+  })
+
+  test('each trigger reads again a moment later (Launch Services can lag the notification)', async () => {
+    const h = harness({ lagMs: 40 })
+    await sleep(10)
+    h.fire()
+    await sleep(15)
+    assert.equal(h.reads(), 2)
+    await sleep(60)
+    assert.equal(h.reads(), 3)
+    // a burst of triggers is one lagged read, not one each
+    h.fire()
+    h.fire()
+    await sleep(80)
+    h.stop()
+    assert.ok(h.reads() <= 6, `read ${h.reads()} times`)
   })
 })

@@ -67,4 +67,18 @@ describe('edit keys', () => {
     assert.equal(lineEnd('ab\ncd', 0), 2)
     assert.equal(lineEnd('ab\ncd', 4), 5)
   })
+
+  test('⇧←/⇧→ move the selection focus, keeping its anchor (selectionDirection)', () => {
+    // forward selection 1..4 (anchor 1, focus 4): ⇧← shrinks it from the end, ⇧→ grows it.
+    assert.deepEqual(editFor('ArrowLeft', shift, 'abcdef', 1, 4, 'forward'), { kind: 'select', from: 1, to: 3, dir: 'forward' })
+    assert.deepEqual(editFor('ArrowRight', shift, 'abcdef', 1, 4, 'forward'), { kind: 'select', from: 1, to: 5, dir: 'forward' })
+    // backward selection 1..4 (anchor 4, focus 1): ⇧← grows it at the start, ⇧→ shrinks it from the start.
+    assert.deepEqual(editFor('ArrowLeft', shift, 'abcdef', 1, 4, 'backward'), { kind: 'select', from: 0, to: 4, dir: 'backward' })
+    assert.deepEqual(editFor('ArrowRight', shift, 'abcdef', 1, 4, 'backward'), { kind: 'select', from: 2, to: 4, dir: 'backward' })
+    // crossing the anchor flips the direction
+    assert.deepEqual(editFor('ArrowLeft', shift, 'abcdef', 2, 3, 'forward'), { kind: 'select', from: 2, to: 2, dir: 'none' })
+    assert.deepEqual(editFor('ArrowRight', shift, 'abcdef', 2, 3, 'backward'), { kind: 'select', from: 3, to: 3, dir: 'none' })
+    // 'none' (the Mac's default) behaves as forward
+    assert.deepEqual(editFor('ArrowRight', shift, 'abcdef', 1, 4), { kind: 'select', from: 1, to: 5, dir: 'forward' })
+  })
 })

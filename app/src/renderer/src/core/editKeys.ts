@@ -18,6 +18,7 @@
  */
 
 export type Mods = { alt: boolean; meta: boolean; shift: boolean; ctrl: boolean }
+export type Dir = 'forward' | 'backward' | 'none'
 export type Edit = { kind: 'delete'; from: number; to: number } | { kind: 'select'; from: number; to: number; dir: 'forward' | 'backward' | 'none' }
 
 const WORD = /[\p{L}\p{N}_]/u
@@ -59,9 +60,10 @@ export function lineEnd(value: string, i: number): number {
 
 /**
  * The edit a key makes in a text field (macOS bindings), or undefined when it makes none here (or isn't an editing
- * key). start/end: the selection (start <= end).
+ * key). start/end: the selection (start <= end); dir: its selectionDirection ('backward': the moving end, the focus,
+ * is `start`; otherwise it is `end`, as on the Mac).
  */
-export function editFor(key: string, mods: Mods, value: string, start: number, end: number): Edit | undefined {
+export function editFor(key: string, mods: Mods, value: string, start: number, end: number, dir: Dir = 'none'): Edit | undefined {
   const len = value.length
   const s = Math.max(0, Math.min(start, len))
   const e = Math.max(s, Math.min(end, len))
@@ -87,7 +89,13 @@ export function editFor(key: string, mods: Mods, value: string, start: number, e
     const step = (i: number): number =>
       mods.meta ? (left ? lineStart(value, i) : lineEnd(value, i)) : mods.alt ? (left ? wordBack(value, i) : wordFwd(value, i)) : left ? charBack(value, i) : charFwd(value, i)
     let next: Edit
-    if (mods.shift) next = left ? { kind: 'select', from: step(s), to: e, dir: 'backward' } : { kind: 'select', from: s, to: step(e), dir: 'forward' }
+    if (mods.shift) {
+      // ⇧ moves the selection's focus and keeps its anchor (selectionDirection says which end is which).
+      const backward = dir === 'backward' && e > s
+      const anchor = backward ? e : s
+      const focus = step(backward ? s : e)
+      next = focus < anchor ? { kind: 'select', from: focus, to: anchor, dir: 'backward' } : { kind: 'select', from: anchor, to: focus, dir: focus === anchor ? 'none' : 'forward' }
+    }
     else if (e > s && !mods.alt && !mods.meta) next = { kind: 'select', from: left ? s : e, to: left ? s : e, dir: 'none' }
     else {
       const at = step(left ? s : e)
@@ -135,7 +143,9 @@ export function installEditKeys(win: Window = window): () => void {
     if (!el || el.readOnly || el.disabled) return
     const start = el.selectionStart ?? 0
     const end = el.selectionEnd ?? start
-    const edit = editFor(e.key, { alt: e.altKey, meta: e.metaKey, shift: e.shiftKey, ctrl: e.ctrlKey }, el.value, start, end)
+    const dir0 = el.selectionDirection
+    const dir: Dir = el.selectionDirection === 'backward' ? 'backward' : el.selectionDirection === 'forward' ? 'forward' : 'none'
+    const edit = editFor(e.key, { alt: e.altKey, meta: e.metaKey, shift: e.shiftKey, ctrl: e.ctrlKey }, el.value, start, end, dir)
     if (!edit) return
     const value = el.value
     let handled = false
@@ -147,7 +157,7 @@ export function installEditKeys(win: Window = window): () => void {
       win.removeEventListener('beforeinput', onBefore, true)
       // The key did something (the normal case) or someone took it: leave it.
       if (handled || e.defaultPrevented || doc.activeElement !== el) return
-      if (el.value !== value || el.selectionStart !== start || el.selectionEnd !== end) return
+      if (el.value !== value || el.selectionStart !== start || el.selectionEnd !== end || el.selectionDirection !== dir0) return
       apply(doc, el, edit)
     }, 0)
   }

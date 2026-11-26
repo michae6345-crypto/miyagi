@@ -119,8 +119,19 @@ describe('overlay focus', () => {
     assert.doesNotMatch(front, /execFile\(\s*'open'/)
   })
 
-  test('the player is a non-activating panel too', () => {
-    const player = code(read('main/features/player.ts'))
-    assert.match(player, /\.\.\.panelType\(\)/)
+  test('every overlay-kind window (launcher, Settings, player) is created as a panel on macOS', () => {
+    const index = code(read('main/index.ts'))
+    assert.match(index, /platform\.os === 'mac' && kind === 'overlay' \? \{ type: 'panel' \}/)
+  })
+
+  test('macOS: a second focusPanel while the first show is still held adds no second listener', () => {
+    asPlatform('darwin', () => {
+      const f = fakeWin({ showsAt: 'later' })
+      focusPanel(f.win)
+      focusPanel(f.win)
+      assert.equal(f.calls.filter((c) => c === 'once:show').length, 1)
+      f.fireShow()
+      assert.equal(f.calls.filter((c) => c === 'focus').length, 1)
+    })
   })
 })

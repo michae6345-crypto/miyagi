@@ -48,6 +48,36 @@ export const ownsPress = (target: EventTarget | null): boolean => {
   return !!el && typeof el.closest === 'function' && !!el.closest('button, a, input, textarea, select, [role="button"]')
 }
 
+/**
+ * Whether a click right after a press was a drag's release (swallow it) or a real click. The release of a drag lands on
+ * the drag catcher, outside the header, so the header's click capture may never see it: the flag is cleared on the next
+ * task after the release, and again on every new press, so the next real click (the collapse chevron) always counts.
+ */
+export function dragClickGuard(defer: (fn: () => void) => void = (fn) => void setTimeout(fn, 0)): {
+  press: () => void
+  move: () => void
+  release: () => void
+  readonly moved: boolean
+  swallowClick: () => boolean
+} {
+  let moved = false
+  return {
+    press: () => void (moved = false),
+    move: () => void (moved = true),
+    release: () => {
+      if (moved) defer(() => (moved = false))
+    },
+    get moved() {
+      return moved
+    },
+    swallowClick: () => {
+      if (!moved) return false
+      moved = false
+      return true
+    }
+  }
+}
+
 // ---- the saved offset ------------------------------------------------------------------------------------------------
 
 const KEY = 'miyagi.panel.offset'
