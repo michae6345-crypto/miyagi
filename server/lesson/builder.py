@@ -938,23 +938,32 @@ def normalize_video_meta(vm: dict) -> dict:
 
 
 def human_error(err: str, meta: dict | None = None) -> str:
-    """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
+    """A sentence a learner can act on, followed by the technical detail (the app shows the first line).
+    A miyagi cloud refusal (miyagi_quota / _auth / _paused / _region) or no connection is the first line on its own, in
+    the cloud's words (config.CLOUD_ERRORS) or the offline line. Gemini is named only when the error came from a Gemini
+    call: with Gemini off (the default, D1) a quota or a failure is Claude's, never "Gemini's" or "both engines"."""
+    if line := claude.user_line(err):
+        return f"{line}\n(no engine could build the lesson) {err[:600]}"
     e = err.lower()
+    gem = "gemini" in e and "gemini_disabled" not in e and "gemini is off" not in e
     why = []
     if "gemini budget" in e:
         why.append("today's Gemini budget is used up")
-    billing = "402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e or "billing" in e
+    billing = gem and ("402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e
+                       or "billing" in e)
     if billing:
         why.append("Gemini credits are used up (top up at ai.studio/projects)")
-    elif "quota" in e or "resource_exhausted" in e:
+    elif gem and ("quota" in e or "resource_exhausted" in e):
         why.append("Gemini's quota is used up")
+    elif "quota" in e or "resource_exhausted" in e or "claude rate-limited" in e:
+        why.append("the model is busy right now")
     blocked = "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e or "caption" in e)
     if blocked:
         why.append("YouTube is blocking transcripts on this network")
     elif "no transcript" in e:
         why.append("the video's captions couldn't be read")
     if "no answer within" in e and not billing:
-        why.append("Gemini didn't finish watching in time")
+        why.append("Gemini didn't finish watching in time" if gem else "the build ran out of time")
     if ("api key" in e or "unauthenticated" in e or "permission_denied" in e) and not billing:
         why.append("an API key was rejected")
     length = (meta or {}).get("length_s")
@@ -965,11 +974,14 @@ def human_error(err: str, meta: dict | None = None) -> str:
         tip = " Try a shorter video from the same search."
     else:
         tip = ""
-    return f"{head}: {' and '.join(why) or 'both engines failed'}.{tip}\n(no engine could build the lesson) {err[:600]}"
+    fallback = "both engines failed" if gem else "the lesson builder hit a problem"
+    return f"{head}: {' and '.join(why) or fallback}.{tip}\n(no engine could build the lesson) {err[:600]}"
 
 
 def _short_reason(err: str) -> str:
     e = err.lower()
+    if claude.user_line(err):  # a miyagi cloud refusal or no connection: not a Gemini quota or key problem
+        return "cloud"
     if "gemini budget" in e:
         return "budget"
     if "gemini_disabled" in e or "gemini is off" in e:

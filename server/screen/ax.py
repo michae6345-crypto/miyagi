@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 import Quartz
 from AppKit import NSRunningApplication, NSWorkspace
 
+from .health import bundled_app
 from .types import Rect
 
 try:  # pyobjc-framework-ApplicationServices (declared in server/pyproject.toml); a stale venv can lack it
@@ -37,13 +38,20 @@ else:
 
 log = logging.getLogger("server.screen.ax")
 
-AX_HELP = (
-    "Accessibility access is off, so the engine can't read the editor/terminal directly "
-    "(falling back to OCR). Grant it:\n"
-    "  System Settings > Privacy & Security > Accessibility > enable the app that runs the engine\n"
-    "  (Claude / Terminal / iTerm2 / our Electron app), then restart the engine.\n"
-    "In VS Code also set \"editor.accessibilitySupport\": \"on\" (never click 'No' on its screen-reader prompt)."
-)
+def ax_help() -> str:
+    """What to grant when Accessibility is off. Inside miyagi.app (MIYAGI_BUNDLED_PYTHON) the grant is miyagi's, never
+    python3.12 or a Terminal; a dev engine started from a shell needs it on the app that runs it."""
+    if bundled_app():
+        who = "  System Settings > Privacy & Security > Accessibility > turn on miyagi, then reopen miyagi.\n"
+    else:
+        who = ("  System Settings > Privacy & Security > Accessibility > enable the app that runs the engine\n"
+               "  (Claude / Terminal / iTerm2 / our Electron app), then restart the engine.\n")
+    return ("Accessibility access is off, so the engine can't read the editor/terminal directly "
+            "(falling back to OCR). Grant it:\n" + who
+            + "In VS Code also set \"editor.accessibilitySupport\": \"on\" (never click 'No' on its screen-reader prompt).")
+
+
+AX_HELP = ax_help()  # the app sets MIYAGI_BUNDLED_PYTHON before the engine starts: fixed per process
 
 ELECTRON_EDITORS = {"com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.visualstudio.code.oss",
                     "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf", "com.vscodium"}
@@ -827,8 +835,8 @@ class AXReader:
     def start(self) -> AXReader:
         self.available = trusted()
         if not self.available:
-            self.last_error = AX_HELP
-            log.warning(AX_HELP)
+            self.last_error = ax_help()
+            log.warning(self.last_error)
             return self
         if self._thread and self._thread.is_alive():
             return self

@@ -25,8 +25,48 @@ def test_display_changed():
     assert health.display_changed(a, (0.0, 0.0, 1920.0, 1080.0))
 
 
-def test_permission_hint_names_the_python_binary():
+def test_permission_hint_names_the_python_binary(monkeypatch):
+    monkeypatch.delenv(health.BUNDLED_ENV, raising=False)  # a dev engine started from a shell
     assert health.engine_binary() in health.permission_hint()
+
+
+BUNDLED = "/Applications/miyagi.app/Contents/Resources/python/bin/python3.12"
+
+
+def _hints() -> dict[str, str]:
+    from server.orchestrator.session import LessonSession as Session
+    from server.screen import types as screen_types
+
+    return {"permission_hint": health.permission_hint(), "accessibility_hint": health.accessibility_hint(),
+            "permission_help": screen_types.permission_help(), "error": str(screen_types.ScreenPermissionError()),
+            **{f"toast {r}": Session.screen_down_message(r) for r in ("no_permission", "no_accessibility", "other")}}
+
+
+def test_inside_miyagi_app_the_hints_name_miyagi_not_python_or_terminal(monkeypatch):
+    """MIYAGI_BUNDLED_PYTHON (the app's localEngine.ts): macOS lists the grant under miyagi, so that is what to turn on."""
+    monkeypatch.setenv(health.BUNDLED_ENV, BUNDLED)
+    for name, text in _hints().items():
+        assert "miyagi" in text and "System Settings" in text, name
+        assert "python3" not in text.lower() and "Terminal" not in text and "iTerm" not in text, (name, text)
+        assert "Miyagi" not in text and "—" not in text, name  # lowercase miyagi, no em dash
+
+
+def test_a_dev_engine_still_says_which_program_needs_the_grant(monkeypatch):
+    monkeypatch.delenv(health.BUNDLED_ENV, raising=False)
+    hints = _hints()
+    assert health.engine_binary() in hints["permission_hint"] and "Terminal" in hints["permission_help"]
+    assert all("Miyagi" not in t for t in hints.values())
+
+
+@mac
+def test_inside_miyagi_app_the_accessibility_help_names_miyagi(monkeypatch):
+    from server.screen import ax
+
+    monkeypatch.setenv(health.BUNDLED_ENV, BUNDLED)
+    text = ax.ax_help()
+    assert "turn on miyagi" in text and "Terminal" not in text and "python3" not in text
+    monkeypatch.delenv(health.BUNDLED_ENV)
+    assert "Terminal" in ax.ax_help()
 
 
 def _reader(monkeypatch, thumbs, screens=None):
