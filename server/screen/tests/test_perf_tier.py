@@ -81,7 +81,7 @@ def test_ax_reader_slows_down_when_nothing_changes_and_snaps_back():
 def test_ax_reader_keeps_full_rate_while_a_typing_pause_is_pending():
     from server.screen.ax import AXReader, AXSnapshot, EditorState
     r = AXReader(profile=P.profile_for(8 * GB, 2))
-    ed = lambda text: EditorState(text, 1, 0, 0, 1, None, None)  # noqa: E731
+    ed = lambda text: EditorState(text, 1, 0, 0, 1, None, None)
     a = AXSnapshot(t=0, app="Code", bundle_id=None, pid=1, editor=ed("x"))
     b = AXSnapshot(t=0, app="Code", bundle_id=None, pid=1, editor=ed("xy"))
     r._step(lambda: a, 0.0)
@@ -95,7 +95,7 @@ def test_element_under_a_still_pointer_is_read_once_per_ttl(monkeypatch):
     from server.screen import ax
     monkeypatch.setattr(ax, "_under_cache", (0.0, None, None))
     reads = []
-    read = lambda x, y: reads.append((x, y)) or f"el@{x},{y}"  # noqa: E731
+    read = lambda x, y: reads.append((x, y)) or f"el@{x},{y}"
     assert ax._under_mouse((5, 5), now=100.0, read=read) == "el@5,5"
     assert ax._under_mouse((5, 5), now=100.5, read=read) == "el@5,5"
     assert len(reads) == 1

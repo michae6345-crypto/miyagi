@@ -89,7 +89,7 @@ def ax_period(profile: PerfProfile, idle_for: float, saving: bool = False) -> fl
 
 def _sysctl_int(name: str) -> int | None:
     try:
-        out = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=2).stdout.strip()
+        out = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=2, check=False).stdout.strip()
         return int(out) if out else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
@@ -141,7 +141,7 @@ def _low_power_mode() -> bool:
 
 def _on_battery() -> bool:
     try:
-        out = subprocess.run(["pmset", "-g", "ps"], capture_output=True, text=True, timeout=2).stdout
+        out = subprocess.run(["pmset", "-g", "ps"], capture_output=True, text=True, timeout=2, check=False).stdout
         return "Battery Power" in out
     except (OSError, subprocess.SubprocessError):
         return False
