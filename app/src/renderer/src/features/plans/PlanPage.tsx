@@ -10,24 +10,32 @@
  * A plan the learner made (from a playlist or a goal) uses the same page with the lessons its PlanState carries. A
  * plan the learner has marks its passed lessons and starts any lesson with plan: {id, index} (store.ts startLesson).
  */
-import { Check, Circle, Eye, Flag, GitFork, List, Play, SquarePlay, SquareTerminal, ChevronRight } from 'lucide-react'
+import { Check, Eye, Flag, GitFork, List, Play, SquarePlay, SquareTerminal, ChevronRight } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import type { PlanState } from '../../../../../../shared/contracts/events'
+import type { PlanLessonState, PlanState } from '../../../../../../shared/contracts/events'
+import { useLesson } from '../../core/lesson'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
-import { color, radius2, type2 } from '../../core/theme'
+import { color, copy, radius2, type2 } from '../../core/theme'
 import { PageHeader } from '../shell/ui'
 import { aboutHours, checkedBy, nextPlans, planById, planMinutes, playlistInfoFromCatalog, playlistsFor, skillLabel, type CatalogPlan } from './catalog'
 import { addPlaylistPlan, myPlan, removePlan, showPlan, startLesson, startNext, startPlan, usePlans } from './store'
 import { artFor, artForId, Thumb, type Art } from './Thumb'
 import { hair, meta, SectionLabel, SkillChip, TableHead, TableRow, useWidth } from './ui'
+import { lessonGate, rowLabel } from './lessonRow'
 
-/** One row of the lessons table: a catalog lesson, or a lesson of the learner's plan (PlanState). */
-type Row = { title: string; passes?: string; grows: string[]; steps?: number; minutes?: number; passed: boolean }
-type Page = { id: string; title: string; line?: string; tool?: string; lessons: Row[]; ends?: string; checked?: string; skills: string[]; art: Art; plan?: CatalogPlan }
+/**
+ * One row of the lessons table: a catalog lesson, or a lesson of the learner's plan (PlanState). `grows`: skill ids.
+ * `startable`: it has something to start from (a saved lesson, a video, a goal to build it from).
+ */
+type Row = { title: string; passes?: string; grows: string[]; steps?: number; minutes?: number; passed: boolean; state?: PlanLessonState; startable: boolean }
+type Page = { id: string; title: string; line?: string; tool?: string; lessons: Row[]; ends?: string; checked?: string; skills: Array<{ id: string; label: string }>; art: Art; plan?: CatalogPlan }
 
 function fromPlan(p: CatalogPlan, mine: PlanState | undefined): Page {
-  const lessons = p.lessons.map((l, i) => ({ title: l.title, passes: l.passes, grows: l.grows, steps: l.steps, minutes: l.minutes, passed: mine?.lessons[i]?.state === 'done' }))
-  return { id: p.id, title: p.title, line: p.line, tool: [p.tool.label, ...p.also].join(' · '), lessons, ends: p.project.title, checked: checkedBy(p), skills: p.skills.map((s) => s.label), art: artFor(p), plan: p }
+  const lessons = p.lessons.map((l, i) => {
+    const m = mine?.lessons[i]
+    return { title: l.title, passes: l.passes, grows: l.grows, steps: l.steps, minutes: l.minutes, passed: m?.state === 'done', state: m?.state, startable: !!(l.goal || m?.libraryId || m?.videoId || m?.goal) }
+  })
+  return { id: p.id, title: p.title, line: p.line, tool: [p.tool.label, ...p.also].join(' · '), lessons, ends: p.project.title, checked: checkedBy(p), skills: p.skills.map((s) => ({ id: s.id, label: s.label })), art: artFor(p), plan: p }
 }
 
 /** A plan's picture when it has no catalog plan: from its tool (a Blender playlist draws the mug). */
@@ -44,8 +52,9 @@ export function artForState(m: PlanState): Art {
 }
 
 function fromMine(m: PlanState): Page {
-  const lessons = m.lessons.map((l) => ({ title: l.title, passes: l.passes, grows: l.skillIds ?? [], steps: l.stepCount, minutes: l.minutes ?? (l.seconds ? Math.round(l.seconds / 60) : undefined), passed: l.state === 'done' }))
-  const skills = [...new Set(lessons.flatMap((l) => l.grows.map((g) => skillLabel(g) ?? '')).filter(Boolean))]
+  const lessons = m.lessons.map((l) => ({ title: l.title, passes: l.passes, grows: l.skillIds ?? [], steps: l.stepCount, minutes: l.minutes ?? (l.seconds ? Math.round(l.seconds / 60) : undefined), passed: l.state === 'done', state: l.state, startable: !!(l.libraryId || l.videoId || l.goal) }))
+  const ids = [...new Set(lessons.flatMap((l) => l.grows))]
+  const skills = ids.map((id) => ({ id, label: skillLabel(id) ?? '' })).filter((s) => s.label)
   return { id: m.id, title: m.title, line: m.goal, tool: m.tool?.label, lessons, ends: m.project?.title, skills, art: artForState(m) }
 }
 
@@ -97,7 +106,9 @@ export function PlanPage({ id }: { id: string }): ReactNode {
             'Grows',
             <span key="g" className="flex flex-wrap gap-[6px]">
               {page.skills.map((s) => (
-                <SkillChip key={s}>{s}</SkillChip>
+                <SkillChip key={s.id} skill={s}>
+                  {s.label}
+                </SkillChip>
               ))}
             </span>
           ] as [ReactNode, string, ReactNode]
@@ -135,7 +146,16 @@ export function PlanPage({ id }: { id: string }): ReactNode {
         <SectionLabel count={page.lessons.length} right={<span style={meta}>{aboutHours(minutes)}</span>}>
           Lessons
         </SectionLabel>
-        <LessonTable lessons={page.lessons} narrow={narrow} onStart={mine ? (i) => startLesson(mine, i) : undefined} />
+        <LessonTable
+          key={page.id}
+          lessons={page.lessons}
+          narrow={narrow}
+          tool={page.tool}
+          onStart={(i) => {
+            if (mine) startLesson(mine, i)
+            else if (plan) startPlan(plan, i)
+          }}
+        />
       </section>
 
       {plan && (
@@ -169,7 +189,13 @@ function RemoveButton({ id }: { id: string }): ReactNode {
   )
 }
 
-function LessonTable({ lessons, narrow, onStart }: { lessons: Row[]; narrow: boolean; onStart?: (i: number) => void }): ReactNode {
+/**
+ * The plan's lessons. Every row opens in place (Michael, Nov 25: "these aren't clickable"): what it passes on, the
+ * skills it grows (each one opens on Skills), its size, and Start lesson. A plan lesson starts with plan: {id, index}
+ * (a plan not added yet is added first: store.ts startPlan). A lesson that can't start says why in one calm line.
+ */
+function LessonTable({ lessons, narrow, tool, onStart }: { lessons: Row[]; narrow: boolean; tool?: string; onStart: (i: number) => void }): ReactNode {
+  const [open, setOpen] = useState<number | null>(null)
   const template = narrow ? '28px minmax(0,1fr) 56px' : '28px minmax(0,1.15fr) minmax(0,2.3fr) minmax(0,0.95fr) 44px 56px'
   const cols = narrow
     ? [{ label: '' }, { label: 'Lesson' }, { label: 'Time', align: 'right' as const }]
@@ -177,33 +203,87 @@ function LessonTable({ lessons, narrow, onStart }: { lessons: Row[]; narrow: boo
   return (
     <div role="table" aria-label="Lessons">
       <TableHead cols={cols} template={template} />
-      {lessons.map((l, i) => (
-        <TableRow key={`${i}-${l.title}`} template={template} label={onStart ? `Start ${l.title}` : l.title} height={52} onClick={onStart ? () => onStart(i) : undefined} data={{ 'data-plan-lesson': String(i + 1) }}>
-          <span style={{ ...meta, display: 'flex' }}>
-            {l.passed ? (
-              <span aria-label="Passed" className="flex items-center justify-center" style={{ width: 16, height: 16, borderRadius: radius2.round, background: color.green, color: color.onGreen }}>
-                <Check size={11} strokeWidth={3} />
+      {lessons.map((l, i) => {
+        const on = open === i
+        const pid = `plan-lesson-${i + 1}`
+        return (
+          <div key={`${i}-${l.title}`} data-plan-lesson-open={on ? '' : undefined}>
+            <TableRow template={template} label={rowLabel(l.title, i + 1, on)} height={52} onClick={() => setOpen(on ? null : i)} expanded={on} controls={pid} data={{ 'data-plan-lesson': String(i + 1) }}>
+              <span style={{ ...meta, display: 'flex' }}>
+                {l.passed ? (
+                  <span aria-label="Passed" className="flex items-center justify-center" style={{ width: 16, height: 16, borderRadius: radius2.round, background: color.green, color: color.onGreen }}>
+                    <Check size={11} strokeWidth={3} />
+                  </span>
+                ) : (
+                  i + 1
+                )}
               </span>
-            ) : (
-              i + 1
-            )}
-          </span>
-          <span style={{ fontWeight: 600, lineHeight: '20px' }}>{l.title}</span>
-          {!narrow && <span style={{ ...meta, fontSize: type2.md, lineHeight: '20px' }}>{l.passes ?? ''}</span>}
-          {!narrow && (
-            <span className="flex flex-wrap gap-[4px]">
-              {l.grows
-                .map((g) => skillLabel(g))
-                .filter((g): g is string => !!g)
-                .map((g) => (
-                  <SkillChip key={g}>{g}</SkillChip>
-                ))}
-            </span>
-          )}
-          {!narrow && <span style={{ ...meta, textAlign: 'right' }}>{l.steps ?? ''}</span>}
-          <span style={{ ...meta, textAlign: 'right' }}>{l.minutes !== undefined ? `${l.minutes} min` : ''}</span>
-        </TableRow>
+              <span style={{ fontWeight: 600, lineHeight: '20px' }}>{l.title}</span>
+              {!narrow && <span style={{ ...meta, fontSize: type2.md, lineHeight: '20px' }}>{l.passes ?? ''}</span>}
+              {!narrow && <Grows ids={l.grows} />}
+              {!narrow && <span style={{ ...meta, textAlign: 'right' }}>{l.steps ?? ''}</span>}
+              <span style={{ ...meta, textAlign: 'right' }}>{l.minutes !== undefined ? `${l.minutes} min` : ''}</span>
+            </TableRow>
+            {on && <LessonPreview id={pid} lesson={l} narrow={narrow} tool={tool} onStart={() => onStart(i)} onClose={() => setOpen(null)} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** A lesson's skills as chips that open on Skills (an id the catalog can't name is left out). */
+function Grows({ ids }: { ids: string[] }): ReactNode {
+  const known = ids.map((id) => ({ id, label: skillLabel(id) })).filter((s): s is { id: string; label: string } => !!s.label)
+  return (
+    <span className="flex flex-wrap gap-[4px]">
+      {known.map((s) => (
+        <SkillChip key={s.id} skill={s}>
+          {s.label}
+        </SkillChip>
       ))}
+    </span>
+  )
+}
+
+/** An opened lesson row: the check it passes on, its skills, its size, and the one way to start it (or why not yet). */
+function LessonPreview({ id, lesson, narrow, tool, onStart, onClose }: { id: string; lesson: Row; narrow: boolean; tool?: string; onStart: () => void; onClose: () => void }): ReactNode {
+  const connected = useLesson((s) => s.connected)
+  const gate = lessonGate(lesson, { connected, name: copy.name })
+  const size = [lesson.steps ? `${lesson.steps} steps` : '', lesson.minutes !== undefined ? `${lesson.minutes} min` : '', tool ? `in ${tool.split(' · ')[0]}` : ''].filter(Boolean).join(' · ')
+  return (
+    <div
+      id={id}
+      role="region"
+      aria-label={lesson.title}
+      data-plan-lesson-preview
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          onClose()
+        }
+      }}
+      className="flex flex-col"
+      style={{ gap: 12, padding: narrow ? '4px 0 16px 0' : '4px 0 18px 44px', borderBottom: hair }}
+    >
+      {/* The wide table already shows Passes when and Grows in the row; a narrow one hides them, so they show here. */}
+      {narrow && lesson.passes && (
+        <p className="m-0" style={{ fontSize: type2.md, lineHeight: '20px', color: color.text, maxWidth: 620 }}>
+          <span style={{ ...meta, marginRight: 8 }}>Passes when</span>
+          {lesson.passes}
+        </p>
+      )}
+      {narrow && lesson.grows.length > 0 && <Grows ids={lesson.grows} />}
+      <div className="flex flex-wrap items-center" style={{ gap: 14 }}>
+        <QuietButton label={gate.label} icon={Play} disabled={!gate.can} onClick={onStart} />
+        {gate.why ? (
+          <span role="status" style={meta}>
+            {gate.why}
+          </span>
+        ) : (
+          size && <span style={meta}>{size}</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -226,8 +306,9 @@ function Project({ plan }: { plan: CatalogPlan }): ReactNode {
       </p>
       <ul className="m-0 flex list-none flex-col p-0" style={{ marginTop: 12 }}>
         {plan.project.checks.map((c) => (
-          <li key={c} className="flex items-center gap-[10px]" style={{ minHeight: 34, borderBottom: hair, fontSize: type2.md, color: color.text }}>
-            <Circle aria-hidden size={15} strokeWidth={1.5} style={{ color: color.faint, flexShrink: 0 }} />
+          <li key={c} className="flex items-center gap-[12px]" style={{ minHeight: 34, borderBottom: hair, fontSize: type2.md, color: color.text }}>
+            {/* A plain bullet, not an empty circle: an empty circle read as a checkbox to tick (Nov 25 audit). */}
+            <span aria-hidden style={{ width: 4, height: 4, borderRadius: radius2.round, background: color.faint, flexShrink: 0, marginLeft: 5 }} />
             {c}
           </li>
         ))}
@@ -267,7 +348,10 @@ function Videos({ plan }: { plan: CatalogPlan }): ReactNode {
           right={`${l.channel} · ${l.videoCount} videos`}
           onClick={() => {
             const info = playlistInfoFromCatalog(l)
-            if (info.proposal) addPlaylistPlan({ playlistId: l.playlistId, url: l.url }, info.proposal, false)
+            if (!info.proposal) return
+            addPlaylistPlan({ playlistId: l.playlistId, url: l.url }, info.proposal, false)
+            // Land on the plan it made (its lessons, Start plan), not back on the Library list.
+            showPlan(`pl-${l.playlistId}`)
           }}
         />
       ))}

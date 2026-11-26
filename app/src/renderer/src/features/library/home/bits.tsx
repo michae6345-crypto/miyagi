@@ -46,9 +46,17 @@ export function Bar({ fraction, green, width, label }: { fraction: number; green
 }
 
 /** A gray tag (a skill's name): no hue, it's a label, not an option. */
-export function Tag({ children }: { children: ReactNode }): ReactNode {
+export function Tag({ children, onClick, label }: { children: ReactNode; onClick?: () => void; label?: string }): ReactNode {
+  const s: CSSProperties = { height: 20, padding: '0 6px', borderRadius: 4, fontSize: T.small, lineHeight: '20px', color: color.text, whiteSpace: 'nowrap' }
+  // With onClick (a skill tag outside a clickable row): a button with a hover fill and the focus ring.
+  if (onClick)
+    return (
+      <button type="button" aria-label={label} title={label} onClick={onClick} className="inline-flex max-w-full cursor-pointer items-center truncate outline-offset-1 hover:underline focus-visible:outline-2" style={{ ...s, border: 0, background: tagBg, outlineColor: color.text }}>
+        {children}
+      </button>
+    )
   return (
-    <span className="inline-flex max-w-full items-center truncate" title={typeof children === 'string' ? children : undefined} style={{ height: 20, padding: '0 6px', borderRadius: 4, fontSize: T.small, lineHeight: '20px', background: tagBg, color: color.text, whiteSpace: 'nowrap' }}>
+    <span className="inline-flex max-w-full items-center truncate" title={typeof children === 'string' ? children : undefined} style={{ ...s, background: tagBg }}>
       {children}
     </span>
   )

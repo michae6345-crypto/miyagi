@@ -18,6 +18,8 @@ import { openOnboarding } from '../../../core/surfaces'
 import { color, fill } from '../../../core/theme'
 import { QuietButton } from '../../../core/ui/buttons'
 import { setPage } from '../../shell/store'
+import { openBrowsePlans, openPlan } from '../../plans/store'
+import { showSkill as openSkill } from '../../skills/go'
 import { Pane } from '../layout'
 import { openDetail, setSection } from '../store'
 import { Bar, Check, Chev, Hollow, RailRow, RowBtn, Sec, T, Tag, WeekChart, hair, muted, rowCss } from './bits'
@@ -62,12 +64,12 @@ function Plans({ m }: { m: HomeModel }): ReactNode {
   if (!m.plans.length) return null
   return (
     <section aria-labelledby="home-plans" data-home-plans>
-      <Sec id="home-plans" link="Browse plans" onLink={() => setSection('library')}>
+      <Sec id="home-plans" link="Browse plans" onLink={openBrowsePlans}>
         Plans
       </Sec>
       <div className="mg-h4-list">
         {m.plans.map((p) => (
-          <RowBtn key={p.id} cols="minmax(0,1.25fr) 130px minmax(0,1fr) 14px" label={`${p.title}, ${p.done} of ${p.total}${p.next ? `, next ${p.next}` : ''}`} onClick={() => setSection('library')} data={{ 'data-plan': p.id }}>
+          <RowBtn key={p.id} cols="minmax(0,1.25fr) 130px minmax(0,1fr) 14px" label={`${p.title}, ${p.done} of ${p.total}${p.next ? `, next ${p.next}` : ''}`} onClick={() => openPlan(p.id)} data={{ 'data-plan': p.id }}>
             <b className="line-clamp-2" title={p.title} style={{ fontWeight: 550, color: color.text, lineHeight: 1.3, padding: '6px 0' }}>
               {p.title}
             </b>
@@ -171,7 +173,15 @@ function Passed({ m, now }: { m: HomeModel; now: number }): ReactNode {
                     </b>
                   </span>
                 </td>
-                {showSkill && <td style={{ ...c, overflow: 'hidden' }}>{p.skill && <Tag>{p.skill}</Tag>}</td>}
+                {showSkill && (
+                  <td style={{ ...c, overflow: 'hidden' }}>
+                    {p.skill && (
+                      <Tag label={`Open ${p.skill} in Skills`} onClick={() => openSkill({ label: p.skill })}>
+                        {p.skill}
+                      </Tag>
+                    )}
+                  </td>
+                )}
               </tr>
             )
           })}

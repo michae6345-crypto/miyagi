@@ -40,6 +40,7 @@ import { layoutCols, type ColKey, type ColsLayout } from './tableCols'
 import { aboutHours, FIRST_RUN, NEXT_UP, planById, planForLesson, PLANS, planShort, skillLabel, START_HERE, type CatalogPlan } from '../plans/catalog'
 import { PlanDialogs } from '../plans/Dialogs'
 import { primeSkills, useSkills } from '../skills/store'
+import { showSkill } from '../skills/go'
 import { artForState, PlanPage, planTrail } from '../plans/PlanPage'
 import { PlansPage } from '../plans/PlansPage'
 import { loadPlans, openDialog, showLibrary, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
@@ -125,10 +126,11 @@ function useKnownSkills(): Map<string, string> {
 }
 /** The skills a lesson grows: its own `teaches`, else the plan lesson's skillIds, named by the catalog or the engine's
  *  progress snapshot. An id neither knows is left out (a raw id's last segment read as chips like "Wt" or "Vec"). */
-const growsOf = (i: Item, known?: Map<string, string>): string[] =>
+type Grow = { id: string; label: string }
+const growsOf = (i: Item, known?: Map<string, string>): Grow[] =>
   (i.teaches?.length ? i.teaches : (i.lesson?.skillIds ?? []))
-    .map((id) => skillLabel(id) ?? known?.get(id))
-    .filter((l): l is string => !!l)
+    .map((id) => ({ id, label: skillLabel(id) ?? known?.get(id) ?? '' }))
+    .filter((g) => !!g.label)
     .slice(0, 2)
 /** Works in: the lesson's tool, else its plan's (a Blender or FreeCAD plan lesson has no LessonTool of its own). */
 const toolOf = (i: Item): string => (i.tools[0] ? TOOL_NAME[i.tools[0]] : (i.plan?.tool?.label ?? planOf(i)?.tool.label ?? ''))
@@ -217,7 +219,7 @@ function measureCols(items: Item[], width: number, known: Map<string, string>): 
       tool: max('tool', (i) => metaWidth(toolOf(i))),
       grows: max('grows', (i) => {
         const g = growsOf(i, known)
-        return g.length ? g.reduce((n, t) => n + chipWidth(t), 0) + CHIP_GAP * (g.length - 1) : 0
+        return g.length ? g.reduce((n, t) => n + chipWidth(t.label), 0) + CHIP_GAP * (g.length - 1) : 0
       }),
       time: max('time', (i) => (i.estMinutes ? metaWidth(`${i.estMinutes} min`) : 0)),
       progress: max('progress', (i) => {
@@ -252,20 +254,35 @@ function SiteBadge({ item }: { item: Item }): ReactNode {
   )
 }
 
-/** A Grows chip in a table cell: SkillChip's look, but it truncates instead of spilling over the next column. */
-function GrowChip({ children, max }: { children: string; max?: number }): ReactNode {
+/**
+ * A Grows chip in a table cell: SkillChip's look, but it truncates instead of spilling over the next column. It opens
+ * that skill on Skills (skills/go.ts); its click and keys stay its own, so the row's preview doesn't open too.
+ */
+function GrowChip({ skill, max }: { skill: Grow; max?: number }): ReactNode {
   return (
-    <span title={children} className="inline-block min-w-0 truncate" style={{ height: 22, lineHeight: '22px', padding: '0 6px', maxWidth: max, borderRadius: radius2.keycap, background: fill.chip, color: color.text, fontSize: type2.sm }}>
-      {children}
-    </span>
+    <button
+      type="button"
+      data-skill-chip={skill.id}
+      title={`Open ${skill.label} in Skills`}
+      aria-label={`${skill.label}. Open in Skills.`}
+      onClick={(e) => {
+        e.stopPropagation()
+        showSkill(skill)
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      className="inline-block min-w-0 shrink cursor-pointer truncate bg-(--f-chip) text-left outline-offset-1 transition-colors hover:bg-(--f-chip-hover) focus-visible:outline-2"
+      style={{ height: 22, lineHeight: '22px', padding: '0 6px', maxWidth: max, borderRadius: radius2.keycap, border: 0, color: color.text, fontSize: type2.sm, outlineColor: color.text }}
+    >
+      {skill.label}
+    </button>
   )
 }
 
 /** The chips that fit the column: the first always (it truncates), the next only whole. */
-function Grows({ skills, width }: { skills: string[]; width: number }): ReactNode {
+function Grows({ skills, width }: { skills: Grow[]; width: number }): ReactNode {
   let used = 0
   const shown = skills.filter((s, n) => {
-    const w = chipWidth(s) + (n ? CHIP_GAP : 0)
+    const w = chipWidth(s.label) + (n ? CHIP_GAP : 0)
     if (n && used + w > width) return false
     used += w
     return true
@@ -273,9 +290,7 @@ function Grows({ skills, width }: { skills: string[]; width: number }): ReactNod
   return (
     <span className="flex min-w-0 overflow-hidden" style={{ gap: CHIP_GAP }}>
       {shown.map((g, n) => (
-        <GrowChip key={g} max={n === 0 ? width : undefined}>
-          {g}
-        </GrowChip>
+        <GrowChip key={g.id} skill={g} max={n === 0 ? width : undefined} />
       ))}
     </span>
   )
@@ -437,7 +452,7 @@ function ShortLessons({ wide }: { wide: boolean }): ReactNode {
               </span>
               {wide && (
                 <span>
-                  <SkillChip>{skillLabel(l.grows[0]) ?? l.grows[0]}</SkillChip>
+                  {skillLabel(l.grows[0]) ? <SkillChip skill={{ id: l.grows[0], label: skillLabel(l.grows[0]) }}>{skillLabel(l.grows[0])}</SkillChip> : <SkillChip>{l.grows[0]}</SkillChip>}
                 </span>
               )}
               <span className="truncate" style={{ ...meta, textAlign: 'right' }}>

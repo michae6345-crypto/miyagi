@@ -73,7 +73,7 @@ export const reqId = (kind: string): string => `r-${kind}-${Date.now().toString(
 // ---- the engine's answers ---------------------------------------------------------------------------------------
 
 /** plan.start answers with the full list; the plan it added is started once the list lands (or locally after WAIT_MS). */
-type Pending = { reqId: string; before: Set<string>; match: (p: PlanState) => boolean; local: PlanState; timer: ReturnType<typeof setTimeout> }
+type Pending = { reqId: string; before: Set<string>; match: (p: PlanState) => boolean; local: PlanState; timer: ReturnType<typeof setTimeout>; index?: number }
 let pending: Pending | undefined
 const WAIT_MS = 2500
 
@@ -89,7 +89,7 @@ onMessage('plans', (payload) => {
   if (payload?.reqId !== undefined && payload.reqId !== p.reqId && !added) return
   clearTimeout(p.timer)
   pending = undefined
-  startNext(added ?? p.local)
+  startAt(added ?? p.local, p.index)
 })
 
 /** Ask for the learner's plans (the Library, Browse plans and a plan page call it when they mount). */
@@ -111,6 +111,12 @@ export function startLesson(p: PlanState, index: number): void {
   else if (l.goal) bridge.send(cmd('learn', { query: l.goal, mode: 'lesson', plan }))
 }
 
+/** Lesson `index` when one was picked, else the plan's next lesson. */
+function startAt(p: PlanState, index: number | undefined): void {
+  if (index !== undefined) startLesson(p, index)
+  else startNext(p)
+}
+
 /** Start (or continue) a plan at its next lesson. */
 export function startNext(p: PlanState): void {
   const index = p.nextIndex ?? p.lessons.findIndex((l) => l.state === 'next' || l.state === 'in_progress' || l.state === 'todo')
@@ -118,7 +124,7 @@ export function startNext(p: PlanState): void {
   startLesson(p, index)
 }
 
-function begin(local: PlanState, match: (p: PlanState) => boolean, payload: { catalogId?: string; playlistId?: string; url?: string; goal?: string; proposal?: PlanProposal }, start: boolean): void {
+function begin(local: PlanState, match: (p: PlanState) => boolean, payload: { catalogId?: string; playlistId?: string; url?: string; goal?: string; proposal?: PlanProposal }, start: boolean, index?: number): void {
   const s = get()
   const id = reqId('plan')
   if (pending) clearTimeout(pending.timer)
@@ -128,18 +134,21 @@ function begin(local: PlanState, match: (p: PlanState) => boolean, payload: { ca
   const timer = setTimeout(() => {
     if (pending?.reqId !== id) return
     pending = undefined
-    if (start) startNext(myPlan(local.id) ?? local)
+    if (start) startAt(myPlan(local.id) ?? local, index)
   }, WAIT_MS)
-  pending = start ? { reqId: id, before, match, local, timer } : undefined
+  pending = start ? { reqId: id, before, match, local, timer, index } : undefined
   if (!start) clearTimeout(timer)
   bridge.send(cmd('plan.start', { ...payload, reqId: id }))
 }
 
-/** Start (or continue) a catalog plan: plan.start {catalogId}, then its next lesson. */
-export function startPlan(plan: CatalogPlan): void {
+/**
+ * Start (or continue) a catalog plan: plan.start {catalogId}, then its next lesson, or lesson `index` when the learner
+ * picked one on the plan page (a plan they haven't added yet is added first, so the lesson still carries plan: {id, index}).
+ */
+export function startPlan(plan: CatalogPlan, index?: number): void {
   const mine = myPlan(plan.id)
-  if (mine) return startNext(mine)
-  begin(planStateFromCatalog(plan), (p) => p.catalogId === plan.id || p.id === plan.id, { catalogId: plan.id }, true)
+  if (mine) return startAt(mine, index)
+  begin(planStateFromCatalog(plan), (p) => p.catalogId === plan.id || p.id === plan.id, { catalogId: plan.id }, true, index)
 }
 
 /** A plan made in the playlist dialog: plan.start {playlistId, url, proposal} (skipped videos carry skip: true). */
@@ -154,6 +163,22 @@ export function addGoalPlan(goal: string, proposal: PlanProposal, start = true):
   const local = planStateFromProposal(`goal-${goal.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`, proposal, { goal })
   set({ dialog: null, view: { kind: 'library' } })
   begin(local, (p) => p.source === 'goal' && p.goal === goal, { goal, proposal }, start)
+}
+
+/**
+ * Open a plan's page from anywhere in the home window (Home's Plans, Progress's Plans, the sidebar): the Library page,
+ * on the plan. A preset opens on its catalog page (the one Browse plans opens), any other plan on its own.
+ */
+export function openPlan(id: string): void {
+  const m = myPlan(id)
+  setPage('lessons')
+  showPlan(m?.catalogId && planById(m.catalogId) ? m.catalogId : id)
+}
+
+/** Open Browse plans from anywhere in the home window (Home's and Progress's "Browse plans"). */
+export function openBrowsePlans(): void {
+  setPage('lessons')
+  showPlans()
 }
 
 /** Remove a plan (the lessons it started stay in the library). */
@@ -176,10 +201,7 @@ function feedSidebar(mine: MyPlan[]): void {
           title: p.title,
           done: p.done,
           total: p.total,
-          onOpen: () => {
-            setPage('lessons')
-            showPlan(p.catalogId && planById(p.catalogId) ? p.catalogId : p.id)
-          }
+          onOpen: () => openPlan(p.id)
         }))
       : null
   })
