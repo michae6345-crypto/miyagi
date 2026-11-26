@@ -13,7 +13,7 @@
  */
 
 /** The terms and privacy policy version this build asks the learner to agree to (the date of the text). */
-export const CONSENT_VERSION = '2026-11-21'
+export const CONSENT_VERSION = '2026-11-24'
 
 /** The published terms and privacy policy. Nothing is ever appended to them. */
 export const LEGAL_URL = { terms: 'https://miyagi.study/terms', privacy: 'https://miyagi.study/privacy' } as const
