@@ -11,8 +11,13 @@
 import type { DataInventory, PlanToolId } from '../../../../../../../shared/contracts/events'
 
 export type AppGroup = 'Code' | 'Sheets and design' | '3D and CAD' | 'Games' | 'Everything else'
-/** connected: read exactly through an add-on or the editor; connect: an add-on exists but is not set up; screen: miyagi looks at the window. */
-export type AppHow = 'connected' | 'connect' | 'screen'
+/**
+ * connected: read exactly through the editor or the terminal; screen: miyagi looks at the window.
+ * No "connect" kind (Nov 25, app-ready-copy): the app has no way to set up an add-on yet, so a Connect button could
+ * only ever say it wasn't ready. Blender, FreeCAD, Fusion and Onshape read as Screen only until the engine's health
+ * reports their add-on ok, and then the row says Connected like any other.
+ */
+export type AppHow = 'connected' | 'screen'
 export type AppRow = { id: PlanToolId | 'other'; name: string; group: AppGroup; reads?: string; how: AppHow; plans?: number }
 
 export const APP_GROUPS: readonly AppGroup[] = ['Code', 'Sheets and design', '3D and CAD', 'Games', 'Everything else']
@@ -25,10 +30,10 @@ export const APPS: readonly AppRow[] = [
   { id: 'excel', name: 'Excel', group: 'Sheets and design', how: 'screen', plans: 1 },
   { id: 'sheets', name: 'Google Sheets', group: 'Sheets and design', how: 'screen', plans: 1 },
   { id: 'figma', name: 'Figma', group: 'Sheets and design', how: 'screen', plans: 1 },
-  { id: 'blender', name: 'Blender', group: '3D and CAD', reads: 'Reads your scene. Objects, modifiers, materials, lights.', how: 'connect', plans: 3 },
-  { id: 'freecad', name: 'FreeCAD', group: '3D and CAD', reads: 'Reads your model. Sketches, constraints, features.', how: 'connect', plans: 2 },
-  { id: 'fusion', name: 'Fusion', group: '3D and CAD', reads: 'Reads your timeline and bodies.', how: 'connect', plans: 1 },
-  { id: 'onshape', name: 'Onshape', group: '3D and CAD', reads: 'Reads your Part Studio after you sign in.', how: 'connect', plans: 1 },
+  { id: 'blender', name: 'Blender', group: '3D and CAD', how: 'screen', plans: 3 },
+  { id: 'freecad', name: 'FreeCAD', group: '3D and CAD', how: 'screen', plans: 2 },
+  { id: 'fusion', name: 'Fusion', group: '3D and CAD', how: 'screen', plans: 1 },
+  { id: 'onshape', name: 'Onshape', group: '3D and CAD', how: 'screen', plans: 1 },
   { id: 'unity', name: 'Unity', group: 'Games', how: 'screen', plans: 1 },
   { id: 'godot', name: 'Godot', group: 'Games', how: 'screen', plans: 1 },
   { id: 'other', name: 'Any other app', group: 'Everything else', reads: 'Lessons still work.', how: 'screen' }

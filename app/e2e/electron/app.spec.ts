@@ -28,8 +28,10 @@ test('Home, Library and Settings open in the app window', async () => {
   const overlay = await windowFor(run.app, 'overlay')
   await openWindow(overlay, 'library', { page: 'home' })
   const lib = await windowFor(run.app, 'library')
+  // Home has no page title by design (v4 home: sections only, no greeting), so Home is its own marker; every other
+  // page keeps its h1.
+  await expect(lib.locator('[data-home]:visible').first()).toBeVisible()
   const title = lib.locator('main h1:visible').first()
-  await expect(title).toBeVisible()
   const pages: Array<Record<string, string>> = [{ page: 'lessons' }, { page: 'skills' }, { page: 'progress' }, { page: 'settings', section: 'general' }, { page: 'settings', section: 'privacy' }]
   for (const q of pages) {
     await openWindow(overlay, 'library', q)

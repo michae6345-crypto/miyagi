@@ -31,6 +31,7 @@ import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
 import { AgeFirst } from '../agegate/AgeFirst'
 import { FLOW_TOP, RailRow, RailSection, SetupGroup, SetupPage, SetupRow } from '../onboarding/v4'
+import { thisDevice } from '../onboarding/device'
 import { Avatar } from './Avatar'
 import { cancelSignIn, continueToSetup, leaveSignIn, openLegal, signInWith, signOut, useAuth } from './store'
 
@@ -234,7 +235,7 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
           {user ? "You're signed in" : `Sign in to ${copy.name}`}
         </h1>
         <p className="m-0" style={{ ...v4type.lede, color: color.label, marginTop: 6 }}>
-          Your lessons and progress follow you to any computer.
+          {`Your lesson history and skills stay on ${thisDevice()}.`}
         </p>
 
         <div className="mt-[28px] flex w-full flex-col items-start">

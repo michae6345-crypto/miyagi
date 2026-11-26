@@ -13,7 +13,7 @@
  *                4 px bar; Your own key), This Mac, Your account (Sign out asks first in the sheet; Delete my account
  *                keeps its in-place two-step confirm, settings/sections/Privacy DeleteAccount; the page holds its
  *                signed-in layout through the delete, so the deleted line shows and the restart runs)
- *   signed out   "Sign in to sync your progress across Macs", one primary (Sign in opens the sheet over this page)
+ *   signed out   "Sign in to miyagi" (history and skills stay on this Mac), one primary (Sign in opens the sheet over this page)
  *   loading      the same groups as quiet skeleton lines until auth:get answers (no answer reads as signed out)
  * v2Cloud (mock data, stage or a VITE_MIYAGI_V2_CLOUD=1 build): the same page with the plan's name and what it
  *   includes (Upgrade or See plans opens the plans sheet), and the live help used this month.
@@ -55,8 +55,6 @@ const toYourKey = (): void => {
   setPage('settings')
 }
 
-/** "across Macs" on a Mac, "across computers" elsewhere. */
-const acrossMachines = (): string => (bridge.platform.os === 'mac' ? 'across Macs' : 'across computers')
 
 /**
  * Settings' list in the sidebar, Account lit, while this page is on show (the Settings page does the same for its
@@ -206,9 +204,9 @@ function YourAccount({ onBusy }: { onBusy?: (busy: boolean) => void }): ReactNod
 /** Signed out: one line, one button. */
 function SignInGroup(): ReactNode {
   return (
-    <Group label="Sync">
+    <Group label="Account">
       <div data-shell-signin>
-        <Row label={`Sign in to sync your progress ${acrossMachines()}`} caption={`${copy.name} works without an account too.`} right={<PrimaryButtonV2 label="Sign in" onClick={() => openSheet('signin')} />} />
+        <Row label={`Sign in to ${copy.name}`} caption={`Your lesson history and skills stay on ${thisDevice()}.`} right={<PrimaryButtonV2 label="Sign in" onClick={() => openSheet('signin')} />} />
       </div>
     </Group>
   )

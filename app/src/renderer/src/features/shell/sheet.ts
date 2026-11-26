@@ -3,7 +3,7 @@
  * Sign-in and the account live INSIDE the home window: a sheet that slides down from the top of the content area
  * (AccountSheet.tsx), never a second window.
  *
- *   kind     signin   "Sign in to sync": the login's own pieces (features/auth store: auth:google, auth:cancel,
+ *   kind     signin   "Sign in to miyagi": the login's own pieces (features/auth store: auth:google, auth:cancel,
  *                     auth:continue), New user / Returning user and the provider boxes
  *            account  who is signed in, Use your own key, Sign out (v2Cloud: the plan, the help meter, Upgrade)
  *            signout  "Sign out of miyagi?" with Cancel and Sign out
