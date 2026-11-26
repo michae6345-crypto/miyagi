@@ -5,6 +5,8 @@
  *            (flow/SidebarBrand.tsx: where the first run's bonsai lands) with New lesson (the compose icon) on the right
  *   nav      Search (the launcher, its keycap on the right), Home, Library, Skills, Progress. Arrow keys move along the
  *            pages (and switch the page, like the macOS sidebar), Home / End jump to the ends. ⌘1..⌘6 are Shell.tsx's.
+ *   Apps     the apps the learner works in (features/apps: the pinned list, or the apps on this Mac and the ones
+ *            they have lessons in), each opening its app page; then "Add app", a small picker to pin or unpin apps
  *   Plans    the learner's plans with "3 of 8" on the right (ui.tsx useSidebarFeed; hidden until there are plans)
  *   Recent   the last three lessons opened: the ink ring while in progress, the green tick once passed (green = passed)
  *   foot     Settings, then the account row: who is signed in and the plan, or how miyagi runs without an account. Opens
@@ -25,6 +27,12 @@ import { color, fill, focus, highlight, radius2, status, surface, v4, v4c, v4typ
 import { pressMotion } from '../../core/ui/motion'
 import { openLauncher } from '../library/Library'
 import { openDetail, useLibrary } from '../library/store'
+import { PLANS } from '../plans/catalog'
+import { usePlans } from '../plans/store'
+import { appName } from '../apps/model'
+import { AppPicker } from '../apps/Picker'
+import { closePicker, goToPage, openApp, openPicker, refreshInstalled, useApps, useAppStates, useSidebarApps } from '../apps/store'
+import { SidebarApps } from '../apps/SidebarApps'
 import { initialOf, planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { authOn } from '../auth/model'
@@ -35,13 +43,12 @@ import { SharedAvatar } from './AccountSheet'
 import { SidebarBrand } from './flow/SidebarBrand'
 import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
-import { PassedMark, ProgressRing, useSidebarFeed, useSidebarList, type SidebarList, type SidebarRecent } from './ui'
+import { PassedMark, ProgressRing, SideLabel, SideRow, useSidebarFeed, useSidebarList, type SidebarList, type SidebarRecent } from './ui'
 
 export const SIDEBAR_W = v4.sidebar.w
 /** Between compact and full (a 1024 window): labels stay, a little less width. */
 export const SIDEBAR_NARROW_W = v4.sidebar.narrowW
 export const SIDEBAR_COMPACT_W = v4.sidebar.compactW
-const ROW = v4.sidebar.row
 const PAD = v4.sidebar.padX
 
 /** The sidebar's names for the pages (v4: "Library" for the lessons page). The page ids stay. */
@@ -52,61 +59,13 @@ export const pageLabel = (id: PageId): string => NAV_LABEL[id] ?? PAGES.find((p)
 /** The learner's pages, in order (Settings and the account live at the foot). */
 const MAIN: readonly PageId[] = ['home', 'lessons', 'skills', 'progress']
 
-/**
- * One sidebar row (Notion's): 30 tall, 8 px in, the icon then the label, a quiet value on the right. Selected: the
- * active wash, ink text and icon, a touch heavier.
- */
-function SideRow({ icon, label, right, on = false, compact, onClick, data, title, keys }: { icon: ReactNode; label: string; right?: ReactNode; on?: boolean; compact: boolean; onClick: () => void; data?: Record<string, string>; title?: string; keys?: string }): ReactNode {
-  return (
-    <button
-      type="button"
-      aria-current={on ? 'page' : undefined}
-      title={compact ? label : title}
-      aria-label={compact ? label : undefined}
-      aria-keyshortcuts={keys}
-      className={`mg-v4-side-row relative flex w-full shrink-0 cursor-pointer items-center text-left outline-offset-1 focus-visible:outline-2 focus-visible:outline-solid`}
-      style={{
-        ...v4type.nav,
-        height: ROW,
-        gap: 9,
-        padding: compact ? 0 : `0 ${PAD}px`,
-        justifyContent: compact ? 'center' : undefined,
-        borderRadius: v4.radius.row,
-        background: on ? v4c.active : undefined,
-        color: on ? color.text : color.label,
-        fontWeight: on ? 560 : 500,
-        outlineColor: focus.dark
-      }}
-      onClick={onClick}
-      {...data}
-    >
-      <span aria-hidden className="flex shrink-0 items-center justify-center" style={{ width: 16, height: 16, color: on ? color.text : color.faint }}>
-        {icon}
-      </span>
-      {!compact && <span className="min-w-0 flex-1 truncate">{label}</span>}
-      {!compact && right != null && (
-        <span className="shrink-0 whitespace-nowrap" style={{ fontSize: 12, lineHeight: '16px', fontWeight: 450, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
-          {right}
-        </span>
-      )}
-    </button>
-  )
-}
-
-/** A quiet section label (Plans, Recent): 12 / 550 faint, 18 above, 4 under. */
-function SideLabel({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <div className="truncate" style={{ ...v4type.navLabel, color: color.faint, padding: `0 ${PAD}px`, margin: `${v4.sidebar.labelTop}px 0 ${v4.sidebar.labelBottom}px` }}>
-      {children}
-    </div>
-  )
-}
-
 const icon = (I: LucideIcon): ReactNode => <I size={16} strokeWidth={1.6} />
 
 function Nav({ compact }: { compact: boolean }): ReactNode {
   const launcherKey = useKey('launcher') ?? '' // live: the learner's own key when they rebound it
   const page = useShell((s) => s.page)
+  // An app's page lives on the Library page, but the sidebar marks the app's row, not Library.
+  const onApp = usePlans((s) => s.view.kind === 'app')
   const ref = useRef<HTMLElement>(null)
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
     if (!(e.target as HTMLElement).closest('[data-shell-nav]')) return
@@ -115,7 +74,7 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
     const to = e.key === 'ArrowDown' ? Math.min(last, i + 1) : e.key === 'ArrowUp' ? Math.max(0, i - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? last : -1
     if (to < 0) return
     e.preventDefault()
-    setPage(MAIN[to])
+    goToPage(MAIN[to])
   }
   // Keep keyboard focus on the selected row when the arrows (or the number shortcuts while the nav has focus) move it.
   useEffect(() => {
@@ -129,9 +88,38 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
       {MAIN.map((id) => {
         const p = PAGES.find((x) => x.id === id)!
         const index = PAGES.findIndex((x) => x.id === id)
-        return <SideRow key={id} icon={icon(NAV_ICON[id] ?? p.icon)} label={pageLabel(id)} on={page === id} compact={compact} onClick={() => setPage(id)} data={{ 'data-shell-nav': id }} keys={`Meta+${index + 1} Control+${index + 1}`} />
+        return <SideRow key={id} icon={icon(NAV_ICON[id] ?? p.icon)} label={pageLabel(id)} on={page === id && !(id === 'lessons' && onApp)} compact={compact} onClick={() => goToPage(id)} data={{ 'data-shell-nav': id }} keys={`Meta+${index + 1} Control+${index + 1}`} />
       })}
     </nav>
+  )
+}
+
+/**
+ * Apps: one row per app (its glyph, the catalog's name, "Not installed" when main's scan says so), the open app's row
+ * marked, then Add app (the picker). Compact: the glyphs only, names as tooltips.
+ */
+function Apps({ compact }: { compact: boolean }): ReactNode {
+  const states = useAppStates()
+  const ids = useSidebarApps(states)
+  const page = useShell((s) => s.page)
+  const openId = usePlans((s) => (s.view.kind === 'app' ? s.view.id : undefined))
+  const picking = useApps((s) => !!s.picker)
+  useEffect(() => {
+    refreshInstalled()
+    const onFocus = (): void => refreshInstalled()
+    addEventListener('focus', onFocus)
+    return () => removeEventListener('focus', onFocus)
+  }, [])
+  const add = (): void => {
+    if (picking) return closePicker()
+    const r = document.querySelector('[data-shell-add-app]')?.getBoundingClientRect()
+    if (r) openPicker({ x: r.left, y: r.top, w: r.width })
+  }
+  return (
+    <>
+      <SidebarApps apps={ids.map((id) => ({ id, name: appName(id, PLANS), state: states[id] ?? 'unknown' }))} openId={page === 'lessons' ? openId : undefined} compact={compact} picking={picking} onOpen={openApp} onAdd={add} />
+      <AppPicker shown={ids} />
+    </>
   )
 }
 
@@ -356,6 +344,7 @@ export function Sidebar({ compact, short, blocked = false, width = SIDEBAR_W }: 
         <>
           <div className="flex min-h-0 flex-col overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
             <Nav compact={compact} />
+            <Apps compact={compact} />
             {!short && <Lists compact={compact} />}
           </div>
           <div className="mt-auto flex shrink-0 flex-col" style={{ paddingTop: v4.sidebar.labelTop }}>

@@ -20,7 +20,7 @@ import { Check, ChevronRight, type LucideIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { CSSProperties, ReactNode } from 'react'
 import { create } from 'zustand'
-import { color, fill, layout, radius2, surface, type2, typeScale, v4, v4c, v4type } from '../../core/theme'
+import { color, fill, focus, layout, radius2, surface, type2, typeScale, v4, v4c, v4type } from '../../core/theme'
 import { fade, press, spring } from '../../core/ui/motion'
 
 // ---- the content panel ------------------------------------------------------------------------------------------
@@ -694,3 +694,55 @@ export type SidebarRecent = { id: string; title: string; passed: boolean; onOpen
  */
 export const useSidebarFeed = create<{ plans: SidebarPlan[] | null; recent: SidebarRecent[] | null }>(() => ({ plans: null, recent: null }))
 export const setSidebarFeed = (feed: Partial<{ plans: SidebarPlan[] | null; recent: SidebarRecent[] | null }>): void => useSidebarFeed.setState(feed)
+
+// ---- the sidebar's rows (Sidebar.tsx, and the Apps section: features/apps/SidebarApps.tsx) -------------------------
+
+/**
+ * One sidebar row (Notion's): 30 tall, 8 px in, the icon then the label, a quiet value on the right. Selected: the
+ * active wash, ink text and icon, a touch heavier.
+ */
+export function SideRow({ icon, label, right, on = false, compact, onClick, data, title, keys }: { icon: ReactNode; label: string; right?: ReactNode; on?: boolean; compact: boolean; onClick: () => void; data?: Record<string, string>; title?: string; keys?: string }): ReactNode {
+  return (
+    <button
+      type="button"
+      aria-current={on ? 'page' : undefined}
+      title={compact ? label : title}
+      aria-label={compact ? label : undefined}
+      aria-keyshortcuts={keys}
+      className={`mg-v4-side-row relative flex w-full shrink-0 cursor-pointer items-center text-left outline-offset-1 focus-visible:outline-2 focus-visible:outline-solid`}
+      style={{
+        ...v4type.nav,
+        height: v4.sidebar.row,
+        gap: 9,
+        padding: compact ? 0 : `0 ${v4.sidebar.padX}px`,
+        justifyContent: compact ? 'center' : undefined,
+        borderRadius: v4.radius.row,
+        background: on ? v4c.active : undefined,
+        color: on ? color.text : color.label,
+        fontWeight: on ? 560 : 500,
+        outlineColor: focus.dark
+      }}
+      onClick={onClick}
+      {...data}
+    >
+      <span aria-hidden className="flex shrink-0 items-center justify-center" style={{ width: 16, height: 16, color: on ? color.text : color.faint }}>
+        {icon}
+      </span>
+      {!compact && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!compact && right != null && (
+        <span className="shrink-0 whitespace-nowrap" style={{ fontSize: 12, lineHeight: '16px', fontWeight: 450, color: color.label, fontVariantNumeric: 'tabular-nums' }}>
+          {right}
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** A quiet section label (Plans, Recent): 12 / 550 faint, 18 above, 4 under. */
+export function SideLabel({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <div className="truncate" style={{ ...v4type.navLabel, color: color.faint, padding: `0 ${v4.sidebar.padX}px`, margin: `${v4.sidebar.labelTop}px 0 ${v4.sidebar.labelBottom}px` }}>
+      {children}
+    </div>
+  )
+}

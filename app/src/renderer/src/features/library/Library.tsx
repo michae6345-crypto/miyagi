@@ -13,7 +13,7 @@
  * First run (no lessons, no plans: -27): one line, the two ways to make a plan, eight plans to start, and five short
  * lessons. Never rows of zeros.
  *
- * The same page also hosts Browse plans and a plan's page (features/plans: store.ts `view`), so the shell's Library
+ * The same page also hosts Browse plans, a plan's page and an app's page (features/apps AppPage) (features/plans: store.ts `view`), so the shell's Library
  * entry keeps its place; the two "new plan" dialogs sit over it. All three views render in the shell's v4 frame
  * (PageFrame + PageHeader, features/shell/ui.tsx): one title on the content's left edge, the actions flush right
  * (Library: New plan, and New lesson as the one primary). The shell's top bar carries the breadcrumb
@@ -43,6 +43,7 @@ import { primeSkills, useSkills } from '../skills/store'
 import { showSkill } from '../skills/go'
 import { artForState, PlanPage, planTrail } from '../plans/PlanPage'
 import { PlansPage } from '../plans/PlansPage'
+import { AppPage, appTrail } from '../apps/AppPage'
 import { loadPlans, openDialog, showLibrary, showPlan, showPlans, usePlans, type MyPlan } from '../plans/store'
 import { artFor, Thumb, type Art } from '../plans/Thumb'
 import { SOURCE_ICON, SourceTile } from '../anylink/Card'
@@ -624,6 +625,7 @@ function trailFor(view: ReturnType<typeof usePlans.getState>['view'], mineTitle:
   if (view.kind === 'plans') return ['Browse plans']
   if (view.kind === 'plan') return planTrail(view.id)
   if (view.kind === 'custom') return [mineTitle ?? 'Plan']
+  if (view.kind === 'app') return appTrail(view.id)
   return null
 }
 
@@ -674,6 +676,8 @@ export function Lessons(): ReactNode {
         <PlansPage />
       ) : view.kind === 'plan' || view.kind === 'custom' ? (
         <PlanPage id={view.id} />
+      ) : view.kind === 'app' ? (
+        <AppPage id={view.id} />
       ) : (
         <div className="flex flex-col" style={{ gap: 28 }}>
           <PageHeader title="Library" right={<LibraryActions />} />

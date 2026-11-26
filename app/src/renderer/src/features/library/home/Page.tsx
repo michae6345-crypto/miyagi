@@ -310,14 +310,17 @@ function Fresh({ m, now, first }: { m: HomeModel; now: number; first?: boolean }
 
 // ---- the pages --------------------------------------------------------------------------------------------------------
 
-export function HomePage({ m, now, ask, cont, notice }: { m: HomeModel; now: number; ask: ReactNode; cont: ReactNode; notice?: ReactNode }): ReactNode {
+/** `apps`: Home's "Learn in" block (features/apps LearnIn, MIC-87), at the foot of the rail; given `first` when it leads. */
+export function HomePage({ m, now, ask, cont, notice, apps }: { m: HomeModel; now: number; ask: ReactNode; cont: ReactNode; notice?: ReactNode; apps?: (first: boolean) => ReactNode }): ReactNode {
   const r = railParts(m)
-  const rail = r.any ? (
+  const foot = apps?.(!r.any)
+  const rail = r.any || foot ? (
     <>
       <Week m={m} />
       <Goal m={m} first={!r.week} />
       <Skills m={m} first={!r.week && !r.goal} />
       <Fresh m={m} now={now} first={!r.week && !r.goal && !r.skills} />
+      {foot}
     </>
   ) : undefined
   return (

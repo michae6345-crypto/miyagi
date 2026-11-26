@@ -21,7 +21,8 @@ import { setPage } from '../shell/store'
 import { setSidebarFeed } from '../shell/ui'
 import { planById, planStateFromCatalog, planStateFromProposal, type CatalogPlan } from './catalog'
 
-export type View = { kind: 'library' } | { kind: 'plans' } | { kind: 'plan'; id: string } | { kind: 'custom'; id: string }
+/** app: an app's page (features/apps AppPage: everything miyagi has for one app; Adrian's MIC-87). */
+export type View = { kind: 'library' } | { kind: 'plans' } | { kind: 'plan'; id: string } | { kind: 'custom'; id: string } | { kind: 'app'; id: string }
 export type Dialog = 'playlist' | 'goal' | null
 
 /** A plan the learner has: the contract's PlanState, as the engine sends it. */
@@ -42,7 +43,7 @@ function seed(): MyPlan[] {
   return [...mk(planById('neural-networks'), 3), ...mk(planById('intro-blender'), 1)]
 }
 
-/** Stage only: ?plan=<id> opens that plan page, ?plans=browse opens Browse plans, ?dialog=playlist|goal a dialog. */
+/** Stage only: ?plan=<id> opens that plan page, ?app=<id> an app's page, ?plans=browse Browse plans, ?dialog=playlist|goal a dialog. */
 function firstView(): { view: View; dialog: Dialog } {
   if (isElectron) return { view: { kind: 'library' }, dialog: null }
   const q = new URLSearchParams(location.search)
@@ -50,6 +51,8 @@ function firstView(): { view: View; dialog: Dialog } {
   const d = q.get('dialog')
   const dialog: Dialog = d === 'playlist' || d === 'goal' ? d : null
   if (plan) return { view: planById(plan) ? { kind: 'plan', id: plan } : { kind: 'custom', id: plan }, dialog }
+  const app = q.get('app')
+  if (app && /^[a-z0-9-]{1,32}$/.test(app)) return { view: { kind: 'app', id: app }, dialog }
   if (q.get('plans') === 'browse' || dialog) return { view: { kind: 'plans' }, dialog }
   return { view: { kind: 'library' }, dialog }
 }
@@ -61,6 +64,7 @@ const get = usePlans.getState
 export const showLibrary = (): void => set({ view: { kind: 'library' }, dialog: null })
 export const showPlans = (): void => set({ view: { kind: 'plans' }, dialog: null })
 export const showPlan = (id: string): void => set({ view: planById(id) ? { kind: 'plan', id } : { kind: 'custom', id }, dialog: null })
+export const showApp = (id: string): void => set({ view: { kind: 'app', id }, dialog: null })
 export const openDialog = (dialog: Exclude<Dialog, null>): void => set({ dialog })
 export const closeDialog = (): void => set({ dialog: null })
 

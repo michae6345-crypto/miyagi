@@ -29,6 +29,7 @@ import { summarize, useRows } from '../onboarding/rows'
 import { FEATURED } from './home/catalog'
 import { buildHome, coverFor, coverForTool, firstLessons, fromContract, isFirstRun, type CoverKind } from './home/data'
 import { FirstRunPage, HomePage, SetupNote } from './home/Page'
+import { LearnIn } from '../apps/LearnIn'
 import { FIRST_RUN, sampleHome, stageSample } from './home/sample'
 import { Ask, ContinueCard, pickIdeas, type ContView } from './home/Top'
 import { useAskV4, useV4 } from './home/v4'
@@ -219,5 +220,5 @@ export function Home(): ReactNode {
       const n = graph.byId[id]
       return n ? [{ label: n.label, at: n.lastPracticedAt ?? n.masteredAt }] : []
     })
-  return <HomePage m={m} now={now} ask={ask} cont={view ? <ContinueCard view={view} action={action} /> : null} notice={notice} />
+  return <HomePage m={m} now={now} ask={ask} cont={view ? <ContinueCard view={view} action={action} /> : null} notice={notice} apps={(first) => <LearnIn first={first} />} />
 }

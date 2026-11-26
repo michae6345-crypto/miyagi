@@ -57,6 +57,7 @@ import { homeIn, sidebarIn } from './flow/motion'
 import { flowCovers, initFlow, requestSetup, useFlow } from './flow/store'
 import { closeSheet, useSheet } from './sheet'
 import { useLocal } from '../settings/local'
+import { goToPage } from '../apps/store'
 import { pageLabel, Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_NARROW_W, SIDEBAR_W } from './Sidebar'
 import { COLUMN_W, LegacyPageHeader, PANEL, pageInset, TopBar, useCrumbs, V4_W, WIDE_W } from './ui'
 import { PAGES, setPage, useShell, type PageId } from './store'
@@ -286,7 +287,7 @@ export function Shell(): ReactNode {
       const n = Number(e.key)
       if (!Number.isInteger(n) || n < 1 || n > PAGES.length) return
       e.preventDefault()
-      setPage(PAGES[n - 1].id)
+      goToPage(PAGES[n - 1].id)
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
