@@ -103,6 +103,10 @@ class ScreenReader:
         self.ax_trusted: bool | None = None   # Accessibility grant at the last check (None = not checked / n.a.)
         self._ax_check = None                  # tests: replaces ax.trusted()
         self._ticks = 0
+        from . import perf_tier
+        self.profile = perf_tier.detect()   # low-end Mac: slower idle heartbeat (perf_tier.py)
+        self._unchanged = 0                  # captures in a row that found the screen unchanged (idle backoff)
+        self.ocr_skipped = 0                 # perf counter: captures whose OCR was skipped (frame unchanged)
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -155,6 +159,9 @@ class ScreenReader:
         force=True also re-OCRs an unchanged screen. Captures are debounced (>= `debounce` s apart)."""
         self._pending_reason = reason
         self._force_next = self._force_next or force
+        kick = getattr(self.ax_reader, "kick", None)
+        if kick is not None and reason not in _AX_REASONS:  # a click / scroll / app switch: AX reads now too
+            kick()
         self._wake.set()
 
     @property
@@ -162,9 +169,18 @@ class ScreenReader:
         """Seconds between captures when nothing triggers one."""
         return self.heartbeat_with_events if (self.events and self.events.available) else self.interval
 
+    def next_wait(self) -> float:
+        """Seconds until the next no-trigger capture: the heartbeat, stretched while the screen stays unchanged and
+        when the Mac saves power (perf_tier.idle_heartbeat). Without event triggers it backs off at most 2x, since
+        only AX changes would poke it then."""
+        from . import perf_tier
+        base = self.heartbeat
+        cap = self.profile.idle_heartbeat_max if (self.events and self.events.available) else base * 2
+        return perf_tier.idle_heartbeat(base, self._unchanged, perf_tier.power_saving(), cap)
+
     def _run(self) -> None:
         while not self._stop.is_set():
-            woke = self._wake.wait(self.heartbeat)
+            woke = self._wake.wait(self.next_wait())
             self._wake.clear()
             if self._stop.is_set():
                 break
@@ -212,7 +228,24 @@ class ScreenReader:
         if ok != self.ax_trusted and self.ax_trusted is not None:
             log.warning("Accessibility permission %s", "granted" if ok else "REVOKED")
         self.ax_trusted = ok
+        if ok:
+            self._revive_ax_reader()
         return ok
+
+    def _revive_ax_reader(self) -> None:
+        """The AX worker checks the grant once, at start: an engine that started before the user turned Accessibility
+        on kept AX off until the next engine restart. AXIsProcessTrusted() is read live, so once it says yes, start
+        the worker that gave up (cheap no-op when it already runs)."""
+        r = self.ax_reader
+        if r is None or getattr(r, "available", True):
+            return
+        try:
+            r.start()
+            if r.available:
+                r.on_change(self._on_ax_change)
+                log.info("Accessibility granted while running: AX reader started")
+        except Exception as e:  # noqa: BLE001
+            log.warning("AX reader restart failed: %s", e)
 
     def reset_capture(self, why: str = "") -> None:
         """Forget capture state that sleep/wake, a display change or a blank frame can leave stale: the SCK filter and
@@ -861,7 +894,7 @@ class ScreenReader:
             return None
 
     def _read_frame(self, img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay, frame: int,
-                    trigger: str) -> tuple[ScreenObservation, float]:
+                    trigger: str, ax_since: float | None = None) -> tuple[ScreenObservation, float]:
         """OCR one captured frame into a ScreenObservation. Changes no reader state: observe_now publishes the result,
         capture_once does not."""
         from . import macos
@@ -885,7 +918,10 @@ class ScreenReader:
                                 foreign=foreign, foreign_rects=foreign_rects)
         obs.editor = _editor_info(obs)
         if source == "live":
-            self._attach_cursor_and_ax(obs)
+            if ax_since is None:
+                self._attach_cursor_and_ax(obs)
+            else:
+                self._attach_cursor_and_ax(obs, ax_since)
         return obs, ms
 
     def capture_once(self, display_id: int | None = None, trigger: str = "ask", region: dict | None = None):
@@ -929,10 +965,17 @@ class ScreenReader:
         return obs, self._masked_pil(img, obs, overlay)
 
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
-        """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
+        """Capture + OCR synchronously. With force=False, skips OCR when nothing changed. A forced "check" / "locate"
+        never pairs the frame with AX read before the capture: the AX reader is kicked now (its snapshot runs alongside
+        the capture + OCR) and the frame waits up to AX_FRESH_WAIT_S for it, else goes without AX."""
         from . import health, macos
         with self._capture_lock:
             self._last_capture = time.time()
+            ax_since = None
+            if force and trigger in ("check", "locate") and getattr(self.ax_reader, "available", False) \
+                    and hasattr(self.ax_reader, "wait_fresh"):
+                ax_since = self._last_capture
+                self.ax_reader.kick()
             try:
                 img, screen, scale, windows, fixture_app, source, overlay_excluded = self._grab()
             except Exception as e:
@@ -967,14 +1010,18 @@ class ScreenReader:
             thumb = _mask_thumb(thumb, overlay, screen)
             prev = self._latest
             stale = prev is None or (time.time() - prev.t) > self.max_age
-            if not force and not stale and layout == self._prev_layout and not _changed(
-                    self._prev_thumb, thumb, self.diff_pixels):
+            changed = layout != self._prev_layout or _changed(self._prev_thumb, thumb, self.diff_pixels)
+            if not force and not stale and not changed:
+                self._unchanged += 1
+                self.ocr_skipped += 1
                 return None
+            if changed:  # a max_age / forced re-OCR of the same picture keeps the idle backoff going
+                self._unchanged = 0
             self._prev_thumb, self._prev_layout = thumb, layout
 
             self._frame += 1
             obs, ms = self._read_frame(img, screen, scale, windows, fixture_app, source, overlay_excluded, overlay,
-                                       self._frame, trigger)
+                                       self._frame, trigger, ax_since)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
                 self._latest, self._latest_image, self._latest_overlay = obs, img, overlay
@@ -1013,8 +1060,15 @@ class ScreenReader:
         from .vscode import window_shown
         return obs is None or obs.source != "live" or window_shown(snap.app, snap.window_title, obs.windows)
 
-    def _attach_cursor_and_ax(self, obs: ScreenObservation) -> None:
-        snap = self.ax_reader.latest() if self.ax_reader else None
+    AX_FRESH_WAIT_S = 0.3  # a check / locate frame waits at most this long for an AX read from after its capture
+
+    def _attach_cursor_and_ax(self, obs: ScreenObservation, since: float | None = None) -> None:
+        """`since` (a check / locate frame's capture time): only an AX snapshot taken at or after it, waited for up to
+        AX_FRESH_WAIT_S (the AX reader may be idling at 1-2 Hz); none in time -> this frame has no AX."""
+        if since is not None and hasattr(self.ax_reader, "wait_fresh"):
+            snap = self.ax_reader.wait_fresh(since, self.AX_FRESH_WAIT_S)
+        else:
+            snap = self.ax_reader.latest() if self.ax_reader else None
         if snap is not None and (time.time() - snap.t > 2.0 or not self._ax_shown(snap, obs)):
             snap = None
         if snap is not None:
@@ -1157,11 +1211,26 @@ def _ask_display(macos, display_id: int | None, region: dict | None) -> int | No
     return None
 
 
+_AX_REASONS = frozenset({"app", "document", "dirty", "terminal", "typing_pause"})  # pokes that came FROM the AX reader
+_DIFF_LUT = [0] * 13 + [255] * 243   # |a - b| > 12 -> 255
+
+
 def _changed(a: bytes | None, b: bytes, min_pixels: int) -> bool:
+    """At least `min_pixels` thumbnail pixels moved by more than 12 gray levels. Pillow does the per-pixel work in C
+    (the pure-Python loop walked all 121k pixels of every frame that differed by a blinking caret: ~5-10 ms a tick)."""
     if a is None or len(a) != len(b):
         return True
     if a == b:
         return False
+    try:
+        from PIL import Image, ImageChops
+        ia, ib = Image.frombytes("L", (len(a), 1), a), Image.frombytes("L", (len(b), 1), b)
+        return ImageChops.difference(ia, ib).point(_DIFF_LUT).histogram()[255] >= min_pixels
+    except Exception:  # noqa: BLE001  (no Pillow: the slow path)
+        return _changed_py(a, b, min_pixels)
+
+
+def _changed_py(a: bytes, b: bytes, min_pixels: int) -> bool:
     n = 0
     for x, y in zip(a, b):
         if abs(x - y) > 12:

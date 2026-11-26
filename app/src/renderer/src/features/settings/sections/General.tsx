@@ -17,6 +17,7 @@ import { bridge } from '../../../bridge'
 import { useNotchInfo } from '../../../core/notchInfo'
 import { openOnboarding } from '../../../core/surfaces'
 import { startTour } from '../../tips/tourStore'
+import { requestClose } from '../store'
 import { BuddyColor } from '../../buddy/SettingsRows'
 import { QuietButton, Segmented, StatusGlyph, Toggle } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
@@ -121,7 +122,7 @@ export function General({ live }: { live: boolean }): ReactNode {
           caption={bridge.platform.os === 'mac' ? 'Check permissions and VS Code again.' : 'Check VS Code again.'}
           right={<QuietButton label="Open setup" onClick={() => void openOnboarding()} />}
         />
-        <Row icon={Compass} label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={() => startTour()} />} />
+        <Row icon={Compass} label="Show me around" caption="A short tour of the pill and the launcher." right={<QuietButton label="Start" onClick={showMeAround} />} />
       </Group>
     </>
   )
@@ -165,4 +166,14 @@ function HealthWord({ item }: { item?: HealthItem }): ReactNode {
       {word}
     </span>
   )
+}
+
+/**
+ * Show me around: the tour draws in the overlay, and the Settings sheet's own window sits above the overlay (both
+ * float at the same level, the sheet raised last), so a tour started from the sheet drew behind it and the button
+ * looked dead. The sheet steps aside first (in the home window's Settings page this is a no-op), then main opens it.
+ */
+function showMeAround(): void {
+  requestClose()
+  startTour()
 }

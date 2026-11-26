@@ -31,6 +31,7 @@ import { app, screen } from 'electron'
 import { defineMainFeature } from '../context'
 import { createOtherOpenMute, GRAB, withinGrab } from '../../renderer/src/core/notchGeometry'
 import { getNotchService } from '../notch'
+import { overlaysHidden } from '../overlayHide'
 
 const isMac = process.platform === 'darwin'
 const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
@@ -143,6 +144,16 @@ export default defineMainFeature({
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
+      // "Hide miyagi overlays" (main/overlayHide.ts): nothing is drawn, so nothing is grabbed (the island's reported
+      // size would otherwise keep a ghost click target at the notch).
+      if (overlaysHidden()) {
+        if (grabbed) {
+          grabbed = false
+          ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+        }
+        restSince = 0
+        return
+      }
       if (Date.now() < passUntil) return
       const d = ctx.display().bounds
       const { w, h, dx = 0, dy = 0, shown = true, top, place } = ctx.islandSize()

@@ -116,6 +116,15 @@ function setupWeb(): void {
     console.info('[onboarding] stage: would relaunch miyagi')
     return true
   })
+  // Restart miyagi (main/permissions.ts permissions:relaunch) and Reset miyagi in the list (permissions:reset).
+  registerWebHandler('permissions:relaunch', () => {
+    console.info('[onboarding] stage: would restart miyagi')
+    return true
+  })
+  registerWebHandler('permissions:reset', (kind) => {
+    console.info(`[onboarding] stage: would reset miyagi's ${String(kind)} row`)
+    return true
+  })
   registerWebHandler('onboarding:install-companion', () => ({ ok: false, reason: 'no-vsix' }))
 
   const variant = variant0

@@ -5,7 +5,6 @@ import type { NotchLayout } from '../src/common/notch'
 import {
   EAR_W,
   GRAB,
-  gradientOn,
   islandBottomAt,
   islandTopAt,
   isOpenView,
@@ -16,11 +15,9 @@ import {
   PEEK,
   NOTCH_RADII,
   radiiFor,
-  SHORT_OPEN_H,
   viewWith,
   withinGrab
 } from '../src/renderer/src/core/notchGeometry'
-import { hud } from '../src/renderer/src/core/theme'
 import { NO_ACTION, OWNERLESS_GRACE_MS, WATCH_REST, watchdogStep } from '../src/renderer/src/core/islandState'
 
 const real: NotchLayout = { hasNotch: true, x: 267.5, width: 189, height: 32, place: 'notch' }
@@ -53,10 +50,12 @@ describe('notchPath', () => {
     assert.ok(d.startsWith('M0 0 L200 0 L200 1 Q194 1 194 7'))
     assert.ok(d.endsWith('Q6 1 0 1 Z'))
   })
-  test('open radii: top 19, bottom 24', () => {
-    const d = notchPath(300, 120, 19, 24)
-    assert.ok(d.includes('Q281 0 281 19'))
-    assert.ok(d.includes('Q281 120 257 120'))
+  test('open radii: top 12, bottom 24, straight sides', () => {
+    assert.deepEqual(NOTCH_RADII.open, { top: 12, bottom: 24, taper: 0 })
+    const d = notchPath(300, 120, NOTCH_RADII.open.top, NOTCH_RADII.open.bottom, 0, NOTCH_RADII.open.taper)
+    assert.ok(d.includes('Q288 0 288 12'))
+    // The side runs straight down (x stays 288) into the bottom corner.
+    assert.ok(d.includes('L288 96 Q288 120 264 120'))
   })
   test('radii are clamped to what fits (a notch smaller than its radii never draws loops)', () => {
     const d = notchPath(20, 10, 19, 24)
@@ -76,11 +75,11 @@ describe('notchSize', () => {
   })
   test('a drop is the notch row plus the content row, at least the peek wide', () => {
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 190, h: 34 }), { w: PEEK.w, h: 66 + PEEK.pad })
-    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 38 + 2 * NOTCH_RADII.peek.taper, h: 66 + PEEK.pad })
+    assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, { w: 380, h: 34 }), { w: 380 + 2 * NOTCH_RADII.open.top, h: 66 + PEEK.pad })
     assert.deepEqual(notchSize(real, 'pill', 'drop', undefined, undefined), { w: PEEK.w, h: 32 + PEEK.drop })
   })
   test('a card keeps its width and grows down from the notch; an empty one is the notch', () => {
-    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340 + 38 + 2 * NOTCH_RADII.open.taper, h: 212 })
+    assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 180 }), { w: 340 + 2 * NOTCH_RADII.open.top, h: 212 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, { w: 340, h: 0 }), { w: 189, h: 32 })
     assert.deepEqual(notchSize(real, 'card', 'drop', 340, undefined), { w: 189, h: 32 })
   })
@@ -163,58 +162,11 @@ test('a short open shape uses the gentler peek radii (no trapezoid), a tall one 
   assert.deepEqual(radiiFor(true), NOTCH_RADII.open)
 })
 
-test('an open shape leans in: its bottom edge is narrower than its top by the taper each side; taper 0 is the old path', () => {
+test('the path can lean (taper): the bottom edge is narrower than the top by the taper each side; no shape uses it now', () => {
+  for (const r of Object.values(NOTCH_RADII)) assert.equal(r.taper, 0)
   assert.equal(notchPath(200, 32, 6, 14, 0, 0), notchPath(200, 32, 6, 14))
   const d = notchPath(600, 190, 19, 24, 0, 16)
   // bottom straight edge runs from x = 19 + 16 + 24 to 600 - 19 - 16 - 24
   assert.match(d, /L59 190 /)
   assert.ok(d.includes('Q565 190 541 190'))
-})
-
-test('the open shape keeps slanted sides (Michael, Nov 25): taper > 0, the side leans in from under the ear', () => {
-  const { top, bottom, taper } = NOTCH_RADII.open
-  assert.ok(taper > 0, 'open taper must never be 0 (no straight sides)')
-  assert.ok(NOTCH_RADII.peek.taper > 0)
-  assert.equal(NOTCH_RADII.closed.taper, 0)
-  const d = notchPath(600, 190, top, bottom, 0, taper)
-  // The side starts under the ear at x = 600 - top and leans in toward the bottom corner, whose control point sits
-  // `taper` further in: a diagonal, not a vertical line.
-  assert.ok(d.includes(`Q${600 - top} 0 ${600 - top} ${top}`))
-  const side = d.match(new RegExp(`L([\\d.]+) ${190 - bottom} Q${600 - top - taper} 190 `))
-  assert.ok(side, d)
-  assert.ok(Number(side[1]) < 600 - top - taper / 2, 'the side leans in by at least half the taper above the corner')
-  assert.ok(d.includes(`L${top + taper + bottom} 190 `))
-})
-
-describe('the pastel green gradient', () => {
-  test('only the open, tall island paints it; closed and the short peek stay plain black', () => {
-    assert.equal(gradientOn(true, 194), true)
-    assert.equal(gradientOn(true, SHORT_OPEN_H), true)
-    assert.equal(gradientOn(true, 74), false)
-    assert.equal(gradientOn(false, 194), false)
-    assert.equal(gradientOn(false, 32), false)
-  })
-  const stops = [...hud.notchGradient.matchAll(/rgba\((\d+),(\d+),(\d+),([\d.]+)\) (\d+)%/g)].map((m) => ({ rgb: [+m[1], +m[2], +m[3]], a: +m[4], at: +m[5] }))
-  test('black at the top (melts into the hardware notch), a pastel mint at the bottom, never fading back', () => {
-    assert.match(hud.notchGradient, /^linear-gradient\(180deg,/)
-    assert.ok(stops.length >= 3)
-    assert.equal(stops[0].at, 0)
-    assert.equal(stops[stops.length - 1].at, 100)
-    for (const s of stops.filter((x) => x.at <= 35)) assert.equal(s.a, 0)
-    for (let i = 1; i < stops.length; i++) assert.ok(stops[i].a >= stops[i - 1].a && stops[i].at > stops[i - 1].at)
-    const last = stops[stops.length - 1]
-    assert.ok(last.a >= 0.2 && last.a <= 0.45)
-    // pastel: every channel high, green the strongest
-    assert.ok(Math.min(...last.rgb) >= 140 && last.rgb[1] === Math.max(...last.rgb))
-  })
-  test('white text and the muted white (60%) keep >= 4.5:1 on the brightest stop over the notch black', () => {
-    const lin = (c: number): number => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
-    const lum = ([r, g, b]: number[]): number => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-    const over = (fg: number[], a: number, bg: number[]): number[] => fg.map((c, i) => c * a + bg[i] * (1 - a))
-    const ratio = (x: number[], y: number[]): number => { const [l1, l2] = [lum(x), lum(y)].sort((p, q) => q - p); return (l1 + 0.05) / (l2 + 0.05) }
-    const last = stops[stops.length - 1]
-    const bg = over(last.rgb, last.a, [0, 0, 0])
-    assert.ok(ratio([255, 255, 255], bg) >= 4.5)
-    assert.ok(ratio(over([255, 255, 255], 0.6, bg), bg) >= 4.5)
-  })
 })

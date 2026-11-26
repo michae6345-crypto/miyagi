@@ -6,6 +6,9 @@
  *
  * The sign-in gate (core/gate.ts): until main says it is open, the overlay draws nothing (no layer, no island) and
  * ignores global shortcuts, even if main showed the window early. A renderer backstop for main's own gate.
+ *
+ * "Hide miyagi overlays" (core/overlayHidden.ts): everything stays mounted (so it comes back as it was) but is not drawn,
+ * takes no pointer, and reports no bounds or hits, so main's grab poll leaves the mouse to the learner's app.
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
@@ -16,6 +19,7 @@ import { Island, RestingIsland } from './Island'
 import { stretchKeepsWheel } from './hoverIntent'
 import { islandTop } from './islandEdge'
 import { perf } from './perf'
+import { overlaysHiddenNow, useOverlaysHidden } from './overlayHidden'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
 import { Boundary } from './ui/Boundary'
@@ -28,10 +32,18 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
   // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path (none before the gate).
   useEffect(() => bridge.on('shortcut', (kind) => gateIsOpen() && triggerShortcut(kind as ActionShortcut)), [])
   const open = useGateOpen()
+  const hidden = useOverlaysHidden((s) => s.hidden)
   if (!open) return null
   const overlayLayers = getOverlayLayers()
   return (
-    <div ref={root} data-theme="dark" className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
+    <div
+      ref={root}
+      data-theme="dark"
+      data-overlays-hidden={hidden || undefined}
+      aria-hidden={hidden || undefined}
+      className="absolute inset-0 overflow-hidden"
+      style={{ width: layout.width, height: layout.height, ...(hidden ? { visibility: 'hidden', pointerEvents: 'none' } : {}) }}
+    >
       {overlayLayers
         .filter((l) => l.z < ISLAND_Z)
         .map(({ id, Component }) => (
@@ -95,7 +107,8 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
     const tick = (): void => {
       // A hidden window (the stage tab in the background) has nothing new to say.
       if (typeof document !== 'undefined' && document.hidden) return
-      const el = root.current
+      // Hidden overlays (or none drawn) report nothing: no hits for main's grab poll, nothing for the engine to skip.
+      const el = overlaysHiddenNow() ? null : root.current
       if (!el) {
         // Nothing drawn (the sign-in gate closed again): clear what main and the engine last heard, once.
         if (lastHits && lastHits !== '[]') {

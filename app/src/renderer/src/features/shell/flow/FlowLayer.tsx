@@ -12,7 +12,7 @@
  *
  * The views are the features' own (onboarding Intro / Guided / Ready / Checklist, auth Login), in flow mode: no
  * header of their own, and the end hands over to home instead of opening another window.
- * Live like the setup window: permissions watched and health asked for while the window is focused (useLive).
+ * Live like the setup window: permissions watched while the window is on screen, health asked for while it is focused (useLive).
  * Leaving (Shell.tsx runs the arrival), in two beats: this layer's screen fades out first (screenOut), leaving only its
  * plain paper; then the paper fades (layerOut) while the sidebar slides in over it, the bonsai glides from the strip
  * into the sidebar's logo and Home rises underneath. Two screens are never drawn over each other.

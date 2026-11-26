@@ -8,7 +8,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, ExternalLink, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Check, ExternalLink, Lock, Maximize2, Minus, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
@@ -119,7 +119,26 @@ function useShownStep(): { n: number; total: number } {
   return n(at(l.stepId))
 }
 
+/**
+ * Minimized to a handle (main player.ts player:mini, mini.ts): the window shrinks to this header. The video pauses there
+ * (main reports the player off screen) and the rest of the panel stays mounted, so restoring brings back the same video.
+ */
+function useMini(): boolean {
+  const [mini, setMini] = useState(false)
+  useEffect(() => {
+    if (!isElectron) return
+    const off = bridge.onFeature('player:mini', (on) => setMini(on === true))
+    bridge
+      .invoke('player:mini:state')
+      .then((on) => setMini(on === true))
+      .catch(() => undefined)
+    return off
+  }, [])
+  return mini
+}
+
 function Header(): ReactNode {
+  const mini = useMini()
   const title = useLesson((s) => s.lesson?.title)
   const hasStep = useLesson((s) => !!s.stepId)
   const { n, total } = useShownStep()
@@ -133,14 +152,26 @@ function Header(): ReactNode {
         {title ?? 'Lesson'}
       </span>
       <span className="flex-1" />
-      {hasStep && (
+      {hasStep && !mini && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
           Step {n} of {total}
         </span>
       )}
       <GlassDot status={status} />
-      {hasStep && <EndButton />}
+      {hasStep && !mini && <EndButton />}
       {isElectron && (
+        <button
+          className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
+          style={noDrag}
+          data-player-mini={mini ? 'restore' : 'minimize'}
+          onClick={() => bridge.invoke('player:mini', !mini).catch(() => {})}
+          title={mini ? 'Show the video' : 'Minimize (pauses the video)'}
+          aria-label={mini ? 'Show the video' : 'Minimize the video'}
+        >
+          {mini ? <Maximize2 size={13} strokeWidth={1.7} /> : <Minus size={14} strokeWidth={1.7} />}
+        </button>
+      )}
+      {isElectron && !mini && (
         <button
           className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           style={noDrag}

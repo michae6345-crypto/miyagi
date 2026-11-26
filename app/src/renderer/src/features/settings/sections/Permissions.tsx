@@ -18,13 +18,35 @@ import { openOnboarding } from '../../../core/surfaces'
 import { PrimaryButtonV2, QuietButton, StatusGlyph, StatusWord } from '../../../core/ui/atoms'
 import { color, copy, type2 } from '../../../core/theme'
 import { isMac } from '../here'
-import { openPermission, useHealth, usePermissions, type PermissionState } from '../permissions'
+import { openPermission, relaunchApp, resetPermission, useHealth, usePermissions, type PermissionState } from '../permissions'
 import { count, Group, Note, OnWord, PageHeader, Row } from '../ui'
 import { COMPANION, PERMISSION_COPY } from '../words'
 
-type Item = { id: string; icon: LucideIcon; label: string; caption: string; state: 'on' | 'off' | 'unknown' | 'loading'; fix?: () => void }
+type Item = {
+  id: string
+  icon: LucideIcon
+  label: string
+  caption: string
+  state: 'on' | 'off' | 'restart' | 'managed' | 'move' | 'unknown' | 'loading'
+  fix?: () => void
+  /** A second, quieter fix (Reset miyagi in the list, for a row macOS keeps for an earlier build). */
+  reset?: () => void
+}
 
-const fromPermission = (s: PermissionState | undefined): Item['state'] => (!s ? 'loading' : s === 'granted' ? 'on' : s === 'unknown' ? 'unknown' : 'off')
+const fromPermission = (s: PermissionState | undefined, restart = false, hint?: 'move' | 'reset' | 'managed'): Item['state'] =>
+  !s
+    ? 'loading'
+    : s === 'granted'
+      ? 'on'
+      : s === 'unknown'
+        ? 'unknown'
+        : s === 'restricted' || hint === 'managed'
+          ? 'managed'
+          : hint === 'move'
+            ? 'move'
+            : restart
+              ? 'restart'
+              : 'off'
 const fromHealth = (h: HealthItem): Item['state'] => (h.state === 'ok' ? 'on' : h.state === 'unknown' ? 'unknown' : h.state === 'checking' ? 'loading' : 'off')
 
 const PERMS: { kind: PermissionKind; icon: LucideIcon; label: string; caption: string }[] = [
@@ -40,14 +62,28 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
   const mac = isMac()
 
   const items: Item[] = mac
-    ? PERMS.map((p) => ({ id: p.kind, icon: p.icon, label: p.label, caption: p.caption, state: fromPermission(perms?.[p.kind]), fix: () => openPermission(p.kind) }))
+    ? PERMS.map((p) => {
+        // Switched on in System Settings, but macOS shows it to miyagi only after a restart (main/permissions.ts).
+        const k = p.kind as 'screen' | 'accessibility'
+        const restart = !!perms?.relaunch?.includes(k)
+        const hint = perms?.hint?.[k]
+        return {
+          id: p.kind,
+          icon: p.icon,
+          label: p.label,
+          caption: p.caption,
+          state: fromPermission(perms?.[p.kind], restart, hint),
+          fix: restart ? relaunchApp : () => openPermission(p.kind),
+          reset: hint === 'reset' ? () => resetPermission(k) : undefined
+        }
+      })
     : []
   // Hidden without a probe: only an engine that reports the companion can say whether it's on.
   const companion = health.companion
   if (companion)
     items.push({ id: 'companion', icon: Puzzle, ...PERMISSION_COPY.companion, state: fromHealth(companion), fix: () => void openOnboarding() })
 
-  const known = items.filter((i) => i.state === 'on' || i.state === 'off')
+  const known = items.filter((i) => i.state === 'on' || i.state === 'off' || i.state === 'restart' || i.state === 'move')
   const on = known.filter((i) => i.state === 'on').length
   const caption = !mac
     ? 'Windows asks for nothing extra.'
@@ -58,11 +94,22 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
       : known.length
         ? `All in one place. ${count(on)} of ${count(known.length).toLowerCase()} are on.`
         : 'All in one place.'
-  const firstOff = items.find((i) => i.state === 'off')?.id
+  const firstOff = items.find((i) => i.state === 'off' || i.state === 'restart')?.id
   const permOff = items.some((i) => i.id !== 'companion' && i.state === 'off')
+  const restartOff = items.some((i) => i.state === 'restart')
+  const resetOff = items.some((i) => !!i.reset)
+  const moveOff = items.some((i) => i.state === 'move')
+  const managed = items.some((i) => i.state === 'managed')
   const companionOff = items.some((i) => i.id === 'companion' && i.state === 'off')
   // The footnote explains the buttons, so it shows only while one of them is on screen.
-  const note = [permOff ? 'Turn on opens System Settings at the right switch.' : '', companionOff ? `Set up installs the ${COMPANION}.` : '']
+  const note = [
+    moveOff ? 'Move miyagi to Applications, then open it from there.' : '',
+    resetOff ? 'Already on? Switch miyagi off and on in the list, or remove and re-add it.' : '',
+    !moveOff && !resetOff && permOff ? 'Turn on opens System Settings at the right switch.' : '',
+    restartOff ? 'macOS applies it once miyagi restarts.' : '',
+    managed ? 'Your organization manages this setting.' : '',
+    companionOff ? `Set up installs the ${COMPANION}.` : ''
+  ]
     .filter(Boolean)
     .join(' ')
 
@@ -97,6 +144,13 @@ export function Permissions({ live }: { live: boolean }): ReactNode {
 function Right({ item, primary }: { item: Item; primary: boolean }): ReactNode {
   if (item.state === 'loading') return <StatusGlyph state="checking" size={14} />
   if (item.state === 'on') return <OnWord />
+  if (item.state === 'managed' || item.state === 'move')
+    return (
+      <span className="flex shrink-0 items-center gap-[8px] whitespace-nowrap font-medium" style={{ fontSize: type2.xs, color: color.label }}>
+        <StatusGlyph state={item.state === 'managed' ? 'unknown' : 'notyet'} size={12} />
+        {item.state === 'managed' ? 'Managed' : 'Move to Applications'}
+      </span>
+    )
   if (item.state === 'unknown')
     return (
       <span className="flex shrink-0 items-center gap-[8px]">
@@ -104,14 +158,16 @@ function Right({ item, primary }: { item: Item; primary: boolean }): ReactNode {
         <StatusWord state="unknown" />
       </span>
     )
-  const label = item.id === 'companion' ? 'Set up' : 'Turn on'
+  const restart = item.state === 'restart'
+  const label = restart ? 'Restart miyagi' : item.id === 'companion' ? 'Set up' : 'Turn on'
   const Button = primary ? PrimaryButtonV2 : QuietButton
   return (
     <div className="flex shrink-0 items-center gap-[16px]">
       <span className="flex items-center gap-[8px] whitespace-nowrap font-medium" style={{ fontSize: type2.xs, color: color.text }}>
-        <StatusGlyph state="notyet" size={12} />
-        Not yet
+        <StatusGlyph state={restart ? 'watching' : 'notyet'} size={12} />
+        {restart ? 'Restart needed' : 'Not yet'}
       </span>
+      {item.reset && <QuietButton label="Reset" onClick={() => item.reset?.()} />}
       <Button label={label} onClick={() => item.fix?.()} />
     </div>
   )
