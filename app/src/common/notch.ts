@@ -57,6 +57,67 @@ export function effectivePlace(pref: IslandPlace | undefined, mac: boolean, hasN
   return mac && pref !== 'below' && hasNotch ? 'notch' : 'below'
 }
 
+/**
+ * A menu bar is never taller than this (a notch band is 32 to 38 pt; a plain menu bar 24). A work area that starts lower
+ * than this is not a menu bar (a display mid-swap, a bad read), and the island must not hang from it in mid-screen.
+ */
+export const MAX_MENU_BAR = 64
+/** Air the island keeps under a band when MIYAGI_PILL_TOP is set, and on Windows (a taskbar docked at the top). */
+export const MENU_BAR_GAP = 4
+
+/**
+ * The menu bar's bottom edge on a display, in display-local points: what the island hangs from when it isn't in the
+ * notch. The work area answers on its own (no helper needed); the helper's safeTop only raises it (a notched display
+ * whose menu bar hides itself still has the notch band). 0 when there is none: a hidden menu bar on a display without a
+ * notch, or a second display without a menu bar. Clamped to MAX_MENU_BAR.
+ */
+export function menuBarBottom(display: DisplayLike, info?: ScreenInfo): number {
+  const work = display.workArea.y - display.bounds.y
+  const band = Math.max(0, work > 0 && work <= MAX_MENU_BAR ? work : 0, info && info.safeTop > 0 ? info.safeTop : 0)
+  return Math.round(Math.min(band, MAX_MENU_BAR))
+}
+
+/** What islandAnchor needs besides the display. */
+export type AnchorOpts = {
+  mac: boolean
+  pref?: IslandPlace
+  /** The helper's entry for this display (absent: helper missing, failed, timed out, or not read yet). */
+  info?: ScreenInfo
+  /** Notch geometry is known (a helper read or the persisted cache). Until then the island is never put in a notch. */
+  known: boolean
+  /** MIYAGI_PILL_TOP, when set (px from the display top). */
+  override?: number
+}
+
+/**
+ * The island's top edge when it is NOT in the notch, in display-local points.
+ *   Mac: flush with the menu bar's bottom edge, a tab hanging from it, centred (MacBook Neo, Nov 25: on a display
+ *        without a notch the old default top of 40 left the island floating 16 pt under a 24 pt menu bar). No menu bar
+ *        (hidden, or a second display without one): the display's top edge. MIYAGI_PILL_TOP moves it down as before.
+ *   Windows: 8 px, or MENU_BAR_GAP under a taskbar docked at the top (unchanged).
+ * Pure and helper-free: a missing or slow helper only means `info` is absent; the work area still gives the band.
+ */
+export function belowTop(display: DisplayLike, o: Pick<AnchorOpts, 'mac' | 'info' | 'override'>): number {
+  const band = menuBarBottom(display, o.info)
+  if (!o.mac || o.override !== undefined) {
+    const base = o.override ?? 8
+    return band > 0 ? Math.max(base, band + MENU_BAR_GAP) : base
+  }
+  return band
+}
+
+export type IslandAnchor = { place: IslandPlace; top: number; notch: NotchGeom }
+
+/**
+ * Where the island goes on a display: in the notch (top 0) when the display has one and the pref allows it, else
+ * hanging from the menu bar (belowTop). Never mid-screen, and never a notch drawn where there is none.
+ */
+export function islandAnchor(display: DisplayLike, o: AnchorOpts): IslandAnchor {
+  const notch = notchFor(display, o.info)
+  const place = o.known ? effectivePlace(o.pref, o.mac, notch.hasNotch) : 'below'
+  return { place, top: place === 'notch' ? 0 : belowTop(display, o), notch }
+}
+
 /** Parse the helper's stdout. Never throws: anything malformed gives an empty list (callers keep what they had). */
 export function parseScreens(text: string): ScreenInfo[] {
   const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)

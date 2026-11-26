@@ -40,6 +40,8 @@ export type Row = {
   action?: { id: RowAction; label: string; item?: HealthItem }
   /** A second, quieter button beside the action (the engine's "Copy details"). */
   alt?: { id: RowAction; label: string }
+  /** Switched on in System Settings; miyagi sees it only after a restart (main/permissions.ts `relaunch`). */
+  restart?: boolean
 }
 
 /** main/localEngine.ts ENGINE_FAILED_LINE: the one line for an engine that didn't come up. */
@@ -58,6 +60,10 @@ export type RowInput = {
   os?: Os
 }
 
+/** The restart offer for a grant macOS applies only to a new miyagi (main/permissions.ts `relaunch`, Nov 25). */
+const RESTART = { state: 'watching', word: 'Restart needed', detail: 'On in System Settings. Restart miyagi to use it.', action: { id: 'relaunch', label: 'Restart miyagi' }, restart: true } as const
+const needsRestart = (i: RowInput, k: 'screen' | 'accessibility'): boolean => !!i.perms?.relaunch?.includes(k)
+
 const UNKNOWN_DETAIL = (external: boolean, os: Os = 'mac'): string => (external ? `Can't check this while the engine runs in ${shellName(os)}.` : "miyagi can't check this from here.")
 
 function screenRow(i: RowInput): Row {
@@ -65,8 +71,9 @@ function screenRow(i: RowInput): Row {
   const s = i.perms?.screen
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
   if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
+  if (needsRestart(i, 'screen')) return { ...base, ...RESTART, action: { ...RESTART.action } }
   // macOS often applies this grant only after a relaunch.
-  if (i.asked.screen) return { ...base, state: 'watching', word: 'Watching', detail: 'Switch miyagi on, then relaunch it.', action: { id: 'relaunch', label: 'Relaunch' } }
+  if (i.asked.screen) return { ...base, state: 'watching', word: 'Watching', detail: 'Switch miyagi on, then restart it.', action: { id: 'relaunch', label: 'Restart miyagi' } }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Allow it, then switch miyagi on.', action: { id: 'allow-screen', label: 'Allow' } }
 }
 
@@ -75,6 +82,7 @@ function accessibilityRow(i: RowInput): Row {
   const s = i.perms?.accessibility
   if (s === 'granted') return { ...base, state: 'passed', word: 'On', detail: base.why }
   if (!i.perms || s === 'unknown') return { ...base, state: 'unknown', word: 'Not sure yet', detail: UNKNOWN_DETAIL(!!i.perms?.external, i.os) }
+  if (needsRestart(i, 'accessibility')) return { ...base, ...RESTART, action: { ...RESTART.action } }
   const action = { id: 'open-accessibility' as const, label: 'Open System Settings' }
   if (i.asked.accessibility) return { ...base, state: 'watching', word: 'Watching', detail: 'Watching. Switch miyagi on, then come back.', action }
   return { ...base, state: 'notyet', word: 'Not yet', detail: 'Not yet. Switch miyagi on in System Settings.', action }

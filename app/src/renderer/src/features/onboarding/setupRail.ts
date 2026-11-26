@@ -18,7 +18,7 @@ export function stepRail(row: Pick<Row, 'id' | 'action'>): RailCopy | undefined 
       lines: [
         ['Press Allow', 'System Settings opens.'],
         ['Switch miyagi on', 'Privacy & Security, then Screen Recording.'],
-        ['Relaunch miyagi', 'macOS turns it on after a relaunch.']
+        ['Restart miyagi', 'macOS turns it on after a restart.']
       ]
     }
   if (row.id === 'accessibility')

@@ -12,13 +12,22 @@
  *   - automation (Apple Events to VS Code): no API reads it without prompting;
  *   - not macOS (Windows reads screen and accessibility as granted: it has no such grants).
  * Prompting is never done here. A click handler that wants the prompt asks for it on purpose (onboarding, A3).
+ *
+ * `relaunch` (Nov 25, a learner on a MacBook Neo had to press Skip): the kinds switched on in System Settings that this
+ * process can't see until miyagi restarts (macOS caches Screen Recording per process). A fresh miyagi-listen --screens
+ * tells (main/permissionProbe.ts); only asked while something is off and a window watches, at most every 3 s. The
+ * windows offer "Restart miyagi" for them (onboarding:relaunch).
+ *
+ * Live while watched: main polls every POLL_MS while any window watches (a window keeps watching while it is on screen,
+ * also while the learner is over in System Settings), and reads again at once when miyagi comes back to the front.
  */
-import { BrowserWindow, ipcMain, systemPreferences, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, systemPreferences, type IpcMainInvokeEvent } from 'electron'
 import type { PermissionKind } from '../../../shared/contracts/events'
+import { probeFreshPerms, relaunchKinds, throttledProbe, type Fresh, type RelaunchKind } from './permissionProbe'
 import { openSystemSettings } from './safeOpen'
 
 export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown'
-export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number }
+export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number; relaunch?: RelaunchKind[] }
 
 const POLL_MS = 2000
 const KINDS: PermissionKind[] = ['screen', 'accessibility', 'automation']
@@ -28,7 +37,11 @@ export function setupPermissions(deps: {
   engineExternal: () => boolean
   broadcast: (channel: string, payload: unknown) => void
   trusted: (e: IpcMainInvokeEvent) => boolean
-}): { read(): Permissions } {
+  /** miyagi-listen's path (features/ptt.ts helperPath), for the fresh-process probe. Absent: no relaunch detection. */
+  helperBin?: () => string
+  /** Tests: replace the fresh-process probe. */
+  probe?: () => Promise<Fresh | undefined>
+}): { read(): Permissions; readFull(): Promise<Permissions> } {
   const read = (): Permissions => {
     const external = deps.engineExternal()
     const base: Permissions = { screen: 'unknown', accessibility: 'unknown', automation: 'unknown', external, at: Date.now() }
@@ -52,51 +65,84 @@ export function setupPermissions(deps: {
     return base
   }
 
+  const fresh = throttledProbe(deps.probe ?? (() => (deps.helperBin ? probeFreshPerms(deps.helperBin()) : Promise.resolve(undefined))))
+  /** read() plus `relaunch`: asks a fresh process only while Screen Recording or Accessibility reads as off here. */
+  const readFull = async (): Promise<Permissions> => {
+    const p = read()
+    if (process.platform !== 'darwin' || p.external) return p
+    if (p.screen === 'granted' && p.accessibility === 'granted') {
+      fresh.reset()
+      return p
+    }
+    const kinds = relaunchKinds(p, await fresh.get().catch(() => undefined))
+    return kinds.length ? { ...p, relaunch: kinds } : p
+  }
+
   let last = ''
   let timer: ReturnType<typeof setInterval> | undefined
   /** webContents ids that asked for live updates. */
   const watchers = new Set<number>()
+  /** webContents ids whose destroyed / closed listeners are in place. */
+  const seen = new Set<number>()
 
-  const tick = (): void => {
-    const p = read()
-    const key = KINDS.map((k) => p[k]).join(',') + p.external
-    if (key === last) return
-    last = key
-    deps.broadcast('permissions', p)
+  let ticking = false
+  const tick = async (): Promise<void> => {
+    if (ticking) return
+    ticking = true
+    try {
+      const p = await readFull()
+      const key = KINDS.map((k) => p[k]).join(',') + p.external + (p.relaunch ?? []).join('+')
+      if (key === last) return
+      last = key
+      deps.broadcast('permissions', p)
+    } finally {
+      ticking = false
+    }
   }
   const sync = (): void => {
     if (watchers.size && !timer) {
-      tick()
-      timer = setInterval(tick, POLL_MS)
+      void tick()
+      timer = setInterval(() => void tick(), POLL_MS)
     } else if (!watchers.size && timer) {
       clearInterval(timer)
       timer = undefined
     }
   }
 
-  ipcMain.handle('feat:permissions:get', (e) => (deps.trusted(e) ? read() : undefined))
+  // Back from System Settings: read now, not on the next poll (only while a window watches; never prompts).
+  const onFront = (): void => {
+    if (watchers.size) void tick()
+  }
+  app.on('browser-window-focus', onFront)
+  app.on('did-become-active', onFront)
+
+  ipcMain.handle('feat:permissions:get', (e) => (deps.trusted(e) ? readFull() : undefined))
   ipcMain.handle('feat:permissions:open', (e, kind: unknown) => (deps.trusted(e) && KINDS.includes(kind as PermissionKind) ? openSystemSettings(kind) : false))
   ipcMain.handle('feat:permissions:watch', (e, on: unknown) => {
     if (!deps.trusted(e)) return false
     const id = e.sender.id
     if (on === true) {
       if (!watchers.has(id)) {
+        const first = !seen.has(id)
         watchers.add(id)
+        seen.add(id)
         // A window that goes away stops watching.
-        const win = BrowserWindow.fromWebContents(e.sender)
-        e.sender.once('destroyed', () => {
-          watchers.delete(id)
-          sync()
-        })
-        win?.once('closed', () => {
-          watchers.delete(id)
-          sync()
-        })
+        // Registered once per webContents (a window toggles watching on every show and hide).
+        if (first) {
+          const win = BrowserWindow.fromWebContents(e.sender)
+          const gone = (): void => {
+            watchers.delete(id)
+            seen.delete(id)
+            sync()
+          }
+          e.sender.once('destroyed', gone)
+          win?.once('closed', gone)
+        }
       }
     } else watchers.delete(id)
     sync()
     return true
   })
 
-  return { read }
+  return { read, readFull }
 }

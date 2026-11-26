@@ -9,9 +9,9 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { effectivePlace, notchFor, parseScreens, type IslandPlace, type NotchGeom, type NotchLayout, type ScreenInfo } from '../common/notch'
+import { belowTop, islandAnchor, parseScreens, type IslandPlace, type NotchGeom, type NotchLayout, type ScreenInfo } from '../common/notch'
 
-export { effectivePlace, notchFor, parseScreens, type IslandPlace, type NotchGeom, type NotchLayout, type ScreenInfo } from '../common/notch'
+export { belowTop, effectivePlace, islandAnchor, menuBarBottom, notchFor, parseScreens, type IslandPlace, type NotchGeom, type NotchLayout, type ScreenInfo } from '../common/notch'
 
 const HELPER_TIMEOUT_MS = 2000
 /** Display events, wake and unlock come in bursts: one read, this long after the last. */
@@ -73,6 +73,11 @@ export type NotchService = {
   layoutFor(display: Display, pref: IslandPlace | undefined): NotchLayout
   /** The notch geometry for a display (display-local), as the layout carries it. */
   geometryFor(display: Display): NotchGeom
+  /**
+   * The island's top when it is not in the notch (common/notch.ts belowTop): flush under the menu bar on a Mac. Never
+   * waits on the helper: without a read it answers from the work area.
+   */
+  belowTopFor(display: Display, override?: number): number
   /** Another notch app is running (private, log-only flag). */
   coexist(): boolean
   /** True once geometry for at least one display is known (read or persisted); until then every layout is `below`, never a fake notch. */
@@ -192,15 +197,16 @@ export function startNotch(opts: StartNotchOpts): NotchService {
   /** An entry fits a display only if its frame is that display's size: an id Electron reassigned must not lend its notch to another screen. */
   const fits = (s: ScreenInfo | undefined, display: Display): ScreenInfo | undefined =>
     s && Math.abs(s.frame.w - display.bounds.width) < 2 && Math.abs(s.frame.h - display.bounds.height) < 2 ? s : undefined
-  const geometryFor = (display: Display): NotchGeom => notchFor(display, fits(good.get(display.id), display))
+  const infoFor = (display: Display): ScreenInfo | undefined => fits(good.get(display.id), display)
+  const geometryFor = (display: Display): NotchGeom => islandAnchor(display, { mac: opts.mac, known: false, info: infoFor(display) }).notch
   const svc: NotchService = {
     layoutFor(display, pref) {
-      const geom = geometryFor(display)
       // Until geometry is known there is no notch to draw: 'below' (the renderer shows nothing black), then a resend.
-      const place = good.size ? effectivePlace(pref, opts.mac, geom.hasNotch) : 'below'
-      return { ...geom, place, coexist }
+      const a = islandAnchor(display, { mac: opts.mac, pref, known: good.size > 0, info: infoFor(display) })
+      return { ...a.notch, place: a.place, coexist }
     },
     geometryFor,
+    belowTopFor: (display, override) => belowTop(display, { mac: opts.mac, info: infoFor(display), override }),
     coexist: () => coexist,
     ready: () => good.size > 0,
     refresh() {

@@ -1,8 +1,9 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
-// `miyagi-listen --screens`: one JSON line with the geometry of every display, then exit 0. Reads NSScreen only: no
+// `miyagi-listen --screens`: one JSON line with the geometry of every display, then exit 0. Reads NSScreen (and two permission preflights, below) only: no
 // permissions, no key tap, no mic, no prompts. main/notch.ts turns it into the notch rect (display.id == NSScreenNumber).
 //
 //   {"screens":[{"id":1,"frame":{"x":0,"y":0,"w":1512,"h":982},"visible":{...},"safeTop":32,"auxLeft":661,"auxRight":661,
@@ -10,6 +11,12 @@ import Foundation
 //
 // Rects are NSScreen's own (points, origin at the bottom left of the primary display). auxLeft / auxRight are the widths of
 // the two menu-bar areas beside the camera housing (null when the display has none).
+//
+// `perms` (additive): Screen Recording and Accessibility as THIS fresh process reads them, preflight only (never a
+// prompt). macOS answers for the process it holds responsible, which is miyagi when miyagi spawned us. main/permissions.ts
+// compares it with its own reads: a long-running process keeps saying "denied" for Screen Recording until it relaunches,
+// so "granted" here and "denied" there means "switched on in System Settings, restart miyagi to use it".
+//   "perms":{"screen":"granted"|"denied","accessibility":"granted"|"denied"}
 
 enum Screens {
     static func rect(_ r: NSRect) -> [String: Any] {
@@ -40,7 +47,11 @@ enum Screens {
                 "builtin": CGDisplayIsBuiltin(id) != 0
             ])
         }
-        let obj: [String: Any] = ["screens": list]
+        let perms: [String: Any] = [
+            "screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied",
+            "accessibility": AXIsProcessTrusted() ? "granted" : "denied"
+        ]
+        let obj: [String: Any] = ["screens": list, "perms": perms]
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),
            let text = String(data: data, encoding: .utf8) {
             print(text)
