@@ -50,6 +50,13 @@ export type Prefs = {
    * continue past the consent screen. Written only by main (onboarding:agree); a renderer's prefs:set can't set it.
    */
   consent?: Consent
+  /**
+   * The apps in the home window's sidebar (features/apps), as app ids ("vscode", "blender"). null: miyagi's default, the
+   * apps on this Mac plus the ones the learner has lessons for. Send the whole list in a patch.
+   */
+  pinnedApps: string[] | null
+  /** Apps the learner said "I have it" for (the scan did not find them). Send the whole list in a patch. */
+  haveApps: string[]
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -63,7 +70,25 @@ export const DEFAULT_PREFS: Prefs = {
   shortcuts: {},
   shareTelemetry: false,
   ptt: { enabled: true, chord: 'fn+control' },
-  island: { place: 'notch' }
+  island: { place: 'notch' },
+  pinnedApps: null,
+  haveApps: []
+}
+
+/** An app id in a pref list: lowercase letters, digits and dashes (the catalog's tool ids). */
+const APP_ID = /^[a-z0-9][a-z0-9-]{0,31}$/
+/** At most this many apps in a pref list (the catalog has 16 tools). */
+export const MAX_PREF_APPS = 24
+
+/** A list of app ids from a file or another window: valid ids only, each once, in order, capped. Not a list: undefined. */
+export function cleanAppIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v === 'string' && APP_ID.test(v) && !out.includes(v)) out.push(v)
+    if (out.length >= MAX_PREF_APPS) break
+  }
+  return out
 }
 
 export const SHORTCUT_KINDS: readonly ShortcutKind[] = ['launcher', 'back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
@@ -107,6 +132,13 @@ export function sanitizePrefs(raw: unknown): Partial<Prefs> {
     const p = (r.island as Record<string, unknown>).place
     out.island = { place: ISLAND_PLACES.includes(p as IslandPlace) ? (p as IslandPlace) : DEFAULT_PREFS.island.place }
   }
+  if (r.pinnedApps === null) out.pinnedApps = null
+  else {
+    const pinned = cleanAppIds(r.pinnedApps)
+    if (pinned) out.pinnedApps = pinned
+  }
+  const have = cleanAppIds(r.haveApps)
+  if (have) out.haveApps = have
   const consent = cleanConsent(r.consent)
   if (consent) out.consent = consent
   if (r.shortcuts && typeof r.shortcuts === 'object' && !Array.isArray(r.shortcuts)) {
