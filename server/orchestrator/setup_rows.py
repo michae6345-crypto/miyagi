@@ -77,14 +77,32 @@ async def install_all(s: Any) -> None:
     tool). Rows waiting their turn say so. Stops when the card is skipped."""
     tools = [r["tool"] for r in installable(s._setup_card) if r.get("tool") not in s._installing]
     log.info("install all: %s", tools)
+    from . import setup_gate
+
+    gated = setup_gate.applies(s)
+    if tools and gated:  # Nov 25: the gate counts them all from the start ("2/4")
+        g = setup_gate.gate(s)
+        for t in tools:
+            item = next((it for it in s.reqs or [] if it.get("tool") == t), None)
+            g.queue(t, (item or {}).get("label") or t, setup_gate.optional(item))
+        await setup_gate.publish(s)
     for t in tools[1:]:
         await s.emit("setup.progress", {"tool": t, "line": "Waiting to install"})
     for t in tools:
         if s._setup_card is None:  # Skip: the rest stay as they are
             for rest in tools[tools.index(t):]:
                 await s.emit("setup.progress", {"tool": rest, "done": True})
+            if gated:
+                g = setup_gate.gate(s)
+                for rest in tools[tools.index(t):]:
+                    g.finish(rest, {"skipped": True, "cancelled": True})
+                await setup_gate.publish(s)
             return
         item = next((it for it in s.reqs or [] if it.get("tool") == t), None)
         if item is not None and item.get("ok"):
+            if gated:
+                await setup_gate.settle(s, t)
             continue
         await s._install(t, item=item)
+        if gated:  # an install that returned early (unknown tool...) leaves no row waiting
+            await setup_gate.settle(s, t)

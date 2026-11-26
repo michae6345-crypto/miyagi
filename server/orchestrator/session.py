@@ -51,6 +51,7 @@ from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, sa
 from . import onscreen_coach  # Nov 24: an app lesson's step circled on screen, its words beside it (free)
 from . import skill_hooks  # skill tree (server/skilltree): assisted steps, passes, proofs; never breaks the lesson
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
+from . import setup_gate  # Nov 25: the lesson waits while its environment installs (setup.gate)
 from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
@@ -970,7 +971,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.resources = found
         if any(it.get("tool") == "python" and it.get("needed") for it in items or []) \
                 and getattr(self.workspace, "editor_check", None) is not None:  # real windows only (never in tests)
-            self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
+            if self._venv_will_build(folder):  # Nov 25: the lesson waits for it (setup gate row "Python environment")
+                self._spawn(setup_gate.run_venv(self, folder, lambda: wsmod.ensure_lesson_venv(folder, True)))
+            else:
+                self._spawn(asyncio.to_thread(wsmod.ensure_lesson_venv, folder, True))  # fresh Mac: .venv from the bundle
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
             await setup_apps.repin_and_tell(self)  # Nov 22: "use FreeCAD" / "I have it" from an earlier lesson
@@ -1189,10 +1193,25 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                        "as soon as the lesson is built.")
             return
         self._installing.add(tool)
+        gated = setup_gate.applies(self)
         try:
             loop = asyncio.get_running_loop()
             ep = self.lesson_epoch
             last_shown = [0.0]
+            cancel = setup_gate.cancel_event(self, tool) if gated else None
+            if gated:  # Nov 25: the lesson waits while this installs (setup.gate; video paused)
+                setup_gate.gate(self).start(tool, label, setup_gate.optional(item))
+                await setup_gate.publish(self)
+
+            def on_progress(data: dict) -> None:  # installer thread -> loop: {phase, pct, bytes, totalBytes, attempt}
+                if ep != self.lesson_epoch or not gated:
+                    return
+
+                def deliver_progress() -> None:
+                    setup_gate.gate(self).progress(tool, dict(data))
+                    self._spawn(setup_gate.publish(self, force=False))
+
+                loop.call_soon_threadsafe(deliver_progress)
 
             def on_line(line: str) -> None:  # installer thread -> loop
                 if ep != self.lesson_epoch:
@@ -1200,6 +1219,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 text = str(line).strip()[:300]
 
                 def deliver() -> None:
+                    if gated:
+                        setup_gate.gate(self).line(tool, text)
                     self._spawn(self.emit("setup.progress", {"tool": tool, "line": text}))
                     now = self.clock()
                     if text and now - last_shown[0] >= 1.0:  # the card body: at most one update a second
@@ -1210,12 +1231,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
             await self.emit("setup.progress", {"tool": tool, "line": f"Installing {label}…"})
             await self._install_status(f"Installing {label}…")
-            res = await asyncio.to_thread(wsmod.install, item, self.workdir, on_line)
+            res = await asyncio.to_thread(setup_gate.call_install, wsmod.install, item, self.workdir, on_line,
+                                          on_progress=on_progress, cancel=cancel)
             done = {"tool": tool, "done": True, "ok": bool(res.get("ok"))}
-            for k in ("error", "url", "version"):
+            for k in ("error", "url", "version", "errorCode", "note"):
                 if res.get(k):
                     done[k] = str(res[k])
             await self.emit("setup.progress", done)
+            if gated and ep == self.lesson_epoch:
+                setup_gate.gate(self).finish(tool, res)
+                await setup_gate.publish(self)
             if res.get("ok"):
                 status = f"{label} installed ✓"
             else:
@@ -1266,6 +1291,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._install_status(status)
         finally:
             self._installing.discard(tool)
+            if gated and ep == self.lesson_epoch:  # an install that raised never leaves the lesson waiting forever
+                await setup_gate.settle(self, tool, failed=True)
 
     async def _install_status(self, text: str) -> None:
         """Re-send the card the learner is looking at (setup or preflight) with the install status as its body."""
@@ -3906,13 +3933,46 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if gen == self.step_gen and self.video_reports == 0 and not self.segment_done:
             await self._segment_end()
 
+    async def _restart_segment_clock(self) -> None:
+        """The setup gate let go (setup_gate.publish): the held step's clip plays from its start now, so its wall-clock
+        fallback starts over (it never ended the segment while the lesson waited)."""
+        step, seg = self.step, self._segment(self.step) if self.step is not None else None
+        if step is not None and seg and not self.segment_done and not self.passed:
+            self._spawn(self._segment_timer(self.step_gen, seg["end"] - seg["start"]), timer=True)
+
+    def _venv_will_build(self, folder: str) -> bool:
+        """Will ensure_lesson_venv really build a .venv for this folder (no .venv yet, miyagi's own Python)?"""
+        try:
+            from server.workspace import setup as ws_setup
+
+            return not ws_setup.venv_python(folder) and ws_setup.is_bundled(ws_setup.best_python())
+        except Exception:  # noqa: BLE001 - only decides whether the lesson waits for it
+            return False
+
+    def _step_needs_action(self, step: dict) -> bool:
+        """Does the step ask the learner to do something (type code, run a command, install), rather than watch?
+        Nov 25: such a step with no checks left (venv_steps drops pip's "Successfully installed" screen check and the
+        .venv file check) passed itself at its clip's end, so the video rolled on while the learner was still in VS
+        Code: "pause at every step" broke exactly where the learner had work to do."""
+        kind = str(step.get("kind") or "").lower()
+        if kind in ("code", "run") or step.get("setup") or step.get("requires"):
+            return True
+        return bool(self._run_command(step))
+
     async def _segment_end(self) -> None:
         if self.segment_done or self.step is None:
+            return
+        if setup_gate.holds(self):  # the lesson waits for its setup: the clip hasn't played (_restart_segment_clock)
             return
         self.segment_done = True
         self.segment_end_t = self.clock()
         step = self.step
         if not step.get("checks") and not step.get("precision_checks"):
+            if self._step_needs_action(step):  # held at its end: Can I move on? / Skip / a passed check moves on
+                await self.emit("video.pause", {})
+                await self._spotlight_target(step)
+                await self._status("watching")
+                return
             await self._pass_step()
             return
         await self.evaluate("segment")
@@ -6413,6 +6473,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind == "install_all":  # t9 V12: the setup card's Install all: every missing row, one after another
             self._spawn(setup_rows.install_all(self))
+            return
+        if kind in ("setup_retry", "setup_continue", "setup_skip"):  # Nov 25: the setup gate's buttons
+            await setup_gate.act(self, kind, text)
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
             self._setup_card = None  # L4: no longer pending (the Start card may go out)
