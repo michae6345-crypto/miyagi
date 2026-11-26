@@ -14,7 +14,13 @@
  * Brand rules (BRAND.md):
  *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
- *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
+ *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree. ONE documented
+ *    exception (Michael's call, Nov 26): the open notch island's black-into-pastel fill in bon's color
+ *    (`notchGradient` below). Why: it ties the island to the learner's own buddy and makes the open panel read as a
+ *    soft surface under the hardware notch instead of a black slab. It is held in: calm panels only (core/islandTone.ts:
+ *    never behind Not yet, an error, a failed build, offline, a permission ask or any warning, so a hue never implies
+ *    "passed"), open and tall only (closed, ears and the peek stay black), and every island text token keeps 4.5:1 on
+ *    its brightest point (`islandTextOnTint`; test/notchTint.test.ts).
  *  - App text in Bricolage Grotesque (bundled, styles.css @font-face; Michael's call, Nov 24), system font as fallback. No Inter.
  */
 /**
@@ -74,6 +80,56 @@ export const hud = {
 } as const
 
 
+/**
+ * The open notch island's gradient in bon's color (Michael, Nov 26: "try a pastel gradient, like whatever pastel the bon
+ * color is"). The one gradient the brand allows; see the brand rules at the top of this file.
+ *   lift   how far bon's color is mixed toward white first: a soft pastel even for its deeper colors (sky, pink)
+ *   alpha  the pastel's opacity at the bottom edge over the notch black (the brightest point)
+ *   from   the gradient is clear (pure notch black) down to this % of the height, so it melts into the hardware notch
+ * Linear with eased stops (`ramp`, fractions of alpha), so it never bands. Tune it here only.
+ */
+export const notchTint = { lift: 0.35, alpha: 0.3, from: 35, ramp: [[48, 0.09], [62, 0.28], [78, 0.56], [91, 0.84], [100, 1]] } as const
+
+/** #RRGGBB as [r, g, b]. */
+export const rgbOf = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.replace('#', '').slice(0, 6), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/** bon's color as the island's soft pastel: mixed `notchTint.lift` toward white. */
+export const notchPastel = (bon: string): [number, number, number] => rgbOf(bon).map((c) => Math.round(c + (255 - c) * notchTint.lift)) as [number, number, number]
+
+/** The fill: notch black at the top, the muted pastel of bon's color at the bottom edge. */
+export function notchGradient(bon: string): string {
+  const [r, g, b] = notchPastel(bon)
+  const at = (a: number, pct: number): string => `rgba(${r},${g},${b},${Math.round(a * 1000) / 1000}) ${pct}%`
+  return `linear-gradient(180deg, ${[at(0, 0), at(0, notchTint.from), ...notchTint.ramp.map(([pct, f]) => at(notchTint.alpha * f, pct))].join(', ')})`
+}
+
+/**
+ * The text tokens drawn on the island, raw (the island pins data-theme="dark": text and label are the HUD pair, the rest
+ * the palette's dark values). CSS variable -> value.
+ */
+export const islandText = {
+  '--c-text': hud.dark.text,
+  '--c-label': hud.dark.muted,
+  '--c-faint': '#858480',
+  '--f-chip-text': 'rgba(255,255,255,.72)',
+  '--f-key-text': 'rgba(255,255,255,.62)',
+  '--f-keycap-text': 'rgba(255,255,255,.78)'
+} as const
+/**
+ * Brighter muted text, set on the island only while the gradient shows: on its brightest point the HUD muted (white 60%)
+ * is 4.4:1 and the faint grey (#858480) 2.5:1, under the 4.5:1 floor (Adrian, MIC-83). Each value here keeps at least
+ * 4.5:1 there for every bon color (test/notchTint.test.ts), and reads the same as before on the black top.
+ */
+export const islandTextOnTint = {
+  '--c-label': 'rgba(255,255,255,.74)',
+  '--c-faint': '#C4C3BE',
+  '--f-chip-text': 'rgba(255,255,255,.78)',
+  '--f-key-text': 'rgba(255,255,255,.76)'
+} as const satisfies Partial<Record<keyof typeof islandText, string>>
+
 /** #RRGGBB at an alpha, as rgba() (used by the palette before `alpha` below is defined). */
 function alphaHex(hex: string, a: number): string {
   const n = parseInt(hex.slice(1, 7), 16)
@@ -99,7 +155,7 @@ const palette: Record<string, readonly [string, string]> = {
   // Dark faint is a solid warm gray (layout lane, Nov 22): white .42 was about 4.1:1 on the #1B1B1A pane and 3.8:1 on
   // #222221 cards, under 4.5:1 for the 12 px meta (durations, step counts); #858480 is about 4.8:1 on the pane.
   // Light faint: the website's #8F8F88 is 3.0:1 on the cream pane, so the app uses #6F6F68 (4.7:1 on #F6F6F3, test/lightContrast.test.ts).
-  'c-faint': ['#858480', '#6F6F68'],
+  'c-faint': [islandText['--c-faint'], '#6F6F68'],
   'c-hairline': [hud.dark.hairline, `rgba(${INK},.10)`],
   'c-accent': [hud.dark.button, hud.light.button],
   'c-on-accent': [hud.dark.buttonText, hud.light.buttonText],
@@ -159,7 +215,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-chip': ['rgba(255,255,255,.05)', `rgba(${INK},.04)`],
   'f-chip-hover': ['rgba(255,255,255,.1)', `rgba(${INK},.08)`],
   'f-chip-border': ['rgba(255,255,255,.08)', `rgba(${INK},.09)`],
-  'f-chip-text': ['rgba(255,255,255,.72)', `rgba(${INK},.70)`],
+  'f-chip-text': [islandText['--f-chip-text'], `rgba(${INK},.70)`],
   'f-highlight': ['rgba(255,255,255,.07)', `rgba(${INK},.05)`],
   'f-tile': ['rgba(255,255,255,.06)', `rgba(${INK},.05)`],
   'f-tile-glyph': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],
@@ -171,7 +227,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-track-soft': ['rgba(255,255,255,.14)', `rgba(${INK},.10)`],
   'f-ring': ['rgba(255,255,255,.28)', `rgba(${INK},.28)`],
   'f-key': ['rgba(255,255,255,.1)', `rgba(${INK},.06)`],
-  'f-key-text': ['rgba(255,255,255,.62)', `rgba(${INK},.6)`],
+  'f-key-text': [islandText['--f-key-text'], `rgba(${INK},.6)`],
   'f-button': ['rgba(255,255,255,.09)', `rgba(${INK},.06)`],
   'f-thumb': ['#181715', '#E7E5DF'],
   'f-thumb-art': ['#3A3834', '#CFCCC3'],
@@ -183,7 +239,7 @@ const palette: Record<string, readonly [string, string]> = {
   'f-segment-track': ['rgba(255,255,255,.06)', `rgba(${INK},.06)`],
   'f-keycap': ['rgba(255,255,255,.12)', `rgba(${INK},.05)`],
   'f-keycap-border': ['rgba(255,255,255,.18)', `rgba(${INK},.13)`],
-  'f-keycap-text': ['rgba(255,255,255,.78)', `rgba(${INK},.65)`],
+  'f-keycap-text': [islandText['--f-keycap-text'], `rgba(${INK},.65)`],
   'f-track-next': ['rgba(255,255,255,.18)', `rgba(${INK},.14)`],
   'f-track-next-mini': ['rgba(255,255,255,.24)', `rgba(${INK},.2)`],
   'f-practicing': ['rgba(255,255,255,.55)', `rgba(${INK},.5)`],

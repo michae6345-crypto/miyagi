@@ -11,13 +11,13 @@ type Box = { x: number; y: number; w: number; h: number }
 
 /**
  * The notch's radii: closed (at rest, ears) and open (peek, cards). The shape animates between them.
- * Open shapes have straight sides and a small flare (Adrian's pick, Nov 24, MIC-83; on main since Nov 25). They leaned
- * in 16 px a side under a 19 px flare from Nov 22, and 18 px for a day on Nov 25. A card's content is a rectangle, so in
- * the leaning shape it had 35 px of side room at the top and 19 at the bottom, and the same cards below the menu bar
- * are plain rounded rectangles. `taper` stays in the path (notchPath) so a lean is one number away; it is 0 everywhere
- * now.
+ * Open shapes have SLANTED sides: an upside-down trapezoid under curved top ears (Michael, Nov 26, overriding the straight
+ * sides of MIC-83 cb9c4d0f: "the notch is straight. It needs to be slanted"). Open is top 19, bottom 24, taper 18 (as
+ * on Nov 25); the short peek keeps a small lean (taper 5); closed is 0, so at rest it is the hardware notch. A card's
+ * content stays a rectangle: notchSize adds top + taper each side, so the content fits between the sides at the
+ * bottom too. test/notchIsland.test.ts holds open taper > 0.
  */
-export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 12, bottom: 24, taper: 0 }, peek: { top: 8, bottom: 18, taper: 0 } } as const
+export const NOTCH_RADII = { closed: { top: 6, bottom: 14, taper: 0 }, open: { top: 19, bottom: 24, taper: 18 }, peek: { top: 10, bottom: 18, taper: 5 } } as const
 /** An open shape shorter than this uses the gentler peek radii: the big radii on a short shape read as an upside-down trapezoid (Michael, Nov 22). */
 export const SHORT_OPEN_H = 120
 /** `taper`: how far each side leans in from top to bottom (0 = straight sides, like the hardware notch). */
@@ -105,7 +105,8 @@ export const earsSize = (n: NotchLayout): { w: number; h: number } => ({ w: n.wi
  * `measured`.
  */
 export function notchSize(n: NotchLayout, kind: 'card' | 'pill', view: NotchView, fixed: number | undefined, measured: { w: number; h: number } | undefined): { w: number; h: number } {
-  // The shape's straight sides sit one top radius in from its edges, so the card's own width fits between them.
+  // The shape's sides lean in from one top radius inside its edges to top + taper at the bottom: the card's own width
+  // fits between them all the way down.
   if (kind === 'card') return fixed && fixed > 0 && measured && measured.h > 0 ? { w: fixed + 2 * (NOTCH_RADII.open.top + NOTCH_RADII.open.taper), h: n.height + Math.ceil(measured.h) } : restSize(n)
   if (view === 'rest') return restSize(n)
   if (view === 'ears') return earsSize(n)

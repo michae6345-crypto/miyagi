@@ -45,7 +45,7 @@ export type Skin = {
 
 const PINK = brand.pastel.pink
 const PINK_DEEP = brand.pastel.pinkDeep
-/** The mint the notch's glow and gradient used until Nov 25 (rgb 150 228 200; both are gone, MIC-83). Not the pass green. */
+/** The mint the notch's glow and gradient used until Nov 25 (rgb 150 228 200). Since Nov 26 the gradient is in bon's own color (theme.notchGradient). Not the pass green. */
 const MINT = '#96E4C8'
 /** The pot of the logo, in its cut for dark backgrounds (BRAND.md). */
 const CLAY = '#C2694A'
