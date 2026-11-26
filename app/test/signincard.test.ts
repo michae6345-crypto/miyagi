@@ -166,7 +166,8 @@ describe('capLine', () => {
   test('the other kinds', () => {
     assert.equal(capLine({ reason: 'daily_requests', status: 429, resetsAt: at }, NOW, LA), "You've used today's free help. It resets at 4:00 PM.")
     assert.equal(capLine({ reason: 'daily_usd', status: 429, resetsAt: at }, NOW, LA), "miyagi is at today's limit. It resets at 4:00 PM.")
-    assert.equal(capLine({ reason: 'lesson_builds', status: 429, resetsAt: '2026-12-01T00:00:00Z' }, NOW, LA), "You've used this month's new lessons. More on Nov 30.")
+    assert.equal(capLine({ reason: 'lesson_builds', status: 429, resetsAt: '2026-12-01T00:00:00Z' }, NOW, LA), 'This lesson builds right here. It may take a minute.')
+    assert.equal(capLine({ reason: 'miyagi_lesson_quota', status: 429 }, NOW, LA), 'This lesson builds right here. It may take a minute.')
     assert.equal(capLine({ reason: 'ip_hourly', status: 429, resetsAt: '2026-11-24T18:05:00Z' }, NOW, LA), 'Too many requests just now. Try again at 10:05 AM.')
     assert.equal(capLine({ reason: 'new_installs', status: 429, resetsAt: at }, NOW, LA), 'miyagi is full today. Try again at 4:00 PM.')
     assert.equal(capLine({ reason: '429', status: 429, resetsAt: at }, NOW, LA), "You've reached a limit for now. Try again at 4:00 PM.")

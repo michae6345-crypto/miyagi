@@ -45,6 +45,7 @@ import { Lede, MapView, PathView, Peek, Tabs } from './flat/views'
 import { chooseGoal, closePicker, openPicker, select, setQuery, showTools, startSkill, useSkills } from './store'
 import { useSkillGraph } from './store'
 import { useDashView } from '../dashboard/Dashboard'
+import { emptyLines } from './copy'
 
 /** The shell header's right side on the Skills page: the page's one primary, Continue (or Start) the next skill. */
 export function SkillsHeaderTools(): ReactNode {
@@ -56,16 +57,20 @@ export function SkillsHeaderTools(): ReactNode {
   return <PrimaryButton icon={Play} label={`${g.next!.practicing ? 'Continue' : 'Start'} ${g.next!.label}`} onClick={() => startSkill(n, g)} />
 }
 
-/** No skills at all yet: the bonsai, one line, the way to a lesson. */
-function NoSkills(): ReactNode {
+/**
+ * No skills at all yet: the bonsai, one line, the way to a lesson. Arriving from a clicked skill (go.ts showSkill sets
+ * the search to its label), the page names that skill rather than a bare "No skills yet".
+ */
+function NoSkills({ wanted }: { wanted?: string }): ReactNode {
+  const { title, line } = emptyLines(wanted)
   return (
     <PageColumn wide style={COL}>
-      <div data-shell-skills-empty className="flex flex-col items-start" style={{ gap: 8 }}>
+      <div data-shell-skills-empty={wanted?.trim() ? 'wanted' : ''} className="flex flex-col items-start" style={{ gap: 8 }}>
         <MiyagiMark size={40} />
         <span className="font-semibold" style={{ marginTop: 8, fontSize: type2.lg, color: color.text }}>
-          No skills yet
+          {title}
         </span>
-        <span style={{ fontSize: type2.sm, color: color.label, maxWidth: 360 }}>Finish a lesson. The skills its checks proved show up here.</span>
+        <span style={{ fontSize: type2.sm, color: color.label, maxWidth: 360 }}>{line}</span>
         <div style={{ marginTop: 16 }}>
           <QuietButton label="Browse lessons" onClick={() => setPage('lessons')} />
         </div>
@@ -105,7 +110,7 @@ export function SkillsView({ g, now }: { g: SkillGraph | undefined; now: number 
   }, [tools])
 
   // No graph, or one with no skills yet (the page waits on the first `progress` itself): one empty state, one way on.
-  if (!g || !g.nodes.length) return <NoSkills />
+  if (!g || !g.nodes.length) return <NoSkills wanted={query} />
 
   const noGoal = !g.goal
   const canChange = g.source === 'graph' && g.capstones.length > 1

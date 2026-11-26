@@ -58,7 +58,7 @@ export function Cols({ left, right }: { left: ReactNode; right: ReactNode }): Re
 
 /**
  * A quiet button that may say a word after it ran ("Cleared."). `pending`: main has no handler for it yet
- * (apps:connect:<id>, data:open-folder, data:cache-clear; Core request in agents/v4-settings.md), so in Electron it
+ * (data:open-folder, data:cache-clear; Core request in agents/v4-settings.md), so in Electron it
  * shows disabled with a tooltip instead of answering every click with an error; the stage's stand-ins keep it working.
  * `soon`: the engine can't do it yet (its inventory's canDelete leaves the kind out): shown, but disabled with a reason.
  * `confirm`: the label of the second click (the first only arms it for 4 s, as End lesson does), for what can't be undone.
@@ -193,6 +193,7 @@ export function General4(): ReactNode {
 /**
  * What the engine said, and only that: Connected only when its health item is ok (a white tick and the word, never
  * green). With no health item the row says how miyagi reads the app (Reads exactly / Screen only), never Connected.
+ * No button here: the app can't set up an add-on yet, so the Apps panel never offers one (no dead Connect, Nov 25).
  */
 function AppStatus({ app, item }: { app: AppRow; item?: HealthItem }): ReactNode {
   if (item?.state === 'ok') return <OnWord>Connected</OnWord>
@@ -201,11 +202,10 @@ function AppStatus({ app, item }: { app: AppRow; item?: HealthItem }): ReactNode
     return (
       <span className="flex shrink-0 items-center gap-[8px] whitespace-nowrap" style={{ fontSize: type2.sm, color: color.text }}>
         <StatusGlyph state="notyet" size={12} />
-        Not found
+        {item.state === 'off' ? 'Not open' : 'Not found'}
       </span>
     )
   if (app.how === 'connected') return <Plain>Reads exactly</Plain>
-  if (app.how === 'connect') return <RunButton label="Connect" pending run={() => tryInvoke(`apps:connect:${app.id}`, 'Connected.')} />
   return <Plain>Screen only</Plain>
 }
 

@@ -5,6 +5,16 @@
 import { needsLine, type SkillGraph, type SkillGraphNode } from './model'
 
 /**
+ * The Skills page with no skills yet. Arriving from a clicked skill (a plan's chip, a Library row: showSkill in
+ * skills/go puts its label in the search), the page names that skill instead of a bare "No skills yet".
+ */
+export function emptyLines(wanted?: string): { title: string; line: string } {
+  const name = wanted?.trim()
+  if (name) return { title: name, line: 'Not started yet. A lesson that teaches it adds it here.' }
+  return { title: 'No skills yet', line: 'Finish a lesson. The skills its checks proved show up here.' }
+}
+
+/**
  * The line under a node's name: what it is now ("ready", "2 of 4 steps", "needs 3 skills", "review"). `fits` says
  * whether a line fits under the node; a "needs <name>" that doesn't becomes "needs 1 skill" (never an ellipsis).
  */
