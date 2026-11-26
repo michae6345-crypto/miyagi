@@ -6,9 +6,11 @@ Editor choice: MIYAGI_EDITOR=code (vscode) if that editor is installed, else VS 
 Without Accessibility (always): `<cli> -n <dir> -g <file>` (fallback `open -a <App> <dir> [<file>]`), then
 `open -a <App>` so the editor is frontmost. A full-screen app the learner was in stays as it is; the editor
 gets its own window (macOS switches to it).
-With Accessibility (AXIsProcessTrusted) and MIYAGI_ARRANGE != 0: the previous frontmost app's focused window
-leaves full screen (AXFullScreen=false; never closed, never quit), and the editor's window is moved to the
-left 60% of the screen so the video player docked on the right 40% stays visible.
+With Accessibility (AXIsProcessTrusted) and MIYAGI_ARRANGE != 0: the lesson's window (only the one showing the
+lesson folder) is laid out ONCE on the overlay's display by the pure policy in layout.py: beside the lesson panel
+("Just teach me"), or on the left with the right column kept for the player and steps drawer (video lessons). Nothing
+is closed, quit or taken out of macOS full screen; a full-screen lesson window is left as it is. After that Miyagi only
+follows: a window the learner moved or resized is never laid out again this lesson (fit_beside_drawer).
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from server.config import safe_env
+
+from . import layout as L
 
 log = logging.getLogger("server.workspace")
 
@@ -68,11 +72,10 @@ _app_v2 = False  # the app draws the v2 panel (session.note_app_v2): DRAWER_W, e
 # fit_full keeps the editor PANEL_GAP left of its left edge instead of the DRAWER_W estimate. None: not reported.
 _panel_rect: dict | None = None
 _panel_lock = threading.Lock()
-# E22: the lesson's editor window also ends above the overlay's shortcut bar at the bottom of the screen (app
-# shortcut-bar BAR_HEIGHT 88 + its gap: the same 112 pt the player dock and the drawer keep clear, drawer/geometry.ts
-# BAR_CLEARANCE), so the terminal's last lines (the program's output, the prompt) are never under the bar.
-# MIYAGI_BAR_CLEARANCE=0: the full height.
-BAR_CLEARANCE = float(os.environ.get("MIYAGI_BAR_CLEARANCE", "112"))
+# E22 kept the lesson's window 112 pt above the overlay's bottom shortcut bar. The bar was retired (Michael, Nov 21:
+# no bottom bar in any lesson), but the 112 pt stayed: on a 900 pt MacBook screen VS Code lost an eighth of its height
+# to nothing (MacBook Neo test, Nov 25). Now the window goes down to the Dock. MIYAGI_BAR_CLEARANCE=112: the old margin.
+BAR_CLEARANCE = float(os.environ.get("MIYAGI_BAR_CLEARANCE", "0"))
 
 
 def above_bar(frame: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
@@ -138,18 +141,20 @@ def drawer_reserve() -> float:
 
 def fit_full(visible: tuple[float, float, float, float], panel: dict | None = None,
              *, drawer_w: float | None = None) -> tuple[float, float, float, float]:
-    """The lesson's editor frame in the visible screen `visible` (x, y, w, h; AX top-left): under the step pill, above
-    the shortcut bar, and ending left of the lesson panel: PANEL_GAP before the panel's reported left edge (`panel`,
-    else the last panel.state), else drawer_reserve() short of the screen's right edge (392 for the v2 panel, 436 for
-    the v1 drawer). Never narrower than EDITOR_FRACTION of the screen. Pure (no AX)."""
-    x, y, w, h = below_pill(above_bar(visible))
+    """The lesson's editor frame in the visible screen `visible` (x, y, w, h; AX top-left), as layout.target puts it
+    (mode "lesson", no notch known: below the island's row, PANEL_GAP left of the reported panel, else drawer_reserve()
+    short of the right edge). Kept for older callers; the open and the follow-ups use layout.plan directly. Pure."""
+    v = L.Rect.of(visible)
+    if v is None:
+        return visible
+    p = L.Rect.of(panel if panel is not None else panel_rect())
     reserve = drawer_reserve() if drawer_w is None else drawer_w
-    right = x + w if reserve <= 0 else x + w - reserve
-    p = panel if panel is not None else panel_rect()
-    if p and reserve > 0 and x < p["x"] < x + w:  # the panel the app really drew (a moved or resized panel)
-        right = p["x"] - PANEL_GAP
-    width = max(round(w * EDITOR_FRACTION), round(right - x))
-    return (x, y, min(w, width), h)
+    scr = L.Screen(frame=L.Rect(v.x, 0.0, v.w, v.bottom), visible=v)
+    if reserve <= 0:
+        p, reserve = None, 0.0
+    return L.target(scr, "lesson", p, reserve=reserve, pill_clearance=PILL_CLEARANCE, bar_clearance=BAR_CLEARANCE).tuple()
+
+
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -347,23 +352,36 @@ class AX:
         return (float(pt.x), float(pt.y), float(sz.width), float(sz.height)) if ok1 and ok2 else None
 
     def set_frame(self, win, x: float, y: float, w: float, h: float) -> bool:
+        """Position, size, then the position once more if macOS clamped it while the old size didn't fit there (a
+        window moved before it shrank lands short of its spot: the second, visible hop of the open)."""
         A = self.A
         pos = A.AXValueCreate(A.kAXValueCGPointType, (x, y))
         size = A.AXValueCreate(A.kAXValueCGSizeType, (w, h))
         ok1 = A.AXUIElementSetAttributeValue(win, "AXPosition", pos) == 0
         ok2 = A.AXUIElementSetAttributeValue(win, "AXSize", size) == 0
+        now = self.frame(win)
+        if now is not None and (abs(now[0] - x) > 2 or abs(now[1] - y) > 2):
+            ok1 = A.AXUIElementSetAttributeValue(win, "AXPosition", pos) == 0
         return ok1 and ok2
 
 
 # t12 (test 12: VS Code stayed narrowed after End lesson, ~40% of the screen empty): each window Miyagi arranged, as
-# [window, its frame before Miyagi's first arrange, the frames Miyagi set (asked, then read back)]
+# [window, its frame before Miyagi's first arrange, the frames Miyagi set (asked, then read back), layout mode]
 _arranged: list[list] = []
 _arranged_lock = threading.Lock()
 RESTORE_SLACK = 4.0  # pt: a window this close to the frame Miyagi set is still where Miyagi put it
+# Nov 25 (MacBook Neo test: "lay out once, then only follow"): windows the learner moved or resized after miyagi laid
+# them out. They are theirs for the rest of the lesson: no panel move, run step or display change touches them again.
+_released: list = []
 
 
-def _set_frame(ax, win, x: float, y: float, w: float, h: float) -> bool:
-    """ax.set_frame, remembering the window's frame before Miyagi first arranged it (restore_frames puts it back)."""
+def _same_win(a, b) -> bool:
+    return a is b or a == b
+
+
+def _set_frame(ax, win, x: float, y: float, w: float, h: float, *, mode: str | None = None) -> bool:
+    """ax.set_frame, remembering the window's frame before Miyagi first arranged it (restore_frames puts it back) and
+    the frames Miyagi set (_ownership: is it still where Miyagi put it?)."""
     read = getattr(ax, "frame", None)
     try:
         before = read(win) if read else None
@@ -377,12 +395,61 @@ def _set_frame(ax, win, x: float, y: float, w: float, h: float) -> bool:
     except Exception:  # noqa: BLE001
         now = None
     with _arranged_lock:
-        e = next((e for e in _arranged if e[0] is win or e[0] == win), None)
+        e = next((e for e in _arranged if _same_win(e[0], win)), None)
         if e is None:
-            _arranged.append([win, before, [(x, y, w, h)] + ([now] if now else [])])
+            _arranged.append([win, before, [(x, y, w, h)] + ([now] if now else []), mode])
         else:
             e[2] = [(x, y, w, h)] + ([now] if now else [])  # a later arrange (the drawer's room): its first frame stays
+            e[3] = mode or e[3]
     return ok
+
+
+def _ownership(ax, win) -> bool | None:
+    """None: Miyagi never laid this window out. True: it is where Miyagi last put it (RESTORE_SLACK). False: the
+    learner moved or resized it since (remembered: theirs for the rest of the lesson, even if it comes back)."""
+    with _arranged_lock:
+        if any(_same_win(w, win) for w in _released):
+            return False
+        e = next((e for e in _arranged if _same_win(e[0], win)), None)
+    if e is None:
+        return None
+    try:
+        now = ax.frame(win)
+    except Exception:  # noqa: BLE001
+        now = None
+    if now is None:
+        return False  # can't tell where it is: don't touch it
+    if any(L.same(L.Rect.of(now), L.Rect.of(f), RESTORE_SLACK) for f in e[2]):
+        return True
+    _release(win)
+    log.info("layout: the learner moved or resized the lesson window; miyagi only follows it from now on")
+    return False
+
+
+def _release(win) -> None:
+    with _arranged_lock:
+        if not any(_same_win(w, win) for w in _released):
+            _released.append(win)
+
+
+def _claim(win) -> None:
+    """An open lays its window out afresh (open_lesson_editor runs at most once per lesson)."""
+    with _arranged_lock:
+        _released[:] = [w for w in _released if not _same_win(w, win)]
+
+
+def _mode_of(win) -> str | None:
+    with _arranged_lock:
+        e = next((e for e in _arranged if _same_win(e[0], win)), None)
+    return e[3] if e is not None and len(e) > 3 else None
+
+
+def _frame_of(ax, win) -> L.Rect | None:
+    read = getattr(ax, "frame", None)
+    try:
+        return L.Rect.of(read(win)) if read else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def restore_frames(ax=None) -> list[tuple]:
@@ -392,12 +459,13 @@ def restore_frames(ax=None) -> list[tuple]:
     with _arranged_lock:
         saved = list(_arranged)
         _arranged.clear()
+        _released.clear()
     if not saved:
         return []
     done: list[tuple] = []
     try:
         ax = ax or AX()
-        for win, before, set_to in saved:
+        for win, before, set_to, *_ in saved:
             now = ax.frame(win)
             if now is None:
                 continue  # closed since
@@ -413,49 +481,157 @@ def restore_frames(ax=None) -> list[tuple]:
     return done
 
 
+# Nov 25 (MacBook Neo test: "the overlay moved back and forth when VS Code opened"): ONE writer of the lesson window's
+# frame. The open's layout (make_fullscreen / arrange) and the follow-ups (fit_beside_drawer: panel.state, a run step)
+# take this lock, the follow-ups wait out a burst (RELAYOUT_SETTLE_S: only the last request of a burst acts) and stay
+# out while the open's layout is still coming (it reads the latest panel rect itself). The math is layout.plan's.
+_layout_lock = threading.Lock()
+_relayout_gen = 0
+_opening = 0  # open-time layouts in flight
+RELAYOUT_SETTLE_S = float(os.environ.get("MIYAGI_RELAYOUT_SETTLE_S", "0.5"))
+
+
+def _opening_layout(delta: int) -> None:
+    global _opening
+    with _arranged_lock:
+        _opening = max(0, _opening + delta)
+
+
+def _settled(settle_s: float, sleep=time.sleep) -> bool:
+    """Debounce: True for the last of a burst of relayout requests (each waits settle_s; a newer one wins)."""
+    global _relayout_gen
+    with _arranged_lock:
+        _relayout_gen += 1
+        mine = _relayout_gen
+    if settle_s > 0:
+        sleep(settle_s)
+    with _arranged_lock:
+        return mine == _relayout_gen
+
+
+def lesson_screen() -> L.Screen | None:
+    """The overlay's display, live: the PRIMARY display (v1: the overlay and the engine's screen reader live there, so
+    the lesson window goes there too, even if VS Code last opened on an external display). NSScreen gives the visible
+    frame (menu bar, Dock on any side) and the notch (safeAreaInsets); its frame is checked against Quartz's live
+    CGDisplayBounds, since NSScreen can go stale in a process without an AppKit run loop (the engine): a resolution
+    or display change since then keeps NSScreen's insets on the live frame. In AX points (top-left origin)."""
+    try:
+        import AppKit
+    except ImportError:
+        return None
+    try:
+        screens = AppKit.NSScreen.screens()
+        if not screens:
+            return None
+        prim = screens[0]  # the one with the menu bar, origin (0, 0)
+        f, vf = prim.frame(), prim.visibleFrame()
+        fw, fh = float(f.size.width), float(f.size.height)
+        top = fh - (float(vf.origin.y) + float(vf.size.height))
+        left, width, height = float(vf.origin.x) - float(f.origin.x), float(vf.size.width), float(vf.size.height)
+        safe_top = 0.0
+        if hasattr(prim, "safeAreaInsets"):
+            try:
+                safe_top = float(prim.safeAreaInsets().top)
+            except Exception:  # noqa: BLE001 - macOS < 12: no notch API, no notch
+                safe_top = 0.0
+        try:
+            import Quartz
+
+            b = Quartz.CGDisplayBounds(Quartz.CGMainDisplayID())
+            lw, lh = float(b.size.width), float(b.size.height)
+            if lw > 0 and lh > 0 and (abs(lw - fw) > 1 or abs(lh - fh) > 1):
+                log.info("layout: NSScreen says %.0fx%.0f, the display is %.0fx%.0f now (stale); using the live size",
+                         fw, fh, lw, lh)
+                right_in, bottom_in = fw - (left + width), fh - (top + height)
+                fw, fh = lw, lh
+                width, height = max(0.0, fw - left - right_in), max(0.0, fh - top - bottom_in)
+        except Exception:  # noqa: BLE001 - no Quartz: NSScreen's answer as it is
+            pass
+        frame = L.Rect(0.0, 0.0, fw, fh)
+        visible = L.Rect(left, top, width, height)
+        return L.Screen(frame=frame, visible=visible, safe_top=safe_top) if visible.w > 0 and visible.h > 0 else None
+    except Exception as e:  # noqa: BLE001
+        log.debug("lesson_screen failed: %r", e)
+        return None
+
+
+def _panel() -> L.Rect | None:
+    return L.Rect.of(panel_rect())
+
+
+def _reserve() -> float | None:
+    """Room kept for the panel when the app hasn't reported it: the v1 drawer's until a v2 app is known."""
+    return None if panel_rect() is not None else drawer_reserve()
+
+
 def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 20.0,
                     sleep=time.sleep) -> None:
-    """With Accessibility: fill the screen with the editor's window. Default: maximized to the main screen's visible
-    frame, in the current Space. MIYAGI_FULLSCREEN=native: macOS full screen (AXFullScreen=true).
+    """With Accessibility: the lesson's window fills the overlay's display beside the lesson panel (layout.plan,
+    mode "lesson": under the menu bar / notch, down to the Dock, PANEL_GAP left of the panel). Default: a normal
+    window in the current Space. MIYAGI_FULLSCREEN=native: macOS full screen (AXFullScreen=true). A window already in
+    macOS full screen is the learner's: left as it is. Runs ONCE per lesson open (open_lesson_editor).
     folder: act on the window showing that folder, never on whichever window had focus before it appeared."""
     try:
         ax = ax or AX()
     except ImportError:
         report["fullscreen"] = "skipped: pyobjc-framework-ApplicationServices not installed"
         return
-    deadline = time.monotonic() + wait_s
-    win = None
-    while time.monotonic() < deadline:
-        pid = editor_pid(editor)
-        win = (ax.folder_window(pid, folder) if folder else ax.focused_window(pid)) if pid else None
-        if win is not None:
-            break
-        sleep(0.3)
-    if win is None:
-        report["fullscreen"] = f"skipped: no {editor['label']} window{' for ' + Path(folder).name if folder else ''} within {wait_s:.0f}s"
-    elif ax.is_fullscreen(win):
-        report["fullscreen"] = "done (already full screen)"
-    elif NATIVE_FULLSCREEN:
-        report["fullscreen"] = "done" if ax.enter_fullscreen(win) else "failed: the editor refused AXFullScreen"
-    elif (frame := left_frame(1.0)) is None:
-        report["fullscreen"] = "skipped: no screen info"
-    else:
-        frame = fit_full(frame)  # under the step pill / gear, above the shortcut bar, left of the lesson panel
-        report["fullscreen"] = "done (maximized)" if _set_frame(ax, win, *frame) else "failed: the editor refused the new frame"
-    if win is not None and folder:
-        put_away_other_lessons(ax, pid, folder, win, report)
-    log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
+    _opening_layout(+1)
+    try:
+        deadline = time.monotonic() + wait_s
+        win = pid = None
+        while time.monotonic() < deadline:
+            pid = editor_pid(editor)
+            win = (ax.folder_window(pid, folder) if folder else ax.focused_window(pid)) if pid else None
+            if win is not None:
+                break
+            sleep(0.3)
+        if win is None:
+            report["fullscreen"] = f"skipped: no {editor['label']} window{' for ' + Path(folder).name if folder else ''} within {wait_s:.0f}s"
+        elif ax.is_fullscreen(win):
+            report["fullscreen"] = "done (already full screen)"
+        elif NATIVE_FULLSCREEN:
+            report["fullscreen"] = "done" if ax.enter_fullscreen(win) else "failed: the editor refused AXFullScreen"
+        elif (scr := lesson_screen()) is None:
+            report["fullscreen"] = "skipped: no screen info"
+        else:
+            with _layout_lock:
+                _claim(win)
+                p = L.plan(scr, mode="lesson", panel=_panel(), reserve=_reserve(),
+                           editor=L.EditorState(frame=_frame_of(ax, win)), pill_clearance=PILL_CLEARANCE,
+                           bar_clearance=BAR_CLEARANCE)
+                if p.action == "set":
+                    ok = _set_frame(ax, win, *p.bounds.tuple(), mode="lesson")
+                    report["fullscreen"] = "done (maximized)" if ok else "failed: the editor refused the new frame"
+                    report["frame"] = [round(v) for v in p.bounds.tuple()]
+                else:
+                    report["fullscreen"] = f"done ({p.reason})"
+        if win is not None and folder:
+            put_away_other_lessons(ax, pid, folder, win, report)
+        log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
+    finally:
+        _opening_layout(-1)
 
 
-def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
-                      screen: tuple[float, float, float, float] | None = None) -> str:
-    """A run step (Michael, Nov 15: Miyagi's drawer covered VS Code's top-right corner: the Run ▷ and the panel
-    toggle): the lesson's window ends DRAWER_W short of the main screen's right edge, as make_fullscreen leaves it.
-    A window the learner put in macOS full screen, or maximized under the drawer (it spans the whole visible width),
-    is logged and left as it is; another window that reaches under the drawer is narrowed (x, y and height kept).
+def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None, screen=None,
+                      settle_s: float | None = None, sleep=time.sleep) -> str:
+    """Follow-ups after the open (panel.state: the panel docked or moved with the display; a run step: VS Code's Run ▷
+    and its top-right buttons must not sit under the panel, Michael Nov 15). Lay out once, then only follow:
+      - macOS full screen: the learner's, left as it is (the overlay floats over it);
+      - a window Miyagi laid out and the learner moved or resized since: theirs, never touched again this lesson;
+      - a window still where Miyagi put it: re-planned (mode kept) only when the plan moved by more than layout.SLACK;
+      - a window Miyagi never laid out (no Accessibility at open time, opened by the learner): narrowed once to end
+        left of the panel when it reaches under it (x, y, height kept); maximized under it, or starting too far
+        right: left as it is, for good.
+    A burst of requests (panel.state while the panel springs, a run step right after) is one layout: the last.
     Best effort, never raises; blocking (AX): call it in a thread. -> what it found / did (also logged)."""
     if DRAWER_W <= 0:
         return "off (MIYAGI_DRAWER_W=0)"
+    if not _settled(RELAYOUT_SETTLE_S if settle_s is None else settle_s, sleep):
+        return "coalesced (a newer layout request follows)"
+    with _arranged_lock:
+        if _opening:
+            return "skipped: the open's own layout is still coming"
     try:
         if not ax_trusted():
             return "skipped: Accessibility not granted"
@@ -466,28 +642,51 @@ def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
         if win is None:
             return "skipped: no lesson window"
         name = Path(folder).name
-        if ax.is_fullscreen(win):
-            log.info("drawer room: %s is in macOS full screen; the drawer covers its right edge (left as it is)", name)
-            return "full screen (left as it is)"
-        fr, vis = ax.frame(win), screen or left_frame(1.0)
-        if fr is None or vis is None:
-            return "skipped: no frame"
-        x, y, w, h = fr
-        vx, _vy, vw, _vh = vis
-        fx, _fy, fw, _fh = fit_full(vis)
-        limit = fx + fw  # make_fullscreen's right edge (left of the panel the app reported, when it did)
-        if x >= vx + vw or x + w <= vx or x + w <= limit + 2:
-            return "ok"
-        if x <= vx + 2 and x + w >= vx + vw - 2:
-            log.info("drawer room: %s is maximized under the drawer (%.0f pt of it covered; left as it is)",
-                     name, x + w - limit)
-            return "maximized under the drawer (left as it is)"
-        if limit - x < 480:
-            log.info("drawer room: %s starts too far right to narrow (left as it is)", name)
-            return "too far right (left as it is)"
-        ok = _set_frame(ax, win, x, y, limit - x, h)
-        log.info("drawer room: %s narrowed to end at x=%.0f, beside the drawer: %s", name, limit, ok)
-        return "narrowed" if ok else "failed: the editor refused the new frame"
+        with _layout_lock:
+            if ax.is_fullscreen(win):
+                log.info("layout: %s is in macOS full screen (left as it is)", name)
+                return "full screen (left as it is)"
+            scr = screen if isinstance(screen, L.Screen) else (
+                L.Screen(frame=L.Rect.of(screen), visible=L.Rect.of(screen)) if L.Rect.of(screen) else lesson_screen())
+            fr = _frame_of(ax, win)
+            if scr is None or fr is None:
+                return "skipped: no frame"
+            owned = _ownership(ax, win)
+            if owned is False:
+                return "the learner's layout (left as it is)"
+            vis = scr.visible
+            limit = L.target(scr, "lesson", _panel(), reserve=_reserve(), pill_clearance=PILL_CLEARANCE,
+                             bar_clearance=BAR_CLEARANCE).right
+            x, y, w, h = fr.tuple()
+            mode = _mode_of(win) or "lesson"
+            if owned and mode == "narrow":  # only its right edge was ever Miyagi's: keep just that beside the panel
+                if x + w <= limit + 2 and x + w >= limit - 2:
+                    return "ok"
+                ok = _set_frame(ax, win, x, y, max(480.0, limit - x), h, mode="narrow")
+                return "followed" if ok else "failed: the editor refused the new frame"
+            if owned:
+                p = L.plan(scr, mode=mode, panel=_panel(), reserve=_reserve(), editor=L.EditorState(frame=fr, owned=True),
+                           pill_clearance=PILL_CLEARANCE, bar_clearance=BAR_CLEARANCE)
+                if p.action != "set":
+                    return "ok"
+                ok = _set_frame(ax, win, *p.bounds.tuple(), mode=mode)
+                log.info("layout: %s follows the panel / display (%s): %s", name, p.bounds.rounded().tuple(), ok)
+                return "followed" if ok else "failed: the editor refused the new frame"
+            # never laid out by Miyagi: narrow once, keep the rest of the learner's frame
+            if x >= vis.right or x + w <= vis.x or x + w <= limit + 2:
+                return "ok"
+            if x <= vis.x + 2 and x + w >= vis.right - 2:
+                _release(win)
+                log.info("layout: %s is maximized under the panel (%.0f pt of it covered; left as it is)", name,
+                         x + w - limit)
+                return "maximized under the drawer (left as it is)"
+            if limit - x < 480:
+                _release(win)
+                log.info("layout: %s starts too far right to narrow (left as it is)", name)
+                return "too far right (left as it is)"
+            ok = _set_frame(ax, win, x, y, limit - x, h, mode="narrow")
+            log.info("layout: %s narrowed to end at x=%.0f, beside the panel: %s", name, limit, ok)
+            return "narrowed" if ok else "failed: the editor refused the new frame"
     except Exception as e:  # noqa: BLE001 - a refinement: the lesson runs without it
         log.debug("fit beside drawer failed: %r", e)
         return f"failed: {e!r}"
@@ -516,19 +715,13 @@ def put_away_other_lessons(ax, pid: int, folder: str, win, report: dict, *, wait
 
 
 def left_frame(fraction: float = EDITOR_FRACTION) -> tuple[float, float, float, float] | None:
-    """(x, y, w, h) of the left `fraction` of the main screen's visible area, in AX (top-left) coordinates."""
-    try:
-        import AppKit
-    except ImportError:
+    """(x, y, w, h) of the left `fraction` of the overlay's display's visible area, in AX (top-left) coordinates.
+    Kept for older callers; the layout itself is layout.plan on lesson_screen()."""
+    scr = lesson_screen()
+    if scr is None:
         return None
-    screens = AppKit.NSScreen.screens()
-    main = AppKit.NSScreen.mainScreen()
-    if not screens or main is None:
-        return None
-    total_h = screens[0].frame().size.height  # AX y is measured from the top of the primary display
-    vf = main.visibleFrame()
-    top = total_h - (vf.origin.y + vf.size.height)
-    return (vf.origin.x, top, round(vf.size.width * fraction), vf.size.height)
+    v = scr.visible
+    return (v.x, v.y, round(v.w * fraction), v.h)
 
 
 def find_pid(app_name: str, bundle: str | None = None) -> int | None:
@@ -554,43 +747,54 @@ def editor_pid(editor: dict) -> int | None:
 
 def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_s: float = 8.0,
             fraction: float = EDITOR_FRACTION, sleep=time.sleep, folder: str | None = None) -> None:
-    """With Accessibility: un-fullscreen the previous app's window, put the editor on the left `fraction`.
+    """Video lessons, with Accessibility: the lesson's window (the one showing `folder`; else the editor's focused
+    window) takes the left of the overlay's display (layout.plan mode "video": the left `fraction`, the right column
+    kept for the player and the steps drawer, app common/screenLayout.ts). Runs ONCE per lesson open.
+    Nov 25: it no longer takes anyone out of macOS full screen. A lesson window in full screen is the learner's
+    (left as it is; the overlay and the player float over full-screen Spaces), and the app the learner was in
+    (`previous`, kept for callers) stays as it was: each of those exits was a Space switch while VS Code opened.
     folder: the lesson's folder; other lesson folders' windows are then put away (put_away_other_lessons)."""
     try:
         ax = ax or AX()
     except ImportError:
         report["arrange"] = "skipped: pyobjc-framework-ApplicationServices not installed"
         return
-    if previous and previous.get("name") != editor["app"]:
-        win = ax.focused_window(previous["pid"])
-        if win is not None and ax.is_fullscreen(win):
-            report["unfullscreened"] = previous["name"] if ax.exit_fullscreen(win) else False
-            sleep(1.0)  # the space animation; moving windows during it is ignored
-    deadline = time.monotonic() + wait_s
-    win = None
-    while time.monotonic() < deadline:
-        pid = editor_pid(editor)
-        win = ax.focused_window(pid) if pid else None
-        if win is not None:
-            break
-        sleep(0.3)
-    if win is None:
-        report["arrange"] = f"skipped: no {editor['label']} window within {wait_s:.0f}s"
-        return
-    if ax.is_fullscreen(win):
-        ax.exit_fullscreen(win)
-        sleep(1.0)
-    frame = left_frame(fraction)
-    if frame is None:
-        report["arrange"] = "skipped: no screen info"
-        return
-    frame = below_pill(above_bar(frame))  # E22: the shortcut bar spans the bottom middle, over the left 60% too;
-    # t10: the step pill and the gear sit under the menu bar, over the window's title bar
-    report["arranged"] = _set_frame(ax, win, *frame)
-    report["frame"] = [round(v) for v in frame]
-    report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
-    if folder:
-        put_away_other_lessons(ax, pid, folder, None, report, sleep=sleep)
+    _opening_layout(+1)
+    try:
+        deadline = time.monotonic() + wait_s
+        win = pid = None
+        while time.monotonic() < deadline:
+            pid = editor_pid(editor)
+            if pid:
+                finder = getattr(ax, "folder_window", None) if folder else None
+                win = finder(pid, folder) if finder else ax.focused_window(pid)
+            if win is not None:
+                break
+            sleep(0.3)
+        if win is None:
+            report["arrange"] = f"skipped: no {editor['label']} window within {wait_s:.0f}s"
+            return
+        if ax.is_fullscreen(win):
+            report["arrange"] = "left as it is: full screen (the learner's)"
+        elif (scr := lesson_screen()) is None:
+            report["arrange"] = "skipped: no screen info"
+            return
+        else:
+            with _layout_lock:
+                _claim(win)
+                p = L.plan(scr, mode="video", editor=L.EditorState(frame=_frame_of(ax, win)), fraction=fraction,
+                           pill_clearance=PILL_CLEARANCE, bar_clearance=BAR_CLEARANCE)
+                if p.action == "set":
+                    report["arranged"] = _set_frame(ax, win, *p.bounds.tuple(), mode="video")
+                    report["frame"] = [round(v) for v in p.bounds.tuple()]
+                    report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
+                else:
+                    report["arrange"] = f"done ({p.reason})"
+        if folder:
+            put_away_other_lessons(ax, pid, folder, win if getattr(ax, "folder_window", None) else None, report,
+                                   sleep=sleep)
+    finally:
+        _opening_layout(-1)
 
 
 # --------------------------------------------------------------------------- open
