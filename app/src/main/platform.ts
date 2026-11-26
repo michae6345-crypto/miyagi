@@ -126,8 +126,51 @@ export function overlayWindowOptions(bounds: Rect): BrowserWindowConstructorOpti
     // The overlay never becomes the active window, so without this macOS swallows the first click on the bar and
     // cards (Michael's desktop test, item 1: Skip, Check and Diagram needed a second click).
     acceptFirstMouse: true,
-    ...(isMac() ? { type: 'panel' as const } : {})
+    ...panelType()
   }
+}
+
+/**
+ * macOS: a non-activating panel (Electron's ElectronNSPanel with NSWindowStyleMaskNonactivatingPanel). A click on it never
+ * activates miyagi, so the learner's app (VS Code, even in full screen) stays the active app and macOS never switches
+ * Spaces to wherever an app window of miyagi lives. Every window of kind 'overlay' gets it (index.ts createWindow: the
+ * overlay, the launcher, Settings, the player). Windows: a plain window.
+ */
+export function panelType(): BrowserWindowConstructorOptions {
+  return isMac() ? { type: 'panel' } : {}
+}
+
+type PanelLike = Pick<BrowserWindow, 'isDestroyed' | 'isVisible' | 'show' | 'showInactive' | 'focus' | 'once'>
+
+/** Panels with a 'show' listener from focusPanel still waiting: never stack a second one. */
+const awaitingShow = new WeakSet<object>()
+
+/**
+ * Give a focusable panel (the launcher, Settings) the keyboard WITHOUT activating miyagi (user report, main 1d453ca0:
+ * with VS Code in full screen, the overlay's "ask miyagi" switched Spaces to miyagi).
+ *
+ * The activation came from app.focus({steal: true}) (the launcher's old fallback, removed); Electron 45's Show() and
+ * Focus() already skip activating the app for a panel (reviewed in its source). This keeps the path explicit and
+ * stable whatever a future Electron does with show(): showInactive (orders the panel front only), then focus (key
+ * window, no activation), once it is really on screen (index.ts holds a show until first paint).
+ * Windows: show + focus, as before (no panel type there; the window must be activated to get keys).
+ */
+export function focusPanel(win: PanelLike): void {
+  if (win.isDestroyed()) return
+  if (!isMac()) {
+    win.show()
+    win.focus()
+    return
+  }
+  if (win.isVisible()) return win.focus()
+  win.showInactive()
+  if (win.isVisible()) return win.focus()
+  if (awaitingShow.has(win)) return
+  awaitingShow.add(win)
+  win.once('show', () => {
+    awaitingShow.delete(win)
+    if (!win.isDestroyed()) win.focus()
+  })
 }
 
 export function launcherGlassOptions(): BrowserWindowConstructorOptions {

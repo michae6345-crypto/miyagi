@@ -86,7 +86,8 @@ function PanelLayer({ layout }: { layout: Layout }): ReactNode {
   const shown = stepOn && open && !sheet
   const docked = useDock((d) => d.rect)
   const rect = lessonPanelRect(layout)
-  const anchor: Rect = docked ? { ...rect, h: docked.h } : rect
+  // Where the panel really is (the learner can drag it off the dock, v2/drag.ts): the dock rect is in screen points.
+  const anchor: Rect = docked ? { x: docked.x - layout.origin.x, y: docked.y - layout.origin.y, w: docked.w, h: docked.h } : rect
   const completing = useComplete((c) => !!c.card)
   const flyout = useDiagram((s) => s.open && !!s.diagram) && !completing
   useEffect(() => setDrawerAt('right'), [])
