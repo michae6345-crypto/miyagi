@@ -1,7 +1,6 @@
 import Foundation
 import AVFoundation
 import CoreGraphics
-import ApplicationServices
 
 // miyagi-listen: push-to-talk helper. Protocol: PUSH-TO-TALK.md (JSON lines on stdin/stdout).
 //
@@ -11,7 +10,6 @@ import ApplicationServices
 //                                         transcribe an audio file with the same Transcriber and print the final JSON
 //   miyagi-listen --screens               print the displays' geometry (notch, safe area) as one JSON line and exit 0
 //   miyagi-listen --windows --pid N | --owner NAME   print matching windows (layer, bounds, on-screen, z) as one JSON line and exit 0
-//   miyagi-listen --probe-perms           print {"screen","accessibility"} as granted|denied for a FRESH process and exit 0
 //
 // stdin also takes {"cmd":"capture",...}: one region of the screen as a JPEG file for circle to ask, and
 // {"cmd":"capture-release","id"|"path"}: delete that capture now (Capture.swift). Once per process, on the first
@@ -37,17 +35,6 @@ if args.contains("--windows") { Windows.run(args) }
 
 // MARK: --probe-input (fresh read of the Input Monitoring grant: preflight only, never prompts)
 if args.contains("--probe-input") { print(CGPreflightListenEventAccess() ? "granted" : "denied"); exit(0) }
-
-// MARK: --probe-perms (fresh read of Screen Recording + Accessibility: preflight only, never prompts)
-// CGPreflightScreenCaptureAccess() keeps its first answer for the life of a process (and so does Electron's
-// getMediaAccessStatus('screen'), which wraps it), so miyagi's main process asks a new copy of this binary while the
-// setup screen waits for a grant. Spawned by the app, so TCC answers for miyagi (the responsible app). ~5 ms.
-if args.contains("--probe-perms") {
-    let screen = CGPreflightScreenCaptureAccess() ? "granted" : "denied"
-    let ax = AXIsProcessTrusted() ? "granted" : "denied"
-    print("{\"screen\":\"\(screen)\",\"accessibility\":\"\(ax)\"}")
-    exit(0)
-}
 
 // MARK: --transcribe-file (offline self-test: no mic, no key tap, no prompts)
 
