@@ -1,12 +1,12 @@
 /**
  * Feature: onboarding. The consent screen (launch register R05 and R06): what miyagi sends and to whom, that it is AI,
- * and "By continuing you agree to the terms and privacy policy", before guided setup asks macOS for anything.
+ * and an "I agree to the terms and privacy policy" checkbox, before guided setup asks macOS for anything.
  *
  *   body     v4 (v4.tsx SetupPage, left-aligned, top-anchored): the bonsai (the shared element MARK_ID: it glides in
  *            from the login, then on to the strip), the title and one hairline group: each row one line and one line
  *            of detail under it (copy: consentCopy.ts)
- *   actions  the "I agree" line with the terms and privacy policy linked (common/consent.ts LEGAL_URL, through
- *            open:external), and right under it the ONE primary, Continue, which matches "By continuing"
+ *   actions  the "I agree" checkbox with the terms and privacy policy linked (common/consent.ts LEGAL_URL, through
+ *            open:external), and right under it the ONE primary, Continue, disabled until the box is ticked
  *
  * Continue calls the store's agree() (main stamps prefs.consent with this build's version and its own clock) and only
  * then onDone(): setup and its prompts come after. Nothing is captured while this is on screen. Enter presses Continue
@@ -23,7 +23,7 @@ import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { TextLink } from '../account/ui'
 import { openLegal } from '../auth/store'
-import { AGREE, AGREE_FAILED, CONSENT_ROWS, CONSENT_TITLE, CONTINUE } from './consentCopy'
+import { AGREE, AGREE_FAILED, AGREE_NEEDED, CONSENT_ROWS, CONSENT_TITLE, CONTINUE } from './consentCopy'
 import { bridge } from '../../bridge'
 import { MARK_ID } from './Intro'
 import { agree } from './store'
@@ -32,16 +32,23 @@ import { Actions, FLOW_TOP, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } 
 export function Consent({ onDone, chrome = 'flow', enterDelay = 0 }: { onDone: () => void; chrome?: 'window' | 'flow'; enterDelay?: number }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Michael, Nov 26: an explicit "I agree" checkbox. Nothing is recorded until it is ticked.
+  const [checked, setChecked] = useState(false)
+  const [nudge, setNudge] = useState(false)
 
   const go = useCallback(async () => {
     if (busy) return
+    if (!checked) {
+      setNudge(true)
+      return
+    }
     setBusy(true)
     setFailed(false)
     const ok = await agree()
     setBusy(false)
     if (ok) onDone()
     else setFailed(true)
-  }, [busy, onDone])
+  }, [busy, checked, onDone])
 
   // Enter presses Continue, unless the learner is on a link or another control (Tab moves between them as usual).
   useEffect(() => {
@@ -77,21 +84,35 @@ export function Consent({ onDone, chrome = 'flow', enterDelay = 0 }: { onDone: (
           </Rise>
           <Rise style={{ marginTop: 16 }}>
             <span className="flex flex-col gap-[2px]" style={{ fontSize: 12.5, lineHeight: '18px', color: color.label }}>
-              <span data-consent-agree>
-                {AGREE.lead}
-                <TextLink onClick={() => openLegal('terms')}>{AGREE.terms}</TextLink>
-                {AGREE.and}
-                <TextLink onClick={() => openLegal('privacy')}>{AGREE.privacy}</TextLink>
-                {AGREE.end}
-              </span>
-              <span data-consent-failed={failed || undefined} aria-live="polite" style={{ color: color.text }}>
-                {failed ? AGREE_FAILED : null}
+              <label data-consent-agree className="flex cursor-pointer items-center gap-[10px]" style={{ minHeight: 28, color: color.text }}>
+                <input
+                  type="checkbox"
+                  data-consent-check
+                  checked={checked}
+                  disabled={busy}
+                  aria-describedby="onb-consent-note"
+                  onChange={(e) => {
+                    setChecked(e.target.checked)
+                    if (e.target.checked) setNudge(false)
+                  }}
+                  style={{ width: 16, height: 16, margin: 0, flexShrink: 0, accentColor: color.accent }}
+                />
+                <span>
+                  {AGREE.lead}
+                  <TextLink onClick={() => openLegal('terms')}>{AGREE.terms}</TextLink>
+                  {AGREE.and}
+                  <TextLink onClick={() => openLegal('privacy')}>{AGREE.privacy}</TextLink>
+                  {AGREE.end}
+                </span>
+              </label>
+              <span id="onb-consent-note" data-consent-failed={failed || undefined} data-consent-nudge={nudge || undefined} aria-live="polite" style={{ color: color.text }}>
+                {failed ? AGREE_FAILED : nudge ? AGREE_NEEDED : null}
               </span>
             </span>
           </Rise>
           <Actions style={{ marginTop: 12 }}>
             <span data-onb-primary data-label={CONTINUE}>
-              <PrimaryButton label={CONTINUE} busy={busy} disabled={busy} onClick={() => void go()} />
+              <PrimaryButton label={CONTINUE} busy={busy} disabled={busy || !checked} onClick={() => void go()} />
             </span>
             {/* age-delete lane: never a trap. Not now quits miyagi cleanly (agegate:quit); nothing was agreed or sent. */}
             <span data-consent-not-now>

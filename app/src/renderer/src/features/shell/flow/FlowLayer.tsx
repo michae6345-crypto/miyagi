@@ -6,7 +6,7 @@
  *            Review setup (whose Start stays off while something is left, so it is never a dead end). Below
  *            COMPACT_W (the window's minimum is 560) the strip shows only the current step's label, the others as
  *            ticks and dots, so it never runs into "Set up later".
- *   body     intro (the whole window) → Sign in → consent (what miyagi sends, "By continuing you agree"; R05, R06)
+ *   body     intro (the whole window) → Sign in → consent (what miyagi sends, the "I agree" checkbox; R05, R06)
  *            → guided setup → You're ready (or Review setup when something the learner can fix is left). Consent
  *            has no "Set up later": no prompt and no capture come before it.
  *
