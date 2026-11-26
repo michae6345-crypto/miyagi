@@ -31,13 +31,16 @@
  * only while it's true (features/player/policy.ts): a window created with show:false reports
  * document.visibilityState 'visible' anyway, so the page can't tell on its own (Michael, Nov 21: audio from a hidden player).
  *
+ * Broadcasts feat:player:away ('lock' | 'sleep') when the screen locks or the Mac suspends: the renderer pauses the video
+ * and never restarts it by itself (policy.ts rule 6, user test Nov 25).
+ *
  * Hidden again on lesson.ended (except reason "interrupted": an engine deploy that comes back with the same lesson).
  *
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: docking, drag by the header, bounds restore, no focus steal, autoplay. R33 (checked in a browser
  * stage only): the video loads in dev and in a built app, play / pause / seek / gate, no "[player] blocked" warning.
  */
-import { nativeTheme, screen, type BrowserWindow, type Rectangle, type WebFrameMain } from 'electron'
+import { nativeTheme, powerMonitor, screen, type BrowserWindow, type Rectangle, type WebFrameMain } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
@@ -174,6 +177,15 @@ export default defineMainFeature({
     win.on('restore', tell)
     win.on('ready-to-show', tell)
     ctx.handle('player:visible', () => shown())
+    // Nobody is watching a locked or sleeping Mac (policy.ts rule 6): pause, and let the learner start it again.
+    const onLock = (): void => ctx.broadcast('player:away', 'lock')
+    const onSleep = (): void => ctx.broadcast('player:away', 'sleep')
+    powerMonitor.on('lock-screen', onLock)
+    powerMonitor.on('suspend', onSleep)
+    win.on('closed', () => {
+      powerMonitor.off('lock-screen', onLock)
+      powerMonitor.off('suspend', onSleep)
+    })
 
     /** A lesson wants the player on screen while "Hide miyagi overlays" is on: it comes back with the overlays. */
     let revealLater = false

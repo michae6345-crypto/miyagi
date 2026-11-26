@@ -13,6 +13,12 @@
  *      (video.play, video.seek {play}) in a window's boot replay or an engine restore keeps its position but not its play.
  *   5. A replay of the lesson the player already holds (lesson.ready {replay}, same id) neither stops nor rewinds it:
  *      the step.started {replay} after it leaves a video inside its clip exactly as it is.
+ *   6. Nothing plays to nobody (user test Nov 25: "the video keeps playing for no reason"): the screen locking or the
+ *      Mac going to sleep pauses it as 'away'. Coming back never restarts it: the learner presses play. (Hiding or
+ *      minimizing the panel is rule 1. A player merely covered by another window keeps playing: page visibility is not
+ *      used, since the #287 layout can put windows over it.) A step's end still holds for its checks ('gate').
+ *   7. The setup gate (setup.gate holds): the lesson's environment is still installing; the video waits as 'setup' and
+ *      starts when the gate lets go, unless the screen locked or the Mac slept meanwhile (then the learner starts it).
  */
 
 /** Who asked for playback. 'jump' = core seekVideo (a card's video link), in this window or relayed from another. */
@@ -21,9 +27,10 @@ export type PlayCause = 'learner' | 'step' | 'resume' | 'setup' | 'engine' | 'ju
 /**
  * Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause; 'setup' = a setup card is
  * waiting (it starts once setup is done or skipped); 'hidden' = the panel isn't on screen (or was hidden while it
- * played); 'start' = cued for a replayed step, waiting for the learner's play.
+ * played); 'start' = cued for a replayed step, waiting for the learner's play; 'away' = the screen locked, the Mac slept
+ * or the page went hidden (rule 6): only the learner starts it again.
  */
-export type PausedBy = 'gate' | 'engine' | 'user' | 'ended' | 'setup' | 'hidden' | 'start'
+export type PausedBy = 'gate' | 'engine' | 'user' | 'ended' | 'setup' | 'hidden' | 'start' | 'away'
 
 /** How long after a step's start its window may still show and start it (the reveal race). */
 export const DEFER_MS = 2500
@@ -95,8 +102,36 @@ export function startDeferred(o: { deferredAt?: number; now: number; sameStep: b
  */
 export function resumesAfterPass(o: { playing: boolean; pausedBy?: PausedBy; setupHold: boolean; pending?: boolean }): boolean {
   if (o.pending || o.playing || o.setupHold) return false
-  return o.pausedBy !== 'user' && o.pausedBy !== 'ended' && o.pausedBy !== 'hidden' && o.pausedBy !== 'start'
+  return o.pausedBy !== 'user' && o.pausedBy !== 'ended' && o.pausedBy !== 'hidden' && o.pausedBy !== 'start' && o.pausedBy !== 'away'
 }
 
 /** The panel shows the plain play glyph (not a gate state) for these. */
-export const showsPlayGlyph = (pausedBy?: PausedBy): boolean => pausedBy === 'user' || pausedBy === 'hidden' || pausedBy === 'start'
+export const showsPlayGlyph = (pausedBy?: PausedBy): boolean =>
+  pausedBy === 'user' || pausedBy === 'hidden' || pausedBy === 'start' || pausedBy === 'away'
+
+/** Why nobody can watch right now (rule 6). */
+export type AwaySignal = 'lock' | 'sleep'
+
+/**
+ * Rule 6: an away signal arrived. 'pause' when the video plays (or is about to: a deferred or wanted play), else
+ * 'ignore'. Never 'resume': a return (unlock, wake, page visible) is not a play.
+ */
+export function onAway(o: { playing: boolean; wantPlay: boolean; signal: AwaySignal }): 'pause' | 'ignore' {
+  return o.playing || o.wantPlay ? 'pause' : 'ignore'
+}
+
+/**
+ * Rule 7 plus the setup card: does setup hold the video? A setup card waiting on the learner (cards/setupHold.ts) or
+ * the setup gate holding (an install for this lesson is running, or failed and not waved through).
+ */
+export function setupHolds(o: { cardWaiting: boolean; gateHolds: boolean }): boolean {
+  return o.cardWaiting || o.gateHolds
+}
+
+/**
+ * Rule 7: setup let go. Start the clip only if setup is still why it's paused and nobody went away during the hold
+ * (a lock or sleep while it installed: the learner may not be back, so they press play).
+ */
+export function releasePlays(o: { pausedBy?: PausedBy; awayDuringHold: boolean }): boolean {
+  return o.pausedBy === 'setup' && !o.awayDuringHold
+}

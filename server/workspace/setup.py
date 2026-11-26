@@ -13,12 +13,14 @@ Items: {tool, label, kind, why, needed, installed, ok, version, min_version, ins
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -34,7 +36,7 @@ from server.untrusted import EXTRACT_RULE, wrap
 
 from . import apps as _apps
 from . import editor as _editor
-from . import paths
+from . import paths, pyinstall
 from .scaffold import _extract_json, _reply_text, make_client, record_cost
 
 log = logging.getLogger("server.workspace")
@@ -340,24 +342,40 @@ def is_bundled(py: str | None) -> bool:
     return bool(py) and py == bundled_python()
 
 
-def best_python() -> str | None:
+def best_python(compatible: Callable[[tuple[int, int]], bool] | None = None) -> str | None:
     """The python3.x to build a lesson .venv with: python3.12 / 3.13 / 3.11 / 3.10 on PATH, else the Python inside
     miyagi.app (bundled_python: a fresh Mac's only Python 3), then 3.14 / 3.9 and plain python3. Never Apple's Xcode
-    stub (no Command Line Tools)."""
+    stub (no Command Line Tools). compatible: only a Python whose (major, minor) it accepts (the lesson's packages have
+    wheels for it: pyinstall.python_ok); a plain `python3` of unknown version only when nothing else qualifies."""
+    ok = compatible or (lambda _v: True)
     later = []
     for minor in PYTHON_PREFERENCE:
         if minor in (14, 9):  # a newer / older one than the bundled 3.12: the bundle first (TensorFlow-class wheels)
             later.append(minor)
             continue
-        if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
+        if ok((3, minor)) and (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
             return p
-    if p := bundled_python():
+    if (p := bundled_python()) and ok(tuple(sys.version_info[:2])):  # the engine runs on the bundled interpreter
         return p
     for minor in later:
-        if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
+        if ok((3, minor)) and (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
             return p
     p = shutil.which("python3")
+    if compatible is not None and p and not _xcode_stub(p):
+        info = python_info(p)
+        if info[0] is not None and not ok(info[0]):
+            return None
     return None if _xcode_stub(p) else p
+
+
+def python_info(py: str | None, run: Runner | None = None) -> tuple[tuple[int, int] | None, str | None]:
+    """(major, minor) and CPU (arm64 / x86_64) of an interpreter; (None, None) when it can't say in 10 s."""
+    if not py:
+        return None, None
+    code, out = (run or (lambda a: _run(a, timeout=10.0)))(
+        [py, "-I", "-S", "-c", "import sys, platform; print(sys.version_info[0], sys.version_info[1], platform.machine())"])
+    m = re.search(r"(\d+) (\d+) (\S+)", out or "") if code == 0 else None
+    return ((int(m.group(1)), int(m.group(2))), m.group(3)) if m else (None, None)
 
 
 def find_app(bundle_id: str, name: str, run: Runner = _run) -> str | None:
@@ -871,16 +889,18 @@ def online(host: str | None = "pypi.org", timeout: float = 4.0) -> bool:
 
 
 def ensure_venv(workdir: Path | str, *, emit: Callable[[str], None] | None = None, env: dict | None = None,
-                timeout: float = 600.0, popen=subprocess.Popen) -> tuple[str | None, str]:
+                timeout: float = 600.0, popen=subprocess.Popen, packages: tuple[str, ...] | list[str] = ()) -> tuple[str | None, str]:
     """<workdir>/.venv's python, made with best_python() when there's none yet (the Python inside miyagi.app on a Mac
     with no other Python 3; no network: venv + ensurepip's bundled pip). A .venv whose python is a dangling link
     (miyagi.app moved, or the Python it was made from was removed) is moved aside to the lessons root's
     .miyagi-state/old-venvs/ (never emptied: `venv --clear` on a symlinked .venv empties its target) and made again.
     One build per folder at a time (_venv_lock): the setup card's Install and the open's ensure_lesson_venv may both
     ask at once, and a half-built .venv (python there, pip not yet) must never be used or moved aside.
+    packages: what will be pip-installed into it: a new .venv is made from a Python they all have wheels for
+    (TensorFlow: 3.10-3.13 on Apple silicon, pyinstall.TF_PYTHONS). An existing .venv is kept as it is.
     -> (python, "") or (None, why)."""
     with _venv_lock(workdir):
-        return _ensure_venv(workdir, emit or (lambda _line: None), env, timeout, popen)
+        return _ensure_venv(workdir, emit or (lambda _line: None), env, timeout, popen, tuple(packages))
 
 
 _venv_locks: dict[str, threading.Lock] = {}
@@ -904,10 +924,19 @@ def _aside_dir(venv: Path) -> Path:
         return venv.with_name(f".venv.old-{time.strftime('%Y%m%d-%H%M%S')}")
 
 
-def _ensure_venv(workdir, emit, env, timeout, popen) -> tuple[str | None, str]:
+def _ensure_venv(workdir, emit, env, timeout, popen, packages=()) -> tuple[str | None, str]:
     if py := venv_python(workdir):
         return py, ""
-    base = best_python()
+    import platform
+
+    machine = platform.machine()
+    picky = [p for p in packages if pyinstall.norm(p) in pyinstall.PY_CONSTRAINED]  # only these limit the Python
+    fits = (lambda v: all(pyinstall.python_ok(p, v, machine) for p in picky)) if picky else None
+    base = best_python(fits) if fits is not None else best_python()  # (tests stub best_python with no arguments)
+    if base is None and fits is not None and best_python() is not None:
+        return None, (f"no Python on this Mac that {', '.join(packages)} supports "
+                      f"(TensorFlow: Python {pyinstall.fmt(pyinstall.tf_range(machine)[0])}-"
+                      f"{pyinstall.fmt(pyinstall.tf_range(machine)[1])})")
     if base is None:
         return None, NO_PYTHON
     if is_bundled(base) and ("/AppTranslocation/" in base or base.startswith("/Volumes/")):
@@ -937,9 +966,17 @@ def _ensure_venv(workdir, emit, env, timeout, popen) -> tuple[str | None, str]:
     return (py, "") if py else (None, "could not create .venv: no python in it")
 
 
+PIP_ATTEMPTS = 3  # one install + 2 retries for a stalled / dropped download (pip keeps finished wheels in its cache)
+PIP_RETRY_WAIT_S = (5.0, 15.0)
+HEAVY_TIMEOUT_S = 3600.0  # TensorFlow: ~224 MB + ~100 MB of dependencies; 1 Mbit/s takes ~45 min
+VERIFY_TIMEOUT_S = 240.0  # a cold `import tensorflow` on a low-end Mac right after the install (was 45 s)
+
+
 def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[[str], None] | None = None,
             timeout: float = 1800.0, popen=subprocess.Popen, net: Callable[[str], bool] | None = None,
-            python: str | None = None) -> dict:
+            python: str | None = None, on_progress: Callable[[dict], None] | None = None,
+            cancel: threading.Event | None = None, sleep: Callable[[float], None] = time.sleep,
+            run: Runner | None = None) -> dict:
     """Install one requirements() item. Call ONLY after the learner confirmed it.
     python: pip into this interpreter (a project's own venv/ or env/, project.fix) instead of <workdir>/.venv.
 
@@ -950,6 +987,13 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     row's second press (missing_module.install), never from Install all: otherwise {needs_confirm: True} and an error
     naming the exact package and its pypi.org page. A likely typosquat never installs. Every process gets
     server.safety.child_env() (config.safe_env: no provider key, cloud token or engine token).
+
+    pip (user test Nov 25, pyinstall.py): the package is planned first (tensorflow-macos -> tensorflow, tensorflow-metal
+    skipped, a Python with no wheel refused before the download), progress streams to on_progress ({phase, pct, bytes,
+    totalBytes} from `--progress-bar raw`), a stalled / dropped download is retried (PIP_ATTEMPTS), TensorFlow-size
+    packages get HEAVY_TIMEOUT_S, and the import check afterwards gets VERIFY_TIMEOUT_S. cancel: set it to stop the
+    install (the pip process is killed). Extra result fields: errorCode (pyinstall codes), log (the last 40 lines),
+    attempts, note, skipped, verified.
     """
     emit = on_line or (lambda _line: None)
     brew = brew_path()
@@ -984,21 +1028,20 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
         out.update(error=OFFLINE, offline=True)
         return out
     if r["method"] == "pip":
-        if not workdir:
+        if not workdir and not python:
             out["error"] = "pip installs go into the lesson's .venv: no lesson folder given"
             return out
-        py, err = (python, "") if python else ensure_venv(workdir, emit=emit, env=env, timeout=timeout, popen=popen)
-        if py is None:
-            out.update(error=err, **({"url": CATALOG["python"]["url"]} if err == NO_PYTHON else {}))
-            return out
-        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off",
-                "--retries", "2", "--timeout", "30", r["package"]]
-    elif r["method"] == "brew_cask":
+        return _pip_install(item, r, out, workdir=workdir, python=python, emit=emit, env=env, timeout=timeout,
+                            popen=popen, reachable=reachable, on_progress=on_progress, cancel=cancel, sleep=sleep, run=run)
+    if r["method"] == "brew_cask":
         argv = [brew, "install", "--cask", r["package"]]
     else:
         argv = [brew, "install", r["package"]]
     emit("$ " + r["command"])
-    code, txt = _stream(argv, emit, env, timeout, popen)
+    code, txt = _stream(argv, emit, env, timeout, popen, cancel)
+    if code == CANCELLED_EXIT:
+        out.update(error="cancelled", errorCode=pyinstall.CANCELLED, cancelled=True)
+        return out
     if code != 0:
         if _NET_ERR.search(txt) and not reachable(_host_of(r)):  # the Wi-Fi dropped during the download
             out.update(error=OFFLINE, offline=True)
@@ -1013,27 +1056,181 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     return out
 
 
+def _pip_install(item: dict, r: dict, out: dict, *, workdir, python, emit, env, timeout, popen, reachable, on_progress,
+                 cancel, sleep, run) -> dict:
+    """install()'s pip branch: plan, .venv, pip with progress + retries, then the import check."""
+    import platform
+
+    progress_cb = on_progress or (lambda _p: None)
+    plan = pyinstall.plan_package(r["package"], machine=platform.machine())
+    if plan.skip:  # tensorflow-metal: never installed; the lesson runs without it
+        emit(plan.error)
+        out.update(ok=True, skipped=True, errorCode=plan.code, note=plan.error)
+        return out
+    if plan.note:
+        emit(plan.note)
+    progress_cb({"phase": "preparing"})
+    py, err = (python, "") if python else ensure_venv(workdir, emit=emit, env=env, timeout=min(timeout, 600.0),
+                                                      popen=popen, packages=(pyinstall.norm(plan.package),))
+    if py is None:
+        out.update(error=err, errorCode="no_python", **({"url": CATALOG["python"]["url"]} if err == NO_PYTHON else {}))
+        return out
+    probe = run or (lambda a: _run(a, timeout=10.0))
+    pyver, machine = python_info(py, probe) if popen is subprocess.Popen or run is not None else (None, None)
+    plan = pyinstall.plan_package(r["package"], py=pyver, machine=machine or platform.machine())
+    if not plan.package:  # e.g. TensorFlow and a Python 3.14 .venv: say so before a 224 MB download
+        out.update(error=plan.error, errorCode=plan.code, log=plan.error)
+        return out
+    _, pipv = probe([py, "-m", "pip", "--version"]) if popen is subprocess.Popen or run is not None else (1, "")
+    bar = "raw" if pyinstall.pip_version_ok_for_raw(pipv) else "off"
+    heavy = plan.heavy_mb >= 100
+    # pip >= 25.1 resumes a broken download instead of starting the 224 MB again (miyagi.app bundles pip 26.2.2)
+    resume = ["--resume-retries", "5"] if pyinstall.pip_supports_resume(pipv) else []
+    argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", bar,
+            "--retries", "2", "--timeout", "120" if heavy else "60", *resume, plan.package]  # (stalls: our retry, online first)
+    # ONE deadline for every attempt together (review M3): a retry gets what is left, never another full hour
+    deadline = time.monotonic() + (max(timeout, HEAVY_TIMEOUT_S) if heavy else timeout)
+    if heavy:
+        emit(f"{pyinstall.norm(plan.package)} is a big download (about {plan.heavy_mb} MB): this can take a while.")
+    tail: list[str] = []
+    code, txt, attempts = 1, "", 0
+    while attempts < PIP_ATTEMPTS:
+        if attempts and deadline - time.monotonic() <= 1:  # the shared deadline is spent: no attempt that can't run
+            code, txt = 124, "\n".join(tail + ["timed out"])
+            break
+        attempts += 1
+        prog = pyinstall.Progress()
+
+        def line_out(line: str, prog=prog, attempt=attempts) -> None:
+            if pyinstall.parse_progress(line) is None:  # raw progress lines go to the bar, not the log
+                emit(line)
+            if prog.feed(line):
+                progress_cb({**prog.payload(), "attempt": attempt})
+
+        emit("$ pip install " + plan.package + (f"  (attempt {attempts} of {PIP_ATTEMPTS})" if attempts > 1 else ""))
+        code, txt = _stream(argv, line_out, env, max(1.0, deadline - time.monotonic()), popen, cancel)
+        tail = (tail + [ln for ln in txt.splitlines() if pyinstall.parse_progress(ln) is None])[-40:]
+        if code in (0, CANCELLED_EXIT):
+            break
+        kind = pyinstall.classify(txt, code)
+        if kind not in pyinstall.RETRYABLE or attempts >= PIP_ATTEMPTS or code == 124:
+            break
+        if not reachable(_host_of(r)):  # the Wi-Fi is off: no point retrying now
+            out.update(error=OFFLINE, offline=True, errorCode=pyinstall.NETWORK, log="\n".join(tail), attempts=attempts)
+            return out
+        wait = PIP_RETRY_WAIT_S[min(attempts - 1, len(PIP_RETRY_WAIT_S) - 1)]
+        emit(f"The download stalled; trying again in {int(wait)} s…")
+        progress_cb({"phase": "retrying", "attempt": attempts + 1, "waitS": wait})
+        if cancel is not None and cancel.wait(wait):
+            code = CANCELLED_EXIT
+            break
+        if cancel is None:
+            sleep(wait)
+    out["attempts"] = attempts
+    out["log"] = "\n".join(tail)
+    if plan.note:
+        out["note"] = plan.note
+    if code == CANCELLED_EXIT:
+        out.update(error="cancelled", errorCode=pyinstall.CANCELLED, cancelled=True)
+        return out
+    if code != 0:
+        if pyinstall.classify(txt, code) in pyinstall.RETRYABLE and not reachable(_host_of(r)):
+            out.update(error=OFFLINE, offline=True, errorCode=pyinstall.NETWORK)
+            return out
+        ecode, msg = pyinstall.explain_failure(txt, package=plan.package, exit_code=code, py=pyver, machine=machine,
+                                               attempts=attempts)
+        out.update(error=msg, errorCode=ecode, url=r["url"])
+        return out
+    progress_cb({"phase": "verifying"})
+    if popen is subprocess.Popen or run is not None:
+        after = dict(item)
+        if run is not None:
+            check_python_packages([after], py, run=run)
+        else:
+            check_python_packages([after], py, timeout=VERIFY_TIMEOUT_S if heavy else PY_CHECK_TIMEOUT)
+    else:  # tests inject popen: the check they stub
+        after = check_python_packages_in(dict(item), python) if python else check(dict(item), workdir=workdir)
+    if after.get("unknown"):  # pip said it installed; the import check just ran out of time (a cold TensorFlow)
+        out.update(ok=True, verified=False, version="",
+                   note=(out.get("note", "") + " " if out.get("note") else "") + "Installed; the first import is slow, "
+                        "so Miyagi couldn't confirm it yet.")
+        return out
+    out.update(ok=bool(after.get("installed")), version=after.get("version", ""), verified=True)
+    if after.get("installed") and str(after.get("detail") or "").startswith("installed but fails to import"):
+        out.update(ok=False, errorCode=pyinstall.BROKEN_IMPORT,
+                   error=pyinstall.broken_import_hint(after["detail"]) or after["detail"])
+    elif not after.get("installed"):
+        out.update(error="pip finished but Python still can't import it in this lesson's .venv", errorCode=pyinstall.UNKNOWN)
+    return out
+
+
 def check_python_packages_in(item: dict, py: str) -> dict:
     """check() for one python_package row against a given interpreter (a project's own venv)."""
     check_python_packages([item], py)
     return item
 
 
-def _stream(argv: list[str], emit, env: dict, timeout: float, popen) -> tuple[int, str]:
+CANCELLED_EXIT = 130
+
+
+def _kill_group(p) -> None:
+    """Kill the process and its group (it was started with start_new_session); a fake popen in tests has no pid."""
+    pid = getattr(p, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        with contextlib.suppress(OSError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with contextlib.suppress(OSError, AttributeError):
+        p.kill()
+
+
+def _stream(argv: list[str], emit, env: dict, timeout: float, popen, cancel: threading.Event | None = None) -> tuple[int, str]:
+    """Run argv, each output line to emit. The timeout is a deadline for the whole run, enforced while output is still
+    streaming (before, it only counted after stdout closed, so a hung pip never timed out). cancel set: killed, 130."""
     tail: list[str] = []
     try:
-        p = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, env=env, bufsize=1)
+        # its own process group (review M4): pip's children (a wheel build, brew's curl) go with it on cancel / timeout
+        p = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, env=env,
+                  bufsize=1, start_new_session=True)
     except OSError as e:
         return 127, str(e)
+    why: list[str] = []
+    stop = threading.Event()
+
+    def watchdog() -> None:
+        deadline = time.monotonic() + timeout
+        while not stop.is_set():
+            if cancel is not None and cancel.is_set():
+                why.append("cancelled")
+            elif time.monotonic() >= deadline:
+                why.append("timed out")
+            if why:
+                _kill_group(p)
+                return
+            stop.wait(0.25)
+
+    dog = threading.Thread(target=watchdog, daemon=True, name="setup-stream-watchdog")
+    dog.start()
     try:
         for line in p.stdout:
             line = line.rstrip()
             if line:
                 emit(line)
                 tail = (tail + [line])[-40:]
-        code = p.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        p.kill()
+            if why:
+                break
+        try:
+            code = p.wait(timeout=max(1.0, timeout))
+        except subprocess.TimeoutExpired:
+            _kill_group(p)
+            why.append("timed out")
+            code = 124
+    finally:
+        stop.set()
+        with contextlib.suppress(Exception):
+            p.stdout.close()
+    if why and why[0] == "cancelled":
+        return CANCELLED_EXIT, "\n".join(tail + ["cancelled"])
+    if why:
         return 124, "\n".join(tail + ["timed out"])
     return code, "\n".join(tail)
 

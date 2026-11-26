@@ -32,7 +32,8 @@ import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { useCards } from '../cards/store'
 import { setupWaiting } from '../cards/setupHold'
-import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, panelVisible, replayKeepsVideo, resumesAfterPass, startDeferred, stepStartPlays, type PausedBy, type PlayCause } from './policy'
+import { useSetupGate } from '../setup-gate/store'
+import { decidePlay, engineIntentPlays, GATE_ZONE_S, lessonReadyResets, onAway, panelVisible, releasePlays, replayKeepsVideo, resumesAfterPass, setupHolds, startDeferred, stepStartPlays, type AwaySignal, type PausedBy, type PlayCause } from './policy'
 import { FramePlayer } from './frame'
 import { describeYTError, isYouTubeId, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
@@ -729,6 +730,9 @@ onUi('reset', (payload) => {
   if (reason !== 'reconnect' && reason !== 'interrupted') heldLesson = undefined
   excursion = false
   setupHold = false
+  cardHold = false
+  gateHold = false
+  awayDuringHold = false
   skippedIntro = undefined
   // Keep where it was (not the last cue): if a reconnect's reset remounts the panel, it comes back at this position.
   want = { ...want, t: now(), play: false }
@@ -751,12 +755,19 @@ export { setupWaiting }
 /** The card lands < 1 s after step.started: a hold this early in the clip goes back to its start. */
 const SETUP_REWIND_S = 5
 let setupHold = false
+/** The two reasons setup holds (policy.ts setupHolds): a setup card waiting, and the setup gate (setup.gate holds). */
+let cardHold = false
+let gateHold = false
+/** The screen locked or the Mac slept while setup held the clip: its release doesn't start it (policy.ts rule 7). */
+let awayDuringHold = false
+const applySetupHold = (): void => holdForSetup(setupHolds({ cardWaiting: cardHold, gateHolds: gateHold }))
 
 /** on: pause (back to the clip's start if it only just began). off: play, if the setup hold is still why it's paused. */
 function holdForSetup(on: boolean): void {
   if (on === setupHold) return
   setupHold = on
   if (on) {
+    awayDuringHold = false
     clearTimeout(resumeTimer)
     const seg = openSegment()
     const start = seg ? clipStart(seg) : undefined
@@ -766,8 +777,12 @@ function holdForSetup(on: boolean): void {
     go(undefined, back, false)
     return
   }
-  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end, a hidden panel).
-  if (usePlayer.getState().pausedBy === 'setup') player.play('setup')
+  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end, a hidden panel), and
+  // not if the screen locked or the Mac slept during the hold: then it waits, as 'away', for the learner's play.
+  const away = awayDuringHold
+  awayDuringHold = false
+  if (releasePlays({ pausedBy: usePlayer.getState().pausedBy, awayDuringHold: away })) player.play('setup')
+  else if (away && usePlayer.getState().pausedBy === 'setup') setUi({ pausedBy: 'away' })
 }
 
 /**
@@ -781,16 +796,31 @@ if (cardsWindow)
   useCards.subscribe((s, prev) => {
     const on = setupWaiting(s.card)
     if (on === setupWaiting(prev.card)) return
-    if (isHost) holdForSetup(on)
-    else bridge.invoke('player:setup', on).catch(() => undefined)
+    if (isHost) {
+      cardHold = on
+      applySetupHold()
+    } else bridge.invoke('player:setup', on).catch(() => undefined)
   })
 if (isElectron && isHost) {
-  bridge.onFeature('player:setup', (on) => holdForSetup(on === true))
+  bridge.onFeature('player:setup', (on) => {
+    cardHold = on === true
+    applySetupHold()
+  })
   useCards.subscribe((s, prev) => {
     const on = setupWaiting(s.card)
-    if (on !== setupWaiting(prev.card)) holdForSetup(on)
+    if (on === setupWaiting(prev.card)) return
+    cardHold = on
+    applySetupHold()
   })
 }
+// The setup gate (Nov 25): setup.gate reaches every window from the engine, so the player window follows it directly.
+// While it holds, the lesson's environment is still installing: the clip waits as 'setup' and starts when it lets go.
+if (isHost)
+  useSetupGate.subscribe((s, prev) => {
+    if (s.holds === prev.holds) return
+    gateHold = s.holds
+    applySetupHold()
+  })
 
 // ---------------------------------------------------------------------------
 // The panel shows or hides (policy.ts rules 1 and 3)
@@ -825,6 +855,31 @@ if (isElectron && isHost) {
     .catch(() => undefined)
 }
 if (!isElectron && typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+
+// ---------------------------------------------------------------------------
+// Nobody can watch (policy.ts rule 6, user test Nov 25: "the video keeps playing for no reason")
+// ---------------------------------------------------------------------------
+
+/** The screen locked, the Mac is going to sleep, or the page went hidden: pause as 'away'. Coming back never plays it. */
+export function away(signal: AwaySignal): void {
+  if (!isHost) return
+  if (setupHold) awayDuringHold = true
+  if (onAway({ playing: usePlayer.getState().playing, wantPlay: want.play || !!deferred, signal }) !== 'pause') return
+  deferred = undefined
+  want = { ...want, t: now(), play: false }
+  clearTimeout(autoplayTimer)
+  clearTimeout(resumeTimer)
+  if (yt && ready) yt.pauseVideo()
+  setUi({ pausedBy: 'away', resuming: false })
+  sync(true)
+}
+
+if (isElectron && isHost) {
+  // Main's powerMonitor (features/player.ts): lock-screen / suspend. Unlock / resume send nothing here on purpose.
+  // Page visibility is NOT a signal here (review M5): on macOS a player covered by another window can read as hidden,
+  // and the #287 layout may place windows over it. Hide and minimize already pause it (player:visible, rule 1).
+  bridge.onFeature('player:away', (why) => away(why === 'sleep' ? 'sleep' : 'lock'))
+}
 
 // Browser stage: stand-ins for the main-process handlers (there's no window to move).
 registerWebHandler('player:dock', () => undefined)

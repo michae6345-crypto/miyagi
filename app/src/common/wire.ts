@@ -45,6 +45,8 @@ const KNOWN = new Set<string>([
   'error',
   'screen.seen',
   'setup.progress',
+  // the setup gate (Nov 25, features/setup-gate): the lesson waits while its environment installs
+  'setup.gate',
   'config.status',
   // Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts)
   'screen.avoid',

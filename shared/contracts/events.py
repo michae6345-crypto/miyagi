@@ -665,6 +665,39 @@ class SetupProgress(_Model):
     error: str | None = None
     url: str | None = None
     version: str | None = None
+    errorCode: str | None = None  # Nov 25: see SetupGateItem
+    note: str | None = None
+
+
+class SetupGateItem(_Model):
+    """One setup gate row (Nov 25, server/orchestrator/setup_gate.py). See events.ts SetupGateItem."""
+    tool: str
+    label: str
+    status: Literal["queued", "installing", "done", "failed", "skipped"]
+    optional: bool = False
+    phase: str | None = None
+    pct: int | None = None
+    bytes: int | None = None
+    totalBytes: int | None = None
+    attempt: int | None = None
+    line: str | None = None
+    elapsedS: int | None = None
+    error: str | None = None
+    errorCode: str | None = None
+    note: str | None = None
+    log: str | None = None
+
+
+class SetupGate(_Model):
+    """setup.gate: while the lesson's environment installs, the lesson waits (holds). See events.ts."""
+    phase: Literal["idle", "running", "failed", "done"]
+    holds: bool
+    items: list[SetupGateItem]
+    done: int
+    total: int
+    current: str | None = None
+    elapsedS: int | None = None
+    startedAt: int | None = None
 
 
 class PreflightGoalMatch(_Model):
@@ -1803,6 +1836,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "cloud.notice": CloudNotice,
     "lesson.ended": LessonEnded,
     "setup.progress": SetupProgress,
+    "setup.gate": SetupGate,
     "config.status": ConfigStatus,
     # v2
     "engine.hello": EngineHello,
@@ -1835,7 +1869,7 @@ EngineEventType = Literal[
     "cloud.token_invalid", "cloud.notice",
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "setup.gate", "lesson.updated",
     "screen.avoid",
     "engine.hello", "health", "lesson.paused", "lesson.resumed", "blocker", "library", "library.item", "progress",
     "activity", "bon", "plans", "playlist", "plan.proposal", "link.preview", "proof", "data",
@@ -1864,7 +1898,7 @@ ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_tog
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "start", "have_it", "get_it", "alternative",
-                     "open_in_app"]  # open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender, with the miyagi bridge); label setup.actionLabels.open_in_app; text? = tool id; holdVideo false
+                     "open_in_app", "setup_retry", "setup_continue", "setup_skip"]  # setup_*: the setup gate's buttons (Nov 25). open_in_app (Nov 24): an app lesson's setup card: open the lesson's scene in its desktop app (Blender, with the miyagi bridge); label setup.actionLabels.open_in_app; text? = tool id; holdVideo false
 # have_it / get_it / alternative: a licensed app setup row (text = tool). start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
 
