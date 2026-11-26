@@ -3,7 +3,8 @@
  *
  * Inputs, never prompting (BUILD-PLAN Section 6: polling never prompts):
  *   - permissions   main/permissions.ts: permissions:get once, then feat:permissions while this window watches
- *                   (permissions:watch only while the onboarding window is focused or a recovery card is open)
+ *                   (permissions:watch while the setup screen is on show, also while the learner is over in System
+ *                   Settings, or while a recovery card is open)
  *   - health        the engine's health (health.get, only when engine.hello lists it): VS Code and the companion
  *   - engine        core/lesson: connected, localEngine (main/localEngine.ts), keyStatus.cloud (config.status)
  *   - cloud         main/features/cloud.ts: cloud:get / feat:cloud (the install token's phase, never the token)
@@ -33,7 +34,8 @@ import { setPrefs } from '../../core/prefs'
 import { sendAction } from '../../core/shortcuts'
 
 export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'unknown'
-export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number }
+/** `relaunch`: switched on in System Settings, seen only after miyagi restarts (main/permissions.ts, Nov 25). */
+export type Permissions = Record<PermissionKind, PermissionState> & { external: boolean; at: number; relaunch?: Array<'screen' | 'accessibility'> }
 /** main/features/cloud.ts CloudView: what a renderer may see (never the token). */
 export type CloudView = { state: 'off' | 'minting' | 'ok' | 'failed'; configured: boolean; secure: boolean; hasToken: boolean; region?: boolean }
 /**

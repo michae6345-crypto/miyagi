@@ -819,7 +819,7 @@ app.whenReady().then(async () => {
     },
     trusted: trustedSender
   })
-  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender })
+  setupPermissions({ engineExternal: () => localEngineState() === 'external', broadcast: broadcastAll, trusted: trustedSender, helperBin: helperPath })
   ipcMain.handle('feat:open:external', (e, url: unknown) => (trustedSender(e) ? safeOpenExternal(url) : false))
 
   loadFeatures({
