@@ -800,9 +800,30 @@ def snapshot() -> AXSnapshot | None:
                 rows = _xterm_rows(focused)
                 if rows:
                     snap.editor, snap.terminal_lines = None, rows
-    snap.under_mouse = element_at(*snap.mouse)
+    snap.under_mouse = _under_mouse(snap.mouse, pid=pid)
     snap.read_ms = (time.perf_counter() - t0) * 1000
     return snap
+
+
+# perf (low-end Macs): AXUIElementCopyElementAtPosition is a hit test inside the app under the pointer (Chromium's
+# renderer for VS Code), the costliest call in a snapshot. A pointer that hasn't moved over the same front app gets the
+# element read at most UNDER_MOUSE_TTL_S ago (only cursor_context / describe prompts read it). Keyed by (front pid,
+# pointer): an app switch under a still pointer reads again at once.
+UNDER_MOUSE_TTL_S = 1.0
+_under_cache: tuple[float, tuple | None, Element | None] = (0.0, None, None)
+
+
+def _under_mouse(mouse: tuple[float, float], now: float | None = None, read=None, pid: int | None = None
+                 ) -> Element | None:
+    global _under_cache
+    now = time.time() if now is None else now
+    key = (pid, mouse)
+    t, at, el = _under_cache
+    if at == key and now - t < UNDER_MOUSE_TTL_S:
+        return el
+    el = (read or element_at)(*mouse)
+    _under_cache = (now, key, el)
+    return el
 
 
 # ---------------------------------------------------------------------- worker
@@ -812,12 +833,24 @@ class AXReader:
     with what in {"app", "document", "text", "caret", "dirty", "terminal"} when those change, and
     "typing_pause" once the editor text has been stable for `pause_s` after a change."""
 
-    def __init__(self, hz: float = 10.0, pause_s: float = 1.0):
-        self.period = 1.0 / hz
+    def __init__(self, hz: float | None = None, pause_s: float = 1.0, profile=None):
+        from . import perf_tier
+        # perf: 10 Hz while things change (5 Hz on a low-end Mac), the profile's idle rate (2 / 1 Hz) after
+        # perf_tier.AX_IDLE_AFTER_S of nothing. Every snapshot is ~10 AX round trips into the front app (VS Code's
+        # renderer has to answer each), so an idle 10 Hz poll cost the engine AND VS Code CPU for nothing.
+        self.profile = profile or perf_tier.detect()
+        if hz is not None:
+            from dataclasses import replace
+            self.profile = replace(self.profile, ax_hz=float(hz))
+        self.period = 1.0 / self.profile.ax_hz
         self.pause_s = pause_s
+        self._active_at = 0.0       # last snapshot that differed from the one before (or the mouse moved)
+        self.snapshots = 0          # how many snapshots were read (perf counters / tests)
         self._latest: AXSnapshot | None = None
         self._cbs: list[Callable[[AXSnapshot, str], object]] = []
         self._stop = threading.Event()
+        self._wake = threading.Event()          # kick(): read now instead of at the (idle) period's end
+        self._fresh = threading.Condition()     # notified on every new snapshot (wait_fresh)
         self._thread: threading.Thread | None = None
         self.available = False
         self.last_error: str | None = None
@@ -839,6 +872,7 @@ class AXReader:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=2)
 
@@ -858,16 +892,55 @@ class AXReader:
     def _run(self) -> None:
         while not self._stop.is_set():
             t0 = time.time()
-            try:
-                snap = snapshot()
-                if snap is not None:
-                    self._diff(self._latest, snap)
+            self._step(snapshot, t0)
+            self._wake.wait(max(0.01, self.next_period(t0) - (time.time() - t0)))
+            self._wake.clear()
+
+    def kick(self) -> None:
+        """Read now (a click, scroll, app switch or a Check): ends an idle wait at once and runs at the active rate
+        again. Cheap; safe from any thread."""
+        self._active_at = time.time()
+        self._wake.set()
+
+    def wait_fresh(self, since: float, timeout: float = 0.3) -> AXSnapshot | None:
+        """Kick, then wait up to `timeout` s for a snapshot taken at or after `since` (time.time()). -> it, or None
+        when none came in time (no reader thread, AX stalled): the caller then uses no AX rather than an older one."""
+        deadline = time.time() + timeout
+        self.kick()
+        with self._fresh:
+            while True:
+                snap = self._latest
+                if snap is not None and snap.t >= since:
+                    return snap
+                left = deadline - time.time()
+                if left <= 0 or self._stop.is_set():
+                    return None
+                self._fresh.wait(left)
+
+    def _step(self, read, now: float) -> None:
+        """One snapshot: diff it against the last one, note activity. `read` is ax.snapshot (tests pass a fake)."""
+        try:
+            snap = read()
+            self.snapshots += 1
+            if snap is not None:
+                if _active(self._latest, snap):
+                    self._active_at = now
+                self._diff(self._latest, snap)
+                with self._fresh:
                     self._latest = snap
-                    self.last_error = None
-            except Exception as e:  # noqa: BLE001
-                self.last_error = f"{e.__class__.__name__}: {e}"
-                log.debug("ax snapshot failed: %s", e)
-            self._stop.wait(max(0.01, self.period - (time.time() - t0)))
+                    self._fresh.notify_all()
+                self.last_error = None
+        except Exception as e:  # noqa: BLE001
+            self.last_error = f"{e.__class__.__name__}: {e}"
+            log.debug("ax snapshot failed: %s", e)
+
+    def next_period(self, now: float) -> float:
+        """Seconds until the next snapshot: the active rate while things change or a typing pause is pending (it has
+        to fire on time), the idle rate after perf_tier.AX_IDLE_AFTER_S without a change."""
+        from . import perf_tier
+        if not self._pause_fired:
+            return self.period
+        return perf_tier.ax_period(self.profile, now - self._active_at, perf_tier.power_saving())
 
     def _diff(self, old: AXSnapshot | None, new: AXSnapshot) -> None:
         now = time.time()
@@ -889,3 +962,16 @@ class AXReader:
         if not self._pause_fired and now - self._last_text_change >= self.pause_s:
             self._pause_fired = True
             self._emit(new, "typing_pause")
+
+
+def _active(old: AXSnapshot | None, new: AXSnapshot) -> bool:
+    """Did anything the reader reacts to change between two snapshots (app, window, document, editor text or caret,
+    terminal tail, focus, or the pointer)?"""
+    if old is None:
+        return True
+    oe, ne = old.editor, new.editor
+    return (old.pid != new.pid or old.window_title != new.window_title or old.document != new.document
+            or old.dirty != new.dirty or old.focused_role != new.focused_role or old.mouse != new.mouse
+            or (oe.text if oe else None) != (ne.text if ne else None)
+            or (oe.caret if oe else None) != (ne.caret if ne else None)
+            or old.terminal_lines[-3:] != new.terminal_lines[-3:])

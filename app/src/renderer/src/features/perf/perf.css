@@ -1,0 +1,28 @@
+/*
+ * Low-power tier (features/perf: <html data-low-power> on a MacBook Neo / 8 GB Mac / Low Power Mode). The overlay is a
+ * transparent window over the whole display: anything that repaints every frame there makes the window server
+ * recomposite it, on top of whatever the learner runs. Off here:
+ *   - decorative endless loops: the buddy's blink, float, sway and perk, the bonsai's thinking sway (each kept the
+ *     compositor at 60-120 fps for as long as the buddy was on screen);
+ *   - the cards' grain (.mg-grain: a soft-light blend layer, about +2 / -1 gray levels, re-blended on every frame a
+ *     card springs or its content changes);
+ *   - backdrop-filter glass and blur-in filters (the player frame, the island's quiet entrance).
+ * Kept: spinners, thinking dots, skeleton pulses (a frozen indicator reads as a hang), the buddy's mouth while it talks
+ * and its wings while it flies (both short), every spring and fade.
+ */
+:root[data-low-power] .ch .ch-eye,
+:root[data-low-power] .ch .ch-body,
+:root[data-low-power] .ch .ch-sprout,
+:root[data-low-power] .lm .lm-sway {
+  animation: none !important;
+}
+:root[data-low-power] .mg-grain::before {
+  display: none;
+}
+:root[data-low-power] [style*='backdrop-filter'] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+:root[data-low-power] [style*='blur('] {
+  filter: none !important;
+}
