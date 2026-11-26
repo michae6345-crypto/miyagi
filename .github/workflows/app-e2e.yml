@@ -4,25 +4,45 @@ name: app-e2e
 # Covers Home / Library / Settings, first run, the overlay in the notch, and the sign-in card on a cloud.notice; each
 # test also fails on console errors from our own pages. Electron opens real windows (no headless on macOS): this runs
 # only here, never on a dev Mac. Traces, screenshots and the HTML report are uploaded on failure.
+# Mac minutes: nightly on main, by hand, or on a PR that carries the `run-ui-tests` label (not on every push).
 on:
+  schedule:
+    - cron: "0 9 * * *" # 09:00 UTC, 1am Pacific, on the default branch (main)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or SHA to test (empty: the branch picked in 'Use workflow from')"
+        type: string
+        default: ""
   pull_request:
-    paths: ["app/**", ".github/workflows/app-e2e.yml"]
-  push:
-    branches: [main, michael/app-ui-v4, michael/app-e2e]
-    paths: ["app/**", ".github/workflows/app-e2e.yml"]
+    types: [labeled, synchronize] # runs only when the label is added, or on new commits to a labeled PR (job `if`)
 permissions:
   contents: read
+# One run per branch/PR; a newer one cancels the older. A nightly run gets its own group so it is never cancelled
+# mid-way, and a PR event that will not run (no label) gets its own too, so it never cancels a labeled run.
 concurrency:
-  group: app-e2e-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # a push to app-ui-v4 always finishes (it lands every few minutes)
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'schedule' && format('nightly-{0}', github.run_id)
+      || (github.event_name == 'pull_request'
+          && !((github.event.action == 'labeled' && github.event.label.name == 'run-ui-tests')
+               || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-ui-tests')))
+          && format('skip-{0}', github.run_id))
+      || inputs.ref || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 jobs:
   electron:
+    if: >-
+      github.event_name != 'pull_request'
+      || (github.event.action == 'labeled' && github.event.label.name == 'run-ui-tests')
+      || (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-ui-tests'))
     runs-on: macos-latest
     timeout-minutes: 30
     env:
       CI: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { ref: "${{ inputs.ref }}" } # empty: the event's own ref
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version-file: app/.nvmrc, cache: npm, cache-dependency-path: "app/package-lock.json\napp/e2e/package-lock.json" }
       - name: app dependencies (with the Electron binary)
