@@ -11,6 +11,11 @@
  * Handles (bridge.invoke from any window):
  *   player:dock    snap back to the right 40% (and save that)
  *   player:hover   (on: boolean) focusable while hovered
+ *   player:mini    (on: boolean) minimize to a handle (its header) or grow back (features/player/mini.ts); broadcast
+ *                  feat:player:mini on every change, and player:mini:state → boolean. Minimized counts as off screen, so
+ *                  the video pauses. Back to full size when the lesson ends.
+ *   "Hide miyagi overlays" (main/overlayHide.ts): the window hides with the overlays (the video pauses) and comes back
+ *                  as it was, with showInactive. A lesson.ready while hidden shows it when the overlays come back.
  *   player:hide    the lesson is gone (the player window's lesson became null): hide the window
  *   player:setup   (on: boolean) a setup card is waiting (from the overlay, where the cards live): relayed to every
  *                  window as feat:player:setup, so the player holds the video until setup is done or skipped
@@ -35,7 +40,8 @@ import { nativeTheme, screen, type BrowserWindow, type Rectangle, type WebFrameM
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
-import { panelType } from '../platform'
+import { onOverlaysHidden, overlaysHidden } from '../overlayHide'
+import { MINI, miniRect, restoreRect } from '../../renderer/src/features/player/mini'
 import { frameAllowed, HOST_PAGE, playerHostOrigin } from '../playerHost'
 import { dockRect } from '../../renderer/src/features/player/dock'
 import { glassBg } from '../../renderer/src/core/theme'
@@ -102,11 +108,8 @@ export default defineMainFeature({
       skipTaskbar: true,
       focusable: false,
       hasShadow: true,
-      // A non-activating panel on macOS (platform.ts panelType), like the overlay. It was a plain window made focusable
-      // while hovered, so a click on it activated miyagi: over a full-screen VS Code that switched Spaces to miyagi's
-      // home window (user report, main 1d453ca0). As a panel it takes the click (and the keys while hovered) and VS Code
-      // stays the active app. acceptFirstMouse: the first click on the inactive panel counts (the overlay's fix, test 1).
-      ...panelType(),
+      // Already a non-activating panel on macOS (index.ts createWindow, kind 'overlay'). acceptFirstMouse: the first click
+      // on it while VS Code is the active app counts (the overlay's fix for Michael's desktop test, item 1).
       acceptFirstMouse: true,
       backgroundColor: windowBg(),
       webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
@@ -133,8 +136,12 @@ export default defineMainFeature({
     win.webContents.on('will-frame-navigate', (e) => lock(e, e.url, e.isMainFrame, e.frame))
     win.webContents.on('will-redirect', (e) => lock(e, e.url, e.isMainFrame, e.frame))
 
+    /** Minimized to its handle: the full bounds to grow back to (mini.ts). Undefined = full size. */
+    let mini: Rectangle | undefined
+
     let saveTimer: ReturnType<typeof setTimeout> | undefined
     const save = (): void => {
+      if (mini) return // the handle's bounds are not the player's: the saved full size stays
       clearTimeout(saveTimer)
       saveTimer = setTimeout(() => {
         try {
@@ -149,7 +156,8 @@ export default defineMainFeature({
 
     // On screen or not, for the renderer's play gate. Re-told a beat after a reveal: showInactive() can be held until
     // the first paint, and a 'show' event isn't promised for it on every platform.
-    const shown = (): boolean => !win.isDestroyed() && win.isVisible() && !win.isMinimized()
+    // Minimized to its handle (mini below) counts as off screen: the video pauses there too.
+    const shown = (): boolean => !win.isDestroyed() && win.isVisible() && !win.isMinimized() && !mini
     let told: boolean | undefined
     const tell = (): void => {
       const now = shown()
@@ -164,8 +172,11 @@ export default defineMainFeature({
     win.on('ready-to-show', tell)
     ctx.handle('player:visible', () => shown())
 
+    /** A lesson wants the player on screen while "Hide miyagi overlays" is on: it comes back with the overlays. */
+    let revealLater = false
     const reveal = (): void => {
       if (win.isDestroyed() || win.isVisible()) return
+      if (overlaysHidden()) return void (revealLater = true)
       win.showInactive()
       ctx.raise(win, -1)
       tell()
@@ -176,16 +187,61 @@ export default defineMainFeature({
     const textLesson = (e: { type: string; payload?: unknown }): boolean =>
       e.type === 'lesson.ready' && (e.payload as { lesson?: { mode?: string } } | undefined)?.lesson?.mode === 'lesson'
     const hide = (): void => {
+      revealLater = false
       if (!win.isDestroyed() && win.isVisible()) win.hide()
       tell()
     }
+
+    // ---- minimize to a handle (the header's restore / minimize button, Player.tsx) ----------------------------------
+    const setMini = (on: boolean): boolean => {
+      if (win.isDestroyed() || on === !!mini) return !!mini
+      if (on) {
+        mini = win.getBounds()
+        win.setMinimumSize(MINI.width, MINI.height)
+        win.setResizable(false)
+        win.setBounds(miniRect(mini))
+      } else {
+        const full = mini ?? win.getBounds()
+        mini = undefined
+        win.setResizable(true)
+        win.setMinimumSize(360, 320)
+        win.setBounds(restoreRect(full, win.getBounds(), ctx.display().workArea))
+        save()
+      }
+      ctx.broadcast('player:mini', !!mini)
+      tell()
+      return !!mini
+    }
+    ctx.handle('player:mini', (on) => setMini(on === true))
+    ctx.handle('player:mini:state', () => !!mini)
+
+    // ---- "Hide miyagi overlays" (main/overlayHide.ts) ----------------------------------------------------------------
+    // Hidden: the window goes (which pauses the video: player:visible false). Shown again: back as it was, handle or
+    // full, never focused (showInactive).
+    let hiddenWasShown = false
+    onOverlaysHidden((hidden) => {
+      if (win.isDestroyed()) return
+      if (hidden) {
+        hiddenWasShown = win.isVisible()
+        if (hiddenWasShown) win.hide()
+        tell()
+        return
+      }
+      const back = hiddenWasShown || revealLater
+      hiddenWasShown = false
+      revealLater = false
+      if (back) reveal()
+    })
     let readyAt = 0
     ctx.engine.onEvent((e) => {
       // End lesson (Michael's desktop test 9): the empty panel ("The tutorial plays here once a lesson starts.") stayed
       // open. The lesson is over, so the player goes. Not for "interrupted" (an engine deploy that comes back with the
       // same lesson): the renderer asks for player:hide if that lesson never comes back.
       if (e.type === 'lesson.ended') {
-        if ((e.payload as { reason?: string } | undefined)?.reason !== 'interrupted') hide()
+        if ((e.payload as { reason?: string } | undefined)?.reason !== 'interrupted') {
+          setMini(false) // the next lesson starts full size
+          hide()
+        }
         return
       }
       if (e.type !== 'lesson.ready') return

@@ -23,6 +23,12 @@ export { SHORTCUT_KINDS }
 
 /** The always-available quit key (main/index.ts). Not rebindable, and no shortcut may take it. */
 export const quitAccelerator = (mac: boolean): string => (mac ? 'Control+Alt+Q' : 'Alt+Q')
+/**
+ * Hide / show every miyagi overlay (main/features/overlay-hide.ts). Not rebindable. ⌃⌥M on the Mac like the lesson keys
+ * (⌃⌥ types nothing in editors), Alt+M on Windows like its lesson keys (VS Code has no M menu). Clear of every default
+ * (test/overlayHide.test.ts), the quit key and the presenter keys.
+ */
+export const hideOverlaysAccelerator = (mac: boolean): string => (mac ? 'Control+Alt+M' : 'Alt+M')
 
 export const isShortcutKind = (k: unknown): k is ShortcutKind => typeof k === 'string' && (SHORTCUT_KINDS as readonly string[]).includes(k)
 

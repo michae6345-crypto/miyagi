@@ -28,6 +28,7 @@ import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
 import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
+import { overlaysHidden } from './overlayHide'
 import {
   describePlatform,
   fitPillTop,
@@ -354,8 +355,8 @@ function openLauncher(): void {
   launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
-  // Key without activating miyagi (platform.ts focusPanel): show() and app.focus({steal: true}) activated the app, and
-  // over a full-screen VS Code macOS then switched Spaces to miyagi's home window (user report, main 1d453ca0).
+  // Key without activating miyagi (platform.ts focusPanel). The old fallback's app.focus({steal: true}) activated the
+  // app, and over a full-screen VS Code macOS then switched Spaces to miyagi's home window (user report, main 1d453ca0).
   focusPanel(launcher)
   raise(launcher)
   // Michael's test 10: with Finder in front the panel showed but the keystrokes kept going there. If the launcher still
@@ -669,7 +670,8 @@ app.whenReady().then(async () => {
         forEachWindow((w) => w.webContents !== e.sender && w.webContents.send('ui:video:intent', payload))
         break
       case 'overlay:interactive':
-        overlay.setIgnoreMouseEvents(!payload, { forward: true })
+        // "Hide miyagi overlays" (overlayHide.ts): nothing drawn, so nothing may take the mouse.
+        overlay.setIgnoreMouseEvents(!payload || overlaysHidden(), { forward: true })
         leaseInteractive(payload)
         break
       case 'island:size':

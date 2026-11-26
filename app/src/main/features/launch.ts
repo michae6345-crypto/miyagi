@@ -15,6 +15,7 @@
  *     reachable with every window closed (the overlay app has no Dock icon until an app window opens, appWindows.ts).
  *     While the launch gate is closed (main/gate.ts: login and setup not through yet) it shows only Open miyagi and
  *     Quit miyagi, and nothing asks the overlay for the launcher or Settings.
+ *   - "Hide miyagi overlays" / "Show miyagi overlays" (main/overlayHide.ts, features/overlay-hide.ts owns its key, shown here).
  *   - "Show me around" re-opens the first-lesson walkthrough (features/tips TourLayer.tsx) from the menu bar, the Help entry.
  *   - Right-click on the pill: the same menu, at the pointer (launch:menu). Settings lives there now instead of a gear
  *     glued to the pill's edge (Michael's Mac: the gear covered the pill's status dot).
@@ -31,6 +32,8 @@ import { defineMainFeature } from '../context'
 import { gateIsOpen, gateView, onGate } from '../gate'
 import { getPrefs, onPrefsChange } from '../prefs'
 import { TRAY_ICON_1X, TRAY_ICON_2X } from '../launchIcon'
+import { onOverlaysHidden, overlaysHidden, toggleOverlaysHidden } from '../overlayHide'
+import { hideOverlaysAccelerator } from '../../common/shortcuts'
 
 /** App windows, in the order a reopen brings them forward (appWindows.ts routes). */
 const FORWARD = ['library', 'onboarding', 'progress', 'account'] as const
@@ -132,6 +135,13 @@ export default defineMainFeature({
       { label: 'Show me around', click: () => askOverlay('tour') },
       { label: 'Settings…', click: () => askOverlay('settings') },
       { type: 'separator' },
+      {
+        label: overlaysHidden() ? 'Show miyagi overlays' : 'Hide miyagi overlays',
+        accelerator: hideOverlaysAccelerator(mac),
+        registerAccelerator: false,
+        click: () => void toggleOverlaysHidden()
+      },
+      { type: 'separator' },
       { label: 'Quit miyagi', click: () => ctx.app.quit() }
     ]
 
@@ -156,6 +166,8 @@ export default defineMainFeature({
         key = launcherKey()
         tray.setContextMenu(Menu.buildFromTemplate(template()))
       })
+      // Hide / Show miyagi overlays: the item says which one it will do.
+      onOverlaysHidden(() => tray?.setContextMenu(Menu.buildFromTemplate(template())))
       // Windows: a left click opens home (right click shows the menu). macOS shows the menu on any click.
       if (!mac) tray.on('click', openHome)
       ctx.app.on('before-quit', () => {
