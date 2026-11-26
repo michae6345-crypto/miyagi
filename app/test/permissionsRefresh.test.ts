@@ -63,40 +63,68 @@ describe('permissionProbe (pure)', () => {
 })
 
 describe('main/permissions.ts', { skip: process.platform !== 'darwin' && 'macOS reads only' }, () => {
-  test('a watched window gets `relaunch` when only a fresh process sees the grant, and a read on coming to the front', async () => {
+  test('one source: relaunch when only a fresh process sees the grant; front events and the AX notification read at once; the poll stops once granted', async () => {
+    // The fake's reads, switchable; count the reads to see the poll stop.
+    const sp = electron.systemPreferences as Record<string, unknown>
+    let screen = 'not-determined'
+    let ax = false
+    let reads = 0
+    sp.getMediaAccessStatus = () => (reads++, screen)
+    sp.isTrustedAccessibilityClient = () => ax
+    const subs = new Map<string, () => void>()
+    sp.subscribeNotification = (name: string, fn: () => void) => (subs.set(name, fn), 1)
+
     const { setupPermissions } = await import('../src/main/permissions')
-    const sent: unknown[] = []
+    const sent: Array<{ screen: string; accessibility: string; relaunch?: string[] }> = []
     let fresh: Fresh | undefined = { screen: 'denied', accessibility: 'denied' }
     let probes = 0
     const perms = setupPermissions({
       engineExternal: () => false,
-      broadcast: (ch, p) => ch === 'permissions' && sent.push(p),
+      broadcast: (ch, p) => ch === 'permissions' && sent.push(p as (typeof sent)[number]),
       trusted: () => true,
       probe: async () => (probes++, fresh)
     })
-    // The fake reads Screen Recording as not-determined and Accessibility as off.
+    const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
     const first = await perms.readFull()
     assert.equal(first.screen, 'not-determined')
     assert.equal(first.relaunch, undefined)
 
-    // permissions:get answers the full read (async), and a watch starts the poll.
+    // A watch reads at once and publishes to every window.
     const sender = { id: 7, once: () => undefined }
     await handlers.get('feat:permissions:watch')!({ sender }, true)
-    await new Promise((r) => setTimeout(r, 20))
+    await wait(20)
     assert.equal(sent.length, 1)
 
-    // The learner switches both on in System Settings: this process still reads them off, a fresh one sees them.
+    // Both switched on in System Settings: this process still reads Screen Recording off, a fresh one sees both.
     fresh = { screen: 'granted', accessibility: 'granted' }
-    await new Promise((r) => setTimeout(r, 3100)) // past the probe's 3 s window
-    const focus = electron.appListeners.filter(([ev]) => ev === 'browser-window-focus').map(([, fn]) => fn)
-    assert.ok(focus.length >= 1, 'listens for miyagi coming back to the front')
-    for (const fn of focus) fn()
-    await new Promise((r) => setTimeout(r, 20))
-    const last = sent.at(-1) as { relaunch?: string[] }
-    assert.deepEqual(last.relaunch, ['screen', 'accessibility'])
+    ax = true
+    await wait(2300) // past the probe rate limit
+    const front = electron.appListeners.filter(([ev]) => ev === 'did-become-active').map(([, fn]) => fn)
+    assert.ok(front.length >= 1, 'reads when miyagi comes back to the front')
+    for (const fn of front) fn()
+    await wait(20)
+    assert.equal(sent.at(-1)!.accessibility, 'granted')
+    assert.deepEqual(sent.at(-1)!.relaunch, ['screen'])
+    // permissions:get answers the same full read.
     const got = (await handlers.get('feat:permissions:get')!({ sender })) as { relaunch?: string[] }
-    assert.deepEqual(got.relaunch, ['screen', 'accessibility'])
+    assert.deepEqual(got.relaunch, ['screen'])
     assert.ok(probes >= 2)
+
+    // The Accessibility notification reads without waiting for the poll.
+    assert.ok(subs.has('com.apple.accessibility.api'))
+    ax = false
+    subs.get('com.apple.accessibility.api')!()
+    await wait(1300) // both settle reads (250 and 1200 ms) are done
+    assert.equal(sent.at(-1)!.accessibility, 'denied')
+
+    // After a restart both read granted here: no relaunch, and the poll stops (no more reads while nothing changes).
+    screen = 'granted'
+    ax = true
+    await handlers.get('feat:permissions:get')!({ sender })
+    assert.equal(sent.at(-1)!.relaunch, undefined)
+    const before = reads
+    await wait(2300)
+    assert.equal(reads, before, 'no polling once both grants read granted')
 
     await handlers.get('feat:permissions:watch')!({ sender }, false)
   })
