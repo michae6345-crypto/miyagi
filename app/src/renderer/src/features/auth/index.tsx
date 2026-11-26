@@ -13,7 +13,7 @@ import { defineFeature } from '../../core/registry'
 import { windowSize } from '../../core/theme'
 import { AuthView } from './AuthView'
 import { authOn } from './model'
-import './web'
+// The stage's stand-ins (./web.ts, a fixture learner) load from dev/stageMocks.ts in a dev build only.
 
 export default defineFeature({
   id: 'auth',

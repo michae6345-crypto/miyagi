@@ -12,7 +12,7 @@ import { defineFeature } from '../../core/registry'
 import { windowSize } from '../../core/theme'
 import { AccountWindow } from './AccountWindow'
 import { v2Cloud } from './model'
-import './web'
+// The stage's stand-ins (./web.ts, fixture account) load from dev/stageMocks.ts in a dev build only.
 
 export default defineFeature({
   id: 'account',
