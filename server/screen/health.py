@@ -28,15 +28,35 @@ def blank_kind(thumb: bytes | None) -> str | None:
     return "flat" if (hi - lo) <= BLANK_MAX_SPREAD else None
 
 
+BUNDLED_ENV = "MIYAGI_BUNDLED_PYTHON"  # set by the app (localEngine.ts) when the engine runs on miyagi.app's own Python
+SETTINGS = "System Settings > Privacy & Security"
+
+
+def bundled_app() -> bool:
+    """The engine runs inside miyagi.app (its bundled Python): macOS lists the grant under miyagi, so the hints name
+    miyagi, never python3.12, a Terminal or the engine's binary path."""
+    return bool(os.environ.get(BUNDLED_ENV, "").strip())
+
+
 def engine_binary() -> str:
     """The executable macOS attributes Screen Recording to when the engine is not launched from a granted app."""
     return os.path.realpath(sys.executable) if sys.executable else "python"
 
 
 def permission_hint() -> str:
-    """One line naming what to enable, e.g. when the app-launched engine (a bare python child) has no grant."""
+    """One line naming what to enable for Screen Recording: miyagi itself in the app, else (a dev engine started from
+    a shell) the program running the engine or the app that launched it."""
+    if bundled_app():
+        return f"Turn on miyagi in {SETTINGS} > Screen Recording, then reopen miyagi."
     return (f"Enable Screen Recording for the program running the engine ({engine_binary()}) "
-            "or for the app that launched it, then restart Miyagi.")
+            "or for the app that launched it, then restart miyagi.")
+
+
+def accessibility_hint() -> str:
+    """One line naming what to enable for Accessibility (same rule as permission_hint)."""
+    if bundled_app():
+        return f"Turn on miyagi in {SETTINGS} > Accessibility, then reopen miyagi."
+    return f"Turn it back on in {SETTINGS} > Accessibility for the app that runs the engine."
 
 
 def display_changed(prev: tuple[float, float, float, float] | None, cur: tuple[float, float, float, float]) -> bool:

@@ -44,7 +44,7 @@ def _sdk_451() -> anthropic.APIStatusError:
 def _clean(monkeypatch):
     for var in (*config.KEY_ENV.values(), config.CLOUD_URL_ENV):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.delenv(cloud_cache.ENV_OFF, raising=False)
+    monkeypatch.setenv(cloud_cache.ENV_OFF, "1")  # the shared cache is off by default: these tests turn it on
     config.set_app_keys({"miyagiCloud": CLOUD, "miyagiToken": TOKEN})
     config._unknown.clear()
     monkeypatch.setattr(config, "_region_url", None)

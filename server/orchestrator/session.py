@@ -163,7 +163,7 @@ class BuildStage(logging.Handler):
         "slow": "Gemini is slow; using the transcript",
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
-        "budget": "Today's Gemini budget is used up — reading the transcript instead",
+        "budget": "Today's Gemini budget is used up; reading the transcript instead",
         "off": "Reading the transcript",  # 403 gemini_disabled (D1: Claude only); nothing failed from the learner's view
     }
 
@@ -228,8 +228,24 @@ class BuildStage(logging.Handler):
         return cm()
 
 
+def _model_line(e: BaseException) -> str | None:
+    """The miyagi cloud's own sentence (config.CLOUD_ERRORS: paused, today's limit, not verified, region) or the
+    offline line, when `e` (or the text it carries) is a lesson model call the cloud refused or that never connected."""
+    try:
+        from server.lesson.claude import user_line
+    except Exception:  # noqa: BLE001  an engine without the lesson module: no model line
+        return None
+    return user_line(e)
+
+
+BUILD_FAILED = "Couldn't build this lesson. Try again, or pick another video."
+COACH_DOWN = "The coach can't answer right now. It will try again soon."
+
+
 def human_build_error(e: BaseException) -> str:
-    """A message the learner can act on (the raw reason stays in the engine log)."""
+    """A message the learner can act on. Never the exception's own text: the raw reason stays in the engine log."""
+    if line := _model_line(e):
+        return line
     # strip our own wrapper ("lesson.build_lesson failed: RuntimeError: ...") so only the builder's words remain
     raw = re.sub(r"^\s*[\w.]+ failed: [\w.]+: ", "", str(e))
     first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
@@ -242,14 +258,18 @@ def human_build_error(e: BaseException) -> str:
     if "gemini budget" in low:  # E2's daily cap (LESSON_GEMINI_DAILY_CAP) and the transcript path failed too
         return "Today's Gemini budget is used up, and I couldn't read this video's transcript. Try another video."
     quota = "quota" in low or "resource_exhausted" in low
+    gem = "gemini" in low and "gemini_disabled" not in low  # Gemini is off by default (D1): name it only when it failed
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
     if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
         return ("Couldn't watch this video: Gemini is rate-limited and YouTube is rate-limiting this network. "
-                "Try again in a minute, a lesson that's already built, or another network (hotspot).")
+                "Try again in a minute, a lesson that's already built, or another network (hotspot)." if gem else
+                "Couldn't build this lesson: the model is rate-limited and YouTube is rate-limiting this network. "
+                "Try again in a minute, or another network (hotspot).")
     if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
         return "Building this lesson is taking too long. Try again, or pick another video."
-    if "quota" in low or "resource_exhausted" in low:
-        return "Gemini is rate-limited right now, so I couldn't watch this video. Try again in a minute or pick another video."
+    if quota:
+        return ("Gemini is rate-limited right now, so I couldn't watch this video. Try again in a minute or pick another video."
+                if gem else "The lesson builder is rate-limited right now. Try again in a minute.")
     if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
         if "transcript" in low or "caption" in low or "youtube" in low:
             return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "
@@ -261,7 +281,8 @@ def human_build_error(e: BaseException) -> str:
         return "A model API key is missing or invalid. Add it in Settings and try again."
     if "transcript" in low:
         return "Couldn't get this video's transcript. Try another video."
-    return f"Couldn't build this lesson: {raw[:160]}"
+    log.warning("lesson build failed: %s", raw[:300])
+    return BUILD_FAILED
 
 
 # ================================================================================ v2 lesson panel (BUILD-PLAN E3)
@@ -2040,7 +2061,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             raise
         except Exception as e:
             log.exception("search failed")
-            await self.emit("error", {"message": f"Search failed: {e}. Paste a YouTube link instead."})
+            await self.emit("error", {"message": "Search failed. Paste a YouTube link instead."})
         await self.emit("search.done", {"total": len(self.results)})
         if self.results and self.m.has_preflight():  # S8: preflight the top videos now, so the pick is instant
             self.m.prefetch_preflight(list(self.results.values()), self.query)
@@ -2100,10 +2121,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         try:
             res = await self.m.preflight(url, self.query, row, on_late)
-        except Exception as e:  # preflight never raises by contract; if it does, don't block the learner
+        except Exception:  # preflight never raises by contract; if it does, don't block the learner
             log.exception("preflight failed")
             res = None
-            await self.emit("error", {"message": f"Couldn't check this video first ({e}); building it anyway."})
+            await self.emit("error", {"message": "Couldn't check this video first; building it anyway."})
         if self.pending_pick is not pick:
             return  # ended / replaced meanwhile
         if res is None:
@@ -4601,11 +4622,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             gen = self.step_gen
             try:
                 gate = await self._gate_off_loop(step, ctx, precision)
-            except Exception as e:
+            except Exception:
                 log.exception("evaluate_gate failed")
                 if not self._eval_error_sent:  # once per step, not once per frame
                     self._eval_error_sent = True
-                    await self.emit("error", {"message": f"Check evaluation failed: {e}"})
+                    await self.emit("error", {"message": "Couldn't check this step. miyagi keeps watching."})
                 return
             if gen != self.step_gen or self.step is not step or self.passed or self.phase != "active":
                 return  # the step moved on (or ended) while its checks were graded in the worker thread
@@ -5410,7 +5431,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                             log.warning("coach.diagnose failed (%s); retry in %.0fs", e, self._coach_backoff)
                             if not self._coach_error_sent:
                                 self._coach_error_sent = True
-                                await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                                await self.emit("error", {"message": _model_line(e) or COACH_DOWN})
                         await self._status("watching")
                     return
                 self._coach_backoff, self._coach_retry_at = 0.0, 0.0
@@ -6085,7 +6106,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 else:
                     await circle_ask.moved_on(self, reg, ask_id)
             else:
-                await self.emit("error", {"message": f"{kind}: {e}"})
+                log.warning("%s failed: %s", kind, str(e)[:300])
+                await self.emit("error", {"message": _model_line(e) or "That didn't work. Try again in a moment."})
             if self.step is not None:
                 await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
         finally:
@@ -6868,7 +6890,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as e:
-            await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            log.warning("could not read %s: %s", file, e)
+            await self.emit("error", {"message": f"Couldn't open {Path(str(file)).name}. Try again."})
             return
         if self._by_name(step, path, text) is not None:  # T5: the step's defs are in the file: its code in their
             await self._fix_by_hand(step, path, text, diff)  # place (previewed), no model call, no second copies
@@ -7648,17 +7671,22 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     @classmethod
     def screen_down_message(cls, reason: str) -> str:
+        """The toast / card text for a screen reader that is down. Lowercase miyagi; inside miyagi.app the permission
+        lines name miyagi in System Settings (server.screen.health), never python3.12 or a Terminal."""
+        from server.screen import health
+
         if cls.screen_asleep(reason):
-            return "Your screen is asleep or locked. Miyagi picks up again when you're back."
+            return "Your screen is asleep or locked. miyagi picks up again when you're back."
         if reason == "no_permission":
-            from server.screen import health
-            return "Miyagi can't see your screen. " + health.permission_hint()
+            return "miyagi can't see your screen. " + health.permission_hint()
         if reason == "no_accessibility":
-            return ("Miyagi lost Accessibility access, so it can't read your cursor or the open file. "
-                    "Turn it back on in System Settings > Privacy & Security > Accessibility. Screen reading still works.")
+            return ("miyagi lost Accessibility access, so it can't read your cursor or the open file. "
+                    + health.accessibility_hint() + " Screen reading still works.")
         if "blank frame" in reason:
-            return "Your screen looks blank. Miyagi keeps watching."
-        return "Miyagi can't see your screen. Check Screen Recording in System Settings."
+            return "Your screen looks blank. miyagi keeps watching."
+        if health.bundled_app():
+            return "miyagi can't see your screen. Check Screen Recording for miyagi in System Settings."
+        return "miyagi can't see your screen. Check Screen Recording in System Settings."
 
     async def _check_screen_health(self) -> None:
         """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
@@ -7781,7 +7809,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         try:
             res = await asyncio.to_thread(fn, self.workdir, wf["learner_folder"])
         except Exception as e:  # noqa: BLE001
-            await self.emit("error", {"message": f"Couldn't use that folder: {e}"})
+            log.warning("adopt_folder failed: %s", e)
+            await self.emit("error", {"message": "Couldn't use that folder. Open this lesson's file instead."})
             return
         new = str(res.get("workdir") or wf["learner_folder"])
         self.workdir = new
@@ -8151,7 +8180,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         try:
             text = path.read_text(encoding="utf-8") if path.exists() else ""
         except OSError as e:
-            await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            log.warning("could not read %s: %s", file, e)
+            await self.emit("error", {"message": f"Couldn't open {Path(str(file)).name}. Try again."})
             return
         code = step["code"].rstrip("\n") + "\n"
         new_text, summary, line = None, f"Adds this step's code to {rel}.", 1
@@ -8618,7 +8648,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         try:
             current = path.read_text(encoding="utf-8") if (path.exists() or pp["old"]) else ""
         except OSError as e:
-            await self.emit("error", {"message": f"Could not open {path}: {e}"})
+            log.warning("could not read %s: %s", path, e)
+            await self.emit("error", {"message": f"Couldn't open {Path(str(path)).name}. Try again."})
             return
         if current != pp["old"]:
             await self._card(step, "The file changed", "You edited it after the preview. Ask again for a fresh fix.")
