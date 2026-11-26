@@ -20,15 +20,25 @@ import { usePressed } from '../../../core/shortcuts'
 export type PanelCard = Payload<'card'>
 export type HeldPass = { stepId: string; summary?: string; at: number }
 
+/**
+ * A Check press waiting for its answer (Nov 25: "Check again doesn't look like it checks"). Set on the press, cleared
+ * only by the check's own answer (a card carrying checkedAt, a Not yet, step.passed / step.started, an error) or by
+ * the engine's thinking ending after the press, so an unrelated card on the way (an off-track, a cleared advice) no
+ * longer ends Checking early. `stuck`: no answer after CHECK_MAX_MS, the panel says so.
+ */
+export type CheckFlight = { at: number; sawThinking: boolean; stuck?: boolean }
+
 type PanelState = {
   hint?: PanelCard & { at: number }
-  notYet: { card?: PanelCard; at: number }
+  /** n: how many check answers this step got (the second one says "Checked again"). */
+  notYet: { card?: PanelCard; at: number; n?: number }
   heldPass?: HeldPass
+  flight?: CheckFlight
   /** Stage only (?panel=checking): hold the Checking state with no press behind it. */
   stageChecking?: boolean
 }
 
-const empty: PanelState = { hint: undefined, notYet: { card: undefined, at: 0 }, heldPass: undefined, stageChecking: undefined }
+const empty: PanelState = { hint: undefined, notYet: { card: undefined, at: 0 }, heldPass: undefined, stageChecking: undefined, flight: undefined }
 export const usePanel = create<PanelState>(() => ({ ...empty }))
 const set = usePanel.setState
 const get = usePanel.getState
@@ -40,10 +50,13 @@ export function isHintCard(c: PanelCard | undefined): boolean {
   return !!c && c.kind === 'hint' && !c.diff && !c.output
 }
 
-/** A "Not yet" verdict on the step: the judge's not_done card, or any card listing the step's missing lines. */
+/**
+ * A check's answer on the step: a "Not yet" (verdict not_done, from the judge or Check's own card since Nov 25), any
+ * card listing the step's missing lines, or "Couldn't check" (checkIssue: Screen Recording off, the checks failed...).
+ */
 export function isNotYetCard(c: PanelCard | undefined): boolean {
   if (!c || c.diff || c.output) return false
-  return (c.source === 'judge' && c.verdict === 'not_done') || (Array.isArray(c.missingLines) && c.missingLines.length > 0)
+  return c.verdict === 'not_done' || !!c.checkIssue || (Array.isArray(c.missingLines) && c.missingLines.length > 0)
 }
 
 /** The card is about the step on screen (no stepId = the current step). */
@@ -57,11 +70,13 @@ export function forCurrentStep(c: { stepId?: string } | undefined): boolean {
 /** A press of Check shows Checking at once, before the engine's status thinking arrives (never look dead). */
 export const PRESS_GRACE_MS = 1500
 
-/** The panel says Checking right now (view.ts's useChecking is the same rule, re-rendered when the grace ends). */
+/** No answer to a Check after this long: Checking ends and the panel says there was none (never a silent spinner). */
+export const CHECK_MAX_MS = 45_000
+
+/** The panel says Checking right now: a press still waiting for its answer (checkFlight), or the stage's hold. */
 export function checkingNow(): boolean {
-  const p = usePressed.getState()
-  if (get().stageChecking) return true
-  return p.kind === 'check_step' && (useLesson.getState().engineState === 'thinking' || Date.now() - p.at < PRESS_GRACE_MS)
+  const s = get()
+  return !!s.stageChecking || (!!s.flight && !s.flight.stuck)
 }
 
 type LessonNow = ReturnType<typeof useLesson.getState>
@@ -103,11 +118,47 @@ export function hintShown(): boolean {
   return !!f.hint && !f.passed && !f.notyetFresh && !checkingNow()
 }
 
+// ---- the Check in flight ------------------------------------------------------------------------------------------
+
+const timers: { hint?: ReturnType<typeof setTimeout>; notYet?: ReturnType<typeof setTimeout>; flight?: ReturnType<typeof setTimeout> } = {}
+
+/** The press's answer came (or the step moved on): Checking ends. */
+export function landFlight(): void {
+  clearTimeout(timers.flight)
+  if (get().flight) set({ flight: undefined })
+}
+
+/** A Check press (any surface: the panel, a card's Check again, the player, Enter): Checking holds until its answer. */
+export function startFlight(at = Date.now()): void {
+  clearTimeout(timers.flight)
+  set({ flight: { at, sawThinking: false } }) // only thinking seen after the press counts
+  timers.flight = setTimeout(() => {
+    const f = get().flight
+    if (f && f.at === at) set({ flight: { ...f, stuck: true } })
+  }, CHECK_MAX_MS)
+}
+
+usePressed.subscribe((p, prev) => {
+  if (p.kind === 'check_step' && (p.at !== prev.at || prev.kind !== 'check_step')) startFlight(p.at)
+})
+
+/** The engine's thinking after the press ended (the check set its verdict state): whatever it answered, it answered. */
+export function flightStatus(state: string | undefined): void {
+  const f = get().flight
+  if (!f || f.stuck) return
+  if (state === 'thinking') {
+    if (!f.sawThinking) set({ flight: { ...f, sawThinking: true } })
+    return
+  }
+  if (f.sawThinking) landFlight()
+}
+onMessage('status', (p) => flightStatus(p.state))
+onMessage('error', () => landFlight())
+
 // ---- engine events ----------------------------------------------------------------------------------------------
 
-const timers: { hint?: ReturnType<typeof setTimeout>; notYet?: ReturnType<typeof setTimeout> } = {}
-
 onMessage('card', (c) => {
+  if (c.checkedAt !== undefined && forCurrentStep(c)) landFlight() // this press's answer (Not yet / Couldn't check)
   const after = dismissAfter(c)
   const withdrawn = after !== undefined && after <= WITHDRAW_MS
   if (isHintCard(c)) {
@@ -121,7 +172,9 @@ onMessage('card', (c) => {
   if (isNotYetCard(c)) {
     clearTimeout(timers.notYet)
     if (withdrawn) return set((s) => ({ notYet: { ...s.notYet, card: undefined } }))
-    set({ notYet: { card: c, at: Date.now() } })
+    landFlight()
+    const n = c.checkedAt !== undefined ? (get().notYet.n ?? 0) + 1 : get().notYet.n
+    set({ notYet: { card: c, at: Date.now(), n } })
     if (after !== undefined) timers.notYet = setTimeout(() => get().notYet.card === c && set((s) => ({ notYet: { ...s.notYet, card: undefined } })), after)
   }
 })
@@ -143,6 +196,7 @@ onMessage('check.updated', (p) => {
 onMessage('step.passed', (p) => {
   clearTimeout(timers.hint)
   clearTimeout(timers.notYet)
+  landFlight()
   const already = (p as typeof p & { already?: boolean }).already
   set({
     hint: undefined,
@@ -155,6 +209,7 @@ onMessage('step.passed', (p) => {
 onMessage('step.started', (p) => {
   clearTimeout(timers.hint)
   clearTimeout(timers.notYet)
+  landFlight()
   // The engine starts the next step right after step.passed: the held pass stays (Les-Passed until "Next step").
   // Back to an earlier step (or the same one again) ends it.
   const held = get().heldPass
@@ -167,6 +222,7 @@ onMessage('step.started', (p) => {
 const clearAll = (): void => {
   clearTimeout(timers.hint)
   clearTimeout(timers.notYet)
+  clearTimeout(timers.flight)
   set({ ...empty, notYet: { card: undefined, at: 0 } })
 }
 onMessage('lesson.ready', clearAll)

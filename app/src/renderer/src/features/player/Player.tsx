@@ -16,6 +16,7 @@ import { bridge, isElectron } from '../../bridge'
 import { useLesson, useStatus, useThinking } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
+import { handBackAfterCheck } from '../drawer/checkFocus'
 import { clock, color, copy, glass, radius, spring } from '../../core/theme'
 import { useCards } from '../cards/store'
 import { waitingRows } from '../cards/setupPlan'
@@ -38,7 +39,10 @@ const endLesson = (): void => bridge.send(cmd('end_lesson', {}))
 /** The header's End lesson stays armed ("Tap to end") this long for its second click, like the launcher's (QA Q03). */
 const END_ARM_MS = 3000
 /** "Can I move on?": the engine re-runs the checks now and Claude looks at the screen. */
-const checkStep = (): void => sendAction('check_step')
+const checkStep = (): void => {
+  sendAction('check_step')
+  handBackAfterCheck() // the learner's app gets the keyboard back once, never the home window
+}
 /** Leave this step unfinished and start the next one (never shown green). */
 const skipStep = (): void => {
   if (guardSkip()) sendAction('skip_step')

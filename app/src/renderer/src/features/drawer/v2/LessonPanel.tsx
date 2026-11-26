@@ -46,7 +46,9 @@ import { CodeBlock, MissingBlock, StepIntro } from './StepBody'
 import { CheckingCaption, HintBox, NotYetBox, PassedBody } from './states'
 import { Divider } from './ui'
 import { PageSource } from './Source'
-import { usePanelModel, type PanelModel } from './view'
+import { useCheckStuck, usePanelModel, type PanelModel } from './view'
+import { handBackAfterCheck } from '../checkFocus'
+import { openPermission } from '../../settings/permissions'
 
 export type PanelVia = 'edge' | 'pill'
 
@@ -205,7 +207,21 @@ function Screens({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode
   )
 }
 
-const check = (): void => sendAction('check_step')
+/** Check my work / Check again: ask the engine, then hand the keyboard back to the lesson's app once (never a miyagi
+ * window: the answer shows here). */
+const check = (): void => {
+  sendAction('check_step')
+  handBackAfterCheck()
+}
+
+/** Explain / Hint / Do it for me from the Not yet box (Nov 25: the learner found no way to ask for help there). */
+const NOT_YET_HELP = {
+  onOption: (a: 'explain' | 'hint') => triggerShortcut(a),
+  onAction: (a: 'apply_fix' | 'run_command') => sendAction(a),
+  onFix: (kind: string) => {
+    if (kind === 'screen_off') openPermission('screen')
+  }
+}
 
 /** Les-Passed: the green check draws in, core copy.passed (today "Step done.", see Core request 9), Up next, and Next step. */
 function Passed({ m }: { m: PanelModel }): ReactNode {
@@ -240,7 +256,16 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
   const queued = useQueuedCheck((q) => !!q.stepId && q.stepId === stepId)
   // Enter presses what the button would: Check when the link is up, queue it while the gate waits, nothing when paused.
   useEnter(checking || blocked || paused || queued ? undefined : gate.kind === 'wait' ? queueCheck : check)
-  const caption = checking || gate.kind === 'ok' ? undefined : queued && gate.kind === 'wait' ? gate.queued ?? gate.caption : gate.caption
+  const stuck = useCheckStuck()
+  const caption = checking
+    ? undefined
+    : gate.kind !== 'ok'
+      ? queued && gate.kind === 'wait'
+        ? gate.queued ?? gate.caption
+        : gate.caption
+      : stuck
+        ? 'No answer from miyagi yet. Press Check again.'
+        : undefined
   return (
     <motion.div
       data-gate={gate.kind}
@@ -254,7 +279,15 @@ function Work({ m, blocked }: { m: PanelModel; blocked: boolean }): ReactNode {
       <AnimatePresence initial={false}>
         {notYet && (
           <motion.div key="notyet" initial={r.initial} animate={r.animate} exit={r.exit} transition={r.transition}>
-            <NotYetBox lines={notYet.lines} />
+            <motion.div key={notYet.key ?? 'notyet'} initial={notYet.again ? { opacity: 0.4 } : false} animate={{ opacity: 1 }} transition={fade.in}>
+              <NotYetBox
+                lines={notYet.lines}
+                issue={notYet.issue}
+                again={notYet.again}
+                actions={notYet.actions}
+                help={{ ...NOT_YET_HELP, busy: waiting, disabled: gate.kind !== 'ok' }}
+              />
+            </motion.div>
           </motion.div>
         )}
         {hint && (

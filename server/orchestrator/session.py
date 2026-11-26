@@ -6145,9 +6145,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                                 "Moving on to the next step.")
         elif kind == "check_step" and step is not None:  # replaces the off-track card in the app: keep its buttons
             body = (self.last_offtrack or {}).get("title") or body  # the off-track card may have been covered
-            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode
-                       else ["hint", "show_me"])  # t10: a video lesson's Not yet keeps its teach buttons (Card has no explain)
-            actions += ["skip_step"]
+            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode else [])
+            actions += ["hint", "show_me", "explain", "skip_step"]  # t10 / Nov 25: every Not yet keeps its teach buttons
         log.info("action %s: nothing to do; notice %r", kind, title)
         extra: dict = {}
         if kind == "check_step" and step is not None and title == "Not yet":  # the panel's Not yet, re-shown as checked now
@@ -7199,9 +7198,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # teach first: Hint / Show me on the first "Not yet"; Do it for me only on a repeat. A run step's rerun (Run
         # it for me) is on every one: running it is the step itself, not the answer (t7: the Demo had no rerun button)
         n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
-        teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
+        # Nov 25: Explain too (contract CardAction "explain", additive): a learner stuck on "Not yet" asked for one
+        teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me", "explain"]
         if not self.lesson_mode:  # t10 (CP11, CP15): a video lesson's Not yet had only Skip step; s2's had all three
-            teach = ["hint", "show_me"]  # (the Card contract has no "explain"; the off-track has it)
+            teach = ["hint", "show_me", "explain"]
         card = {"stepId": step["id"], "kind": "answer", "title": title, "body": body, "actions": teach + ["skip_step"],
                 "verdict": "not_done", "checkedAt": self._wall_ms()}  # the panel shows it (Les-NotYet) with its reason
         if issue is not None:  # half-blind (no screen, the cloud, the extension): the reason, and why it may be partial
@@ -7226,7 +7226,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._emit_card({"stepId": step["id"], "kind": "step", "title": issue["title"],
                                "body": f"{issue['body']}\n{issue['next']}", "checkIssue": issue,
                                "checkedAt": self._wall_ms(),
-                               "actions": (["run_command"] if self._run_command(step) else []) + ["check_step", "hint", "skip_step"]},
+                               "actions": (["run_command"] if self._run_command(step) else []) + ["check_step", "hint", "explain", "skip_step"]},
                               window_s=0.0)
         await self._status("offtrack" if self.last_offtrack else "watching", check=True)
 

@@ -24,6 +24,7 @@ import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
 import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
+import { handBackAfterCheck } from './checkFocus'
 import { fade, prefersReduced } from '../../core/ui/motion'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
@@ -457,7 +458,11 @@ export function StepActions({ padX }: { padX: number }): ReactNode {
       className="sticky bottom-0 z-[1] flex items-center justify-end pb-[12px] pt-[6px]"
       style={{ paddingLeft: padX, paddingRight: padX, borderRadius: '0 0 12px 12px', background: glass.bg, boxShadow: `inset 0 0 0 999px ${glass.bg}, inset 0 0 0 999px ${glass.fieldHover}` }}
     >
-      <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
+      <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => {
+          if (checking) return
+          sendAction('check_step')
+          handBackAfterCheck()
+        }} />
     </div>
   )
 }
