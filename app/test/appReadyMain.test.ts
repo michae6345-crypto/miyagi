@@ -3,7 +3,7 @@
  *
  *   location     a built Mac app outside Applications offers the move (features/location.ts shouldOfferMove), once per
  *                version after Not now
- *   localEngine  the installer one-liner points at a ref that carries scripts/install.sh; the engine is spawned with
+ *   localEngine  an engine-less copy points at miyagi.study, not the team repo; the engine is spawned with
  *                umask 077; an outdated companion (below the bundled one, so always below 0.0.7) updates quietly
  *
  * Nothing is spawned, no dialog opens, no network. Run from app/:
@@ -64,12 +64,10 @@ describe('move to Applications', () => {
 })
 
 describe('the engine on this Mac', () => {
-  test('the one-liner names the ref that carries install.sh (bundle-engine.mjs falls back to the same one)', () => {
-    assert.match(le.ONE_LINER, /^curl -fsSL https:\/\/raw\.githubusercontent\.com\/michae6345-crypto\/miyagi\/[\w./-]+\/scripts\/install\.sh \| bash$/)
-    assert.ok(le.ONE_LINER.includes(`/${le.INSTALLER_REF}/scripts/install.sh`))
-    assert.ok(!le.ONE_LINER.includes('/integration/live/'), 'integration/live has no scripts/install.sh (404)')
-    const bundler = readFileSync(join(__dirname, '..', 'scripts', 'bundle-engine.mjs'), 'utf8')
-    assert.ok(bundler.includes(`'origin/${le.INSTALLER_REF}'`), 'bundle-engine.mjs takes install.sh from the same ref')
+  test('an engine-less copy points at the public site, never at the team repo (it goes private)', () => {
+    assert.ok(le.MISSING_LINE.includes('miyagi.study'))
+    assert.ok(!/github|curl/.test(le.MISSING_LINE))
+    assert.ok(!('ONE_LINER' in le), 'no install one-liner into michae6345-crypto/miyagi')
   })
 
   test('umask 077 around the spawn, the old one back after', () => {

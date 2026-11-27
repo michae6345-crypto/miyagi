@@ -34,7 +34,6 @@ import { ChevronDown } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useKey } from '../../core/keys'
-import { shellName } from '../onboarding/device'
 import { useDock } from '../../core/dock'
 import { notify, useCurrentStep, useLesson, useStepPhase, useThinking } from '../../core/lesson'
 import { restViewFor } from '../../core/islandRest'
@@ -156,7 +155,7 @@ function Idle(): ReactNode {
     if (ready) return bridge.emit('launcher:toggle')
     if (cont) return resumeSaved()
     if (offline && local?.state === 'missing') {
-      void bridge.invoke('engine-local:copy').then(() => notify(`Install command copied. Paste it in ${shellName()}.`)).catch(() => undefined)
+      notify(local.line ?? 'Download miyagi again from miyagi.study.')
       return
     }
     if (offline && local?.state === 'failed') {
