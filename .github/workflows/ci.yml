@@ -11,9 +11,9 @@ on:
 permissions:
   contents: read
 # One run per workflow and branch/PR: a newer commit cancels the older run, on main too (it is moot once superseded).
-# A nightly run gets its own group, so a push to main never cancels it mid-way.
+# A nightly or manual run gets its own group, so a push to main never cancels it mid-way.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('nightly-{0}', github.run_id) || github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ contains(fromJSON('["schedule","workflow_dispatch"]'), github.event_name) && format('solo-{0}', github.run_id) || github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
   server:

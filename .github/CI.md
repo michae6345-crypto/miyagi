@@ -14,7 +14,8 @@ macOS runner minutes count 10x Linux ones, so the slow Mac suites run nightly, n
 **Lane branches get no CI on push** (Nov 27 trim, before the repo goes private). A lane branch pushed without a PR
 runs nothing; run its checks locally before merging (engine: `env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY pytest
 server -q`; app: `npm run typecheck` and the unit tests), or open a PR to get CI. `trunk-guards.yml` is gone: `ci.yml`
-already runs gitleaks and contract parity on every push to `main`. Don't add a macOS job that runs on every push.
+already runs gitleaks and contract parity on every push to `main`. Don't add a macOS job that runs on every push. The one exception is app-ci's small `mac` slice (four darwin-only test
+files, ~2 min), kept on PRs and main pushes on purpose.
 
 Every workflow has one concurrency group per workflow and branch/PR: a newer commit cancels the older run, on `main`
 too. Nightly runs get their own group, so they are never cancelled mid-way. A failed nightly run just shows red in

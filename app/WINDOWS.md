@@ -14,7 +14,7 @@ npm run build && npx electron-builder --win nsis --x64 --publish never
 
 - Release `windows` in the public repo `adrian-erlikhman/miyagi`, asset `Miyagi-Windows-Setup.exe`.
 - miyagi.study links straight to it: `https://github.com/adrian-erlikhman/miyagi/releases/download/windows/Miyagi-Windows-Setup.exe`.
-- The Mac zip comes from CI (`mac-zip` artifact on pushes to `main`) and goes to release `mac` the same way.
+- The Mac zip comes from CI (`mac-zip` artifact from the nightly `ci` run, or a manual one) and goes to release `mac` the same way.
 
 ## Differences from the Mac, on purpose
 
