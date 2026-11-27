@@ -103,12 +103,11 @@ export const QUIT_CONFIRM_MS = 2000
 const UNMANAGED_TIMEOUT_MS = 12_000
 
 /**
- * Where Michael's installer lives: the same ref bundle-engine.mjs falls back to for install.sh (INSTALL_REFS).
- * integration/live and main carry no scripts/install.sh, so a one-liner on either answered 404 (audit, Nov 25).
+ * A Mac copy with no engine inside. The old curl one-liner fetched install.sh and the engine source from
+ * michae6345-crypto/miyagi, which goes private before beta (Michael, Nov 27), so it would 404 for everyone outside the
+ * team: the way back is a fresh download from the public site.
  */
-export const INSTALLER_REF = 'claude/distribution'
-/** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
-export const ONE_LINER = `curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/miyagi/${INSTALLER_REF}/scripts/install.sh | bash`
+export const MISSING_LINE = 'This copy of miyagi came without its engine. Download it again from miyagi.study.'
 
 /** The engine's files are the learner's alone: owner-only, whatever the login session's umask (022 on a stock Mac). */
 export const ENGINE_UMASK = 0o077
@@ -540,13 +539,7 @@ export function setupLocalEngine(
   // does); an engine without one configured ignores the header.
   engine.setToken(ENGINE_TOKEN)
   ipcMain.handle('feat:engine-local:get', (e) => (trusted(e) ? status : undefined))
-  ipcMain.handle('feat:engine-local:command', (e) => (trusted(e) ? ONE_LINER : undefined))
-  // The pill's "Install the engine": the one-liner on the clipboard. "Engine didn't start": open its log.
-  ipcMain.handle('feat:engine-local:copy', (e) => {
-    if (!trusted(e)) return false
-    clipboard.writeText(ONE_LINER)
-    return true
-  })
+  // The pill's "Engine didn't start": open its log.
   ipcMain.handle('feat:engine-local:logs', async (e) => {
     if (!trusted(e)) return false
     const file = status.logs ?? ''
@@ -997,7 +990,7 @@ export function setupLocalEngine(
     }
     if (!existsSync(launcher)) {
       note(`no engine to start: the app carries no usable engine (${bundle}) and ${launcher} doesn't exist`)
-      return set({ state: 'missing', line: ONE_LINER, logs, reason: `no usable engine in ${bundle} and no ${launcher}` })
+      return set({ state: 'missing', line: MISSING_LINE, logs, reason: `no usable engine in ${bundle} and no ${launcher}` })
     }
     start()
   }
