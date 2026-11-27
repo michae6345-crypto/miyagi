@@ -3,7 +3,7 @@
  *
  *   npx tsx src/renderer/src/features/sound/sound.check.ts      (from app/)
  *
- * Renders every cue at 44.1 and 48 kHz and checks: peak under -24 dBFS, duration under 250 ms, starts and ends on
+ * Renders every cue at 44.1 and 48 kHz and checks: peak under -24 dBFS, duration under 250 ms (the chime: 1 s), starts and ends on
  * silence (no click), no DC, finite samples, deterministic. Then drives the gate on a fake clock: off by default, one
  * cue per 400 ms, never during typing, Do Not Disturb, taps sub-toggle, a held done outranking a tick, stale drop, a
  * second pass keeping the first one's wait, and typing in another app (a fake whole-second system idle clock, as main's
@@ -11,8 +11,8 @@
  * Finally the main process's Do Not Disturb parse. Exits 1 on the first failure.
  */
 import { focusOn } from '../../../../main/features/sound'
-import { createGate, MAX_WAIT_MS, MIN_GAP_MS, SYSTEM_BUSY_S, SYSTEM_POLL_MS, TYPING_QUIET_MS, withSystemIdle, type Gate, type GateEnv } from './gate'
-import { CUES, gainToDb, MAX_DURATION_MS, MAX_PEAK_DBFS, peakOf, renderCue, type Cue } from './synth'
+import { CHIME_GAP_MS, createGate, MAX_WAIT_MS, MIN_GAP_MS, SYSTEM_BUSY_S, SYSTEM_POLL_MS, TYPING_QUIET_MS, withSystemIdle, type Gate, type GateEnv } from './gate'
+import { CUES, gainToDb, MAX_PEAK_DBFS, maxDurationMs, peakOf, renderCue, type Cue } from './synth'
 
 let failed = 0
 let passed = 0
@@ -43,7 +43,7 @@ for (const rate of [44100, 48000]) {
     const again = renderCue(cue, rate)
     rows.push(`${cue.padEnd(5)} ${String(rate).padEnd(6)} ${ms.toFixed(1).padStart(6)} ms  peak ${peakDb.toFixed(2).padStart(7)} dBFS  dc ${dc.toExponential(1)}`)
     ok(finite, `${cue}@${rate}: finite samples`)
-    ok(ms > 0 && ms < MAX_DURATION_MS, `${cue}@${rate}: duration ${ms.toFixed(1)} ms < ${MAX_DURATION_MS}`)
+    ok(ms > 0 && ms < maxDurationMs(cue), `${cue}@${rate}: duration ${ms.toFixed(1)} ms < ${maxDurationMs(cue)}`)
     ok(peakDb <= MAX_PEAK_DBFS, `${cue}@${rate}: peak ${peakDb.toFixed(2)} dBFS <= ${MAX_PEAK_DBFS}`)
     ok(Math.abs(peakDb - CUES[cue].peakDbfs) < 0.01, `${cue}@${rate}: peak lands on its level`)
     ok(edge < 1e-3 * peakOf(buf) + 1e-9, `${cue}@${rate}: starts and ends on silence`)
@@ -133,7 +133,15 @@ function on(now: number, extra: Partial<GateEnv> = {}): GateEnv {
     if (g.ask(cue, on(t, { taps: true })).play) plays.push(t)
   }
   ok(plays.length > 5 && plays.every((t, i) => i === 0 || t - plays[i - 1] >= MIN_GAP_MS), 'a burst never plays two cues within 400 ms')
-  ok(Math.max(...Object.values(CUES).map((c) => c.durationMs)) < MIN_GAP_MS, 'every cue ends before the next may start')
+  ok(Math.max(...(Object.keys(CUES) as Cue[]).filter((c) => c !== 'chime').map((c) => CUES[c].durationMs)) < MIN_GAP_MS, 'every short cue ends before the next may start')
+  ok(CUES.chime.durationMs < CHIME_GAP_MS, 'the chime ends before the next cue may start')
+  // After the chime (MIC-90) the gap is CHIME_GAP_MS, then back to MIN_GAP_MS.
+  const c = createGate()
+  ok(c.ask('chime', on(0)).play, 'a chime plays')
+  const w = c.ask('tick', on(MIN_GAP_MS))
+  ok(!w.play && w.reason === 'held' && w.retryInMs === CHIME_GAP_MS - MIN_GAP_MS, 'a tick after the chime waits for its ring-out')
+  ok(c.ask('tick', on(CHIME_GAP_MS)).play, 'and plays once the chime has rung out')
+  ok(!c.ask('tick', on(CHIME_GAP_MS + MIN_GAP_MS - 1)).play && c.ask('tick', on(CHIME_GAP_MS + MIN_GAP_MS)).play, 'then the usual 400 ms gap again')
 }
 
 // ---- typing in another app: a fake system idle clock (main's sound:idle) -------------------------------------------

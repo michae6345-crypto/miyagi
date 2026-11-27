@@ -222,7 +222,7 @@ export const SETTINGS: readonly Setting[] = [
     panel: 'notifications',
     group: 'Sounds',
     label: 'Sounds',
-    caption: 'A soft tick when a step passes.',
+    caption: 'A soft tick for each step, a chime when a lesson is done.',
     keywords: 'audio chime tick',
     control: { kind: 'segmented', options: [{ value: 'off', label: 'Off' }, { value: 'subtle', label: 'Subtle' }], use: () => [useSound((s) => s.mode), (v) => setSoundMode(v as 'off' | 'subtle')] }
   },

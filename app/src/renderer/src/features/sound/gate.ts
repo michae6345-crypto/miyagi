@@ -2,7 +2,8 @@
  * Feature: sound. The rules for WHEN a cue may play, as a pure function of the clock, so the Node check can drive it.
  *
  *   - Off means off. Taps also need their own sub-toggle.
- *   - Never more than one cue per MIN_GAP_MS (400 ms). Every cue is shorter than 250 ms, so two never overlap.
+ *   - Never more than one cue per MIN_GAP_MS (400 ms). Every cue but the chime is shorter than 250 ms, so two never
+ *     overlap; after the chime (900 ms, lesson complete) the next cue waits CHIME_GAP_MS instead.
  *   - Never while the learner types (any key in a field within TYPING_QUIET_MS), and never in Do Not Disturb.
  *     The learner mostly types outside miyagi (VS Code, the terminal), so before a tick or done the store also asks
  *     main how long the whole system has been idle; under SYSTEM_BUSY_S counts as busy now (withSystemIdle below).
@@ -17,6 +18,8 @@
 import type { Cue } from './synth'
 
 export const MIN_GAP_MS = 400
+/** After the lesson-complete chime: it rings 900 ms, so nothing starts over its tail. */
+export const CHIME_GAP_MS = 1000
 export const TYPING_QUIET_MS = 1200
 export const MAX_WAIT_MS = 2500
 /** System-wide input (keys or mouse, any app) this recent counts as typing. getSystemIdleTime is whole seconds. */
@@ -24,7 +27,7 @@ export const SYSTEM_BUSY_S = 1
 /** While a cue is held only by input elsewhere, the store asks for the system idle time again this often. */
 export const SYSTEM_POLL_MS = 225
 
-const RANK: Record<Cue, number> = { tap: 1, tick: 2, done: 3 }
+const RANK: Record<Cue, number> = { tap: 1, tick: 2, done: 3, chime: 4 }
 
 export type GateEnv = {
   now: number
@@ -68,6 +71,8 @@ export type Gate = {
 
 export function createGate(): Gate {
   let lastAt = -Infinity
+  /** How long the last cue keeps the gap closed (MIN_GAP_MS, or CHIME_GAP_MS after the chime). */
+  let lastGap = MIN_GAP_MS
   let held: { cue: Cue; bornAt: number } | undefined
 
   const hold = (cue: Cue, bornAt: number, until: number, now: number): Verdict => {
@@ -97,7 +102,7 @@ export function createGate(): Gate {
       if (held && held.cue !== cue && RANK[held.cue] > RANK[cue]) return { play: false, reason: 'outranked' }
 
       const typingUntil = env.typingAt > 0 ? env.typingAt + TYPING_QUIET_MS : -Infinity
-      const gapUntil = lastAt + MIN_GAP_MS
+      const gapUntil = lastAt + lastGap
       if (now < typingUntil) return cue === 'tap' ? { play: false, reason: 'typing' } : hold(cue, bornAt, Math.max(typingUntil, gapUntil), now)
       // Input elsewhere: no fixed wait, the store samples the idle clock again after SYSTEM_POLL_MS.
       if (env.systemBusy) return cue === 'tap' ? { play: false, reason: 'typing' } : hold(cue, bornAt, Math.max(now + SYSTEM_POLL_MS, gapUntil), now)
@@ -105,15 +110,20 @@ export function createGate(): Gate {
 
       release()
       lastAt = now
+      lastGap = cue === 'chime' ? CHIME_GAP_MS : MIN_GAP_MS
       return { play: true }
     },
     pending: () => held,
     note(at) {
-      if (at > lastAt) lastAt = at
+      if (at > lastAt) {
+        lastAt = at
+        lastGap = MIN_GAP_MS
+      }
     },
     reset() {
       held = undefined
       lastAt = -Infinity
+      lastGap = MIN_GAP_MS
     }
   }
 }
