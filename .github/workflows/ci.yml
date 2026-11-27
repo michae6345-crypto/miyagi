@@ -1,12 +1,19 @@
 name: ci
-on: { push: { branches: [main] }, pull_request: {} }
+on:
+  push: { branches: [main] }
+  pull_request: {}
+  # Nightly on main: the only time the two Mac jobs (mac-build, replay-mac) run, besides a manual run.
+  schedule:
+    - cron: "30 9 * * *" # 09:30 UTC, 1:30am Pacific, after app-e2e / app-visual
+  workflow_dispatch: {}
 # Least privilege: no job writes to the repo, so the run's GITHUB_TOKEN can only read it. Actions are pinned to the
 # commit their major tag pointed at (the tag can be moved; the commit cannot). Tools are pinned to a version.
 permissions:
   contents: read
 # One run per workflow and branch/PR: a newer commit cancels the older run, on main too (it is moot once superseded).
+# A nightly run gets its own group, so a push to main never cancels it mid-way.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('nightly-{0}', github.run_id) || github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
   server:
@@ -51,8 +58,10 @@ jobs:
         run: python -m pytest server cli/tests evals/replay -q -p no:cacheprovider --timeout=120 -ra
   replay-mac:
     # The replay eval on the learner's OS too: macOS's case-insensitive disk is where git-basics misgraded unseen
-    # (Linux CI is case-sensitive). Light: the replay only, offline, no app build.
-    runs-on: macos-14
+    # (Linux CI is case-sensitive). Light: the replay only, offline, no app build. Mac minutes: nightly and manual only
+    # (macos-14 was retired, so on every push it was cancelled before it started and left ci "cancelled" on main).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -161,7 +170,9 @@ jobs:
         run: |
           if git grep -nIE '^(<<<<<<<|>>>>>>>)( |$)'; then echo "merge-conflict markers above"; exit 1; fi
   mac-build:
-    if: github.event_name == 'push'
+    # A full Electron build (~3 Mac minutes): nightly and manual only, not on every main push. The mac-zip artifact
+    # comes from the latest nightly; run ci by hand (Actions -> ci -> Run workflow) for a fresh one.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

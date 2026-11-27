@@ -4,13 +4,17 @@ macOS runner minutes count 10x Linux ones, so the slow Mac suites run nightly, n
 
 | Workflow | Runner | When |
 | --- | --- | --- |
-| `ci.yml` | Linux (+ `mac-build` on macOS, main pushes only; `replay-mac` asks for the retired `macos-14` image, so it never starts) | every PR, every push to `main` |
-| `engine-ci.yml` | Linux | PRs and pushes touching `server/`, `shared/`, `cloud/` |
-| `app-ci.yml` `app` | Linux | PRs and pushes touching `app/`: typecheck + all unit tests (`app/test/*.test.ts`), then the report guard |
+| `ci.yml` | Linux; `mac-build` + `replay-mac` on macOS run only nightly (09:30 UTC) or by hand | every PR, every push to `main`, nightly, manual |
+| `engine-ci.yml` | Linux | PRs and `main` pushes touching `server/`, `shared/`, `cloud/` |
+| `app-ci.yml` `app` | Linux | PRs and `main` pushes touching `app/`: typecheck + all unit tests (`app/test/*.test.ts`), then the report guard |
 | `app-ci.yml` `mac` | macOS | same trigger: only the four test files whose tests skip off darwin (`overlayWindow`, `overlayLifecycle`, `screenLayout`, `permissionsRefresh`) |
 | `app-e2e.yml` | macOS | nightly 09:00 UTC (1am Pacific) on `main`; manual; PRs labeled `run-ui-tests` that touch `app/` |
 | `app-visual.yml` | macOS | nightly 09:00 UTC on `main`; manual; PRs labeled `run-ui-tests` that touch `app/` |
-| `trunk-guards.yml` | Linux | pushes to the legacy trunks `integration/live`, `michael/app-ui-v4`; manual |
+
+**Lane branches get no CI on push** (Nov 27 trim, before the repo goes private). A lane branch pushed without a PR
+runs nothing; run its checks locally before merging (engine: `env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY pytest
+server -q`; app: `npm run typecheck` and the unit tests), or open a PR to get CI. `trunk-guards.yml` is gone: `ci.yml`
+already runs gitleaks and contract parity on every push to `main`. Don't add a macOS job that runs on every push.
 
 Every workflow has one concurrency group per workflow and branch/PR: a newer commit cancels the older run, on `main`
 too. Nightly runs get their own group, so they are never cancelled mid-way. A failed nightly run just shows red in

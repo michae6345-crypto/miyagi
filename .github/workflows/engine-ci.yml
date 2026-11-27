@@ -1,9 +1,11 @@
 name: engine-ci
-# The engine (server/) and miyagi-cloud (cloud/) test suites, offline, on every PR and push that touches them.
-# ci.yml runs the wider set (cli, evals, app, gitleaks) on PRs and main; this one is the fast engine-only signal on any
-# branch, at the Python the engine ships with (scripts/miyagi-engine.sh: `uv venv --python 3.12`).
+# The engine (server/) and miyagi-cloud (cloud/) test suites, offline, on PRs and main pushes that touch them.
+# ci.yml runs the wider set (cli, evals, app, gitleaks) on PRs and main; this one is the fast engine-only signal, at the
+# Python the engine ships with (scripts/miyagi-engine.sh: `uv venv --python 3.12`). Lane branches pushed without a PR
+# get no run here: run the engine checks locally before merging (CI.md). The install loop gates on main's run.
 on:
   push:
+    branches: [main]
     paths: ["server/**", "shared/**", "cloud/**", ".github/workflows/engine-ci.yml"]
   pull_request:
     paths: ["server/**", "shared/**", "cloud/**", ".github/workflows/engine-ci.yml"]

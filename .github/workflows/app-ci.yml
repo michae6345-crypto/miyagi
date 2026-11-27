@@ -9,6 +9,7 @@ on:
   pull_request:
     paths: ["app/**", ".github/workflows/app-ci.yml"]
   push:
+    branches: [main] # lane branches pushed without a PR: run typecheck + tests locally before merging (CI.md)
     paths: ["app/**", ".github/workflows/app-ci.yml"]
 # Least privilege, and actions pinned to the commit their major tag pointed at (same pins as ci.yml).
 permissions:
