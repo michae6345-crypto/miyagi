@@ -1,8 +1,9 @@
 /**
  * Feature: sound. Turns app moments into cues, through the gate, without touching any other feature.
  *
- *   step.passed (not skipped, not "already")       tick   (the lesson's last step: done)
- *   card kind "complete" / a skill map             done   (once per lesson; skipped if the last step already chimed)
+ *   step.passed (not skipped, not "already")       tick   (not the lesson's last step: the chime follows it)
+ *   card kind "complete" / a skill map             chime  (MIC-90: once per completion, never a replayed card;
+ *                                                          completion.ts; played from assets/lesson-complete.wav)
  *   onUi('setup-done') (Core request 4)            done   (the learner pressed the last setup button; reruns only)
  *   a pointer press on a primary button            tap    (only with the taps sub-toggle)
  *
@@ -21,6 +22,7 @@ import { create } from 'zustand'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi, type UiEvent } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { createCompletionGuard, isCompletionCard } from './completion'
 import { createGate, withSystemIdle, type Verdict } from './gate'
 import { playCue } from './player'
 import { useSound } from './settings'
@@ -159,35 +161,41 @@ function isPrimary(btn: HTMLElement): boolean {
 
 // ---- engine moments (overlay only) ---------------------------------------------------------------------------------
 
-/** Lesson id the "done" already played for, so the complete card after the last step doesn't chime twice. */
-let doneFor: string | undefined
+/**
+ * The lesson-complete chime (MIC-90): one per completion, on the completion card, never for a replayed card
+ * (completion.ts says when). The last step's pass plays nothing itself, so the chime is the lesson's one sound at the
+ * end. No system-input hold (the lesson is over, and a held chime would be dropped after 2.5 s of mouse movement):
+ * the gate still honours Off, Do Not Disturb, typing in a miyagi field and the gap.
+ */
+const completion = createCompletionGuard()
 const lessonKey = (): string => useLesson.getState().lesson?.id ?? 'lesson'
 
 onMessage('step.passed', (p) => {
-  if (!hosted || p.skipped || p.already) return
+  if (!hosted) return
+  completion.stepPassed(lessonKey())
+  if (p.skipped || p.already) return
   const { steps } = useLesson.getState()
   const last = steps.length > 0 && steps[steps.length - 1].id === p.stepId && !p.pending && useLesson.getState().complete
-  if (last) {
-    doneFor = lessonKey()
-    request('done', 'last step passed', { system: true })
-  } else request('tick', 'step passed', { system: true })
+  if (!last) request('tick', 'step passed', { system: true })
 })
 
 onMessage('card', (p) => {
-  if (!hosted) return
-  const raw = p as { kind?: string; skillMap?: unknown }
-  if (raw.kind !== 'complete' && !raw.skillMap) return
-  if (doneFor === lessonKey()) return
-  doneFor = lessonKey()
-  request('done', 'lesson complete', { system: true })
+  if (!hosted || !isCompletionCard(p)) return
+  if (!completion.completed(lessonKey())) return
+  request('chime', 'lesson complete')
 })
 
 onMessage('lesson.ready', () => {
-  doneFor = undefined
+  completion.clear()
+})
+// A reconnect / restore replays the lesson's current step: what follows is a replay, never a fresh completion. (Core
+// drops a replayed lesson.ready of the lesson already loaded before any feature sees it, so this is the marker.)
+onMessage('step.started', (p) => {
+  if ((p as { replay?: boolean }).replay === true) completion.clear()
 })
 onUi('reset', () => {
   generation++
-  doneFor = undefined
+  completion.clear()
   gate.reset()
   if (retry) clearTimeout(retry)
   retry = undefined

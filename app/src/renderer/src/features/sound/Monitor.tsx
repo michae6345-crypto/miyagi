@@ -16,7 +16,7 @@ import type { Verdict } from './gate'
 
 const BARS = 20
 const SWEEP_S = 0.36
-const NAME: Record<Cue, string> = { tick: 'Tick', done: 'Done', tap: 'Tap' }
+const NAME: Record<Cue, string> = { tick: 'Tick', done: 'Done', tap: 'Tap', chime: 'Chime' }
 const MODES = [
   { value: 'off', label: 'Off' },
   { value: 'subtle', label: 'Subtle' }
@@ -128,6 +128,7 @@ export function SoundMonitor(): ReactNode {
       <motion.div variants={riseItem} className="mt-[12px] flex gap-[8px]">
         <QuietButton label="Tick" onClick={() => request('tick', 'stage test', { system: true })} />
         <QuietButton label="Done" onClick={() => request('done', 'stage test', { system: true })} />
+        <QuietButton label="Chime" onClick={() => request('chime', 'stage test')} />
         <div className="flex-1" />
         <PrimaryButton label="Primary" onClick={() => undefined} />
       </motion.div>
