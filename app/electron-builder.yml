@@ -65,6 +65,8 @@ mac:
   target: dmg
   icon: build/icon.png
   category: public.app-category.education
+  # electron-builder never signs: ship-mac.sh does, ad hoc by default, or with a Developer ID and the hardened runtime
+  # when MIYAGI_DEVID is set (scripts/sign-mac.sh, build/entitlements.mac.plist).
   identity: null
   extendInfo:
     LSUIElement: true

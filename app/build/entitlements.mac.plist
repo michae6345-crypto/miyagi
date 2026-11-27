@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Developer ID build (scripts/sign-mac.sh, used only when MIYAGI_DEVID is set).
+  The same file goes on every executable in the app: miyagi, its Electron helpers, the bundled Python
+  (Resources/engine/python/bin/python3.12) and miyagi-listen. Ad-hoc and MIYAGI_SIGN_ID builds don't use it.
+  test/signMac.test.ts pins the keys: add one only with a reason here, never com.apple.security.get-task-allow
+  (notarization rejects it).
+-->
+<plist version="1.0">
+<dict>
+  <!-- V8 compiles JavaScript to machine code at run time (MAP_JIT pages). Electron's main and renderer processes crash
+       on launch under the hardened runtime without it. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Writable-then-executable memory without MAP_JIT: older V8 paths in Electron, and the bundled Python's ctypes / cffi
+       closures (libffi trampolines used by pyobjc, Quartz and Vision imports in the engine). -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- The bundled Python makes each lesson's .venv and pip installs packages into it at run time: those .so files are
+       not signed by our team, and library validation would refuse to load them. Electron also loads system frameworks
+       and its own dylibs, which this keeps working regardless of who signed them. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Push to talk: miyagi-listen opens the microphone while Fn+Control is held (NSMicrophoneUsageDescription). Under the
+       hardened runtime the mic stays silent without this, even after the user grants it in the TCC prompt. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- NSAppleEventsUsageDescription: miyagi opens the learner's editor at the right file. Under the hardened runtime,
+       sending Apple Events needs this entitlement as well as the user's consent. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>
