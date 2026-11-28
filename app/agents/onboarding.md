@@ -2,6 +2,22 @@
 
 **Status:** one-window first run (lane oneflow, Nov 21: the flow layer in the home window, see below); before that, intro + guided setup pass done (lane intro-setup): typecheck green, brand lint clean, stage flows walked end to end headless (intro, skip, reduced motion, steps 1-4 with auto-advance, Back, Review setup, Walk me through it, You're ready, Start). Electron not run (cost freeze) · **Priority:** P0 (first run) · **Port:** 5402 (this lane; 5188 before) · **Branch:** `michael/app-intro-setup` (from `michael/v2-integration`; earlier `michael/app-onboarding`, draft #171) · **PR:** draft into `adrian/shell`
 
+## Centered, balanced, one Back (onboarding redesign, Nov 28, branch `michael/onboarding-redesign`, PR #300)
+Michael's fresh install of the notarized DMG: "You're signed in" sat in the top-left of a large, mostly empty window,
+off the progress dots' center line, and the sign-in's Back was a stray link at the window's top-left. Now:
+- **Every step centers both ways** (onboarding/v4.tsx SetupPage, onb-v4.css): auto margins, so a short step sits a
+  little above the window's middle (in a flow the strip's 64 is added below too) and a tall one scrolls from the top.
+- **Two layouts, one center line** (the dots'): `center`, one 400 column with centered text like the birthday screen
+  (birthday, guardian, sign in, You're signed in, consent, the engine step, Meet bon); `split`, the step and its quiet
+  rail as one centered block (Screen Recording, Accessibility, VS Code, You're ready). The sign-in lost its rail (what
+  Google shares is one line under the button), so it no longer jumps from two columns to one when the sign-in lands.
+- **Sign in**: full-width 44 px Google button and Continue (the birthday's Continue), the account as one card, the
+  legal links at the window's foot like the birthday screen's fine print; the title crossfades on sign-in.
+- **One Back** (onboarding/back.ts + v4.tsx BackButton): steps register with `useBack(fn)`; the host's top bar draws
+  it right of the traffic lights on the dots' line (flow strip, login window, setup window). Guardian, the sign-in
+  (back to the birthday) and guided steps 2+ use it; no step draws its own.
+- Shots (before/after, light/dark, 1440x900 and 1024x700): `agents/shots/onb-redesign/`.
+
 ## Consent before capture (R05, R06; Nov 21, branch `adrian/consent-agree`)
 After the login and before guided setup, the flow shows **"A few things first"** (`Consent.tsx`, copy in
 `consentCopy.ts`): your screen and your code go to Anthropic (Claude) during a lesson; close private apps and tabs

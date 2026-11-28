@@ -25,14 +25,14 @@ export function BuddyStep({ chrome, onDone }: { chrome: 'window' | 'flow'; onDon
       {chrome === 'window' && <header data-drag className="mg-flow-head mg-lights-pad shrink-0" />}
       <div className="relative min-h-0 flex-1">
         <SetupPage view="buddy" top={chrome === 'flow' ? FLOW_TOP : undefined} enterDelay={0.05}>
-          {/* The buddy stands on the title's left edge, a little in from it (its drawing has room around it). */}
-          <Rise data={{ 'data-onb-stage': true }} style={{ marginLeft: -12, marginBottom: 14 }}>
+          {/* The buddy stands over the title, on the page's center line (SetupPage 'center'). */}
+          <Rise data={{ 'data-onb-stage': true }} className="flex justify-center" style={{ marginBottom: 14 }}>
             <BuddyPreview size={96} />
           </Rise>
           <SetupTitle title={words.stepTitle} lede={words.stepBody} />
           <Rise style={{ marginTop: 26 }}>
-            {/* Left-aligned with the title; the picked color's name sits at the row's end. */}
-            <div className="flex items-center gap-[14px]" style={{ marginLeft: -7 }}>
+            {/* Centered under the title; the picked color's name sits at the row's end. */}
+            <div className="flex items-center justify-center gap-[14px]">
               <BuddySwatches size={26} gap={10} name={false} />
               <span data-part="buddy-color-name" style={{ ...v4type.body, color: color.label }}>
                 {skinTitle(skin)}

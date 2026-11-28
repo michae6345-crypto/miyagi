@@ -29,6 +29,7 @@ import { useCapability } from '../../core/lesson'
 import { color, fill, radius2, spring, status as tone, v4c } from '../../core/theme'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
+import { useBack } from './back'
 import { Dots } from './Dots'
 import { MARK_ID } from './Intro'
 import type { Row } from './rows'
@@ -36,7 +37,7 @@ import { stepGroup, stepRail } from './setupRail'
 import { canSkip, firstOpen, guidedRows, nextOpen, STEP_COPY, statusLine, type StepId } from './steps'
 import { runAction, setGuidedStep, skipStep, useOnboarding } from './store'
 import { ease, fade, stagger as motionStagger } from '../../core/ui/motion'
-import { Actions, BackLink, FLOW_TOP, LiveState, RailRow, RailSection, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
+import { Actions, BackButton, FLOW_TOP, LiveState, RailRow, RailSection, Rise, SetupGroup, SetupPage, SetupRow, SetupTitle } from './v4'
 
 /** How long a step that just turned green stays up before the walk moves on. */
 export const ADVANCE_MS = 1100
@@ -353,8 +354,10 @@ export function Guided({
     </span>
   )
   const hasBack = idx !== undefined && idx > 0
-  const actions = (primaryNode && !primaryInRow) || secondary || hasBack ? (
-    <Actions end={hasBack ? <span data-onb-back><BackLink onClick={back} /></span> : undefined}>
+  // Back lives in the window's top bar (back.ts), the same place on every step of the first run.
+  useBack(hasBack ? back : undefined)
+  const actions = (primaryNode && !primaryInRow) || secondary ? (
+    <Actions>
       {primary && !primaryInRow && (
         <span data-onb-primary data-label={primary.label}>
           <PrimaryButton label={primary.label} onClick={primary.onClick} busy={primary.busy} disabled={primary.disabled} />
@@ -372,6 +375,7 @@ export function Guided({
     <div data-onb-view="setup" data-onb-step={row?.id} data-onb-chrome={chrome} role="dialog" aria-labelledby="onb-title" className="flex h-full w-full flex-col" style={{ background: v4c.page }}>
       {chrome === 'window' && <header data-drag className="mg-flow-head mg-lights-pad flex shrink-0 items-center justify-between pr-[28px]">
         <div className="flex items-center gap-[10px]">
+          <BackButton />
           <motion.div layoutId={MARK_ID} className="relative" style={{ width: 22, height: 22 }} transition={{ layout: spring }}>
             <MiyagiMark size={22} />
           </motion.div>

@@ -14,9 +14,10 @@
  * Used twice: inside the home window's first-run flow (features/shell/flow: `onContinue` moves the flow on to setup)
  * and in the standalone login window (AuthView: the Account page's Sign in, a fallback). The bonsai at the top is the
  * shared element (MARK_ID): it glides in from the intro and on to the next screen.
- * v4 (Nov 24, Adrian's ui-next onboard-1): the onboarding SetupPage (features/onboarding v4.tsx), left-aligned and
- * top-anchored: the tree, the title and one line, the Google button (300 wide), Continue without an account and the
- * legal links under it; a quiet rail on the right says what Google shares.
+ * Onboarding redesign (Nov 28): the onboarding SetupPage (features/onboarding v4.tsx) in its centered mode, one 400
+ * column on the window's center line like the birthday screen: the tree, the title and one line, the Google button
+ * (full width), what Google shares, Continue without an account; the legal links at the window's foot. Back (to the
+ * birthday) is the window's top bar (onboarding/back.ts), never a link in the page.
  * Neutral only (BRAND.md): white on dark, no provider brand colors, no hue for status. Copy stays short.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
@@ -30,7 +31,7 @@ import { ease, pressMotion } from '../../core/ui/motion'
 import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
 import { AgeFirst } from '../agegate/AgeFirst'
-import { FLOW_TOP, RailRow, RailSection, SetupGroup, SetupPage, SetupRow } from '../onboarding/v4'
+import { FLOW_TOP, SetupGroup, SetupPage, SetupRow } from '../onboarding/v4'
 import { thisDevice } from '../onboarding/device'
 import { Avatar } from './Avatar'
 import { cancelSignIn, continueToSetup, leaveSignIn, openLegal, signInWith, signOut, useAuth } from './store'
@@ -74,12 +75,12 @@ function GoogleButton({ waiting }: { waiting: boolean }): ReactNode {
       aria-busy={waiting || undefined}
       aria-label={waiting ? 'Waiting for Google. Finish signing in in your browser.' : 'Continue with Google'}
       // Waiting keeps the white slab (no held press tint: the shimmer says it is working, not that it is off).
-      className={`${waiting ? '' : 'mg-press mg-press-light cursor-pointer'} relative flex h-[40px] w-[300px] max-w-full items-center justify-center gap-[10px] overflow-hidden`}
+      className={`${waiting ? '' : 'mg-press mg-press-light cursor-pointer'} relative flex h-[44px] w-full items-center justify-center gap-[10px] overflow-hidden`}
       style={{
         borderRadius: v4.radius.control,
         backgroundColor: color.accent,
         color: color.onAccent,
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: 600,
         boxShadow: waiting ? `${highlight.onLight}, ${highlight.base}` : `${highlight.onLight}, ${highlight.base}, ${elevation.raised}`
       }}
@@ -107,19 +108,19 @@ function GoogleButton({ waiting }: { waiting: boolean }): ReactNode {
 }
 
 function SignedIn({ name, email, initial, onContinue }: { name?: string; email?: string; initial: string; onContinue: () => void }): ReactNode {
+  // Centered like the rest of the column: the account as one card, the one primary full width under it (the birthday
+  // screen's Continue), and "Not you? Sign out" quiet under that.
   return (
-    <motion.div key="signed-in" data-auth-signed-in initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ y: spring, opacity: fade }} className="flex w-full flex-col items-start">
+    <motion.div key="signed-in" data-auth-signed-in initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ y: spring, opacity: fade }} className="flex w-full flex-col items-center">
       <SetupGroup label="Signed in as">
-        <SetupRow lead={<Avatar initial={initial} size={32} />} name={name ?? email} line={name && email ? email : undefined} />
+        <SetupRow lead={<Avatar initial={initial} size={36} />} name={name ?? email} line={name && email ? email : undefined} />
       </SetupGroup>
-      <div className="mt-[24px] flex items-center gap-[16px]">
-        <span data-onb-primary>
-          <PrimaryButton label="Continue" onClick={onContinue} />
-        </span>
-        <span style={{ fontSize: 13, color: color.label }}>
-          Not you? <TextLink onClick={signOut}>Sign out</TextLink>
-        </span>
-      </div>
+      <span data-onb-primary className="mt-[20px] w-full">
+        <PrimaryButton size="lg" block label="Continue" onClick={onContinue} />
+      </span>
+      <span className="mt-[14px]" style={{ fontSize: 13, color: color.label }}>
+        Not you? <TextLink onClick={signOut}>Sign out</TextLink>
+      </span>
     </motion.div>
   )
 }
@@ -139,13 +140,13 @@ function Failure({ text, onWithout }: { text: string; onWithout: () => void }): 
       key="fail"
       role="alert"
       data-auth-failure={retry ? 'retry' : 'without'}
-      className="flex flex-col items-start gap-[6px] text-left"
+      className="flex flex-col items-center gap-[6px] text-center"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: duration.fast } }}
       transition={{ duration: duration.slow, ease: ease.out }}
     >
-      <span className="flex items-center gap-[8px]" style={{ fontSize: 13.5, lineHeight: '20px', color: color.text, maxWidth: 420 }}>
+      <span className="flex items-start gap-[8px] text-left" style={{ fontSize: 13.5, lineHeight: '20px', color: color.text, maxWidth: 400 }}>
         <StatusGlyph state="notyet" size={16} still />
         <span>{line}</span>
       </span>
@@ -202,8 +203,10 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
   }
   const inFlow = !!onContinue
 
-  // v4 (Nov 24, Adrian's ui-next onboard-1; features/onboarding v4.tsx): the step on the left, top-anchored, a quiet
-  // rail on the right saying what Google shares (said once: under the button instead when the rail drops, < 860).
+  // Onboarding redesign (Nov 28): one centered column, the birthday screen's composition, on the same center line as
+  // the progress dots (SetupPage 'center'). The tree, the title and one line, the one primary full width, what Google
+  // shares as one quiet line under it, "Continue without an account", and the legal links at the window's foot. No
+  // rail: the page no longer jumps from two columns to one when the sign-in lands. Back is the top bar's (AgeFirst).
   return (
     <motion.section
       data-auth-login
@@ -213,39 +216,27 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
       animate={{ opacity: 1 }}
       transition={{ duration: duration.slow, delay: 0.08, ease: ease.out }}
     >
-      <SetupPage
-        labelledBy="auth-title"
-        animate={false}
-        // The standalone login window has no step strip above it: the traffic lights' strip (28) and the same room.
-        top={inFlow ? FLOW_TOP : 'clamp(56px, 12vh, 120px)'}
-        rail={
-          user ? undefined : (
-            <RailSection first title="Google shares with miyagi">
-              <RailRow title="Your name" />
-              <RailRow title="Your email" />
-              <RailRow title="Your photo" />
-            </RailSection>
-          )
-        }
-      >
+      <SetupPage labelledBy="auth-title" animate={false} align="center" top={inFlow ? FLOW_TOP : 'clamp(40px, 8vh, 72px)'}>
         <motion.div layoutId={MARK_ID} transition={spring} style={{ marginBottom: 18 }}>
-          <MiyagiMark size={40} />
+          <MiyagiMark size={48} />
         </motion.div>
-        <h1 id="auth-title" className="m-0" style={{ ...v4type.title, color: color.text }}>
-          {user ? "You're signed in" : `Sign in to ${copy.name}`}
-        </h1>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.h1 key={user ? 'in' : 'out'} id="auth-title" className="m-0" style={{ ...v4type.title, color: color.text }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
+            {user ? "You're signed in" : `Sign in to ${copy.name}`}
+          </motion.h1>
+        </AnimatePresence>
         <p className="m-0" style={{ ...v4type.lede, color: color.label, marginTop: 6 }}>
           {`Your lesson history and skills stay on ${thisDevice()}.`}
         </p>
 
-        <div className="mt-[28px] flex w-full flex-col items-start">
+        <div className="mt-[28px] flex w-full flex-col items-center">
           <AnimatePresence mode="wait" initial={false}>
             {user ? (
               <SignedIn key="in" name={user.name} email={user.email} initial={user.avatarInitial} onContinue={done} />
             ) : (
-              <motion.div key="out" className="flex w-full flex-col items-start" exit={{ opacity: 0, y: -6, transition: { duration: duration.fast } }}>
+              <motion.div key="out" className="flex w-full flex-col items-center" exit={{ opacity: 0, y: -6, transition: { duration: duration.fast } }}>
                 <GoogleButton waiting={waiting} />
-                <div className="mt-[8px] flex min-h-[20px] w-full flex-col items-start justify-start">
+                <div className="mt-[10px] flex min-h-[20px] w-full flex-col items-center justify-start">
                   <AnimatePresence mode="wait" initial={false}>
                     {waiting ? (
                       <motion.span key="wait" data-auth-waiting className="flex items-center gap-[8px]" style={{ fontSize: 13, color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
@@ -256,14 +247,14 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
                     ) : note ? (
                       <Failure key="fail" text={note} onWithout={done} />
                     ) : (
-                      // What signing in shares, plainly (age-delete lane). The rail says it on a wide page; here when it drops.
-                      <motion.span key="shares" data-auth-shares className="mg-onb4-narrow" style={{ fontSize: 13, color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
+                      // What signing in shares, plainly (age-delete lane), once, under the button.
+                      <motion.span key="shares" data-auth-shares style={{ fontSize: 13, color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
                         Google shares your name, email and photo with miyagi.
                       </motion.span>
                     )}
                   </AnimatePresence>
                 </div>
-                <motion.span className="mt-[8px]" initial={false} animate={{ opacity: waiting ? 0.4 : 1 }} transition={fade} style={{ fontSize: 13.5, color: color.label }}>
+                <motion.span className="mt-[18px]" initial={false} animate={{ opacity: waiting ? 0.4 : 1 }} transition={fade} style={{ fontSize: 13.5, color: color.label }}>
                   <TextLink weight={500} onClick={waiting ? () => undefined : done}>
                     Continue without an account
                   </TextLink>
@@ -272,11 +263,13 @@ function SignIn({ onContinue }: { onContinue?: () => void }): ReactNode {
             )}
           </AnimatePresence>
         </div>
-
-        <span className="mt-[28px]" style={{ fontSize: 12.5, color: color.faint }}>
+      </SetupPage>
+      {/* The legal links at the window's foot, where the birthday screen keeps its fine print. */}
+      <span data-auth-legal className="pointer-events-none absolute bottom-[28px] left-0 right-0 flex justify-center" style={{ fontSize: 12.5, color: color.faint }}>
+        <span className="pointer-events-auto">
           <TextLink onClick={() => openLegal('terms')}>Terms</TextLink> and <TextLink onClick={() => openLegal('privacy')}>Privacy</TextLink>
         </span>
-      </SetupPage>
+      </span>
     </motion.section>
   )
 }

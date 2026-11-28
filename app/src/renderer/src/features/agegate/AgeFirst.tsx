@@ -9,7 +9,7 @@
  *            → 18 and up  saves {band '18+'} → the sign-in
  *   On record already (an earlier run): straight to the sign-in, or straight to Blocked while the block holds.
  *
- * Back and Esc: Guardian → birthday; the sign-in → birthday (only when the step ran in this visit, and not while a
+ * Back (the window's top bar, onboarding/back.ts) and Esc: Guardian → birthday; the sign-in → birthday (only when the step ran in this visit, and not while a
  * Google sign-in waits: Login's own Esc cancels that); on the birthday screen Esc clears the pickers. Blocked has none.
  *
  * Motion (house tokens, core/ui/motion; the spec's numbers in agents/age-delete.md): each screen is absolutely placed,
@@ -20,10 +20,9 @@
  */
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { color, type2 } from '../../core/theme'
 import { beat, enter, fade } from '../../core/ui/motion'
-import { TextLink } from '../account/ui'
 import { loadAuth, useAuth } from '../auth/store'
+import { useBack } from '../onboarding/back'
 import { ageCleared, bandRecord, blockActive, decide, todayOf, type Birth } from './age'
 import { Blocked } from './Blocked'
 import { Birthday, COPY, Guardian } from './Steps'
@@ -58,6 +57,7 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
   /** Bumped by Esc on the birthday screen: the pickers start empty again. */
   const [round, setRound] = useState(0)
   const user = useAuth((s) => s.user)
+  const pending = useAuth((s) => s.pending)
   // Reduced motion: MotionConfig would snap an exit's x to its end in one frame; here nothing travels at all (0).
   const reduce = useReducedMotion() ?? false
   const travel = reduce ? 0 : dir
@@ -94,6 +94,9 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
   }
   const onGuardian = (): void => void saveAge(bandRecord('13-17', today)).then((s) => go(blockActive(s ?? undefined, today) ? 'blocked' : 'through', 1))
   const back = (): void => go('birthday', -1)
+  // The one Back (onboarding/back.ts), drawn in the window's top bar: Guardian → birthday; the sign-in → birthday when
+  // the step ran in this visit (never once signed in, nor while a Google sign-in waits).
+  useBack(view === 'guardian' || (view === 'through' && ran && !user && !pending) ? back : undefined)
 
   // Esc: one step back (see the header). Capture phase, before the flow's own keys; never while Google is pending.
   useEffect(() => {
@@ -125,15 +128,9 @@ export function AgeFirst({ children }: { children: ReactNode }): ReactNode {
             exit="gone"
           >
             {view === 'birthday' && <Birthday key={round} today={today} onDone={onBirthday} />}
-            {view === 'guardian' && <Guardian onDone={onGuardian} onBack={back} />}
+            {view === 'guardian' && <Guardian onDone={onGuardian} />}
             {view === 'blocked' && <Blocked />}
             {view === 'through' && children}
-            {view === 'through' && ran && !user && (
-              // Below the standalone login window's traffic lights; in the flow, under the step strip.
-              <span data-age-back className="absolute left-[24px] top-[44px]" style={{ fontSize: type2.sm, color: color.label }}>
-                <TextLink onClick={back}>{COPY.back}</TextLink>
-              </span>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

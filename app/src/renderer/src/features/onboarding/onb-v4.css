@@ -1,19 +1,31 @@
 /*
- * Feature: onboarding. The v4 setup page (v4.tsx SetupPage): Adrian's ui-next `flowWide` (mock/v4.css .flow .wide),
- * top-anchored instead of centered. The step on the left, a quiet rail on the right with one hairline between them;
- * one column (the rail drops) once the page is under 860. The page is its own container, so the setup window (720),
- * the first-run window (944) and the home window's flow (any size) all read the same rules.
+ * Feature: onboarding. The v4 setup page (v4.tsx SetupPage). Onboarding redesign (Nov 28, Michael's fresh install: the
+ * step sat in the top-left of a large, mostly empty window, off the dots' center line): the page centers its step both
+ * ways. Vertically with auto margins, so a short step sits in the middle (a little above it: the bottom room is the
+ * larger) and a tall one simply scrolls from the top. Horizontally on the window's center line, the same line as the
+ * progress dots:
+ *   split   the step on the left, a quiet rail on the right, one hairline between them; the pair is one centered block.
+ *           One column (the rail drops) under 860.
+ *   center  one narrow column, centered text (the birthday screen's composition): sign in, consent, the engine step.
+ * The page is its own container, so the setup window (720), the first-run window (944) and the home window's flow (any
+ * size) all read the same rules.
  */
-.mg-onb4 { container-type: inline-size; position: relative; height: 100%; width: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--v4-track) transparent; }
-.mg-onb4-col { box-sizing: border-box; width: 100%; max-width: 1080px; margin-inline: auto; padding: var(--onb4-top, clamp(24px, 8vh, 96px)) 40px 56px; }
-.mg-onb4-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); column-gap: clamp(48px, 6vw, 72px); align-items: start; }
-.mg-onb4-grid[data-rail='none'] { grid-template-columns: minmax(0, 1fr); }
-.mg-onb4-main { min-width: 0; max-width: 560px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
+.mg-onb4 { container-type: inline-size; position: relative; height: 100%; width: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--v4-track) transparent; display: flex; flex-direction: column; }
+.mg-onb4-col { box-sizing: border-box; flex: none; width: 100%; max-width: 1000px; margin: auto; padding: var(--onb4-top, clamp(32px, 6vh, 64px)) 40px var(--onb4-bottom, clamp(56px, 12vh, 120px)); }
+.mg-onb4-grid { display: grid; grid-template-columns: minmax(0, 520px) minmax(260px, 340px); justify-content: center; column-gap: clamp(48px, 6vw, 80px); align-items: start; }
+.mg-onb4-grid[data-rail='none'] { grid-template-columns: minmax(0, 520px); }
+.mg-onb4-main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
 .mg-onb4-rail { min-width: 0; border-left: 1px solid var(--v4-hair); padding: 4px 0 8px 40px; }
+/* center: one narrow column on the center line, the text centered; groups (rows) keep their own left-aligned text. */
+.mg-onb4[data-onb-align='center'] .mg-onb4-col { max-width: 560px; }
+.mg-onb4[data-onb-align='center'] .mg-onb4-grid { grid-template-columns: minmax(0, 400px); }
+.mg-onb4[data-onb-align='center'] .mg-onb4-main { align-items: center; text-align: center; }
+.mg-onb4[data-onb-align='center'] .mg-onb4-actions { justify-content: center; }
+.mg-onb4[data-onb-align='center'] .mg-onb4-group { text-align: left; }
 /* What the rail says, in the step instead, once the rail drops (a fact is on a page once). */
 .mg-onb4-narrow { display: none; }
 @container (max-width: 860px) {
-  .mg-onb4-col { max-width: 640px; padding-inline: 32px; }
+  .mg-onb4-col { max-width: 600px; padding-inline: 32px; }
   .mg-onb4-grid { grid-template-columns: minmax(0, 1fr); }
   .mg-onb4-rail { display: none; }
   .mg-onb4-narrow { display: inline; }
@@ -21,6 +33,14 @@
 @container (max-width: 520px) {
   .mg-onb4-col { padding-inline: 24px; }
 }
+
+/* The one Back (v4.tsx BackButton), in the window's top bar: quiet text, a soft wash on hover. */
+.mg-onb4-back { background: transparent; transition: background-color 120ms ease, color 120ms ease; }
+.mg-onb4-back:hover { background: var(--v4-hover); color: var(--c-text) !important; }
+.mg-onb4-back:active { background: var(--v4-active); }
+/* Where the top bar keeps it: right of the traffic lights (styles.css .mg-lights-pad), on the strip's middle line. */
+.mg-onb4-backslot { position: absolute; left: 84px; top: 50%; transform: translateY(-50%); }
+html[data-fullscreen] .mg-onb4-backslot { left: 20px; }
 
 /* A setup group (mock .group / .srow): a hairline box, rows 60 tall with a hairline between, no fill. */
 .mg-onb4-group { width: 100%; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--v4-hair2); }
