@@ -96,6 +96,33 @@ npm run ship:mac -- --publish
 
 This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman/miyagi`. It needs `gh auth login` and write access there; otherwise send the dmg to Adrian, or set `MIYAGI_RELEASE_REPO`. miyagi.study's "Download for Mac" should link to `…/releases/download/mac/Miyagi-Mac.dmg`. Michael's `install.sh --app` still downloads `Miyagi-Mac.zip`, so add `--zip` (`npm run ship:mac -- --zip --publish`) to refresh that one too.
 
+## Signed release (Developer ID + notarization)
+
+Off by default: without `MIYAGI_DEVID`, `ship:mac` and `install:local` sign ad hoc (or with `MIYAGI_SIGN_ID`, as the auto-install loop does), exactly as before.
+
+One-time setup on the Mac that ships:
+1. In Xcode (Settings > Accounts > Manage Certificates > +) or developer.apple.com, create a **Developer ID Application** certificate. `security find-identity -v -p codesigning` should then list it.
+2. Notary credentials, either one:
+   - a keychain profile: `xcrun notarytool store-credentials miyagi-notary --apple-id <apple id> --team-id <TEAMID>` (it asks for an app-specific password from account.apple.com), or
+   - an App Store Connect API key (Users and Access > Integrations > Team Keys, role Developer): the `AuthKey_XXXX.p8` file, its key id and the issuer id.
+
+Then:
+
+```bash
+export MIYAGI_DEVID="Developer ID Application: <Name> (<TEAMID>)"
+export MIYAGI_NOTARY_PROFILE=miyagi-notary
+# or: export APPLE_API_KEY=~/keys/AuthKey_XXXX.p8 APPLE_API_KEY_ID=XXXX APPLE_API_ISSUER=<issuer uuid>
+npm run ship:mac                 # add --zip / --publish as usual
+```
+
+What changes with `MIYAGI_DEVID` set (`scripts/sign-mac.sh`):
+- Before the build, it checks the identity is in the keychain, and `--publish` refuses to run without notary credentials.
+- Every Mach-O in the app is signed inside-out (the engine's Python `.so`/`.dylib`/`bin/python3.12`, `helpers/miyagi-listen`, Electron's dylibs, framework and helper apps, then the app) with `--options runtime --timestamp` and `build/entitlements.mac.plist`. That file says why each entitlement is there.
+- The dmg is signed, submitted with `xcrun notarytool submit --wait`, stapled (the dmg and the app), then checked with `spctl` and `codesign --verify --deep --strict`. A rejection stops the build and prints `notarytool log`; nothing is uploaded.
+- With an identity but no notary credentials it signs and warns: Gatekeeper still blocks that build on other Macs.
+
+`node --import tsx --import ./test/setup.mjs --test test/signMac.test.ts` checks the signing order and the entitlements without a certificate.
+
 ## How it works (for debugging)
 
 - `app/src/main/localEngine.ts` runs it, and the pill shows its state (`core/lesson` `localEngine`).
@@ -108,6 +135,6 @@ This uploads `dist/Miyagi-Mac.dmg` to the **`mac`** release on `adrian-erlikhman
 
 ## Known gaps
 
-- **Unsigned (ad hoc):** every new build asks for Screen Recording again. Developer ID signing and notarization fix that later.
+- **Unsigned (ad hoc) by default:** every new build asks for Screen Recording again. A Developer ID build fixes that (see "Signed release"); it needs the certificate in the keychain first.
 - **Size:** 126 MB to download, 457 MB installed. `SIZE.md` covers where it goes and what could still be cut.
 - **Windows:** the installer has the app only. The engine needs macOS to read the screen.
