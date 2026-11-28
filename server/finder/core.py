@@ -233,7 +233,8 @@ class _Run:
         self.kinds = env.kinds()        # FINDER_KINDS (default: videos only)
         self.floor = env.min_score()     # FINDER_MIN_SCORE: rows the model scored below it are not sent
         self.dropped: list[dict] = []    # below the floor (kept for the cache file, never streamed)
-        self.gemini_ok = bool(keys.gemini)  # for the video skim, only when skim_top > 0
+        # for the video skim, only when skim_top > 0; never without the google-genai SDK (the bundled app leaves it out)
+        self.gemini_ok = bool(keys.gemini) and env.sdk_available()
         # FINDER_GEMINI_FALLBACK=0 by default (BUILD-PLAN E4): Claude scores. Gemini scores only when Claude fails AND
         # FINDER_GEMINI_FALLBACK=1 AND the Gemini key may take text calls (never the miyagi cloud's video-only token).
         self.gemini_fallback = self.gemini_ok and env.gemini_fallback() and _gemini_text_ok()

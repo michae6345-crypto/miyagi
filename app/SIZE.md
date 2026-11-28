@@ -37,6 +37,7 @@ All of these are in `scripts/bundle-engine.mjs` (`PRUNE_*`), `electron-builder.y
 | `include/` (C headers), `share/`, `lib/pkgconfig` | 2 MB | These are only used to compile extensions against this Python. |
 | `lib2to3`, `pydoc_data` | 2 MB | Deprecated tooling, and `help()` topics. |
 | `.pyi`, `.pyx`, `.pxd`, `.c` and `.cpp` in site-packages, plus each dist-info's `RECORD` | 1 MB | These are build-time and install-time files. `METADATA`, `entry_points.txt` and licenses stay. |
+| `google-genai` and what only it pulls in (`google-auth`, `cryptography`, `pyasn1`, `rsa`), Nov 25 | 18 MB (DMG about −14 MB) | Gemini is opt-in only and off by default; every call site imports the SDK lazily. `BUNDLE_EXCLUDE` in `bundle-target.mjs` keeps it out of the bundle's requirements, and without it the engine reports Gemini as off (`lesson.gemini.sdk_available`, `finder.env.sdk_available`). Dev checkouts still install it from `pyproject.toml`. |
 | Already pruned before: `PyObjCTest`, `*/tests`, `psycopg_binary` (Tiger), `test`, `idlelib`, `turtledemo` | | |
 
 Source maps: none ship (`out/` has no `.map`).
@@ -44,7 +45,7 @@ Source maps: none ship (`out/` has no `.map`).
 ## What stays, and why
 
 - **Both `.py` and `.pyc` for site-packages.** Shipping bytecode only would save roughly 5 MB compressed, but anyio 4.16 builds its lazy-import table by reading its own source (`anyio/_lazyimport.py`, `inspect.getsource`). Without that source, `anyio.to_thread` and friends disappear, and FastAPI and Starlette break. Shipping source only would save roughly 10 MB compressed, but then the engine would recompile every start: importing the engine takes 2 to 2.5 s instead of about 1 s, and lazy imports later on are slower too. The stdlib `.pyc` files must stay regardless: a lesson `.venv` runs without `-B` and would otherwise try to write bytecode inside the signed app.
-- **Every package that `server/pyproject.toml` pulls in.** That includes `cryptography` (a dependency of `google-auth`), `uvloop`, `httptools` and `watchfiles` (`uvicorn[standard]`), and `requests` (`youtube-transcript-api`). Some are only loaded on some code paths, so removing them would pass the import check and then fail later.
+- **Every package that `server/pyproject.toml` pulls in.** Except `google-genai` (see above). That includes `uvloop`, `httptools` and `watchfiles` (`uvicorn[standard]`), and `requests` (`youtube-transcript-api`). Some are only loaded on some code paths, so removing them would pass the import check and then fail later.
 - **`ensurepip` and `venv`.** Lesson `.venv`s are built from this Python when the Mac has no other Python.
 - **`LICENSES.chromium.html` (5 MB) and the package licenses.** We redistribute these components, so their licenses stay.
 - **Known tradeoff:** with Tk gone, a tkinter lesson on a Mac whose only Python is ours fails at `import tkinter`. Apple's Command Line Tools Python and Homebrew's `python-tk` still work. Without the headers, a lesson that pip-installs a package with no arm64 wheel can't compile it against our Python.
@@ -52,6 +53,6 @@ Source maps: none ship (`out/` has no `.map`).
 ## What could go later
 
 - **Download Python on first run** (about −40 MB). Ship the app with only the engine source, and fetch the pinned python-build-standalone archive and a prebuilt site-packages tarball (sha256-checked) the first time it opens. This brings back the first-run network dependency that the bundle was built to remove (DISTRIBUTION-PLAN.md section 2).
-- **Lazy vendor SDKs** (about −10 MB). Make `anthropic` and `google-genai` optional downloads, or call their REST APIs with `httpx`. `anthropic/types` alone is 22 MB.
+- **Lazy vendor SDKs** (about −10 MB). `google-genai` is already out (Nov 25). Make `anthropic` an optional download, or call its REST API with `httpx`. `anthropic/types` alone is 22 MB.
 - **A native Swift shell** (about −80 MB). The pill, cards and launcher are small, but Electron costs about 83 MB compressed. A SwiftUI overlay with a `WKWebView` for the React UI would land around 5–10 MB. That means rewriting `src/main`: windows, the overlay click-through, IPC and settings.
 - **Universal builds** carry both architectures of every binary, so `--universal` is much bigger. Ship separate arm64 and x64 dmgs instead.

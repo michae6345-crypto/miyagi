@@ -725,8 +725,9 @@ def engine_mode() -> str:
 
 def gemini_enabled() -> bool:
     """May this build call Gemini at all? Only when LESSON_ENGINE names it explicitly, a Gemini key is present and the
-    miyagi cloud hasn't said gemini_disabled (then Gemini is off for the process, without another request)."""
-    if engine_mode() == "claude" or not gemini.has_key():
+    miyagi cloud hasn't said gemini_disabled (then Gemini is off for the process, without another request). Never
+    without the google-genai SDK (the bundled app leaves it out)."""
+    if engine_mode() == "claude" or not gemini.has_key() or not gemini.sdk_available():
         return False
     return not (gemini.is_down() or "").startswith(gemini.OFF_PREFIX)
 
