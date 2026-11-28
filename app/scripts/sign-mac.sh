@@ -50,7 +50,7 @@ order() {
 need_id() {
   [ -n "${MIYAGI_DEVID:-}" ] || die "MIYAGI_DEVID is not set"
   [ -f "$ENTITLEMENTS" ] || die "no entitlements at $ENTITLEMENTS"
-  security find-identity -v -p codesigning | grep -qF "\"$MIYAGI_DEVID\"" \
+  grep -qF "\"$MIYAGI_DEVID\"" <<<"$(security find-identity -v -p codesigning)" \
     || die "\"$MIYAGI_DEVID\" isn't a valid signing identity in the keychain (security find-identity -v -p codesigning)"
 }
 
@@ -73,7 +73,9 @@ sign_app() {
   say "signed $n items"
   codesign --verify --deep --strict --verbose=2 "$app"
   # Hardened runtime on the main binary (flags=0x10000(runtime)), or notarization rejects it.
-  codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' || die "$app isn't signed with the hardened runtime"
+  # Capture first: with pipefail, `codesign | grep -q` fails when grep exits early and codesign gets SIGPIPE.
+  local info; info=$(codesign -dv "$app" 2>&1 || true)
+  grep -q 'flags=.*runtime' <<<"$info" || die "$app isn't signed with the hardened runtime"
 }
 
 sign_dmg() {

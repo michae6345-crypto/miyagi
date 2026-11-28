@@ -39,7 +39,7 @@ DMG=dist/Miyagi-Mac.dmg
 DEVID="${MIYAGI_DEVID:-}"; NOTARIZE=0
 if [ -n "$DEVID" ]; then
   [ -z "${MIYAGI_SIGN_ID:-}" ] || echo "[ship] MIYAGI_DEVID is set, so MIYAGI_SIGN_ID ($MIYAGI_SIGN_ID) is ignored"
-  security find-identity -v -p codesigning | grep -qF "\"$DEVID\"" \
+  grep -qF "\"$DEVID\"" <<<"$(security find-identity -v -p codesigning)" \
     || { echo "[ship] MIYAGI_DEVID=\"$DEVID\" isn't a valid signing identity here (security find-identity -v -p codesigning)"; exit 1; }
   if bash scripts/sign-mac.sh has-notary; then NOTARIZE=1; fi
   if [ "$PUBLISH" = 1 ] && [ "$NOTARIZE" = 0 ]; then
