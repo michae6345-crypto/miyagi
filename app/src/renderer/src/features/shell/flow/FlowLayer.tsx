@@ -2,7 +2,8 @@
  * Feature: shell / flow. The first run as one full-window layer inside the home window (route `library`), over the
  * sidebar, from the intro to the moment home slides in (store.ts phases):
  *
- *   top      the slim step strip (Strip.tsx) with the bonsai's slot; "Set up later" at the right during setup and on
+ *   top      the slim step strip (Strip.tsx) with the bonsai's slot; Back (onboarding/back.ts) at the left, right of
+ *            the traffic lights, whenever the step on screen can go back; "Set up later" at the right during setup and on
  *            Review setup (whose Start stays off while something is left, so it is never a dead end). Below
  *            COMPACT_W (the window's minimum is 560) the strip shows only the current step's label, the others as
  *            ticks and dots, so it never runs into "Set up later".
@@ -37,6 +38,7 @@ import { Guided } from '../../onboarding/Guided'
 import { Intro } from '../../onboarding/Intro'
 import { useLive } from '../../onboarding/Onboarding'
 import { Ready } from '../../onboarding/Ready'
+import { BackButton } from '../../onboarding/v4'
 import { summarize, useRows } from '../../onboarding/rows'
 import { markDone, noteSetupShown, useOnboarding } from '../../onboarding/store'
 import { arriveDelay, layerIn, layerOut, leave, screenOut } from './motion'
@@ -124,6 +126,12 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
     >
       <motion.div data-flow-screen className="flex h-full w-full select-none flex-col" initial={false} animate={{ opacity: leaving ? 0 : 1 }} transition={screenOut}>
         <header data-drag className="mg-flow-head relative flex shrink-0 items-center justify-center">
+          {/* The first run's one Back (onboarding/back.ts): right of the traffic lights, on the dots' line, any step. */}
+          {!intro && (
+            <span className="mg-onb4-backslot">
+              <BackButton />
+            </span>
+          )}
           {!intro && <Strip phase={phase} step={phase === 'setup' ? step : undefined} rows={rows} skipped={skipped} mark={!leaving && !again} compact={width < COMPACT_W} />}
           <AnimatePresence>
             {again ? (

@@ -2,17 +2,22 @@
  * Feature: onboarding. The v4 setup look (Adrian's ui-next mock, `onboard-1` / `onboard-2`, Nov 24), shared by every
  * first-run screen: Sign in (features/auth), consent, guided setup, the buddy's color, You're ready, Review setup.
  *
- *   SetupPage   the page: cream (v4 page), top-anchored (never centered vertically), the step on the left and a quiet
- *               rail on the right with one hairline between them; one column, no rail, under 860 (onb-v4.css)
+ *   SetupPage   the page: cream (v4 page), centered in the window both ways (onboarding redesign, Nov 28: the step
+ *               sits on the same center line as the progress dots, and a little above the middle). With a rail: the
+ *               step on the left and a quiet rail on the right, one hairline between them, the pair centered as one
+ *               block; one column, no rail, under 860. Without a rail: one narrow centered column, centered text,
+ *               like the birthday screen (sign in, consent, the engine step). onb-v4.css
  *   SetupTitle  the v4 page title (32 / 600) and its one-line lede
  *   SetupGroup  a hairline box of SetupRows (mock .group / .srow): a name, one line under it, the state on the right
  *   LiveState   the live check: the status glyph and its word (green only once passed)
  *   RailSection / RailRow  the rail's label and its 48 px rows; `n` puts a numbered ring in front (a how-to)
- *   Actions     the one primary and anything quiet beside it, left-aligned under the step
+ *   Actions     the one primary and anything quiet beside it, under the step (centered in a centered page)
+ *   BackButton  the one Back of the first run (features/onboarding/back.ts): a chevron and "Back" in the window's top
+ *               bar, right of the traffic lights, never inside a step
  *
  * Tokens only (v4c, v4type, color): no new colors. Neutral chrome; green only for passed; no pastel here.
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { color, v4c, v4type } from '../../core/theme'
@@ -20,10 +25,16 @@ import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { rise, stagger } from './parts'
 import type { RowState } from './rows'
 import { wordColor } from './Row'
+import { useBackAction } from './back'
 import './onb-v4.css'
 
-/** The page's top room in a flow under its strip (the strip already gives 64): a little less than a bare window. */
-export const FLOW_TOP = 'clamp(16px, 6vh, 80px)'
+/**
+ * The page's least top room in a flow under its strip. The page centers itself vertically; in a flow it adds the
+ * strip's 64 below as well, so the step sits on the window's middle, not the body's.
+ */
+export const FLOW_TOP = '24px'
+/** The strip above a flow's body (styles.css .mg-flow-head). */
+const STRIP_H = 64
 
 export function SetupPage({
   children,
@@ -34,10 +45,13 @@ export function SetupPage({
   animate = true,
   labelledBy = 'onb-title',
   data,
-  style
+  style,
+  align
 }: {
   children: ReactNode
   rail?: ReactNode
+  /** 'center': one narrow centered column (the default without a rail); 'split': step and rail (the default with one). */
+  align?: 'center' | 'split'
   /** data-onb-view on the page (consent, setup, ready, buddy, checklist; sign-in passes its own data). */
   view?: string
   /** The room above the step (CSS length). Default: clamp(24px, 8vh, 96px). */
@@ -49,9 +63,15 @@ export function SetupPage({
   data?: Record<string, string | boolean | undefined>
   style?: CSSProperties
 }): ReactNode {
-  const vars = { ...(top ? { ['--onb4-top' as string]: top } : {}), ...style } as CSSProperties
+  const inFlow = top === FLOW_TOP
+  const vars = {
+    ...(top ? { ['--onb4-top' as string]: top } : {}),
+    ...(inFlow ? { ['--onb4-bottom' as string]: `calc(${FLOW_TOP} + ${STRIP_H}px + 4vh)` } : {}),
+    ...style
+  } as CSSProperties
+  const layout = align ?? (rail ? 'split' : 'center')
   return (
-    <div data-onb-view={view} data-onb-v4 role="dialog" aria-labelledby={labelledBy} className="mg-onb4" style={{ ...vars, background: v4c.page, color: color.text }} {...data}>
+    <div data-onb-view={view} data-onb-v4 data-onb-align={layout} role="dialog" aria-labelledby={labelledBy} className="mg-onb4" style={{ ...vars, background: v4c.page, color: color.text }} {...data}>
       <div className="mg-onb4-col">
         <div className="mg-onb4-grid" data-rail={rail ? 'side' : 'none'}>
           {animate ? (
@@ -202,31 +222,46 @@ export function RailRow({ title, detail, n, right, lead }: { title: ReactNode; d
   )
 }
 
-/** The actions under a step: the one primary first, quiet ones beside it; `end` sits at the far right (Back). */
-export function Actions({ children, end, style }: { children: ReactNode; end?: ReactNode; style?: CSSProperties }): ReactNode {
+/** The actions under a step: the one primary first, quiet ones beside it (centered in a centered page). */
+export function Actions({ children, style }: { children: ReactNode; style?: CSSProperties }): ReactNode {
   return (
     <Rise style={{ marginTop: 24, ...style }}>
-      <div className="flex w-full flex-wrap items-center gap-[8px]">
-        {children}
-        {end && <span className="ml-auto flex items-center">{end}</span>}
-      </div>
+      <div className="mg-onb4-actions flex w-full flex-wrap items-center gap-[8px]">{children}</div>
     </Rise>
   )
 }
 
-/** Back, as quiet text with its chevron (chrome: the label gray, ink on hover), never a second boxed button. */
-export function BackLink({ onClick }: { onClick: () => void }): ReactNode {
+/**
+ * The one Back of the first run: a chevron and "Back" in the window's top bar, just right of the traffic lights (where
+ * a Mac window keeps its back button), the same place on every step that has one. Quiet (the label gray, ink on hover,
+ * a soft wash under it), never a boxed button and never inside the step. Renders whatever step registered a Back
+ * (back.ts useBack); nothing when none did. Fades in and out with the step.
+ */
+export function BackButton({ className = '', style }: { className?: string; style?: CSSProperties }): ReactNode {
+  const back = useBackAction()
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      onMouseDown={(e) => e.preventDefault()}
-      className="mg-v4-link inline-flex h-[32px] cursor-pointer items-center gap-[4px] rounded-[6px] px-[6px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid"
-      style={{ ...v4type.body, fontWeight: 500, color: color.label, outlineColor: color.text, background: 'none', border: 0 }}
-    >
-      <ChevronLeft aria-hidden size={15} strokeWidth={1.8} />
-      Back
-    </button>
+    <AnimatePresence initial={false}>
+      {back && (
+        <motion.button
+          key="back"
+          type="button"
+          data-no-drag
+          data-onb-back
+          aria-label="Back"
+          onClick={back}
+          onMouseDown={(e) => e.preventDefault()}
+          className={`mg-onb4-back inline-flex h-[28px] cursor-pointer items-center gap-[2px] rounded-[7px] pl-[4px] pr-[9px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid ${className}`}
+          style={{ ...v4type.body, fontSize: 13, fontWeight: 500, color: color.label, outlineColor: color.text, border: 0, ...style }}
+          initial={{ opacity: 0, x: 4 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 4 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <ChevronLeft aria-hidden size={16} strokeWidth={1.9} />
+          Back
+        </motion.button>
+      )}
+    </AnimatePresence>
   )
 }
 

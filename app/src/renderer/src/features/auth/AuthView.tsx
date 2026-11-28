@@ -11,6 +11,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useWindowArgs } from '../../core/surfaces'
 import { color, copy, font, v4c } from '../../core/theme'
 import { Intro } from '../onboarding/Intro'
+import { BackButton } from '../onboarding/v4'
 import { Login } from './Login'
 import { endIntro, loadAuth, useAuth } from './store'
 
@@ -43,7 +44,12 @@ export function AuthView(): ReactNode {
 
   return (
     <div data-window="auth" data-auth-phase={view ? phase : 'loading'} className="relative h-full w-full select-none overflow-hidden" style={{ background: v4c.page, color: color.text, fontFamily: font.ui }}>
-      <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 28 }} />
+      <div data-drag className="absolute inset-x-0 top-0 z-10" style={{ height: 40 }}>
+        {/* The one Back of the sign-in (onboarding/back.ts), right of the traffic lights. */}
+        <span className="mg-onb4-backslot">
+          <BackButton />
+        </span>
+      </div>
       {view && synced === view && (
         <LayoutGroup>
           <AnimatePresence>{phase === 'intro' ? <Intro key="intro" onDone={endIntro} /> : <Login key="login" />}</AnimatePresence>

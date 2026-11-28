@@ -15,7 +15,7 @@
 import { motion } from 'motion/react'
 import { ChevronDown } from 'lucide-react'
 import { useId, useMemo, useState, type ReactNode } from 'react'
-import { color, font, radius2, spring, surface, type2 } from '../../core/theme'
+import { color, font, radius2, spring, surface, type2, v4type } from '../../core/theme'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { TextLink } from '../account/ui'
@@ -41,19 +41,25 @@ export const COPY = {
 
 export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const
 
+/**
+ * The room under a frame: more than above it, so the step sits on the window's middle line (the same rule as the setup
+ * pages, onboarding/v4.tsx SetupPage), above the fine print at the foot.
+ */
+const FRAME_BOTTOM = 'calc(88px + 4vh)'
+
 /** The screens' shared frame: the bonsai (shared element), the title and its line, centered like the login. */
 export function Frame({ title, line, children, footer }: { title: string; line?: ReactNode; children?: ReactNode; footer?: ReactNode }): ReactNode {
   return (
-    <section aria-labelledby="age-title" className="absolute inset-0 flex flex-col items-center justify-center" style={{ padding: '40px 40px 28px' }}>
-      <div className="flex w-full max-w-[380px] flex-col items-center">
+    <section aria-labelledby="age-title" className="absolute inset-0 flex flex-col items-center justify-center" style={{ padding: `24px 40px ${FRAME_BOTTOM}` }}>
+      <div className="flex w-full max-w-[400px] flex-col items-center">
         <motion.div layoutId={MARK_ID} transition={spring}>
-          <MiyagiMark size={56} />
+          <MiyagiMark size={48} />
         </motion.div>
-        <h1 id="age-title" className="m-0 mt-[20px] text-center" style={{ fontFamily: font.brand, fontSize: type2.xxl, lineHeight: '34px', fontWeight: 500, letterSpacing: '-0.4px', color: color.text }}>
+        <h1 id="age-title" className="m-0 mt-[18px] text-center" style={{ ...v4type.title, color: color.text }}>
           {title}
         </h1>
         {line && (
-          <p className="m-0 mt-[8px] text-center" style={{ fontSize: type2.body, lineHeight: '22px', color: color.label }}>
+          <p className="m-0 mt-[6px] text-center" style={{ ...v4type.lede, color: color.label }}>
             {line}
           </p>
         )}
@@ -159,7 +165,8 @@ export function Birthday({ today, onDone }: { today: Day; onDone: (b: Birth) => 
 }
 
 /** 13 to 17: the parent or guardian step. The box starts unchecked. */
-export function Guardian({ onDone, onBack }: { onDone: () => void; onBack: () => void }): ReactNode {
+/** Back is the window's top bar (AgeFirst registers it), not a link here. */
+export function Guardian({ onDone }: { onDone: () => void }): ReactNode {
   const [agreed, setAgreed] = useState(false)
   const id = useId()
   return (
@@ -172,16 +179,7 @@ export function Guardian({ onDone, onBack }: { onDone: () => void; onBack: () =>
           {COPY.guardianEnd}
         </>
       }
-      footer={
-        <>
-          <span style={{ fontSize: type2.sm, color: color.label }}>
-            <TextLink weight={500} onClick={onBack}>
-              {COPY.back}
-            </TextLink>
-          </span>
-          <Agree />
-        </>
-      }
+      footer={<Agree />}
     >
       <div className="mt-[28px] flex w-full flex-col items-center gap-[18px]">
         <label htmlFor={id} data-age-guardian className="flex min-h-[44px] w-full cursor-pointer items-center gap-[12px] px-[16px]" style={{ borderRadius: radius2.row, background: surface.row, boxShadow: `inset 0 0 0 1px ${surface.border}`, fontSize: type2.body, color: color.text }}>
